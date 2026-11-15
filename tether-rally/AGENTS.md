@@ -2,6 +2,8 @@
 
 ## Pull requests
 
+- **Merging:** see the root [`AGENTS.md`](../AGENTS.md): auto-merge only, once all checks are green
+  (the required **CI gate** check).
 - Every PR body must list its preview builds, near the top, under a `## Preview` heading:
 
   ```
@@ -53,7 +55,8 @@
   menu reads. Keep that logic in a static function (e.g. `Campaign.medal_counts()`,
   `Campaign.save_race()`) so a headless test can call it without building the UI.
 - A new test file gets a step in `.github/workflows/tether-rally-sim.yml` (at the repo root) and a line in the list below.
-- Can't run Godot locally? CI runs every test on each push: wait for it to pass before merging.
+- Can't run Godot locally? CI runs every test on each push: wait for it to pass before merging
+  (merging is auto-merge only, see the root [`AGENTS.md`](../AGENTS.md)).
 
 ## Checks to run before pushing
 

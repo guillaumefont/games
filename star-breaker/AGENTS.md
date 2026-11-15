@@ -8,9 +8,8 @@ the right side is one vertical stack, bottom up: Fire, Charge, Pod (2026-11-14).
 
 ## Pull requests
 
-- **Merging (rule from Guillaume, 2026-11-13):** agents may merge their own PRs into `main` as
-  soon as CI is green (the **Headless test** and **Builds** workflows). Don't merge on red, and
-  never skip or disable a test to get green.
+- **Merging:** see the root [`AGENTS.md`](../AGENTS.md): auto-merge only, once all checks are green
+  (the required **CI gate** check).
 - Every PR body lists its preview builds near the top, under a `## Preview` heading:
 
   ```
