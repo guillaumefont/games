@@ -1,14 +1,23 @@
-name: Headless test
+name: Star Breaker headless test
 
 on:
   pull_request:
+    paths:
+      - "star-breaker/**"
+      - ".github/workflows/star-breaker-*.yml"
   push:
     branches: [main]
+    paths:
+      - "star-breaker/**"
+      - ".github/workflows/star-breaker-*.yml"
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: star-breaker
     steps:
       - uses: actions/checkout@v4
       - name: Download Godot

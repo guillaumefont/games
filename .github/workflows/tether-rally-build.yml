@@ -1,8 +1,8 @@
-name: Builds
+name: Tether Rally builds
 
 # Exports the game for Web and Android and publishes it on GitHub Pages (gh-pages branch):
-#   main          -> https://<owner>.github.io/<repo>/              (+ tether-racing.apk)
-#   pull request N -> https://<owner>.github.io/<repo>/pr/N/         (+ tether-racing.apk)
+#   main          -> https://<owner>.github.io/<repo>/tether-rally/              (+ tether-racing.apk)
+#   pull request N -> https://<owner>.github.io/<repo>/tether-rally/pr/N/         (+ tether-racing.apk)
 # Each open PR keeps its own preview, linked in a comment on the PR; it is removed when
 # the PR is closed. The APK is also attached to each run as an artifact.
 # Builds only push to the gh-pages branch; the site itself is deployed by pages.yml, which
@@ -10,8 +10,16 @@ name: Builds
 on:
   push:
     branches: [main]
+    paths:
+      - "tether-rally/**"
+      - ".github/workflows/tether-rally-*.yml"
+      - ".github/publish-pages.sh"
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    paths:
+      - "tether-rally/**"
+      - ".github/workflows/tether-rally-*.yml"
+      - ".github/publish-pages.sh"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +29,7 @@ permissions:
 
 # one build per branch/PR at a time (a newer push cancels the older build)
 concurrency:
-  group: builds-${{ github.event.pull_request.number || github.ref }}
+  group: builds-tether-rally-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -32,6 +40,9 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: tether-rally
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +65,11 @@ jobs:
           unzip -q tpl.tpz 'templates/web_nothreads_*' 'templates/android_*' 'templates/version.txt'
           dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           mkdir -p "$dest" && mv templates/* "$dest/" && rm -rf tpl.tpz templates
+
+      # Build numbers carry on from the game's old repository (its last build was under 1000), so
+      # new APKs install over old ones (versionCode only grows) and self-updates keep counting up.
+      - name: Build number
+        run: echo "BUILD=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -102,12 +118,12 @@ jobs:
         run: |
           fp=$( { echo "$GODOT_VERSION"; cat project.godot export_presets.cfg scripts/self_update.gd icons/icon-192.png icons/adaptive-*.png; } | sha256sum | cut -c1-16)
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          channel="https://$owner.github.io/${GITHUB_REPOSITORY#*/}/${PR:+pr/$PR/}"
+          channel="https://$owner.github.io/${GITHUB_REPOSITORY#*/}/tether-rally/${PR:+pr/$PR/}"
           {
-            echo "# Written by CI (.github/workflows/build.yml): see the committed file for what each value means."
+            echo "# Written by CI (.github/workflows/tether-rally-build.yml at the repo root): see the committed file for what each value means."
             echo "extends RefCounted"
             echo ""
-            echo "const BUILD := $GITHUB_RUN_NUMBER"
+            echo "const BUILD := $BUILD"
             echo "const SHELL := \"$fp\""
             echo "const ENGINE := \"$GODOT_VERSION\""
             echo "const CHANNEL := \"$channel\""
@@ -139,8 +155,8 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
-          code=$((100 + GITHUB_RUN_NUMBER))
-          name="0.1.0-${PR:+pr$PR.}b$GITHUB_RUN_NUMBER"
+          code=$((100 + BUILD))
+          name="0.1.0-${PR:+pr$PR.}b$BUILD"
           sed -i "0,/^version\/code=.*/s//version\/code=$code/; 0,/^version\/name=.*/s//version\/name=\"$name\"/" export_presets.cfg
           grep -m2 '^version/' export_presets.cfg
           mkdir -p "$OUT/android"
@@ -159,7 +175,7 @@ jobs:
           size=$(stat -c%s "$OUT/android/game.pck")
           sha=$(sha256sum "$OUT/android/game.pck" | cut -d' ' -f1)
           printf '{"build": %d, "engine": "%s", "shell": "%s", "pck": "game.pck", "size": %d, "sha256": "%s", "apk": "tether-racing.apk"}\n' \
-            "$GITHUB_RUN_NUMBER" "$GODOT_VERSION" "$SHELL_FP" "$size" "$sha" > "$OUT/android/update.json"
+            "$BUILD" "$GODOT_VERSION" "$SHELL_FP" "$size" "$sha" > "$OUT/android/update.json"
           cat "$OUT/android/update.json"
 
       - uses: actions/upload-artifact@v4
@@ -170,14 +186,12 @@ jobs:
       - name: Publish to gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEST: ${{ github.event.pull_request.number && format('pr/{0}', github.event.pull_request.number) || '.' }}
+          DEST: ${{ github.event.pull_request.number && format('tether-rally/pr/{0}', github.event.pull_request.number) || 'tether-rally' }}
         run: |
           mkdir -p "$OUT/stage"
           cp -r "$OUT/web/." "$OUT/stage/"
           cp "$OUT/android/tether-racing.apk" "$OUT/android/game.pck" "$OUT/android/update.json" "$OUT/stage/"
-          # site root only: dead PR preview links land on 404.html, which opens the main build
-          if [ "$DEST" = "." ]; then cp .github/pages/404.html "$OUT/stage/"; fi
-          bash .github/publish-pages.sh "$OUT/stage" "$DEST" "Build of ${GITHUB_SHA::7} for $DEST"
+          bash "$GITHUB_WORKSPACE/.github/publish-pages.sh" "$OUT/stage" "$DEST" "Build of ${GITHUB_SHA::7} for $DEST"
 
       - name: Deploy the site
         env:
@@ -190,10 +204,10 @@ jobs:
         with:
           script: |
             const n = context.issue.number;
-            const base = `https://${context.repo.owner}.github.io/${context.repo.repo}/pr/${n}/`;
-            const body = `<!-- preview -->\n**Preview of this PR** (updated on every push, sha ${context.sha.slice(0, 7)})\n\n- Play in the browser: ${base}\n- Android APK: ${base}tether-racing.apk\n\nIt may take a minute after the build for GitHub Pages to refresh.`;
+            const base = `https://${context.repo.owner}.github.io/${context.repo.repo}/tether-rally/pr/${n}/`;
+            const body = `<!-- preview:tether-rally -->\n**Tether Rally preview of this PR** (updated on every push, sha ${context.sha.slice(0, 7)})\n\n- Play in the browser: ${base}\n- Android APK: ${base}tether-racing.apk\n\nIt may take a minute after the build for GitHub Pages to refresh.`;
             const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: n });
-            const old = comments.find(c => c.body.startsWith('<!-- preview -->'));
+            const old = comments.find(c => c.body.startsWith('<!-- preview:tether-rally -->'));
             if (old) await github.rest.issues.updateComment({ ...context.repo, comment_id: old.id, body });
             else await github.rest.issues.createComment({ ...context.repo, issue_number: n, body });
 
@@ -208,7 +222,7 @@ jobs:
       - name: Remove the PR preview
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash .github/publish-pages.sh "" "pr/${{ github.event.pull_request.number }}" "Remove preview of PR ${{ github.event.pull_request.number }}"
+        run: bash .github/publish-pages.sh "" "tether-rally/pr/${{ github.event.pull_request.number }}" "Remove tether-rally preview of PR ${{ github.event.pull_request.number }}"
 
       - name: Deploy the site
         env:

@@ -10,7 +10,7 @@
 
   ```
   ## Try it
-  - Android APK: https://guillaumefont.github.io/aurite-front/pr/<N>/aurite-front.apk
+  - Android APK: https://guillaumefont.github.io/games/aurite-front/pr/<N>/aurite-front.apk
   ```
 
 ## Layout
@@ -78,7 +78,7 @@
 - **Builds** (`build.yml`): exports `godot/` with the Android preset as a release APK, signed with the committed
   `android-webview/debug.keystore` (or an `ANDROID_DEBUG_KEYSTORE_BASE64` secret). versionCode is
   `100 + run number`, so do not bump `version/code` by hand. It publishes to the `gh-pages` branch with
-  `.github/publish-pages.sh`: `main` at the site root, PR N under `pr/N/` (removed when the PR closes),
+  `.github/publish-pages.sh` (at the repo root): `main` under `aurite-front/` on the games site, PR N under `aurite-front/pr/N/` (removed when the PR closes),
   each with `aurite-front.apk`, a download page (`.github/pages/index.html`) and `web-3d/`.
   The APK is also a run artifact.
 - **Deploy Pages** (`pages.yml`): deploys `gh-pages`, one run at a time. Builds dispatches it from `main`.

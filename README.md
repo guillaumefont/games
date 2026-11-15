@@ -10,4 +10,25 @@ Monorepo for Guillaume's games. Each game was imported from its original reposit
 
 Use `git log -- <folder>` to see a game's history.
 
-Note: each game's GitHub Actions workflows still live under `<game>/.github/workflows/` and do not run from there. They need to be moved to the root `.github/workflows/` with paths adjusted.
+## Play
+
+All three games are published on one GitHub Pages site: https://guillaumefont.github.io/games/
+
+| Game | Main build | Pull request N |
+| --- | --- | --- |
+| Tether Rally | [`/games/tether-rally/`](https://guillaumefont.github.io/games/tether-rally/) | `/games/tether-rally/pr/N/` |
+| Star Breaker | [`/games/star-breaker/`](https://guillaumefont.github.io/games/star-breaker/) | `/games/star-breaker/pr/N/` |
+| Aurite Front | [`/games/aurite-front/`](https://guillaumefont.github.io/games/aurite-front/) | `/games/aurite-front/pr/N/` |
+
+## CI
+
+Each game has its own workflows in `.github/workflows/`, named after its folder, and they only run when a
+change touches that game's folder (or its workflows):
+
+- `<game>-build.yml` exports Web and/or Android, publishes the build to its folder on the `gh-pages` branch,
+  and comments a preview link on pull requests (removed when the PR closes).
+- `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml` run the headless tests.
+- `pages.yml` deploys the whole `gh-pages` branch, plus the site's root pages from `.github/pages/`
+  (the list of games and the shared 404 page). It needs Settings > Pages > Source = "GitHub Actions".
+
+Build numbers start at 1001, so APKs from here install over the ones built in the old repositories.

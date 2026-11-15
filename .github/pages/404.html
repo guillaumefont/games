@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Games</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #10161f; color: #e8eef5; font: 16px/1.5 system-ui, sans-serif; text-align: center; }
+  main { max-width: 26rem; padding: 0 16px; }
+  a { color: #7cc4ff; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Games</h1>
+  <p id="msg">This page doesn't exist.</p>
+  <p><a id="go" href="./">Go to the latest build</a></p>
+</main>
+<script>
+// GitHub Pages serves this one page for every missing path on the site. PR previews
+// (/<game>/pr/N/...) are deleted when the PR is merged or closed, so an old preview link
+// (web or APK) is sent to the same game's latest main build instead of a dead end.
+(function () {
+  var games = {
+    "tether-rally": { name: "Tether Rally", apk: "tether-racing.apk" },
+    "star-breaker": { name: "Star Breaker", apk: "star-breaker.apk" },
+    "aurite-front": { name: "Aurite Front", apk: "aurite-front.apk" }
+  };
+  var p = location.pathname;
+  var go = document.getElementById("go");
+  var site = p.replace(/^(\/[^/]*\/).*$/, "$1"); // /<repo>/
+  go.href = site;
+  go.textContent = "See all games";
+  for (var id in games) {
+    var at = p.indexOf("/" + id + "/");
+    if (at < 0) continue;
+    var base = p.slice(0, at + id.length + 2); // /<repo>/<game>/
+    var rest = p.slice(base.length);
+    document.title = games[id].name;
+    document.getElementById("title").textContent = games[id].name;
+    go.textContent = "Go to the latest build";
+    if (rest.indexOf("pr/") === 0) {
+      rest = rest.slice(3).replace(/^[^/]*\/?/, "");
+      var target = base + (rest === games[id].apk ? rest : "");
+      go.href = target;
+      document.getElementById("msg").textContent =
+        "This preview was removed when its pull request was merged or closed. Opening the latest build instead…";
+      setTimeout(function () { location.replace(target); }, 1500);
+    } else {
+      go.href = base;
+    }
+    break;
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# What this build is. CI (.github/workflows/build.yml) rewrites this file before exporting;
+# What this build is. CI (.github/workflows/tether-rally-build.yml at the repo root) rewrites this file before exporting;
 # the values here are for builds made by hand (editor, tests), which never update themselves.
 #   BUILD    the workflow run number (only grows; the APK's versionCode is 100 + BUILD)
 #   SHELL    fingerprint of everything an update of the game data alone can't change

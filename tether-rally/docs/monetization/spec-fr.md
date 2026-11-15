@@ -171,7 +171,7 @@ Les pubs changent la fiche Play : consentement RGPD, formulaire Data safety et p
 
 ## Ordre de construction et critères d'acceptation
 
-Trois phases, chacune livrée en petites PR avec leurs tests (règle d'AGENTS.md : chaque nouveau fichier de test a son étape dans `.github/workflows/sim.yml`).
+Trois phases, chacune livrée en petites PR avec leurs tests (règle d'AGENTS.md : chaque nouveau fichier de test a son étape dans `.github/workflows/tether-rally-sim.yml` (at the repo root)).
 
 1. **Phase 1 : ce qui rapporte 80 % (avant le soft launch)**
    1. `ads.gd`, `monetization.gd`, `store.gd` asynchrone, avec leurs bouchons. Test `tests/monetization_test.gd` : le bouchon accorde, `remove_ads` coupe les interstitielles et accorde sans pub.

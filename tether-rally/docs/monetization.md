@@ -206,7 +206,7 @@ Ads change the Play listing: GDPR consent, the Data safety form and a privacy po
 
 ## Build order and acceptance criteria
 
-Three phases, each delivered as small PRs with their tests (AGENTS.md rule: every new test file gets its step in `.github/workflows/sim.yml`).
+Three phases, each delivered as small PRs with their tests (AGENTS.md rule: every new test file gets its step in `.github/workflows/tether-rally-sim.yml` (at the repo root)).
 
 1. **Phase 1: what brings 80% (before the soft launch)**
    1. `ads.gd`, `monetization.gd`, asynchronous `store.gd`, with their stubs. Test `tests/monetization_test.gd`: the stub grants, `remove_ads` stops full-screen ads and grants without an ad.
