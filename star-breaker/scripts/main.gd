@@ -1354,17 +1354,26 @@ func beam_src() -> Vector2:
 ## Ticks the laser line stays on, per charge level.
 const BEAM_LIFE := [0, 12, 16, 20, 40]
 ## The Nova twister pulses: radius of the hard strands and length of one pulse (one turn; the
-## haze strands sit a little wider, half way between the hard ones), how many pulses a beam
-## can show at once, ticks between two pulses and how fast they travel.
+## haze strands sit a little wider, half way between the hard ones), how many pulses each strand
+## has, ticks between two pulses and how fast they travel. A strand's pulses ride a loop
+## PULSES * PULSE_GAP * PULSE_SPEED long (504), longer than the widest screen's beam, so they
+## line the whole beam from its first frame and scroll forward along it.
 const TWIST_R := 7.0
 const TWIST_PITCH := 30.0
-const PULSES := 5
+const PULSES := 7
 const PULSE_GAP := 12
 const PULSE_SPEED := 6.0
 const PULSE_LEN := 20.0
 ## Ticks each twister strand's pulses lag behind the first: pink, cyan, white hard strands,
-## then the haze strand that rides with each of them. Length of one pulse along the beam.
+## then the haze strand that rides with each of them.
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
+
+
+## Where pulse `i` of a strand lagging `lag` ticks sits along the beam at tick `t`: spread evenly
+## along the beam from the start, scrolling forward and wrapping back to the nose.
+static func pulse_x(i: int, lag: int, t: int) -> float:
+	var gap := PULSE_GAP * PULSE_SPEED
+	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
 
@@ -1390,8 +1399,8 @@ func fire_beam(lv: int) -> void:
 		g.add_child(n)
 	var parts := {core = core, sheath = sheath, haze = haze, flare = flare, tip = tip}
 	if lv >= 2:
-		# the twister: corkscrew pulses shooting along the beam, one stream per strand of this
-		# level (each hard strand with its haze), staggered in time so they leave out of phase
+		# the twister: corkscrew pulses lining the whole beam at once and streaming along it, one
+		# stream per strand of this level (each hard strand with its haze), staggered out of phase
 		var pulses := []
 		for st in 6:
 			if not (STRANDS[lv] as Array).has(st % 3):
@@ -1460,12 +1469,8 @@ func sync_line(b: Dictionary) -> void:
 	if p.has("pulses"):
 		for j in (p.pulses as Array).size():
 			var pl: Node3D = p.pulses[j]
-			var i := j % PULSES
-			var t: int = b.t - int(pl.get_meta("lag"))
-			# slot i shows this strand's latest pulse n with n % PULSES == i
-			var n: int = floori(float(t) / PULSE_GAP) - posmod(floori(float(t) / PULSE_GAP) - i, PULSES)
-			var x := (t - n * PULSE_GAP) * PULSE_SPEED
-			pl.visible = t >= 0 and n >= 0 and x + PULSE_LEN < len
+			var x := pulse_x(j % PULSES, int(pl.get_meta("lag")), b.t)
+			pl.visible = x + PULSE_LEN < len
 			if not pl.visible:
 				continue
 			# each pulse opens up a little as it travels, spinning as it goes
