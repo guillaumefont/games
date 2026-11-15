@@ -1,10 +1,10 @@
-name: Builds
+name: Aurite Front builds
 
 # Exports the Godot game (godot/) as an Android APK and publishes it on GitHub Pages
 # (gh-pages branch), next to a small download page and the 3D web version (web-3d/):
-#   main           -> https://<owner>.github.io/<repo>/aurite-front.apk (+ .pck and version.json,
+#   main           -> https://<owner>.github.io/<repo>/aurite-front/aurite-front.apk (+ .pck and version.json,
 #                     which installed games use to update themselves: see godot/scripts/updater.gd)
-#   pull request N -> https://<owner>.github.io/<repo>/pr/N/aurite-front.apk
+#   pull request N -> https://<owner>.github.io/<repo>/aurite-front/pr/N/aurite-front.apk
 # Each open PR keeps its own preview, linked in a comment on the PR; it is removed when
 # the PR is closed. The APK is also attached to each run as an artifact.
 # Builds only push to the gh-pages branch; the site itself is deployed by pages.yml, which
@@ -12,8 +12,16 @@ name: Builds
 on:
   push:
     branches: [main]
+    paths:
+      - "aurite-front/**"
+      - ".github/workflows/aurite-front-*.yml"
+      - ".github/publish-pages.sh"
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    paths:
+      - "aurite-front/**"
+      - ".github/workflows/aurite-front-*.yml"
+      - ".github/publish-pages.sh"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +31,7 @@ permissions:
 
 # one build per branch/PR at a time (a newer push cancels the older build)
 concurrency:
-  group: builds-${{ github.event.pull_request.number || github.ref }}
+  group: builds-aurite-front-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,7 +46,7 @@ jobs:
     timeout-minutes: 40
     defaults:
       run:
-        working-directory: godot
+        working-directory: aurite-front/godot
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +70,11 @@ jobs:
           unzip -q tpl.tpz 'templates/android_*' 'templates/version.txt'
           dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           mkdir -p "$dest" && mv templates/* "$dest/" && rm -rf tpl.tpz templates
+
+      # Build numbers carry on from the game's old repository (its last build was under 1000), so
+      # new APKs install over old ones (versionCode only grows) and self-updates keep counting up.
+      - name: Build number
+        run: echo "BUILD=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -114,15 +127,15 @@ jobs:
           OUT="$RUNNER_TEMP/out"
           echo "OUT=$OUT" >> "$GITHUB_ENV"
           base=$(sed -n 's/^version\/name="\(.*\)"/\1/p' export_presets.cfg | head -1)
-          code=$((100 + GITHUB_RUN_NUMBER))
-          name="${base}-${PR:+pr$PR.}b$GITHUB_RUN_NUMBER"
+          code=$((100 + BUILD))
+          name="${base}-${PR:+pr$PR.}b$BUILD"
           # Self-update (scripts/updater.gd): the game checks version.json next to its APK and downloads
           # the game pack (aurite-front.pck) of a newer build. A pack only fits the "shell" it was built
           # for: the engine, the project settings, the export preset, the updater and the launcher art.
           # Change any of them and installed games ask for the new APK instead.
-          shell=$( { echo "$GODOT_VERSION"; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png; } | sha256sum | cut -c1-16)
-          site="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/"
-          printf '{"build": %d, "name": "%s", "shell": "%s", "url": "%s", "main_url": "%s"}\n' "$GITHUB_RUN_NUMBER" "$name" "$shell" "$site${PR:+pr/$PR/}" "$site" > build.json
+          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png; } | sha256sum | cut -c1-16)
+          site="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/aurite-front/"
+          printf '{"build": %d, "name": "%s", "shell": "%s", "url": "%s", "main_url": "%s"}\n' "$BUILD" "$name" "$shell" "$site${PR:+pr/$PR/}" "$site" > build.json
           cat build.json
           sed -i "0,/^version\/code=.*/s//version\/code=$code/; 0,/^version\/name=.*/s//version\/name=\"$name\"/" export_presets.cfg
           grep -m2 '^version/' export_presets.cfg
@@ -134,7 +147,7 @@ jobs:
           test -s "$OUT/android/$PCK_NAME"
           ls -lh "$OUT/android/$PCK_NAME"
           printf '{"build": %d, "name": "%s", "shell": "%s", "pck": "%s", "size": %d, "sha256": "%s", "apk": "%s", "commit": "%s"}\n' \
-            "$GITHUB_RUN_NUMBER" "$name" "$shell" "$PCK_NAME" "$(stat -c%s "$OUT/android/$PCK_NAME")" \
+            "$BUILD" "$name" "$shell" "$PCK_NAME" "$(stat -c%s "$OUT/android/$PCK_NAME")" \
             "$(sha256sum "$OUT/android/$PCK_NAME" | cut -d' ' -f1)" "$APK_NAME" "${GITHUB_SHA::7}" > "$OUT/android/version.json"
           cat "$OUT/android/version.json"
 
@@ -144,20 +157,18 @@ jobs:
           path: ${{ runner.temp }}/out/android/${{ env.APK_NAME }}
 
       - name: Publish to gh-pages
-        working-directory: .
+        working-directory: aurite-front
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
-          DEST: ${{ github.event.pull_request.number && format('pr/{0}', github.event.pull_request.number) || '.' }}
+          DEST: ${{ github.event.pull_request.number && format('aurite-front/pr/{0}', github.event.pull_request.number) || 'aurite-front' }}
         run: |
           mkdir -p "$OUT/stage/web-3d"
           cp "$OUT/android/$APK_NAME" "$OUT/android/$PCK_NAME" "$OUT/android/version.json" "$OUT/stage/"
           cp .github/pages/index.html "$OUT/stage/"
           cp web-3d/index.html "$OUT/stage/web-3d/"
           sed -i "s/__BUILD__/${GITHUB_SHA::7}${PR:+ (PR #$PR)}/" "$OUT/stage/index.html"
-          # site root only: dead PR preview links land on 404.html, which opens the main build
-          if [ "$DEST" = "." ]; then cp .github/pages/404.html "$OUT/stage/"; fi
-          bash .github/publish-pages.sh "$OUT/stage" "$DEST" "Build of ${GITHUB_SHA::7} for $DEST"
+          bash "$GITHUB_WORKSPACE/.github/publish-pages.sh" "$OUT/stage" "$DEST" "Build of ${GITHUB_SHA::7} for $DEST"
 
       - name: Deploy the site
         env:
@@ -170,10 +181,10 @@ jobs:
         with:
           script: |
             const n = context.issue.number;
-            const base = `https://${context.repo.owner}.github.io/${context.repo.repo}/pr/${n}/`;
-            const body = `<!-- preview -->\n**Preview of this PR** (updated on every push, sha ${context.sha.slice(0, 7)})\n\n- Android APK: ${base}${process.env.APK_NAME}\n- Download page: ${base}\n\nIt may take a minute after the build for GitHub Pages to refresh. The APK is also attached to the workflow run as an artifact.`;
+            const base = `https://${context.repo.owner}.github.io/${context.repo.repo}/aurite-front/pr/${n}/`;
+            const body = `<!-- preview:aurite-front -->\n**Aurite Front preview of this PR** (updated on every push, sha ${context.sha.slice(0, 7)})\n\n- Android APK: ${base}${process.env.APK_NAME}\n- Download page: ${base}\n\nIt may take a minute after the build for GitHub Pages to refresh. The APK is also attached to the workflow run as an artifact.`;
             const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: n });
-            const old = comments.find(c => c.body.startsWith('<!-- preview -->'));
+            const old = comments.find(c => c.body.startsWith('<!-- preview:aurite-front -->'));
             if (old) await github.rest.issues.updateComment({ ...context.repo, comment_id: old.id, body });
             else await github.rest.issues.createComment({ ...context.repo, issue_number: n, body });
 
@@ -188,7 +199,7 @@ jobs:
       - name: Remove the PR preview
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash .github/publish-pages.sh "" "pr/${{ github.event.pull_request.number }}" "Remove preview of PR ${{ github.event.pull_request.number }}"
+        run: bash .github/publish-pages.sh "" "aurite-front/pr/${{ github.event.pull_request.number }}" "Remove aurite-front preview of PR ${{ github.event.pull_request.number }}"
 
       - name: Deploy the site
         env:

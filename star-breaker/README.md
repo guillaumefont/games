@@ -1,6 +1,6 @@
 # Star Breaker
 
-**[▶ Play in the browser](https://guillaumefont.github.io/star-breaker/)** · **[⬇ Download the Android APK](https://guillaumefont.github.io/star-breaker/star-breaker.apk)**
+**[▶ Play in the browser](https://guillaumefont.github.io/games/star-breaker/)** · **[⬇ Download the Android APK](https://guillaumefont.github.io/games/star-breaker/star-breaker.apk)**
 
 <sub>Latest build of `main`, updated on every merge.</sub>
 
@@ -14,7 +14,7 @@ names, art and levels are original.
 ## Play
 
 - **Browser:** every push to `main` is published on GitHub Pages
-  (`https://guillaumefont.github.io/star-breaker/`), with the Android APK next to it
+  (`https://guillaumefont.github.io/games/star-breaker/`), with the Android APK next to it
   (`star-breaker.apk`). Each pull request gets its own preview under `/pr/<number>/`, linked in a
   comment on the PR.
 - **Godot:** open `project.godot` in Godot 4.7 and press Play.
@@ -100,8 +100,8 @@ godot --path . --rendering-method gl_compatibility --script tools/screenshots.gd
 
 ## CI and builds
 
-- `.github/workflows/test.yml` runs the headless tests on every pull request and on `main`.
-- `.github/workflows/build.yml` exports Web and Android (release template, arm64) for `main` and
+- `.github/workflows/star-breaker-test.yml` (at the repo root) runs the headless tests on every pull request and on `main`.
+- `.github/workflows/star-breaker-build.yml` (at the repo root) exports Web and Android (release template, arm64) for `main` and
   every pull request, uploads the APK as a run artifact, and publishes both to the `gh-pages`
   branch; `pages.yml` deploys that branch. A closed PR's preview is deleted.
 - Every APK is signed with the fixed test keystore in `.github/android/debug.keystore` (or the

@@ -15,12 +15,12 @@ the right side is one vertical stack, bottom up: Fire, Charge, Pod (2026-11-14).
 
   ```
   ## Preview
-  - Play in the browser: https://guillaumefont.github.io/star-breaker/pr/<N>/
-  - Android APK: https://guillaumefont.github.io/star-breaker/pr/<N>/star-breaker.apk
+  - Play in the browser: https://guillaumefont.github.io/games/star-breaker/pr/<N>/
+  - Android APK: https://guillaumefont.github.io/games/star-breaker/pr/<N>/star-breaker.apk
   ```
 
   The **Builds** workflow publishes them on every push to the PR and deletes them when it
-  closes. `main` is at https://guillaumefont.github.io/star-breaker/ (needs Settings > Pages >
+  closes. `main` is at https://guillaumefont.github.io/games/star-breaker/ (needs Settings > Pages >
   Source = GitHub Actions).
 - All APKs share one app id (`io.github.guillaumefont.starbreaker`) and one test keystore
   (`.github/android/debug.keystore`), so a PR build installs over the `main` build.
@@ -34,7 +34,7 @@ the right side is one vertical stack, bottom up: Fire, Charge, Pod (2026-11-14).
 ## Tests
 
 - Every change comes with a test of what it should do; a bug fix gets a regression test.
-- A new test file gets a step in `.github/workflows/test.yml` and a line below.
+- A new test file gets a step in `.github/workflows/star-breaker-test.yml` (at the repo root) and a line below.
 - Test logic headlessly by calling `main.update()` / `main._process()` directly with physics and
   process turned off (see `tests/play_test.gd`); `main.warp(x)` jumps the stage forward.
 

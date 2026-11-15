@@ -1,7 +1,8 @@
 name: Deploy Pages
 
-# Deploys the whole gh-pages branch (main build + every pr/N preview) to GitHub Pages.
-# The Builds workflow only pushes to gh-pages and then starts this workflow, so all
+# Deploys the whole gh-pages branch (every game's main build + its pr/N previews) to GitHub
+# Pages, plus the site's root pages from .github/pages/ (the games list and the 404 page).
+# Each game's Builds workflow only pushes to gh-pages and then starts this workflow, so all
 # deployments go through this one queue instead of racing each other.
 # Needs Settings > Pages > Source = "GitHub Actions", and the github-pages environment
 # (Settings > Environments) must allow deployments from main.
@@ -51,8 +52,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: gh-pages
+          path: site
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: .github/pages
+      - name: Add the root pages
+        run: cp src/.github/pages/index.html src/.github/pages/404.html site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4

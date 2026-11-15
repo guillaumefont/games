@@ -1,14 +1,23 @@
-name: Headless sim
+name: Tether Rally headless sim
 
 on:
   pull_request:
+    paths:
+      - "tether-rally/**"
+      - ".github/workflows/tether-rally-*.yml"
   push:
     branches: [main]
+    paths:
+      - "tether-rally/**"
+      - ".github/workflows/tether-rally-*.yml"
 
 jobs:
   sim:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tether-rally
     steps:
       - uses: actions/checkout@v4
       - name: Download Godot

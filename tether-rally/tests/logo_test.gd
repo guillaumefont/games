@@ -70,7 +70,7 @@ func _init() -> void:
 	# the launcher icons live in the APK, not the game data: a new icon must make installed test
 	# APKs offer the new APK ("the icon that didn't change" case, 2026-11-14: the medal reached
 	# phones through a data update while the launcher kept the old icon)
-	var ci := FileAccess.get_file_as_string("res://.github/workflows/build.yml")
+	var ci := FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://").path_join("../.github/workflows/tether-rally-build.yml"))
 	var fp_line := ""
 	for line in ci.split("\n"):
 		if line.strip_edges().begins_with("fp=$("):

@@ -39,7 +39,7 @@ func _init() -> void:
 		check(perms.has("com.google.android.gms.permission.AD_ID"), "the ad id permission is declared")
 		check(cfg.get_value(o, "package/unique_name") == cfg.get_value(test_apk + ".options", "package/unique_name"), "same app id as the test APKs (it will change: reconfirm before the first Play upload)")
 	# CI turns test features on for the test presets only
-	var wf := FileAccess.get_file_as_string("res://.github/workflows/build.yml")
+	var wf := FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://").path_join("../.github/workflows/tether-rally-build.yml"))
 	check(wf != "", "build workflow readable")
 	for line in wf.split("\n"):
 		if line.contains("custom_features=") and (line.contains("preset.3") or line.contains("Android Play")):

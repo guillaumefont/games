@@ -6,16 +6,16 @@
 
   ```
   ## Preview
-  - Play in the browser: https://guillaumefont.github.io/tether-rally/pr/<N>/
-  - Android APK: https://guillaumefont.github.io/tether-rally/pr/<N>/tether-racing.apk
+  - Play in the browser: https://guillaumefont.github.io/games/tether-rally/pr/<N>/
+  - Android APK: https://guillaumefont.github.io/games/tether-rally/pr/<N>/tether-racing.apk
   ```
 
   `<N>` is the PR number. Add the section right after opening the PR (edit the body once the
   number is known) and keep it when you rewrite the body. The **Builds** workflow publishes these
   on every push to the PR (allow a few minutes) and deletes them when the PR closes. `main` is at
-  https://guillaumefont.github.io/tether-rally/ and `.../tether-racing.apk`.
+  https://guillaumefont.github.io/games/tether-rally/ and `.../tether-racing.apk`.
 - The repo is `guillaumefont/tether-rally` (renamed from `tether` on 2026-11-13). The Pages site path
-  follows the repo name; `build.yml` and `.github/pages/404.html` derive it, so only the docs spell it out.
+  follows the repo name; `build.yml` and `.github/pages/404.html` (at the repo root) derive it, so only the docs spell it out.
 - All APKs share one app id: installing a PR build replaces the installed `main` build.
 - Test APKs update themselves (Guillaume, 2026-11-14; `scripts/self_update.gd`, an autoload so it
   runs before `main.tscn` loads). Each build also publishes `game.pck` (the game data alone) and
@@ -52,7 +52,7 @@
 - Test what the player sees, not just the stored value: if a menu shows it, test the function the
   menu reads. Keep that logic in a static function (e.g. `Campaign.medal_counts()`,
   `Campaign.save_race()`) so a headless test can call it without building the UI.
-- A new test file gets a step in `.github/workflows/sim.yml` and a line in the list below.
+- A new test file gets a step in `.github/workflows/tether-rally-sim.yml` (at the repo root) and a line in the list below.
 - Can't run Godot locally? CI runs every test on each push: wait for it to pass before merging.
 
 ## Checks to run before pushing

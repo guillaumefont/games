@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Replace one folder of the gh-pages branch and push, keeping everything else.
-#   publish-pages.sh <source dir or ""> <dest: "." for the site root, or pr/N> <message>
-# An empty source deletes dest. Publishing the root keeps the pr/ previews. The branch is
-# kept to one commit (builds are large).
+#   publish-pages.sh <source dir or ""> <dest: a game's folder (e.g. tether-rally), or <game>/pr/N> <message>
+# An empty source deletes dest. Publishing a game's main build keeps its pr/ previews, and
+# never touches the other games. The branch is kept to one commit (builds are large).
+# The site's root pages (index.html, 404.html) are not on gh-pages: pages.yml adds them from
+# .github/pages/ on main when it deploys.
 set -euo pipefail
 SRC="$1"; DEST="$2"; MSG="$3"
 REPO="${PAGES_REPO:-https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git}"
@@ -15,11 +17,12 @@ for attempt in $(seq 1 10); do
   OLD="$(git rev-parse -q --verify HEAD || true)"
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  if [ "$DEST" = "." ]; then
-    find . -mindepth 1 -maxdepth 1 ! -name .git ! -name pr -exec rm -rf {} +
-  else
-    rm -rf "$DEST"
-  fi
+  case "$DEST" in
+    ""|.|/*|*..*) echo "refusing to publish to '$DEST'"; exit 1 ;;
+    pr/*|*/pr/*) rm -rf "$DEST" ;;
+    # a game's main build: replace it, keeping that game's PR previews
+    *) mkdir -p "$DEST"; find "$DEST" -mindepth 1 -maxdepth 1 ! -name pr -exec rm -rf {} + ;;
+  esac
   if [ -n "$SRC" ]; then
     mkdir -p "$DEST"
     cp -r "$SRC/." "$DEST/"

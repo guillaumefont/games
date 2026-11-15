@@ -1,7 +1,7 @@
 # Aurite Front
 
-**[Download the Android APK](https://guillaumefont.github.io/aurite-front/aurite-front.apk)** (latest `main` build) ·
-**[Play in the browser](https://guillaumefont.github.io/aurite-front/web-3d/)** (3D web version)
+**[Download the Android APK](https://guillaumefont.github.io/games/aurite-front/aurite-front.apk)** (latest `main` build) ·
+**[Play in the browser](https://guillaumefont.github.io/games/aurite-front/web-3d/)** (3D web version)
 
 An original, old-school real-time strategy game for mobile and desktop: two factions
 (Vanguard and Ashen Pact) fight over aurite crystals with infantry, vehicles, aircraft and base building.
@@ -33,8 +33,8 @@ GitHub Actions (in `.github/workflows/`), on every push to `main` and every pull
 - **Headless sim** runs `godot/tests/sim_test.tscn` (AI vs AI soak and every mission's setup) and fails on script errors.
 - **Builds** exports the Godot game as an Android APK (release template, test-signed) and publishes it on
   GitHub Pages with a small download page and the 3D web version:
-  - `main`: `https://guillaumefont.github.io/aurite-front/aurite-front.apk`
-  - pull request N: `https://guillaumefont.github.io/aurite-front/pr/N/aurite-front.apk`, linked in a comment on
+  - `main`: `https://guillaumefont.github.io/games/aurite-front/aurite-front.apk`
+  - pull request N: `https://guillaumefont.github.io/games/aurite-front/pr/N/aurite-front.apk`, linked in a comment on
     the PR and deleted when it closes.
 
   The APK is also attached to each workflow run as an artifact. Its versionCode is `100 + run number`, so a newer build

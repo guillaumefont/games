@@ -74,7 +74,7 @@ func _run() -> void:
 	var presets := FileAccess.get_file_as_string("res://export_presets.cfg")
 	check(presets.contains("permissions/internet=true"), "the Android app may reach the network")
 	check(presets.contains('custom_features=""'), "the committed presets carry no self_update feature (CI adds it to test APKs only)")
-	var ci := FileAccess.get_file_as_string("res://.github/workflows/build.yml")
+	var ci := FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://").path_join("../.github/workflows/tether-rally-build.yml"))
 	check(ci.contains('custom_features="preview,self_update"') and ci.contains("--export-pack Android") and ci.contains("update.json"),
 		"CI exports test APKs with the feature, and publishes game.pck + update.json beside them")
 

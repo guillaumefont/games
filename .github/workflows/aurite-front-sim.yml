@@ -1,9 +1,15 @@
-name: Headless sim
+name: Aurite Front headless sim
 
 on:
   pull_request:
+    paths:
+      - "aurite-front/**"
+      - ".github/workflows/aurite-front-*.yml"
   push:
     branches: [main]
+    paths:
+      - "aurite-front/**"
+      - ".github/workflows/aurite-front-*.yml"
 
 env:
   GODOT_VERSION: 4.7.2
@@ -14,7 +20,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        working-directory: godot
+        working-directory: aurite-front/godot
     steps:
       - uses: actions/checkout@v4
       - name: Download Godot
