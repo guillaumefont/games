@@ -1,0 +1,260 @@
+# Notes for coding agents
+
+## Pull requests
+
+- Every PR body must list its preview builds, near the top, under a `## Preview` heading:
+
+  ```
+  ## Preview
+  - Play in the browser: https://guillaumefont.github.io/tether-rally/pr/<N>/
+  - Android APK: https://guillaumefont.github.io/tether-rally/pr/<N>/tether-racing.apk
+  ```
+
+  `<N>` is the PR number. Add the section right after opening the PR (edit the body once the
+  number is known) and keep it when you rewrite the body. The **Builds** workflow publishes these
+  on every push to the PR (allow a few minutes) and deletes them when the PR closes. `main` is at
+  https://guillaumefont.github.io/tether-rally/ and `.../tether-racing.apk`.
+- The repo is `guillaumefont/tether-rally` (renamed from `tether` on 2026-11-13). The Pages site path
+  follows the repo name; `build.yml` and `.github/pages/404.html` derive it, so only the docs spell it out.
+- All APKs share one app id: installing a PR build replaces the installed `main` build.
+- Test APKs update themselves (Guillaume, 2026-11-14; `scripts/self_update.gd`, an autoload so it
+  runs before `main.tscn` loads). Each build also publishes `game.pck` (the game data alone) and
+  `update.json` beside its APK; an installed APK reads `update.json` from its own folder (main, or
+  `pr/N/` for a PR's APK), downloads newer game data in the background and mounts it at the next
+  launch (home page slip: "restart"). Data alone can't change the engine, `project.godot`, the export
+  presets, `self_update.gd` or the launcher icons `icons/icon-192.png` / `icons/adaptive-*.png`, which
+  live in the APK itself (the `SHELL` fingerprint CI writes into `scripts/build_info.gd`): a
+  change to any of those makes installed apps offer the new APK instead (one tap to install, Android
+  always asks). Only CI test APKs carry the `self_update` feature; a store build must never have it
+  (Play forbids self-updating code). Keep `self_update.gd` to what must run before the game data
+  is mounted (it is frozen into the APK, and changing it forces a reinstall); checking, downloading
+  and the UI text live in `scripts/updater.gd` (`/root/SelfUpdate/Updater`), which comes from the
+  mounted data and so updates itself. A PR's APK falls back to main's `update.json` once its PR
+  folder is gone. The home page shows the build as a discreet pencil note in the top corner (tap =
+  check now); it becomes a red taped slip only when there is an update to take (`menu._update_slip`).
+- Settings is two columns in landscape (`_set_cols`, switched in `ui.layout()`): a landscape phone
+  is only ~450 logical px tall. Check that anything added there still fits (the self-update test does).
+
+## Keeping this file up to date
+
+- When you learn something a future agent would need (a convention, a gotcha, a workflow step, a
+  check to run), add it to this file yourself, in the section where it fits, as part of your PR.
+  Keep entries short and only add lasting facts, not one-off details of the current task.
+- Always tell Guillaume when you do: say what you added under an `## AGENTS.md` heading in the PR
+  body, and mention it in your reply in the project thread.
+
+## Tests (rule from Guillaume, 2026-11-12)
+
+- Every change comes with tests that cover it. A new feature gets a test of what it should do; a
+  bug fix gets a regression test that fails on the old code and passes with the fix, named after the
+  case that found it (first one: the "Pretzel" case in `tests/medals_test.gd`, a race win that showed
+  no medal on the menu).
+- Test what the player sees, not just the stored value: if a menu shows it, test the function the
+  menu reads. Keep that logic in a static function (e.g. `Campaign.medal_counts()`,
+  `Campaign.save_race()`) so a headless test can call it without building the UI.
+- A new test file gets a step in `.github/workflows/sim.yml` and a line in the list below.
+- Can't run Godot locally? CI runs every test on each push: wait for it to pass before merging.
+
+## Checks to run before pushing
+
+```
+godot --headless --path . --import
+godot --headless --path . --script tests/sim_test.gd     # AI finishes every track and variant
+godot --headless --path . --script tests/levels_test.gd  # bends stay level, medal times, campaign
+godot --headless --path . --script tests/hook_test.gd    # hooking picks the current bend's tower
+godot --headless --path . --script tests/swipe_test.gd   # menu lists scroll, event swipe flips, tap opens
+godot --headless --path . --script tests/home_tabs_test.gd # home bookmark tabs on screen and tappable on a phone
+godot --headless --path . --script tests/boot_test.gd    # launch: no splash picture, loading screen drawn first
+godot --headless --path . --script tests/pause_test.gd   # pause page stays short, options on its Settings page
+godot --headless --path . --script tests/wall_test.gd    # a car on the road edge always gets off it again
+godot --headless --path . --script tests/tutorial_test.gd  # the first-launch tutorial can be finished
+godot --headless --path . --script tests/cosmetics_test.gd  # garage items: prices, every look builds, looks only
+godot --headless --path . --script tests/car_ao_test.gd    # baked car AO fits every vehicle's current parts
+godot --headless --path . --script tests/economy_test.gd    # coins, Track of the day, awards, buying, progress reset
+godot --headless --path . --script tests/monetization_test.gd # ads/store stubs: rewards, daily caps, full-screen pacing, No ads
+godot --headless --path . --script tests/results_offers_test.gd # results ad offers, Gold ghost, Daily Detour attempts, full-screen ads
+godot --headless --path . --script tests/store_build_test.gd  # Play preset: AAB, no preview/self_update
+godot --headless --path . --script tests/medals_test.gd     # medals saved and shown: race wins, layout bumps
+godot --headless --path . --script tests/race_results_test.gd # race results = order over the line, medal from it
+godot --headless --path . --script tests/attack_unlock_test.gd # Time attack tracks open with the campaign
+godot --headless --path . --script tests/time_attack_test.gd  # Time attack: Standard only, world chip
+godot --headless --path . --script tests/custom_game_test.gd # Off the Map: hidden link, all picks open, saves nothing
+godot --headless --path . --script tests/colours_test.gd    # no blue accent in UI, icons, splash, web page
+godot --headless --path . --script tests/logo_test.gd       # medal logo: icons up to date, web page and game draw it
+godot --headless --path . --script tests/award_anim_test.gd # every award has a medallion scene that draws
+godot --headless --path . --script tests/names_test.gd       # Tether Rally + traveller mode names, no old names in UI text
+godot --headless --path . --script tests/rivals_test.gd    # rival tiers get harder, stay beatable (~4 min)
+godot --headless --path . --script tests/obstacles_test.gd # the AI's line never touches an Obstacles post
+godot --headless --path . --script tests/camera_test.gd    # low camera shots: off while racing, never inside the land
+godot --headless --path . --script tests/engine_test.gd    # every vehicle has an engine sound that loops cleanly
+godot --headless --path . --script tests/underpass_test.gd # all deck over a lower lane is a see-through window
+godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
+godot --headless --path . --script tests/self_update_test.gd  # test APKs update themselves safely
+```
+
+After changing a track layout, rerun `tools/gen_obstacles.gd` (posts placed off the AI's racing line,
+`scripts/obstacle_spots.gd`, ~3 min), then `tools/gen_medals.gd` to refresh `scripts/medal_times.gd`,
+then `tools/gen_gold_ghosts.gd` (the Gold medal ghosts in `ghosts/gold.res`, ~1 min; `tests/results_offers_test.gd` checks they lap at the Gold time).
+Also bump `LAYOUT_VERSION` in `scripts/records.gd`, so players' best times and ghosts from the old
+road are dropped (medals and campaign progress stay). `tools/tighten_layout.gd` searches for a
+layout with short links (about one lane between bends) that still passes the layout check.
+
+Writing a `SceneTree` test: after `view.build()` the old nodes are only queued for deletion, so a
+new node given the same `name` gets renamed; tag nodes a test looks for with `set_meta()` instead.
+Also in a `SceneTree` test: a node added to `root` only gets `_ready()` after `await process_frame`
+(see `tests/camera_test.gd`), and a runtime error stops the test function before `quit()`, so the run
+hangs instead of failing. Wrap local runs in `timeout`.
+A headless run lays the UI out for 640 logical pixels (desktop); to test at a phone's size set
+`main.ui._uh = 450` and then change `root.size` (or call `ui._apply_scale()`), as `tests/home_tabs_test.gd`
+does. Test with a long save too (four-digit coins, every medal kind): the home page grows with its content.
+
+Screenshots without a GPU: `xvfb-run -a godot --rendering-driver opengl3 --path . --resolution 1280x720 -- <demo flag>`
+with `SHOT_DIR=<dir>`. Demo flags in `scripts/main.gd`: `--demo=`, `--tutorial-demo`, `--cine-demo=` (camera shots).
+
+Car ambient occlusion is baked, not rendered (the Mobile renderer has no SSAO): `tools/bake_car_ao.gd`
+ray traces each vehicle's game model once into `art/car_ao.res` (per-vertex shading, applied as vertex
+colours by `WorldView.apply_ao`). After changing any vehicle's parts, rerun
+`godot --headless --path . --script tools/bake_car_ao.gd` (~10 s) and commit the `.res`;
+`tests/car_ao_test.gd` fails until you do. Livery decals and detail-2 artwork models are left out.
+
+Engine sounds: each vehicle has a profile in `scripts/engines.gd` (a new vehicle needs one, the
+test checks). Hear them without a speaker-equipped game: `ENGINE_OUT=<dir> godot --headless --path .
+--script tools/engine_preview.gd` writes a short drive per vehicle as WAV (ffmpeg to mp3 to share).
+Keep every engine small-sounding (no big-V8 boom; phone speakers drop everything under ~150 Hz).
+
+## Visuals stay in sync with the game
+
+When a change alters something that shows in the visuals (cars, landscape, track, towers, obstacles,
+menus, HUD...), re-render the affected visuals in the same PR, never "later":
+- loading art `art/loading_*` and world cards `art/world_*`: `tools/gen_loading_art.gd` (commands in its header);
+- web loading page: `tools/gen_web_shell.gd`, after the loading art;
+- store screenshots and feature graphic: `store/` (exact `--demo` commands and frames in `store/README.md`,
+  title overlay `tools/feature_graphic.py`);
+- README screenshots `docs/*.png` (same `--demo` runs).
+
+Only redo the ones where the change is visible, and put before/after images in the PR. A full batch of
+`--demo` runs takes 30+ min on the cloud container, so run it in the background.
+
+## Monetization (Guillaume, 2026-11-14)
+
+- Free-to-play on Google Play. The spec is `docs/monetization.md` (decisions dated inside); build from it.
+- Menus never talk to a billing or ad SDK: purchases go through `Store` (`scripts/store.gd`, async
+  `buy(id, done)`, `price(id)`), ads through `Ads` (`scripts/ads.gd`: `rewarded_ready`, `show_rewarded`,
+  `maybe_interstitial`, `ads_removed`), and every tunable number lives in `scripts/monetization.gd`.
+  Debug and `preview` builds use stubs (a purchase is granted at once, a "video" grants after
+  `Ads.stub_delay`), so everything is testable without accounts. A store build must never carry
+  `preview` (the stub would give purchases away) nor `self_update`.
+- A reward is granted only when the ad was watched to the end; "No ads" grants every reward at once.
+  Nothing paid touches race times; Reset progress never takes a purchase back (store.cfg is apart).
+- The app id is temporary and will change: reconfirm it with Guillaume before any Play upload,
+  Play product, AdMob app or ad unit.
+- Export presets: "Android" is the test APK (CI adds `preview,self_update`), "Web" gets `preview` in CI, and
+  "Android Play" is the store AAB (Gradle): never give it `preview` or `self_update` (`tests/store_build_test.gd`).
+- Shop: the Garage lists what is for sale under the swatches (Starter pack, No ads, coin packs); a bundle's
+  contents count as owned (`Store.owns` checks `includes`); coin packs are consumables that pay coins each time.
+- A GDScript parse error in `main.gd` (e.g. `:=` on an untyped value) makes every `SceneTree` test that
+  loads `main.tscn` hang instead of failing, and `--import` doesn't report it: run tests under `timeout`
+  and grep their output for `SCRIPT ERROR`.
+- Tests: `Daily.fake_day` and `Monetization.fake_now` fake the date and clock. A `SceneTree` test that
+  leaves lambdas in a static var (e.g. `Store.on_changed`) aborts at exit: clear them before `quit()`.
+
+## Design rules
+
+- Original game: track layouts and art must be original, never copied from another game.
+- Targets Android and iOS (web build via WASM).
+- Colour roles (Guillaume, 2026-11-13): the UI has no coloured accent. On paper, emphasis is `Paper.INK`
+  (bolder, boxed, filled or under the grey marker `Paper.HL`); on dark (HUD, splash, loading ring,
+  logo, icon hub) it is chalk cream `#f3efe6` (`C_ACCENT` in `menu_art.gd`, mirrored in `ui.gd`).
+  Amber `#f2b134` is the player's car and rope; gold is only for medals and coins (`C_COIN`). Don't
+  bring back a blue (or any new) accent colour; `tests/colours_test.gd` checks it (it also counts
+  saturated blue pixels in the icons).
+- Logo (Guillaume, 2026-11-14): "the medal", a round chalk-cream medal, dark inside, the amber car
+  swinging round the tower seen from above with three speed trails. No background behind it
+  (Guillaume, 2026-11-14): the icon is the medal on transparent; where an icon must be opaque (store
+  icon) it is one flat colour, `ICON_BG`. The Android adaptive icon is the medal filling the
+  launcher's visible circle (`ADAPTIVE_SCALE`) on its cream (`ADAPTIVE_BG`), so no dark ring shows
+  (Guillaume, 2026-11-14). One source, `scripts/logo_art.gd` (SVG strings, -50..50 box): the
+  game draws its frame as a texture and the moving parts in code (`draw_medal`, used by the menu
+  header `Logo` and the loading emblem/ring), and the web page `web/shell_template.html` repeats
+  the same SVG. After changing it, run `tools/gen_icons.gd` (icon.svg, `icons/`, `store/icon-512.png`),
+  `tools/gen_splash.gd` and `tools/gen_web_shell.gd`; `tests/logo_test.gd` fails if icon.svg is stale.
+  An inner class of a script cannot call the outer script's static functions: shared drawing goes
+  in its own script (`Logo_.draw_medal`), not in `menu_art.gd`'s top level.
+- Launch (Guillaume, 2026-11-14): no static splash. The engine's boot splash shows no picture
+  (`boot_splash/show_image=false`), only the night colour `#06121b`, and `main.gd` draws the loading
+  screen before any slow setup (`booting()`); put new startup work after those frames, never before
+  `ui.show_loading`. In the browser, `web/shell_template.html` keeps its loading page up until the game
+  calls `window.tetherReady` (its ring fills to `WEB_HANDOFF`, the game's ring goes on from there).
+  `icons/splash.png` is kept for the store/icon set but no longer shows at launch.
+- Menu look ("Roadbook", chosen by Guillaume 2026-11-11): every menu screen, panel and overlay is a page
+  of a rally co-driver's notebook, built from `scripts/paper.gd` (cream ruled `Sheet`, navy `INK`, white
+  index cards, tape, stamps, tulip bend diagrams, grey marker). On paper, write in `Paper.INK` (the main
+  button's block shadow is `Paper.SHADE`) and coin amounts in `Paper.COIN_INK`; `Paper.ink_of()` darkens a HUD colour for paper. The race HUD and the
+  full-screen award / world-unlock shows stay dark. Containers lay out every child, so tape on a
+  container is drawn with `Paper.draw_tape()` in a `draw` callback, not added as a `Tape` child.
+  The page lies on the desk: a slight tilt, the live world visible round it (home is a smaller sheet
+  with the Track of the day as a separate photo). Handwritten notes use `Paper.note()` (Caveat, black
+  pen / pencil grey / red) for asides only, never for something you must read to play. Motion is
+  paper-like: pages slide in (`_land` in `menu.gd`), marker strokes draw on, medals are stamped
+  (`Stamp.thump()`). The in-race pause page stays short (Guillaume, 2026-11-13: it was too busy): where you
+  are, Menu / Restart / Resume and one Settings button; options live on the pause Settings page, never on
+  the pause page itself. Any full-screen container laid over buttons must have
+  `mouse_filter = MOUSE_FILTER_IGNORE`, or it eats their taps (the home bookmarks broke that way).
+- Campaign progression: you need Gold (or Pivot) to advance. Gold on an event opens the next one;
+  Gold on all 12 events finishes a world (`Campaign.cleared`, `Campaign.GOLD`). Finished worlds are
+  saved as `done_<theme>` flags, so a stricter rule never re-locks a world; an event that already
+  has a medal stays playable. Covered by `tests/economy_test.gd`.
+- World colour on paper (Guillaume, 2026-11-14: the Road Trip page "looked sad"): colour on the
+  menus comes from content, never from a UI accent. A world's own colours are `Menu.WORLD_TINT`
+  (pale tab) and `Menu.WORLD_INK` (its marker band and its photo tape, `Menu.world_tape()`);
+  medals are stamped filled in their metal (`Menu.medal_stamp()`, `Stamp.fill`). Colour stays in
+  touches: no full background of world colour behind a page's content (Guillaume tried it on the
+  Road Trip events and didn't like it, 2026-11-14).
+  Landscape on a phone (~800 logical px wide) gets one column of stops: two cut the names.
+- Road Trip screens (Guillaume, 2026-11-14): the world select (taped photos) is the only way to change
+  world; a world's stops page has no world tabs. A tap on a stop starts its race at once: no page,
+  panel or target times per stop (the medal stamped on the line says enough). After a race the list
+  scrolls back to that stop (`ev`). The stand-alone event page (`show_event`) is only for Special
+  Stages, Two for the Road and the Daily Detour.
+  Covered by `tests/swipe_test.gd`.
+- Time attack tracks (Guillaume, 2026-11-13): a track is open in Time attack once a campaign event on
+  it is unlocked (`Campaign.attack_tracks()`); shut ones are greyed with a padlock and skipped by the
+  swipe. Tracks raced before the rule were kept as `[attack]` flags (`attack_gate`). So every track
+  must appear in some campaign event, or it can never open (`tests/attack_unlock_test.gd` checks).
+  2-player races and the Track of the day ignore the lock. A menu test that needs every track open
+  sets those flags in memory (see `tests/swipe_test.gd`).
+- Time attack is the Standard layout only (Guillaume, 2026-11-13): one record and one ghost per
+  track. Reverse / Obstacles / Collect live in campaign events and the Track of the day (whose
+  `kind` is not "attack"); 2-player races keep all four (`Menu.variants_for()`). The world is one
+  chip in the track screen's header that steps through opened worlds (`_world_chip`), not a grid.
+  Its list cards are the road and its name, with the Standard medal once won (`Menu.attack_medal()`).
+  Covered by `tests/time_attack_test.gd`.
+- Off the Map (Guillaume, 2026-11-14): a custom run (any track, world, mode, layout, lap count,
+  rival level), reached from a small taped paper scrap on the home page ("off the map", under the
+  Track of the day photo in landscape, at the page foot in portrait), not a numbered line.
+  Nothing is locked there, and nothing is saved from it: no record, ghost, medal, coin, award or
+  Daily Detour (`main.gd` `free_run`; the event's `kind` is "custom"). Anything new that saves or
+  pays after a run must skip a free run too. Picks are kept in settings (`Menu.custom_picks()`).
+  Covered by `tests/custom_game_test.gd`. In `main.gd`, never name a member `free`: it shadows
+  `Object.free()` and the script fails to parse.
+- Race vs Time trial scoring: a Race is won by the first car over the line; time penalties (+1 s per
+  post, +0.25 s per missed gem) only exist in Time trial (`Race.OBS_PEN`, `TOKEN_PEN`). Anything that
+  says where the player finished (results title, HUD position, medal) reads `Race.result()` /
+  `standings()`, never its own sort. Covered by `tests/race_results_test.gd` (the Twin Bend case).
+- Tether: fixed length, set by the distance to the tower at the moment of hooking. It never
+  shortens (no ratchet, no reel-in) and never pays out; hooked early, the rope hangs slack until the
+  car swings out to that length. Grab timing alone sets the line. After changing the driving rules,
+  rerun `tools/gen_medals.gd` (then `tools/gen_gold_ghosts.gd`) and bump `LAYOUT_VERSION` in `scripts/records.gd` (old times were set
+  under the old rules). The bump drops best times and ghosts only: medals live in their own keys
+  (`medal_trial`, `medal_race` in `records.cfg`), so anything a player earned must be saved as its
+  own value, never only worked out from a time the bump erases.
+- Bridges (Guillaume, 2026-11-13): the stretch of deck right above the lane below is a see-through
+  window in the world's material (clear ice, timber planks, carved lattice, steel grating), so a car
+  under a bridge never vanishes; visual only (`_window_spans`, `_window_mat` in `world_view.gd`).
+  `track.bridges[k]["under"]` is not always the lower road (the height solver can swap levels):
+  compare `height_at` of both passes, as `WorldView._crossings()` does.
+- The race camera stays fairly top-down (68°) while the player steers, so lines through bends stay
+  readable. Low cinematic shots (`WorldView.CINE_SHOTS`, picked in `main.gd` `_pick_shot`) are only
+  for moments nobody steers: countdown, finish/results, the tutorial's cards and frozen bends.
+  After a finish the cars drive on behind the results (AI drives the player's car; their events
+  are dropped except skids/sparks) and the results panel sits to one side so the chase cam shows it.

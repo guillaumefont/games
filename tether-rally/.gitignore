@@ -1,0 +1,9 @@
+# Godot
+.godot/
+/build/
+*.tmp
+export_credentials.cfg
+# Android
+/android/
+__pycache__/
+override.cfg

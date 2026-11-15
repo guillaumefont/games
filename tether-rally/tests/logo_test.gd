@@ -1,0 +1,91 @@
+extends SceneTree
+# The medal logo (Guillaume, 2026-11-14): one drawing in scripts/logo_art.gd feeds the app
+# icons, the web loading page, the menu header and the loading screen's emblem and ring.
+const Logo = preload("res://scripts/logo_art.gd")
+const Art = preload("res://scripts/menu_art.gd")
+
+var bad := 0
+
+func fail(msg: String) -> void:
+	bad += 1
+	printerr(msg)
+
+func _img(svg: String) -> Image:
+	var img := Image.new()
+	if img.load_svg_from_string(svg) != OK:
+		return null
+	return img
+
+func _init() -> void:
+	# every icon kind draws
+	for kind in ["icon", "square", "background", "foreground", "monochrome"]:
+		var img := _img(Logo.icon_svg(kind, 128))
+		if img == null or img.get_size() != Vector2i(128, 128):
+			fail("icon kind %s does not draw" % kind)
+		elif img.is_invisible():
+			fail("icon kind %s is empty" % kind)
+	# no background behind the logo (Guillaume, 2026-11-14): the icon's corners are clear, and
+	# where an icon must be opaque it is one flat colour, not a scene
+	var ic := _img(Logo.icon_svg("icon", 128))
+	if ic != null and (ic.get_pixel(3, 3).a > 0.01 or ic.get_pixel(124, 124).a > 0.01):
+		fail("the icon has a background behind the medal")
+	var bg := _img(Logo.icon_svg("background", 64))
+	if bg != null:
+		var c0 := bg.get_pixel(0, 0)
+		for p in [Vector2i(32, 32), Vector2i(63, 63), Vector2i(10, 50)]:
+			if not bg.get_pixel(p.x, p.y).is_equal_approx(c0):
+				fail("the adaptive background is not one flat colour")
+				break
+	# the project icon and the launcher icons come from the medal, not an old hand edit
+	if FileAccess.get_file_as_string("res://icon.svg").strip_edges() != Logo.icon_svg("icon", 128):
+		fail("icon.svg is out of date: run tools/gen_icons.gd")
+	var fg := Image.load_from_file("res://icons/adaptive-foreground-432.png")
+	if fg == null or fg.get_size() != Vector2i(432, 432):
+		fail("launcher foreground missing")
+	else:
+		# the medal fills the launcher's visible circle (72 of 108 dp; Guillaume, 2026-11-14): the
+		# cream frame reaches past its edge, the corners (cut off by every mask) stay clear
+		if fg.get_pixel(40, 40).a > 0.01 or fg.get_pixel(392, 392).a > 0.01:
+			fail("launcher foreground fills the corners")
+		var edge := 216 - int(432.0 * 33.3 / 100.0) + 2
+		if fg.get_pixel(216, edge).a < 0.99 or fg.get_pixel(edge, 216).a < 0.99:
+			fail("launcher foreground does not reach the visible edge: the dark ring is back")
+		# the medal's frame is cream at its edge, its disc dark inside
+		var frame := fg.get_pixel(216, 216 - int(37 * Logo.ADAPTIVE_SCALE * 4.32))
+		if frame.get_luminance() < 0.6:
+			fail("launcher foreground: the frame is not cream (%s)" % frame.to_html())
+		if fg.get_pixel(216, 216 - int(25 * Logo.ADAPTIVE_SCALE * 4.32)).get_luminance() > 0.3:
+			fail("launcher foreground: the disc is not dark")
+	# the adaptive background is the frame's cream, so no dark ring shows round the medal
+	var abg := Image.load_from_file("res://icons/adaptive-background-432.png")
+	if abg == null or abg.get_pixel(5, 5).get_luminance() < 0.75:
+		fail("launcher background is not the cream: run tools/gen_icons.gd")
+	# the frame texture the game draws is the right size, dark in the middle, cream at the rim
+	var tex := Logo.medal_frame(200)
+	var fi := tex.get_image()
+	if fi.get_size() != Vector2i(200, 200):
+		fail("medal frame texture size %s" % fi.get_size())
+	elif fi.get_pixel(100, 100).get_luminance() > 0.25 or fi.get_pixel(100, 100 - 74).get_luminance() < 0.6:
+		fail("medal frame: disc not dark or rim not cream")
+	# the launcher icons live in the APK, not the game data: a new icon must make installed test
+	# APKs offer the new APK ("the icon that didn't change" case, 2026-11-14: the medal reached
+	# phones through a data update while the launcher kept the old icon)
+	var ci := FileAccess.get_file_as_string("res://.github/workflows/build.yml")
+	var fp_line := ""
+	for line in ci.split("\n"):
+		if line.strip_edges().begins_with("fp=$("):
+			fp_line = line
+	for want in ["icons/icon-192.png", "icons/adaptive-"]:
+		if not fp_line.contains(want):
+			fail("build.yml's SHELL fingerprint does not hash %s" % want)
+	# the web loading page draws the same medal, its car on the orbit
+	var shell := FileAccess.get_file_as_string("res://web/shell_template.html")
+	for want in ["the medal logo", "id=\"orbit\"", "id=\"ring\"", "r=\"34.5\""]:
+		if not shell.contains(want):
+			fail("web/shell_template.html lacks %s" % want)
+	var built := FileAccess.get_file_as_string("res://web/shell.html")
+	if not built.contains("the medal logo"):
+		fail("web/shell.html is out of date: run tools/gen_web_shell.gd")
+	if bad == 0:
+		print("logo_test: OK")
+	quit(1 if bad > 0 else 0)

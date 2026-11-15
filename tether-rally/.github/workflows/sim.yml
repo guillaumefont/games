@@ -1,0 +1,82 @@
+name: Headless sim
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Godot
+        run: |
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q godot.zip
+          mv Godot_v4.7.2-stable_linux.x86_64 godot
+      - name: Import project
+        run: ./godot --headless --path . --import
+      - name: Tracks build and AI finishes every track and variant
+        run: ./godot --headless --path . --script tests/sim_test.gd
+      - name: Bends stay level (bridge ramps only on straights)
+        run: ./godot --headless --path . --script tests/levels_test.gd
+      - name: Hooking picks the tower of the current bend
+        run: ./godot --headless --path . --script tests/hook_test.gd
+      - name: Menu swipe and tap test
+        run: ./godot --headless --path . --script tests/swipe_test.gd
+      - name: Home bookmark tabs stay on screen on a phone
+        run: ./godot --headless --path . --script tests/home_tabs_test.gd
+      - name: Launch goes straight onto the loading screen
+        run: ./godot --headless --path . --script tests/boot_test.gd
+      - name: Pause menu and its Settings page
+        run: ./godot --headless --path . --script tests/pause_test.gd
+      - name: Cars never stay pinned on the road edge
+        run: ./godot --headless --path . --script tests/wall_test.gd
+      - name: Tutorial can be finished
+        run: ./godot --headless --path . --script tests/tutorial_test.gd
+      - name: Garage items are well formed and looks only
+        run: ./godot --headless --path . --script tests/cosmetics_test.gd
+      - name: Baked car ambient occlusion matches every vehicle
+        run: ./godot --headless --path . --script tests/car_ao_test.gd
+      - name: Coins, Track of the day, awards and progress reset
+        run: ./godot --headless --path . --script tests/economy_test.gd
+      - name: Ads, Store and monetization stubs (rewards, caps, full-screen pacing, No ads)
+        run: ./godot --headless --path . --script tests/monetization_test.gd
+      - name: Rewarded-ad offers on the results (x2 coins)
+        run: ./godot --headless --path . --script tests/results_offers_test.gd
+      - name: Play store preset never carries preview or self_update
+        run: ./godot --headless --path . --script tests/store_build_test.gd
+      - name: Medals are saved and shown (race wins, layout bumps)
+        run: ./godot --headless --path . --script tests/medals_test.gd
+      - name: Race results follow the finish line (Twin Bend case)
+        run: ./godot --headless --path . --script tests/race_results_test.gd
+      - name: Time attack tracks open with the campaign
+        run: ./godot --headless --path . --script tests/attack_unlock_test.gd
+      - name: Time attack is Standard only, one world chip
+        run: ./godot --headless --path . --script tests/time_attack_test.gd
+      - name: Off the Map custom run (hidden link, every pick open, nothing saved)
+        run: ./godot --headless --path . --script tests/custom_game_test.gd
+      - name: No blue accent in the UI or icon (Ice Blue case)
+        run: ./godot --headless --path . --script tests/colours_test.gd
+      - name: Medal logo feeds the icons, web page and game
+        run: ./godot --headless --path . --script tests/logo_test.gd
+      - name: Traveller names, no old arcade names
+        run: ./godot --headless --path . --script tests/names_test.gd
+      - name: Award medallions all draw
+        run: ./godot --headless --path . --script tests/award_anim_test.gd
+      - name: Rival tiers are balanced
+        run: ./godot --headless --path . --script tests/rivals_test.gd
+      - name: Obstacles stay off the racing line
+        run: ./godot --headless --path . --script tests/obstacles_test.gd
+      - name: Cinematic camera test
+        run: ./godot --headless --path . --script tests/camera_test.gd
+      - name: Engine sounds test
+        run: ./godot --headless --path . --script tests/engine_test.gd
+      - name: Under a bridge the car stays in sight
+        run: ./godot --headless --path . --script tests/underpass_test.gd
+      - name: Road Trip pages wear their world colour
+        run: ./godot --headless --path . --script tests/road_trip_colour_test.gd
+      - name: Test builds update themselves (game data, APK offer, safe launch)
+        run: ./godot --headless --path . --script tests/self_update_test.gd

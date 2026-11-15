@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+<meta name="theme-color" content="#06121b">
+<title>$GODOT_PROJECT_NAME</title>
+<style>
+html, body, #canvas { margin: 0; padding: 0; border: 0; }
+body { color: #e6f1f8; background-color: #06121b; overflow: hidden; touch-action: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#canvas { display: block; }
+#canvas:focus { outline: none; }
+/* Tether Rally loading page: dusk artwork, the animated medal logo (its ring is the
+   progress indicator, the same drawing as the in-game loading screen), the wordmark and a tip */
+#status { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; visibility: hidden; transition: opacity 0.4s;
+  background: linear-gradient(to bottom, rgba(13,34,51,0.85) 0%, rgba(13,34,51,0) 48%, rgba(6,18,27,0) 55%, rgba(6,18,27,0.92) 100%),
+    url("data:image/jpeg;base64,__ART__") center 12% / cover no-repeat, #06121b; }
+#brand { --w: min(78vw, 52vh, 560px); width: var(--w); margin-top: 5vh; display: flex; flex-direction: column; align-items: center; }
+#emblem { width: calc(var(--w) * 0.42); height: auto; overflow: visible; }
+#logo { width: var(--w); margin-top: calc(var(--w) * 0.03); }
+#bottom { width: min(86vw, 420px); margin-bottom: 6vh; text-align: center; }
+#title { color: #f3efe6; font-weight: 800; letter-spacing: 0.08em; font-size: 15px; margin-bottom: 6px; }
+#tip { font-size: 14px; line-height: 1.35; text-shadow: 0 1px 2px rgba(0,0,0,0.6); min-height: 2.7em; }
+/* emblem parts, in a 240 x 240 box centred on the tower */
+#orbit { animation: orbit 3.927s linear infinite; }           /* 1.6 rad/s, like the game */
+@keyframes orbit { to { transform: rotate(360deg); } }
+#ring { transform: rotate(-90deg); transition: stroke-dashoffset 0.3s ease-out; }
+#ring.spin { stroke-dasharray: 22 78; animation: ringspin 1.5s linear infinite; transition: none; }
+@keyframes ringspin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+#head { transform: rotate(-90deg); transition: transform 0.3s ease-out; }
+#head circle:first-child { animation: pulse 0.8s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: 0.25; } to { opacity: 0.55; } }
+#ring.spin + #head { display: none; }
+#notice { display: none; margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(169,52,42,0.9);
+  font-size: 14px; white-space: pre-line; }
+</style>
+$GODOT_HEAD_INCLUDE
+</head>
+<body>
+<canvas id="canvas">Your browser does not support the canvas tag.</canvas>
+<noscript>Your browser does not support JavaScript.</noscript>
+<div id="status">
+  <div id="brand">
+    <svg id="emblem" viewBox="-120 -120 240 240" role="progressbar" aria-label="Loading">
+      <!-- the medal logo (scripts/logo_art.gd), 2.25 px per logo unit: ring at 48, frame at 40 -->
+      <defs><linearGradient id="fm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbf8f1"/><stop offset=".5" stop-color="#e3dccb"/><stop offset="1" stop-color="#a39c8c"/></linearGradient>
+        <radialGradient id="fd" cx=".5" cy=".35" r=".75"><stop offset="0" stop-color="#1f3a45"/><stop offset="1" stop-color="#081822"/></radialGradient></defs>
+      <circle r="108" fill="none" stroke="rgba(243,239,230,0.22)" stroke-width="3"/>
+      <circle id="ring" class="spin" r="108" fill="none" stroke="#f3efe6" stroke-width="7" stroke-linecap="round"
+        pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="100"/>
+      <g id="head"><circle cx="108" r="6.6" fill="#f3efe6" fill-opacity="0.4"/><circle cx="108" r="4.2" fill="#f3efe6"/></g>
+      <g transform="scale(2.25)">
+        <circle cy="2.5" r="40" fill="#000" fill-opacity=".35"/><circle r="40" fill="url(#fm)"/><circle r="34.5" fill="url(#fd)"/>
+        <circle r="31.5" fill="none" stroke="#f3efe6" stroke-opacity=".5" stroke-width=".8"/>
+        <g id="orbit">
+          <g fill="none" stroke="#f3efe6" stroke-linecap="round"><path d="M 4.01 -14.97 A 15.5 15.5 0 0 1 13.42 -7.75" stroke-opacity="0.55" stroke-width="2"/><path d="M -7.18 -19.73 A 21 21 0 0 1 18.19 -10.50" stroke-opacity="0.9" stroke-width="3"/><path d="M 6.86 -25.60 A 26.5 26.5 0 0 1 22.95 -13.25" stroke-opacity="0.55" stroke-width="2"/></g>
+          <line x2="21" stroke="#f2b134" stroke-width="2.4" stroke-linecap="round"/>
+          <g transform="translate(21 0) rotate(90) scale(1.45)"><rect x="-8.6" y="-5.6" width="3.4" height="2.0" fill="#15191e"/><rect x="4.4" y="-5.6" width="3.4" height="2.0" fill="#15191e"/><rect x="-8.6" y="3.6" width="3.4" height="2.0" fill="#15191e"/><rect x="4.4" y="3.6" width="3.4" height="2.0" fill="#15191e"/><rect x="-9.0" y="-4.6" width="18.0" height="9.2" fill="#c98a1c"/><rect x="-8.6" y="-4.2" width="17.0" height="7.6" fill="#f2b134"/><rect x="-1.2" y="-3.6" width="6.4" height="7.2" fill="#f7c85a"/><rect x="4.6" y="-3.2" width="2.0" height="6.4" fill="#1a2330"/><rect x="-3.4" y="-3.0" width="1.4" height="6.0" fill="#1a2330"/><rect x="8.2" y="-3.6" width="1.0" height="1.6" fill="#fff4c8"/><rect x="8.2" y="2.0" width="1.0" height="1.6" fill="#fff4c8"/></g>
+        </g>
+        <circle cy="1.35" r="7.5" fill="#000" fill-opacity=".35"/><circle r="7.5" fill="#f3efe6"/><circle r="4.65" fill="#cfc8b8"/><circle r="2.25" fill="#2a2f36"/>
+      </g>
+    </svg>
+    <img id="logo" alt="Tether Rally" src="data:image/png;base64,__LOGO__">
+  </div>
+  <div id="bottom">
+    <div id="title">LOADING</div>
+    <div id="tip"></div>
+    <div id="notice"></div>
+  </div>
+</div>
+<script src="$GODOT_URL"></script>
+<script>
+const GODOT_CONFIG = $GODOT_CONFIG;
+const engine = new Engine(GODOT_CONFIG);
+(function () {
+  const TIPS = [
+    "Hook the tower as you enter the bend, let go when your nose points down the exit.",
+    "Rubbing the rail cuts your throttle. Let go a touch earlier to stay off it.",
+    "Every bend has its own tower. The rope keeps its length, so grab timing sets your line.",
+    "After you let go the car slides a little on the ice. Aim for it.",
+    "Beat a medal time to unlock the next campaign event.",
+  ];
+  const status = document.getElementById("status");
+  const ring = document.getElementById("ring");
+  const head = document.getElementById("head");
+  const emblem = document.getElementById("emblem");
+  // the emblem's ring fills clockwise from the top; without a known size it spins instead
+  function progress(f) {
+    ring.classList.remove("spin");
+    ring.style.strokeDashoffset = String(100 - f * 100);
+    head.style.transform = "rotate(" + (-90 + 360 * f) + "deg)";
+    emblem.setAttribute("aria-valuenow", String(Math.round(f * 100)));
+  }
+  const notice = document.getElementById("notice");
+  document.getElementById("tip").textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
+  status.style.visibility = "visible";
+
+  let handedOver = false;
+  window.tetherReady = function () {
+    if (handedOver) return;
+    handedOver = true;
+    status.style.opacity = "0";
+    setTimeout(function () { status.style.visibility = "hidden"; }, 450);
+  };
+
+  function fail(err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.error(msg);
+    ring.classList.remove("spin");
+    ring.style.stroke = "#a9342a";
+    ring.style.strokeDashoffset = "0";
+    head.style.display = "none";
+    notice.style.display = "block";
+    notice.textContent = msg;
+    engine.unload && engine.unload();
+  }
+  // this build runs without threads, so it needs no cross-origin isolation
+  const missing = Engine.getMissingFeatures({ threads: false });
+  if (missing.length !== 0) {
+    fail("Your browser is missing features this game needs:\n" + missing.join("\n"));
+    return;
+  }
+  engine.startGame({
+    onProgress: function (current, total) {
+      if (current > 0 && total > 0) {
+        // the download fills the first half of the ring; the game's own loading screen
+        // picks up at half (main.gd WEB_HANDOFF) and fills the rest
+        progress(Math.max(0.04, Math.min(1, current / total)) * 0.5);
+      } else {
+        ring.classList.add("spin");
+      }
+    },
+  }).then(function () {
+    // the engine is up; keep this page until the game has drawn its own loading screen
+    // (main.gd calls window.tetherReady), so nothing shows in between the two
+    progress(0.5);
+    setTimeout(window.tetherReady, 15000);   // safety net if that call never comes
+  }, fail);
+}());
+</script>
+</body>
+</html>
