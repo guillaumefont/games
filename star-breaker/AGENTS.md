@@ -1,0 +1,216 @@
+# Notes for coding agents
+
+Star Breaker is an original low poly 3D side-scrolling shooter in Godot 4.7, in the genre of
+R-Type II but with all-original content: never use R-Type names, art, enemies or levels.
+Guillaume wants a modern mobile-game look (glass HUD, bloom, Rubik font), not retro.
+Controls (2026-11-13): one Fire action (tap = heavy shot, hold = rapid fire) and Charge; on touch
+the right side is one vertical stack, bottom up: Fire, Charge, Pod (2026-11-14).
+
+## Pull requests
+
+- **Merging (rule from Guillaume, 2026-11-13):** agents may merge their own PRs into `main` as
+  soon as CI is green (the **Headless test** and **Builds** workflows). Don't merge on red, and
+  never skip or disable a test to get green.
+- Every PR body lists its preview builds near the top, under a `## Preview` heading:
+
+  ```
+  ## Preview
+  - Play in the browser: https://guillaumefont.github.io/star-breaker/pr/<N>/
+  - Android APK: https://guillaumefont.github.io/star-breaker/pr/<N>/star-breaker.apk
+  ```
+
+  The **Builds** workflow publishes them on every push to the PR and deletes them when it
+  closes. `main` is at https://guillaumefont.github.io/star-breaker/ (needs Settings > Pages >
+  Source = GitHub Actions).
+- All APKs share one app id (`io.github.guillaumefont.starbreaker`) and one test keystore
+  (`.github/android/debug.keystore`), so a PR build installs over the `main` build.
+
+## Keeping this file up to date
+
+- When you learn something a future agent would need (a convention, a gotcha, a check to run),
+  add it here in your PR. Keep entries short and lasting. Say what you added under an
+  `## AGENTS.md` heading in the PR body and mention it in your reply to Guillaume.
+
+## Tests
+
+- Every change comes with a test of what it should do; a bug fix gets a regression test.
+- A new test file gets a step in `.github/workflows/test.yml` and a line below.
+- Test logic headlessly by calling `main.update()` / `main._process()` directly with physics and
+  process turned off (see `tests/play_test.gd`); `main.warp(x)` jumps the stage forward.
+
+## Checks to run before pushing
+
+```
+godot --headless --path . --import
+godot --headless --path . --script tests/play_test.gd    # world 1: weapons, pod, enemies, gates, boss, world 2 starts, continue
+godot --headless --path . --script tests/campaign_test.gd # worlds 2-4: enemies, tunnels, gates, walls, bosses, ending
+godot --headless --path . --script tests/menu_test.gd     # main menu, Normal and Endless modes, bests, quit to menu
+godot --headless --path . --script tests/touch_test.gd   # floating stick and invisible touch zones
+godot --headless --path . --script tests/audio_test.gd   # songs build on the main thread, sound effects exist
+godot --headless --path . --script tests/screen_test.gd  # crash report, safe graphics, wide and narrow screens
+godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
+godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
+godot --headless --path . --script tests/fort_test.gd    # fortress decoration: draw calls, back wall, corridor kept clear
+godot --headless --path . --script tests/balance_test.gd # power-up spacing, losing the pod on death, pod ram, late worlds
+godot --headless --path . --script tests/pods_test.gd    # second pod at the back, one tap launches/recalls both, death drops one
+```
+
+Screenshots (needs a display, e.g. `xvfb-run -a`):
+`godot --path . --rendering-method gl_compatibility --script tools/screenshots.gd -- /tmp/shots`
+Close-ups of the player ship and pod (side, three-quarter, top, rear, pod launched):
+`godot --path . --rendering-method gl_compatibility --script tools/ship_shots.gd -- /tmp/ship`
+Hulls are lofted with `Geo.loft()` (cross-sections along X) and baked with `Geo.build_wound()`;
+the pod model spins on its `spin` child around X, the root only turns it to face backwards.
+
+## Main menu
+
+- Design "A, Hero ship" (Guillaume's pick, 2026-11-15): the real ship with its pod docked at
+  the nose hangs off the camera on the right (`main._add_menu_ship()`, shown only in `title`),
+  and the left column has the logo, a big gradient Play button (the campaign) and a smaller
+  Endless button. Keep the left side for UI and the right for the ship on every screen shape.
+
+## App icon
+
+- Icon (Guillaume's pick 2026-11-15, after many rounds): the game's crystal pod at a three
+  quarter angle (ring and pink shards) with the ship docked behind it at true scale (only its
+  nose and cockpit show), the group pulled back and moved right (`ZOOM`, `SHIFT` in
+  tools/icon.py), on a dark violet gradient with white warp lines along the flight: ten lines in
+  evenly spaced lanes, listed in `WARP` (30 random ones were "too clustered"; thin white streaks
+  were rejected). He wants it clean: no frame, no scenery, no clutter, and a preview picture of
+  every icon change before it ships.
+- Two steps: `tools/icon_shots.gd` renders the game's own models to `store/pod.png` (pod alone)
+  and `store/ship-pod.png` (ship and pod on a 3x wider canvas, same projection); rerun after
+  changing a model:
+  `xvfb-run -a -s "-screen 0 3200x3200x24" godot --path . --rendering-method gl_compatibility --resolution 3072x3072 --script tools/icon_shots.gd`,
+  then `python3 tools/icon.py` (Pillow) rewrites `icon.png` (project icon and web favicon),
+  `icons/` (launcher icon and adaptive background, foreground and monochrome layers) and
+  `store/icon-512.png`. Commit the PNGs; CI runs neither.
+- A launcher icon lives in the APK, not the game pack: a new icon only shows after installing
+  a new APK.
+
+## Self-update (Android)
+
+- The main scene is `scenes/boot.tscn` (`scripts/boot.gd`): at launch it fetches `update.json`
+  from Pages and, if a newer build was made for the same **shell**, downloads
+  `star-breaker.pck` (the whole game, ~200 KB), checks its SHA-256 and loads it over the bundled
+  game with `ProjectSettings.load_resource_pack()`. No reinstall needed.
+- The shell id (set by CI) hashes what a pack can't change: Godot version, `project.godot`,
+  `export_presets.cfg` and the updater (`boot.gd`, `boot.tscn`). Editing any of those makes
+  the app offer a new APK download instead, so avoid needless changes to them.
+- `boot.gd` must not use any game class (`Diag`, `Hud`, ...): touching one before the pack
+  loads would keep the bundled version. Tests and tools load `scenes/main.tscn` directly.
+- PR APKs follow `pr/N/update.json`, then main once the preview is gone.
+- The menu's build line (`hud.btn_build`) shows the running build and, after a quiet check of
+  `update.json`, "New build N". Tapping it restarts the game (`main.refresh_game()`): on
+  Android `OS.set_restart_on_exit()` + `quit()` relaunches the app (Godot's activity rebirth),
+  so boot.gd's launch check loads the newest pack; the web page just reloads. A pack can't be
+  swapped in without a restart: scripts already loaded stay cached.
+
+## Main menu and modes
+
+- The title screen is the main menu: two mode cards, **Normal** (the campaign, ends on the
+  ending screen) and **Endless** (`G.mode == "endless"`: after world 4 it loops to world 1
+  with `G.lap += 1`, never shows the ending). `diff()` adds 2 per lap; `bm()` is capped at `BM_MAX` (1.9).
+- Each mode has its own best (`bests`, saved as `best` and `best_endless`); `hiscore` mirrors
+  the mode being played. The last mode played is saved and preselected.
+- Keyboard/gamepad move the selection (`hud.select_mode`), Enter/Fire plays it; on touch only a
+  tap on a card starts (`hud.card_at`), other menus still take a tap anywhere.
+- Menu screenshots: `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 2400x1080 --script tools/menu_shots.gd -- /tmp/menu`
+
+## Campaign (worlds)
+
+- `scripts/worlds.gd` holds the six worlds: palette, terrain (cave noise plus tunnel and
+  fortress sections), level script, boss and songs. Levels are ~7300 units (4 minutes). Worlds
+  1, 2, 4 and 6 start with a hand-written first half; everything after it (and all of worlds 3
+  and 5) comes from `_sections()`: fortress rooms (`_fort_room`) inside `terrain.forts`, enemy
+  groups from the world's `pool` elsewhere, seeded so each level is always the same.
+- Fortress terrain is stepped (`fort_h`, steps of `STEP` units with an 8-unit ramp matching the
+  terrain mesh grid) and drawn as plating (`fort_a`/`fort_b`/`fort_light`, recoloured per world).
+  Towers and locked gates are gates (`add_gate` modes "tower" and "locked"); a locked gate
+  opens once no `generator` with its key is alive. Terrain heights come from `Worlds.heights(world, wx)`; a level
+  script entry with `y < 0` spawns on the corridor centre line, so waves fit inside tunnels.
+- Chunks are built and freed `chunk_pad()` beyond the play plane edges, sized for the deepest
+  plane (`FortDeco.BACK_Z`): anything placed deeper needs that constant moved or it pops in.
+- Fortress decoration (Guillaume's pick, 2026-11-14: option "C", dressed plating plus a dark back
+  wall with lit windows) is `scripts/fort_deco.gd`, built with each fortress chunk and merged into
+  one mesh per material (at most 7 draw calls a chunk). Visual only: anything in front of z = -10
+  must stay inside the rock (`fort_test.gd` checks it; ramps are where things poke out). Each
+  world's themed panel and prop come from its `fdeco` field. Review shots of every world's
+  fortress: `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 1600x720 --script tools/fort_shots.gd -- /tmp/forts`
+- Gates (`G.gates`) and breakable walls (`block` enemies) are solid: `in_wall()` covers rock and
+  gate pillars. Free fliers (`FLYERS` in `main.gd`) are clamped inside the corridor.
+- Bosses of worlds 2-4 share one parts system (`spawn_gboss` / `update_gboss`): each part has
+  hp and a hit radius, `armour` parts deflect shots, the `core` part kills the boss. The Bloom
+  Mother keeps its own code.
+- Switching worlds only recolours shared materials and the environment (`apply_world`), so it
+  builds no new GPU pipelines. New world materials go in `Models.M`; `_warm_up()` draws every
+  entry of `Models.M` plus every model, so add new models there too.
+- `Sfx.music()` always stops the player before swapping songs and logs a `MUSIC` breadcrumb, so
+  a crash report shows which song change it died on.
+
+## Balance (2026-11-14)
+
+- Guillaume found the game too easy once the pod and lasers were picked up early. Power-ups
+  now come at most once per `Worlds.DROP_GAP` (~45 s): `_thin_drops()` drops extra carriers
+  after the level is built (so the seeded layout stays the same) and hands out `DROP_ORDER`
+  (pod, laser, speed, laser).
+- Losing a ship resets the lasers, costs a speed step and drops the pod as a P item that
+  drifts away (fly through it to dock it again). The pod rams for 1 damage every
+  `POD_RAM_CD` ticks; the spread's angled shots never do heavy damage.
+- Two pods (2026-11-15): a P item with one pod docked gives `pod2`, docked on the free side
+  (the tail). Loop over `pods` for anything a pod does. One Pod tap recalls any pod in flight,
+  otherwise launches every docked pod. Losing a ship drops only one P item (the second pod is
+  gone), and with one P carrier per world the second pod comes in world 2 at the earliest.
+- Enemies get +20% hit points and +10% bullet speed per world (`diff()`), capped at `BM_MAX`.
+
+## Charge lance
+
+- Charge stages (2026-11-14): `CHARGE_AT` in `main.gd` holds the ticks for LV 1-3 and the Nova
+  (stage 4, 4 s, `CHARGE_MAX`). The HUD meter notches come from `Hud.CHARGE_TICKS`: keep the
+  two in step. The Nova beam has `nova = true` and burns enemy bullets it overlaps.
+- Look (Guillaume, 2026-11-15, after many preview rounds): the laser and the charging ball stay
+  white at every level; only the strands are coloured. Strands per level are `STRANDS`: none at
+  LV 1, white at 2, cyan and white at 3, pink, cyan and white at the Nova. While charging, a
+  white laser ball sits at `beam_src()` with those strands coiled round it (`Geo.ball_coil`),
+  pulsing in out of phase (`sync_charge_fx`). With a pod docked in front there is no ball: the
+  pod spins up and the strands coil round it (`POD_COIL_R`). Releasing fires a
+  laser line (`line = true` in `G.pb`) to the first wall or the screen edge: it follows the ship
+  for `BEAM_LIFE` ticks and hits each enemy once, and fires corkscrew pulses of the same strands
+  (`Geo.helix`, each with a haze strand), staggered by `PULSE_LAG` so they leave out of phase.
+  He reviews looks as looping animations, not stills: render frames with
+  `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 1280x720 --script tools/charge_anim.gd -- /tmp/anim`
+  and assemble a GIF (Pillow); stills of every level: `tools/charge_shots.gd`.
+
+## Gotchas
+
+- Don't run GDScript on worker threads (`WorkerThreadPool`, `Thread`): song synthesis on a
+  worker thread was the suspected cause of the Android build crashing seconds after start-up.
+  Spread heavy work over frames on the main thread instead (see `scripts/audio.gd`).
+- The Android build still crashed a few seconds into a run after that. It runs fine on desktop
+  (debug and release templates, Mobile renderer), so the next suspects were Android-only paths:
+  sounds now use a pool of `AudioStreamPlayer`s (no `AudioStreamPolyphonic`) and stars are
+  MultiMesh quads (no GL point sprites). Keep it that way unless a phone test proves otherwise.
+- Crash reports from phones: `scripts/diag.gd` writes breadcrumbs to `user://diag.log` (a TICK
+  line every second, FIRST line for each new enemy/sound/effect). If the last session didn't end
+  with SUSPEND or QUIT, the title screen shows where it stopped with a "Copy crash report" button,
+  and safe graphics turn on (no glow/MSAA). Ask Guillaume for that report instead of guessing. Add `Diag.once()`
+  breadcrumbs to new features.
+- No looping `AudioStreamWAV` (`loop_mode`): the Android build crashed when the stage song first
+  hit its loop point. Songs restart from the player's `finished` signal instead.
+- Android uses the Compatibility (OpenGL ES) renderer: on Guillaume's Pixel (PowerVR GPU) the
+  Vulkan Mobile renderer hitched each time a new kind of object appeared and then crashed. An
+  `override.cfg` renderer switch was ignored there, so it is set in `project.godot`.
+- `_warm_up()` in `main.gd` draws every model and material once behind the title screen; add any
+  new model or material to it so its first appearance in a run doesn't hitch.
+- The game fills any screen (stretch aspect `expand`). Wider than 16:9, `xm` in `main.gd` is the
+  extra stage width visible on each side: spawn and culling positions must include it.
+- `tools/soak.gd` plays in real time with simulated touches and no invincibility; use it to look
+  for crashes: `godot --path . --script tools/soak.gd -- 40`.
+
+- UI is built in code: use `set_anchors_and_offsets_preset()`; plain `set_anchors_preset()`
+  keeps the old (zero) size.
+- Simulated touches in headless tests must go through `root.push_input(event, true)`; headless
+  window coordinates don't match the 1280x720 canvas.
+- Game logic runs in stage units (224 x 126, y down) at a fixed 60 ticks per second; `X()` /
+  `Y()` in `scripts/main.gd` map them to 3D.
+- GDScript can't infer types from Dictionary fields: write `var k: float = d.x * 2`, not `:=`.
