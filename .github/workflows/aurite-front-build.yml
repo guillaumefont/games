@@ -133,7 +133,7 @@ jobs:
           # the game pack (aurite-front.pck) of a newer build. A pack only fits the "shell" it was built
           # for: the engine, the project settings, the export preset, the updater and the launcher art.
           # Change any of them and installed games ask for the new APK instead.
-          shell=$( { echo "$GODOT_VERSION"; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png; } | sha256sum | cut -c1-16)
+          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png; } | sha256sum | cut -c1-16)
           site="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/aurite-front/"
           printf '{"build": %d, "name": "%s", "shell": "%s", "url": "%s", "main_url": "%s"}\n' "$BUILD" "$name" "$shell" "$site${PR:+pr/$PR/}" "$site" > build.json
           cat build.json

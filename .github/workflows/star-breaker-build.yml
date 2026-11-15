@@ -119,7 +119,7 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
-          shell=$( { echo "$GODOT_VERSION"; cat project.godot export_presets.cfg scripts/boot.gd scenes/boot.tscn; } | sha256sum | cut -c1-16)
+          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/boot.gd scenes/boot.tscn; } | sha256sum | cut -c1-16)
           base="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/star-breaker/"
           printf '\n[star_breaker]\n\nbuild=%s\nshell="%s"\nupdate_url="%s"\nupdate_fallback_url="%s"\n' \
             "$BUILD" "$shell" "$base${PR:+pr/$PR/}" "$base" >> project.godot

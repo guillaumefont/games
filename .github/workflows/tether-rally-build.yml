@@ -116,7 +116,7 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
-          fp=$( { echo "$GODOT_VERSION"; cat project.godot export_presets.cfg scripts/self_update.gd icons/icon-192.png icons/adaptive-*.png; } | sha256sum | cut -c1-16)
+          fp=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/self_update.gd icons/icon-192.png icons/adaptive-*.png; } | sha256sum | cut -c1-16)
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           channel="https://$owner.github.io/${GITHUB_REPOSITORY#*/}/tether-rally/${PR:+pr/$PR/}"
           {
