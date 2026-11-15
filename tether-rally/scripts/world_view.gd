@@ -1301,8 +1301,17 @@ func _prop_kit() -> Dictionary:
 # The UI is always drawn at full resolution. Tree count changes on the next track load.
 var quality := 2
 var effects_on := true
+# Low draws without shadows or MSAA, so every material needs other shader versions than
+# Medium and High; the first frame drawn in a new set compiles them all (a ~1-2 s freeze).
+# _drawn_sets remembers which sets this run has drawn, so main can cover that first switch.
+var _drawn_sets := {}
+static func shader_set(q: int) -> int:
+	return 0 if q <= 0 else 1
+func quality_compiles(q: int) -> bool:
+	return not _drawn_sets.has(shader_set(q))
 func set_quality(q: int) -> void:
 	quality = clampi(q, 0, 2)
+	_drawn_sets[shader_set(quality)] = true
 	effects_on = quality > 0
 	var sh := shadow_setup(quality)
 	light.shadow_enabled = sh["on"]
