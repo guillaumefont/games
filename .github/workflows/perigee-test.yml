@@ -1,0 +1,45 @@
+name: Perigee play test
+
+on:
+  pull_request:
+    paths:
+      - "perigee/**"
+      - ".github/workflows/perigee-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "perigee/**"
+      - ".github/workflows/perigee-*.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The runner image ships Google Chrome, so Playwright drives it instead of downloading its own
+      # Chromium (Playwright's browser installer refuses runner OS versions it doesn't know yet).
+      - name: Install Playwright
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund playwright@1.63.0
+          chrome=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -n "$chrome" ]; then echo "CHROME_PATH=$chrome" >> "$GITHUB_ENV"; "$chrome" --version
+          else "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium; fi
+      # Loads web/index.html offline in headless Chromium, lets a bot hop moons, then checks game
+      # over, the best score and restarting. The script's last line on success is PLAY TEST DONE.
+      - name: Play test
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          SHOT: ${{ runner.temp }}/perigee.png
+        run: |
+          node perigee/tests/play_test.cjs 2>&1 | tee "$RUNNER_TEMP/play.log"
+          grep -q "^PLAY TEST DONE" "$RUNNER_TEMP/play.log" || { echo "::error::The play test did not reach its end"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perigee-screenshot
+          path: ${{ runner.temp }}/perigee.png
+          if-no-files-found: ignore

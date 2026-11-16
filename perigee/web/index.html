@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#141634">
+<title>Perigee</title>
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;padding:0}</style>
+<style>
+/* Layout: one full-screen canvas, a thin HUD on top, centered overlay cards for start and game over. Single dark theme by choice (deep-space indigo). */
+:root{
+  --space:#141634; --space-2:#1d2150; --ink:#f3ecdf; --muted:#9aa0cf;
+  --coral:#ff8a6b; --sand:#f2c879; --teal:#6fd6c5; --lilac:#b49cff;
+  --display:"Unbounded", "Trebuchet MS", system-ui, sans-serif;
+  --body:"Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%;}
+[hidden]{display:none!important;}
+body{background:var(--space);color:var(--ink);font-family:var(--body);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
+#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;}
+.hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding-top:calc(10px + env(safe-area-inset-top,0px));padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));pointer-events:none;}
+.score{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;font-variant-numeric:tabular-nums;}
+.best{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:6px;}
+.mute{pointer-events:auto;background:transparent;border:1.5px solid rgba(243,236,223,.25);color:var(--ink);border-radius:999px;height:36px;padding:0 14px;font:700 12px var(--body);letter-spacing:.1em;text-transform:uppercase;}
+.mute:focus-visible{outline:2px solid var(--sand);outline-offset:2px;}
+.hint{position:fixed;left:0;right:0;bottom:calc(28px + env(safe-area-inset-bottom,0px));text-align:center;font-weight:700;font-size:15px;letter-spacing:.06em;color:var(--sand);pointer-events:none;transition:opacity .3s;padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));}
+.overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));pointer-events:none;background:rgba(20,22,52,.74);}
+.card{text-align:center;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:14px;}
+.title{font-family:var(--display);font-weight:800;font-size:clamp(40px,13vw,64px);letter-spacing:-.02em;line-height:1;margin:0;}
+.title span{color:var(--coral);}
+.sub{color:var(--muted);font-size:15px;line-height:1.5;margin:0;text-wrap:balance;}
+.steps{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;text-align:left;font-size:15px;line-height:1.35;margin:4px 0;}
+.steps b{font-family:var(--display);font-weight:500;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--sand);padding-top:2px;}
+.go{font-family:var(--display);font-weight:500;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--space);background:var(--sand);border-radius:999px;padding:12px 22px;margin-top:6px;animation:pulse 1.6s ease-in-out infinite;}
+.big{font-family:var(--display);font-weight:800;font-size:72px;line-height:1;font-variant-numeric:tabular-nums;}
+.label{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.newbest{color:var(--teal);font-weight:700;letter-spacing:.08em;}
+@keyframes pulse{50%{transform:scale(1.05);}}
+@media (prefers-reduced-motion:reduce){.go{animation:none;}}
+</style>
+</head>
+<body>
+
+<canvas id="game" aria-label="Perigee game area"></canvas>
+<div class="hud">
+  <div><div class="score" id="score">0</div><div class="best" id="best">Best 0</div></div>
+  <button class="mute" id="mute" type="button">Sound off</button>
+</div>
+<div class="hint" id="hint"></div>
+
+<div class="overlay" id="start">
+  <div class="card">
+    <h1 class="title">Peri<span>gee</span></h1>
+    <p class="sub">Hop from moon to moon. Don't drift into the dark.</p>
+    <div class="steps">
+      <b>Release</b><span>to fling off along your orbit.</span>
+      <b>Hold</b><span>while you cross a dotted ring to get caught.</span>
+      <b>Sparks</b><span>between moons are worth a bonus point.</span>
+    </div>
+    <div class="go">Tap to start</div>
+  </div>
+</div>
+
+<div class="overlay" id="over" hidden>
+  <div class="card">
+    <div class="label" id="overWhy">Lost in the dark</div>
+    <div class="big" id="overScore">0</div>
+    <div class="label" id="overBest">Best 0</div>
+    <div class="go">Tap to fly again</div>
+  </div>
+</div>
+
+<script>
+(() => {
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const scoreEl=$('score'), bestEl=$('best'), hintEl=$('hint'), startEl=$('start'), overEl=$('over');
+
+const C = { coral:'#ff8a6b', sand:'#f2c879', teal:'#6fd6c5', lilac:'#b49cff', ink:'#f3ecdf', space:'#141634', space2:'#1d2150' };
+const PLANET_COLORS = [C.coral, C.teal, C.sand, C.lilac];
+
+let best = 0;
+try { best = +localStorage.getItem('perigee-best') || 0; } catch(e) {}
+bestEl.textContent = 'Best ' + best;
+
+// ---------- sizing ----------
+let dpr=1, scale=1, W=400, H=700;
+function resize(){
+  dpr = Math.min(window.devicePixelRatio||1, 2.5);
+  const cw = cv.clientWidth, ch = cv.clientHeight;
+  cv.width = Math.round(cw*dpr); cv.height = Math.round(ch*dpr);
+  scale = Math.min(cw/400, ch/680);
+  W = cw/scale; H = ch/scale;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- helpers ----------
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rand=(a,b)=>a+Math.random()*(b-a);
+
+// ---------- background stars (screen-space, parallax) ----------
+const stars=[];
+for(let i=0;i<140;i++) stars.push({x:Math.random(),y:Math.random(),z:rand(.15,1),tw:Math.random()*6});
+
+// ---------- sound ----------
+let audio=null, soundOn=false;
+function ensureAudio(){ if(!audio){ try{ audio=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(audio&&audio.state==='suspended') audio.resume(); }
+function tone(f1,f2,dur,type='sine',vol=.12){
+  if(!soundOn||!audio) return;
+  const t=audio.currentTime, o=audio.createOscillator(), g=audio.createGain();
+  o.type=type; o.frequency.setValueAtTime(f1,t); o.frequency.exponentialRampToValueAtTime(f2,t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g).connect(audio.destination); o.start(t); o.stop(t+dur+.02);
+}
+$('mute').addEventListener('pointerdown', e=>{ e.stopPropagation(); });
+$('mute').addEventListener('click', e=>{
+  e.stopPropagation(); soundOn=!soundOn; ensureAudio();
+  $('mute').textContent = soundOn?'Sound on':'Sound off';
+  if(soundOn) tone(520,780,.12);
+});
+function buzz(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
+
+// ---------- difficulty ----------
+// k = index of the planet. Everything eases in over ~50 planets.
+function diff(k){
+  const s = clamp(k/50,0,1);
+  const e = s*s*(3-2*s) * .6 + s*.4; // gentle start
+  return {
+    ring: lerp(104, 66, e),
+    gap: lerp(160, 265, e),
+    speed: lerp(185, 255, e),
+    assist: lerp(1, .3, clamp(k/22,0,1)),
+    amp: k<12 ? 0 : (Math.random() < clamp((k-12)/25,.35,.8) ? Math.min(70,(k-10)*2.4) : 0),
+  };
+}
+
+// ---------- world ----------
+let planets, sparks, player, camY, camX, state, score, t, hops, particles, shake, lastFrame, holding, deathWhy;
+
+function makePlanet(k, prev){
+  const d = diff(k);
+  let x, y;
+  if(!prev){ x=0; y=0; }
+  else{
+    let a = rand(-1.05,1.05);
+    x = prev.ox + Math.sin(a)*d.gap; y = prev.y - Math.cos(a)*d.gap;
+    if(Math.abs(x)>130){ a=-a; x = prev.ox + Math.sin(a)*d.gap; }
+    x = clamp(x,-135,135);
+  }
+  const p = { k, ox:x, x, y, pr: k===0?24:rand(15,25), ring: k===0?110:d.ring, amp:d.amp, freq:rand(.55,.9), ph:Math.random()*6.28,
+    col: PLANET_COLORS[k%PLANET_COLORS.length], visited:false, speed:d.speed, spin:Math.random()*6.28 };
+  if(prev){
+    // spark near the midpoint, slightly off the straight line
+    const mx=(prev.ox+x)/2, my=(prev.y+y)/2, dx=x-prev.ox, dy=y-prev.y, L=Math.hypot(dx,dy);
+    const off=rand(-26,26);
+    sparks.push({x:mx - dy/L*off, y:my + dx/L*off, got:false});
+  }
+  return p;
+}
+
+function ensurePlanets(){
+  while(planets.length===0 || planets[planets.length-1].y > camY - H*1.2){
+    const prev = planets[planets.length-1];
+    planets.push(makePlanet(planets.length, prev));
+  }
+  // cull far below
+  while(planets.length>3 && planets[0].y > camY + H*1.5 && planets[0]!==player.planet && planets[0]!==player.last) planets.shift();
+  while(sparks.length && sparks[0].y > camY + H*1.5) sparks.shift();
+}
+
+function reset(){
+  planets=[]; sparks=[]; particles=[]; shake=0; t=0; hops=0; score=0; holding=false;
+  camY=0; camX=0;
+  const p0 = makePlanet(0,null); p0.visited=true; planets.push(p0);
+  player = { x:0, y:0, vx:0, vy:0, planet:p0, last:null, ang:Math.PI*0.5, r:p0.pr+30, rTarget:p0.pr+30, dir:1, speed:p0.speed, vr:0, vt:p0.speed, flyT:0, capT:-9, trail:[] };
+  camW=1;
+  camY = -H*0.18;
+  ensurePlanets();
+  updateScore();
+}
+
+function updateScore(){ scoreEl.textContent = score; }
+
+// ---------- input ----------
+function press(){
+  ensureAudio();
+  if(state==='start'){ startEl.hidden=true; state='play'; holding=false; swallow=true; return; }
+  if(state==='over'){ if(t - deathT > .45){ overEl.hidden=true; reset(); state='play'; holding=false; swallow=true; } return; }
+  holding=true;
+}
+function release(){
+  if(swallow){ swallow=false; holding=false; return; }
+  if(state!=='play'){ holding=false; return; }
+  holding=false;
+  const p=player;
+  if(p.planet && (t - p.capT) > .15) launch();
+}
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); press(); });
+window.addEventListener('pointerup', e=>{ release(); });
+window.addEventListener('pointercancel', e=>{ holding=false; });
+window.addEventListener('keydown', e=>{ if((e.code==='Space'||e.code==='Enter') && !e.repeat){ e.preventDefault(); press(); } });
+window.addEventListener('keyup', e=>{ if(e.code==='Space'||e.code==='Enter'){ e.preventDefault(); release(); } });
+document.addEventListener('contextmenu', e=>e.preventDefault());
+
+function launch(){
+  const p=player, pl=p.planet;
+  // leave with the exact velocity we had on the orbit (radial + tangential), so there is no kink
+  const c=Math.cos(p.ang), s=Math.sin(p.ang);
+  let vx = p.vr*c - s*p.dir*p.vt, vy = p.vr*s + c*p.dir*p.vt;
+  const m=Math.hypot(vx,vy)||1;
+  p.vx = vx/m*p.speed; p.vy = vy/m*p.speed;
+  p.last=pl; p.planet=null; p.flyT=0;
+  tone(300,160,.18,'triangle',.08);
+}
+
+function capture(pl){
+  const p=player;
+  const dx=p.x-pl.x, dy=p.y-pl.y, d=Math.hypot(dx,dy);
+  const cross = dx*p.vy - dy*p.vx;
+  p.dir = cross>=0?1:-1;
+  p.ang = Math.atan2(dy,dx);
+  p.r = d; p.rTarget = clamp(d, pl.pr+16, pl.ring); // keep the altitude we arrived at
+  // split the incoming velocity into radial and tangential parts; the orbit starts from exactly these
+  const ux=dx/(d||1), uy=dy/(d||1);
+  p.vr = p.vx*ux + p.vy*uy;
+  p.vt = Math.abs(-uy*p.vx + ux*p.vy);
+  p.planet=pl; p.capT=t; p.speed=pl.speed;
+  if(!pl.visited){
+    pl.visited=true; hops++; score++; updateScore();
+    tone(440*Math.pow(1.06, Math.min(hops,24)%12), 880*Math.pow(1.06, Math.min(hops,24)%12), .16,'sine',.1);
+  } else tone(330,440,.1,'sine',.06);
+  burst(p.x,p.y,pl.col,10,55);
+  pl.flash=1;
+  buzz(12);
+}
+
+function die(why){
+  if(state!=='play') return;
+  state='over'; deathT=t; deathWhy=why;
+  burst(player.x,player.y,C.ink,30,160); shake=10;
+  tone(220,60,.45,'sawtooth',.07); buzz(60);
+  let nb=false;
+  if(score>best){ best=score; nb=true; try{ localStorage.setItem('perigee-best',best); }catch(e){} }
+  bestEl.textContent='Best '+best;
+  setTimeout(()=>{
+    $('overScore').textContent=score;
+    $('overWhy').textContent=why;
+    $('overBest').innerHTML = nb && score>0 ? '<span class="newbest">New best</span>' : 'Best '+best;
+    overEl.hidden=false;
+  }, 450);
+}
+let deathT=0, swallow=false, camW=1;
+
+function burst(x,y,col,n,sp){
+  for(let i=0;i<n;i++){ const a=Math.random()*6.283, s=rand(.3,1)*sp; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rand(.4,.9),max:.9,col}); }
+}
+
+// ---------- step ----------
+function step(dt){
+  t+=dt;
+  for(const pl of planets){ pl.x = pl.ox + (pl.amp? pl.amp*Math.sin(t*pl.freq+pl.ph) : 0); pl.spin+=dt*.3; if(pl.flash>0) pl.flash=Math.max(0,pl.flash-dt*2); }
+
+  const p=player;
+  if(state==='play' || state==='start'){
+    if(p.planet){
+      const pl=p.planet;
+      // radius: critically damped spring that starts from the incoming radial speed (smooth spiral in)
+      const w0=5, sub=4, h=dt/sub;
+      for(let i=0;i<sub;i++){
+        const acc = -w0*w0*(p.r-p.rTarget) - 2*w0*p.vr;
+        p.vr += acc*h; p.r += p.vr*h;
+        if(p.r < pl.pr+10){ p.r = pl.pr+10; if(p.vr<0) p.vr=0; }
+      }
+      // tangential speed eases toward this moon's orbit speed
+      const goal = p.speed*(state==='start'?.8:1);
+      p.vt = lerp(p.vt, goal, 1-Math.exp(-dt*3));
+      p.ang += p.dir * p.vt/p.r * dt;
+      p.x = pl.x + Math.cos(p.ang)*p.r; p.y = pl.y + Math.sin(p.ang)*p.r;
+    } else if(state==='play'){
+      p.flyT += dt;
+      // gentle gravity assist toward moons ahead: bends the path, keeps the speed
+      const d0 = diff(hops);
+      for(const pl of planets){
+        if(pl===p.last) continue;
+        const dx=pl.x-p.x, dy=pl.y-p.y, d=Math.hypot(dx,dy), R=pl.ring*1.7;
+        if(d<R && d>1){ const a = d0.assist*420*(1-d/R); p.vx+=dx/d*a*dt; p.vy+=dy/d*a*dt; }
+      }
+      const sp=Math.hypot(p.vx,p.vy); p.vx=p.vx/sp*p.speed; p.vy=p.vy/sp*p.speed;
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      // capture / collision
+      for(const pl of planets){
+        const d=Math.hypot(p.x-pl.x,p.y-pl.y);
+        if(pl===p.last){ if(d>pl.ring+6) p.last=null; else continue; }
+        if(d<pl.pr+3){ die('Crashed into a moon'); break; }
+        if(holding && d<pl.ring){ capture(pl); break; }
+      }
+      // sparks
+      for(const s of sparks){ if(!s.got && Math.hypot(p.x-s.x,p.y-s.y)<20){ s.got=true; score++; updateScore(); burst(s.x,s.y,C.sand,10,70); tone(990,1480,.1,'square',.04); } }
+      // lost
+      const sx=p.x-camX, sy=p.y-camY;
+      if(Math.abs(sx)>W/2+50 || Math.abs(sy)>H/2+50) die('Drifted off into the dark');
+      else if(p.flyT>4.5) die('Drifted off into the dark');
+    }
+    p.trail.push({x:p.x,y:p.y}); if(p.trail.length>22) p.trail.shift();
+  }
+
+  // camera
+  // blend the camera focus between "follow the ship" and "frame the moon" instead of switching targets
+  camW = lerp(camW, p.planet?1:0, 1-Math.exp(-dt*(p.planet?2.2:3)));
+  const anchor = p.planet || p.last;
+  const tx=0, shipY = p.y - H*0.05;
+  const ty = anchor ? lerp(shipY, anchor.y - H*0.18, camW) : shipY;
+  if(state!=='over'){ camY = lerp(camY, ty, 1-Math.exp(-dt*2.6)); camX = lerp(camX, tx, 1-Math.exp(-dt*2)); }
+  ensurePlanets();
+
+  for(const q of particles){ q.x+=q.vx*dt; q.y+=q.vy*dt; q.vx*=.96; q.vy*=.96; q.life-=dt; }
+  particles = particles.filter(q=>q.life>0);
+  shake = Math.max(0, shake - dt*30);
+
+  // hint text
+  let hint='';
+  if(state==='play' && hops<3){
+    if(p.planet) hint = holding ? 'Release to fling' : 'Tap, or hold and release, to fling';
+    else hint = holding ? 'Keep holding…' : 'Hold to catch the next moon';
+  }
+  if(hintEl.textContent!==hint) hintEl.textContent=hint;
+}
+
+// ---------- draw ----------
+function predict(){
+  // simulate the launch path (with assist) for the guide dots
+  const p=player, pts=[];
+  const c0=Math.cos(p.ang), s0=Math.sin(p.ang);
+  let x=p.x, y=p.y, vx=p.vr*c0 - s0*p.dir*p.vt, vy=p.vr*s0 + c0*p.dir*p.vt;
+  const assist=diff(hops).assist, dt=1/30;
+  for(let i=0;i<40;i++){
+    for(const pl of planets){
+      if(pl===p.planet) continue;
+      const dx=pl.x-x, dy=pl.y-y, d=Math.hypot(dx,dy), R=pl.ring*1.7;
+      if(d<R && d>1){ const a=assist*420*(1-d/R); vx+=dx/d*a*dt; vy+=dy/d*a*dt; }
+      if(d<pl.ring && pl!==p.planet && !pl.visited){ pts.push({x,y,hit:true}); return pts; }
+    }
+    const sp=Math.hypot(vx,vy); vx=vx/sp*p.speed; vy=vy/sp*p.speed;
+    x+=vx*dt; y+=vy*dt;
+    if(i%2===0) pts.push({x,y});
+  }
+  return pts;
+}
+
+function draw(){
+  const cw=cv.width, ch=cv.height;
+  // background gradient
+  const g=ctx.createLinearGradient(0,0,0,ch);
+  g.addColorStop(0,C.space); g.addColorStop(1,C.space2);
+  ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle=g; ctx.fillRect(0,0,cw,ch);
+
+  // stars
+  for(const s of stars){
+    const yy = ((s.y*ch - camY*scale*dpr*s.z*0.25) % ch + ch) % ch;
+    const a = .35 + .35*Math.sin(t*1.5 + s.tw);
+    ctx.fillStyle = `rgba(243,236,223,${a*s.z})`;
+    const r = (s.z*1.6+.3)*dpr;
+    ctx.fillRect(s.x*cw, yy, r, r);
+  }
+
+  const sk = shake? rand(-shake,shake):0;
+  const k = scale*dpr;
+  ctx.setTransform(k,0,0,k, cw/2 - camX*k + sk*dpr, ch/2 - camY*k + sk*dpr*.6);
+
+  const p=player;
+
+  // capture rings
+  for(const pl of planets){
+    if(pl.visited && pl!==p.planet) continue;
+    const inside = !p.planet && state==='play' && pl!==p.last && Math.hypot(p.x-pl.x,p.y-pl.y)<pl.ring;
+    ctx.save();
+    ctx.setLineDash([3,7]);
+    ctx.lineDashOffset = -t*10;
+    ctx.lineWidth = inside? 2.4 : 1.4;
+    ctx.strokeStyle = inside ? C.sand : (pl===p.planet ? 'rgba(243,236,223,.12)' : 'rgba(243,236,223,.32)');
+    ctx.beginPath(); ctx.arc(pl.x,pl.y,pl.ring,0,6.283); ctx.stroke();
+    ctx.restore();
+    if(pl.flash>0){ ctx.strokeStyle=`rgba(242,200,121,${pl.flash*.6})`; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(pl.x,pl.y,lerp(player.rTarget,pl.ring,pl.flash),0,6.283); ctx.stroke(); }
+    if(inside){ ctx.fillStyle='rgba(242,200,121,.07)'; ctx.beginPath(); ctx.arc(pl.x,pl.y,pl.ring,0,6.283); ctx.fill(); }
+  }
+
+  // guide dots for the first hops
+  if(state==='play' && p.planet && hops<3){
+    const pts=predict();
+    pts.forEach((q,i)=>{ ctx.fillStyle=`rgba(242,200,121,${.55*(1-i/pts.length)+.1})`; ctx.beginPath(); ctx.arc(q.x,q.y,q.hit?4:2,0,6.283); ctx.fill(); });
+  }
+
+  // sparks
+  for(const s of sparks){
+    if(s.got) continue;
+    const pulse = 1+.2*Math.sin(t*5+s.x);
+    ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(t*1.2);
+    ctx.fillStyle=C.sand;
+    ctx.beginPath();
+    for(let i=0;i<8;i++){ const r=(i%2?2.6:7)*pulse, a=i*Math.PI/4; ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r); }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+
+  // planets
+  for(const pl of planets){
+    ctx.save(); ctx.translate(pl.x,pl.y);
+    ctx.globalAlpha = pl.visited && pl!==p.planet ? .45 : 1;
+    // glow
+    const gl=ctx.createRadialGradient(0,0,pl.pr*.6,0,0,pl.pr*2.2);
+    gl.addColorStop(0, pl.col+'55'); gl.addColorStop(1, pl.col+'00');
+    ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(0,0,pl.pr*2.2,0,6.283); ctx.fill();
+    // body
+    ctx.fillStyle=pl.col; ctx.beginPath(); ctx.arc(0,0,pl.pr,0,6.283); ctx.fill();
+    // shadow crescent
+    ctx.save(); ctx.beginPath(); ctx.arc(0,0,pl.pr,0,6.283); ctx.clip();
+    ctx.fillStyle='rgba(20,22,52,.28)'; ctx.beginPath(); ctx.arc(pl.pr*.45,pl.pr*.4,pl.pr*1.05,0,6.283); ctx.fill();
+    // craters
+    ctx.rotate(pl.spin);
+    ctx.fillStyle='rgba(20,22,52,.16)';
+    ctx.beginPath(); ctx.arc(-pl.pr*.35,-pl.pr*.2,pl.pr*.22,0,6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(pl.pr*.3,pl.pr*.35,pl.pr*.14,0,6.283); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // trail
+  if(state!=='over' || t-deathT<.05){
+    for(let i=1;i<p.trail.length;i++){
+      const a=i/p.trail.length;
+      ctx.strokeStyle=`rgba(243,236,223,${a*.5})`; ctx.lineWidth=a*5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(p.trail[i-1].x,p.trail[i-1].y); ctx.lineTo(p.trail[i].x,p.trail[i].y); ctx.stroke();
+    }
+    // ship
+    ctx.fillStyle=C.ink;
+    ctx.beginPath(); ctx.arc(p.x,p.y,5.5,0,6.283); ctx.fill();
+    if(holding && !p.planet && state==='play'){ ctx.strokeStyle=C.sand; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(p.x,p.y,10+Math.sin(t*14)*1.5,0,6.283); ctx.stroke(); }
+  }
+
+  // particles
+  for(const q of particles){ ctx.globalAlpha=clamp(q.life/q.max,0,1); ctx.fillStyle=q.col; ctx.fillRect(q.x-1.5,q.y-1.5,3,3); }
+  ctx.globalAlpha=1;
+}
+
+function frame(now){
+  const dt = Math.min(.033, (now-(lastFrame||now))/1000);
+  lastFrame=now;
+  step(dt); draw();
+  requestAnimationFrame(frame);
+}
+
+// Read-only view of the game for the automated play test (tests/play_test.mjs). Not used by the game.
+window.perigeeTest = { get state(){ return state; }, get score(){ return score; }, get hops(){ return hops; }, get holding(){ return holding; }, get player(){ return player; }, get planets(){ return planets; } };
+
+reset(); state='start';
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
