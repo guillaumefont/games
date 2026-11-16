@@ -30,6 +30,7 @@ change touches that game's folder (or its workflows):
 - `<game>-build.yml` exports Web and/or Android, publishes the build to its folder on the `gh-pages` branch,
   and comments a preview link on pull requests (removed when the PR closes).
 - `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml`, `perigee-test.yml` run the headless tests.
+  Perigee is a Godot game too since 2026-11-16; its builds also publish the original web prototype under `prototype/`.
 - `ci-gate.yml` (check **CI gate**) waits for the workflows a PR triggers and passes only if all of them pass.
   It is the one required check on `main`.
 - `pages.yml` deploys the whole `gh-pages` branch, plus the site's root pages from `.github/pages/`
