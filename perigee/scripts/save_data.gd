@@ -13,6 +13,7 @@ const DEFAULTS := {
 	"runs": 0, ## runs finished
 	"sparks": 0, ## sparks collected, all time (the future currency)
 	"settings": {"sound": false, "vibration": true},
+	"voyage": {}, ## sector id -> {stars, score, time}: best of each
 }
 
 var path := "user://save.json"
