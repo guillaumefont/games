@@ -1,7 +1,13 @@
 # Notes for agents
 
-Perigee is an original one-button orbit-hopping game: a single HTML file (`web/index.html`) drawn on a
-canvas, wrapped as an Android WebView app (`android/`). Added to the monorepo on 2026-11-16.
+Perigee is an original one-button orbit-hopping game for iOS and Android. It started as a single HTML canvas
+file (`web/index.html`), wrapped as an Android WebView app (`android/`). On 2026-11-16 Guillaume decided to
+build the full game in Godot 4.7: the folder is now also a Godot project (`project.godot`, `scripts/`), a port
+of the web game. Until the port is confirmed to feel the same on a phone, both are built: the Godot game is the
+main preview, and the WebView app is still the Google Play build.
+
+The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8by. Check its
+"Decisions and open questions" before assuming platform, business model or online features.
 
 ## Pull requests
 
@@ -12,23 +18,48 @@ canvas, wrapped as an Android WebView app (`android/`). Added to the monorepo on
   ## Try it
   - Play in the browser: https://guillaumefont.github.io/games/perigee/pr/<N>/
   - Android APK: https://guillaumefont.github.io/games/perigee/pr/<N>/perigee.apk
+  - Web prototype (reference): https://guillaumefont.github.io/games/perigee/pr/<N>/prototype/
   ```
 
 ## Build numbers
 
-- Build number = 1000 + run number of the **Perigee builds** workflow, as for the other games. It is the APK's
-  `versionCode` (read from the `BUILD` environment variable by `android/build.gradle`; don't hard-code one).
-- All APKs share one app id and `android/debug.keystore`, so a PR build installs over the main build.
-- There is no self-update: the game ships inside the APK, so a new build means installing the new APK.
+- Build number = 1000 + run number of the **Perigee builds** workflow, as for the other games. It is the
+  `versionCode` of both APKs (Godot: stamped into `export_presets.cfg` by CI, the committed value is a placeholder;
+  WebView: read from the `BUILD` environment variable by `android/build.gradle`). Don't hard-code one.
+- All APKs share one app id (`io.github.guillaumefont.perigee`) and `android/debug.keystore`, so a PR build installs
+  over the main build, and the Godot and WebView APKs install over each other.
+- There is no self-update: a new build means installing the new APK.
 
-## Game code
+## Godot game
+
+- `scripts/sim.gd` holds every rule and must stay deterministic: advance only with `step()` (fixed `DT`,
+  120 Hz), and take every random choice that changes the game from `sim.rng`. Looks-only randomness
+  (particles, stars, shake) uses `main._vis`. Never read the frame time or `randf()` in the sim.
+- Leaving the screen kills, so the play area (`sim.W`, `sim.H`, the viewport in world units) is part of the
+  rules. Replays and the future daily run must fix it.
+- Moons are numbered by `sim.moons_made`, a running counter. (The web game numbers them by the list length,
+  which repeats once far moons are culled, so its difficulty stops ramping after ~12 moons; `sim_test.gd`
+  guards against that in the port.)
+- The view interpolates between the last two steps (`px/py`, `cam_px/cam_py`). New moving things need
+  their previous position kept the same way.
+- `main.advance(delta)` is the whole frame; tests call it with process turned off.
+- Game input goes through `_unhandled_input` (left mouse button, emulated from touch, plus Space/Enter), so
+  HUD buttons that take the tap must not pass it on. Keep `focus_mode = FOCUS_NONE` on buttons so Space
+  never activates them.
+- The save file is `scripts/save_data.gd`: add new fields to `DEFAULTS`; to change a field's meaning bump
+  `VERSION` and add a step to `_migrate()`.
+- `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
+- Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
+  on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or
+  `AudioStreamPolyphonic` (both crashed Star Breaker on Android).
+
+## Web prototype
 
 - Everything is inside one IIFE in `web/index.html`. `window.perigeeTest` is a read-only view of the game
   state for the play test; keep its fields (`state`, `score`, `hops`, `holding`, `player`, `planets`) working.
-- The game must stay self-contained and work offline: no CDN scripts or remote fonts (the play test fails on
+- It must stay self-contained and work offline: no CDN scripts or remote fonts (the play test fails on
   any network request). Add assets under `web/`; the Gradle build copies all of `web/` into the APK.
-- Known quirk: `makePlanet(planets.length, …)` uses the array length as the moon index `k`, but far moons are
-  culled from the array, so `k` repeats and difficulty (`diff(k)`) stops ramping after the first ~12 moons.
+- Known quirk, kept on purpose as the reference: the difficulty stops ramping after ~12 moons (see above).
 
 ## Android and Google Play
 
@@ -36,11 +67,15 @@ canvas, wrapped as an Android WebView app (`android/`). Added to the monorepo on
   can't reach Google's Maven repository, so the Android build is only checked by the **Perigee builds** workflow.
 - Release builds are signed with the Play upload key when `PERIGEE_UPLOAD_KEYSTORE` is set (CI, on `main`),
   otherwise with `debug.keystore`. Never commit the upload key.
-- `web/privacy.html` must describe what the app really collects; update it with any new SDK or data.
+- `web/privacy.html` must describe what the app really collects; update it with any new SDK or data. CI also
+  publishes it at the site root (`/perigee/privacy.html`), the URL the Play listing uses.
   The Play listing text and Data safety answers are in `store/listing.md`; launch steps in `store/README.md`.
 
 ## Tests
 
-- `tests/play_test.cjs` (workflow `perigee-test.yml`): loads the page offline in headless Chromium, checks fonts,
-  lets a bot hop at least 3 moons, then checks game over, the best score and restarting. CI greps for its last
-  line, `PLAY TEST DONE`; keep it last and add a check there for any new behaviour.
+- `tests/sim_test.gd` (rules: bot, replay, difficulty ramp, momentum, game over) and `tests/game_test.gd`
+  (scene: input, HUD, save, pause/resume, settings) run in `perigee-test.yml` (check "Perigee headless test").
+  Each prints `SIM TEST DONE` / `GAME TEST DONE` last; CI greps for it. A new test file gets a step there.
+- `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
+- Every change comes with a test of what it should do; a bug fix gets a regression test.
+- Screenshots of the Godot game for reviews: `tools/screenshots.gd` (see README).

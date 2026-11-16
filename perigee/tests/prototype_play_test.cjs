@@ -1,5 +1,5 @@
-// Headless play test for Perigee (web/index.html), run in Chromium with Playwright:
-//   node perigee/tests/play_test.cjs
+// Headless play test for the Perigee web prototype (web/index.html), run in Chromium with Playwright:
+//   node perigee/tests/prototype_play_test.cjs
 // Checks that the page loads offline with no script errors and its bundled fonts, that a simple
 // bot can hop from moon to moon and score, that drifting off ends the run with the game-over card,
 // that the best score is kept, and that tapping again starts a fresh run.
