@@ -21,6 +21,9 @@ var sfx: Sfx
 ## Where the save lives; tests point it elsewhere before the node enters the tree.
 var save_path := "user://save.json"
 
+## "endless", or a kind of moon for a lab run (tries one new kind; never counts for the best score)
+var mode := "endless"
+const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
 var paused := false
 var resume_left := 0.0 ## > 0 while counting down to resume
 var button_down := false ## the one button as the player holds it right now
@@ -49,6 +52,7 @@ func _ready() -> void:
 	hud.set_best(save.data.best)
 	hud.set_sound(sfx.enabled)
 	hud.sound_toggled.connect(_toggle_sound)
+	hud.mode_picked.connect(start_mode)
 	_vis.randomize()
 	for i in 140:
 		stars.append({"x": _vis.randf(), "y": _vis.randf(), "z": _vis.randf_range(0.15, 1.0), "tw": _vis.randf() * 6.0})
@@ -59,6 +63,17 @@ func _ready() -> void:
 	sim.next_seed = _new_seed()
 	get_viewport().size_changed.connect(_on_resize)
 	_update_frame_cap()
+
+
+## Starts a run in a mode right away (from the lab buttons on the start and game over cards).
+func start_mode(m: String) -> void:
+	if paused:
+		return
+	mode = m
+	sim.recipe = {} if m == "endless" else {"mix": {"moon": 1.0, m: 2.0}}
+	sim.new_run(_new_seed())
+	sim.events.append({"type": "start"})
+	hud.set_mode(MODE_NAMES.get(m, ""))
 
 
 func _new_seed() -> int:
@@ -187,6 +202,8 @@ func _handle_events() -> void:
 			"launch":
 				sfx.play("launch")
 			"capture":
+				if e.kind == "retro":
+					_popup(e.x, e.y + 22.0, "Reverse", LILAC)
 				if not e.first:
 					sfx.play("revisit")
 				elif e.perigee:
@@ -221,6 +238,10 @@ func _handle_events() -> void:
 
 
 func _record_run() -> void:
+	if mode != "endless":
+		new_best = false
+		_update_frame_cap()
+		return
 	new_best = sim.score > int(save.data.best)
 	if new_best:
 		save.data.best = sim.score
@@ -331,14 +352,27 @@ func _draw() -> void:
 		if pl.visited and pl != p.planet:
 			continue
 		var c: Vector2 = pos[pl]
-		var inside := p.planet == null and sim.state == "play" and pl != p.last and ship.distance_to(c) < pl.ring
-		if inside:
+		var lit := pl.lit(t)
+		var inside := p.planet == null and sim.state == "play" and pl != p.last and ship.distance_to(c) < pl.ring and lit
+		# twins share a figure-eight ring: leave out the arcs inside the partner's ring
+		var skip_c := Vector2.ZERO
+		var skip_r := 0.0
+		if pl.partner != null:
+			skip_c = Vector2(Sim.planet_x(pl.partner, t), pl.partner.y)
+			skip_r = pl.partner.ring
+		if inside and skip_r == 0.0:
 			draw_circle(c, pl.ring, Color(SAND, 0.07), true, -1.0, true)
 		var col := SAND if inside else (Color(INK, 0.12) if pl == p.planet else Color(INK, 0.32))
-		_dashed_circle(c, pl.ring, 3.0, 7.0, -t * 10.0, 2.4 if inside else 1.4, col)
+		if pl.kind == "retro" and not inside and pl != p.planet:
+			col = Color(LILAC, 0.6)
+		if not lit:
+			col = Color(INK, 0.07)
+		# a retrograde ring's dashes run the other way
+		var flow := t * 10.0 if pl.kind == "retro" else -t * 10.0
+		_dashed_circle(c, pl.ring, 3.0, 7.0, flow, 2.4 if inside else 1.4, col, skip_c, skip_r)
 		if pl != p.planet:
 			# the perigee ring: a catch inside it is a perigee
-			_dashed_circle(c, pl.perigee_radius(), 2.0, 5.0, -t * 10.0, 1.0, Color(TEAL, 0.85 if inside else 0.35))
+			_dashed_circle(c, pl.perigee_radius(), 2.0, 5.0, flow, 1.0, Color(TEAL, (0.85 if inside else 0.35) * (1.0 if lit else 0.3)))
 		if pl.flash > 0.0:
 			draw_arc(c, lerpf(p.r_target, pl.ring, pl.flash), 0, TAU, 96, Color(SAND, pl.flash * 0.6), 2.0, true)
 
@@ -376,6 +410,17 @@ func _draw() -> void:
 		var rot := Transform2D(pl.spin, Vector2.ZERO)
 		draw_circle(c + rot * Vector2(-0.35, -0.2) * pl.pr, pl.pr * 0.22, Color(SPACE, 0.16 * fade), true, -1.0, true)
 		draw_circle(c + rot * Vector2(0.3, 0.35) * pl.pr, pl.pr * 0.14, Color(SPACE, 0.16 * fade), true, -1.0, true)
+		if pl.kind == "pulsar":
+			# a beating white core, bright while the ring is lit
+			var beat := 0.5 + 0.5 * sin(t * TAU / Sim.PULSAR_PERIOD * 2.0)
+			draw_circle(c, pl.pr * (0.3 + 0.1 * beat), Color(INK, (0.9 if pl.lit(t) else 0.3) * fade), true, -1.0, true)
+		elif pl.kind == "retro":
+			# a tilted band, like a ring seen edge-on
+			var band := PackedVector2Array()
+			for i in 25:
+				var an := TAU * i / 24.0
+				band.append(c + Transform2D(-0.35, Vector2.ZERO) * Vector2(cos(an) * pl.pr * 1.55, sin(an) * pl.pr * 0.35))
+			draw_polyline(band, Color(LILAC, 0.8 * fade), 1.5, true)
 
 	# trail and ship
 	if sim.state != "over" or sim.t - sim.death_t < 0.05:
@@ -402,7 +447,8 @@ func _draw() -> void:
 
 
 ## A dotted ring like the prototype's setLineDash([3, 7]) with a moving dash offset.
-func _dashed_circle(c: Vector2, r: float, dash: float, gap: float, offset: float, width: float, col: Color) -> void:
+func _dashed_circle(c: Vector2, r: float, dash: float, gap: float, offset: float, width: float, col: Color,
+		skip_c := Vector2.ZERO, skip_r := 0.0) -> void:
 	var period := dash + gap
 	var n := maxi(8, int(TAU * r / period))
 	var step := TAU / n
@@ -411,9 +457,12 @@ func _dashed_circle(c: Vector2, r: float, dash: float, gap: float, offset: float
 	var segs := PackedVector2Array()
 	for i in n:
 		var a0 := i * step + off
+		if skip_r > 0.0 and (c + Vector2(cos(a0 + da / 2.0), sin(a0 + da / 2.0)) * r).distance_to(skip_c) < skip_r:
+			continue
 		segs.append(c + Vector2(cos(a0), sin(a0)) * r)
 		segs.append(c + Vector2(cos(a0 + da), sin(a0 + da)) * r)
-	draw_multiline(segs, col, width, true)
+	if not segs.is_empty():
+		draw_multiline(segs, col, width, true)
 
 
 ## The moon's shadow: the part of the moon (radius 1 at the origin) covered by a circle of

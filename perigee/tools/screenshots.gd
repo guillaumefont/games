@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshots of the real game for reviews: start card, first hop with guide dots, a catch,
-## late game (moon 30+), game over. Needs a display:
+## late game (moon 30+), game over, and the lab's twin, retro and pulsar moons. Needs a display:
 ##   xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
 ##     --script tools/screenshots.gd -- /tmp/perigee-shots
 
@@ -56,6 +56,11 @@ func _initialize() -> void:
 	main.sim.die("Drifted off into the dark")
 	await run(1.0)
 	await shot("5-game-over")
+	# the lab: one shot per new kind of moon, a moment into a run
+	for kind in ["twin", "retro", "pulsar"]:
+		main.start_mode(kind)
+		await run(1.2)
+		await shot("6-lab-" + kind)
 	quit(0)
 
 

@@ -5,6 +5,11 @@ extends CanvasLayer
 ## text, pastel on deep indigo).
 
 signal sound_toggled
+signal mode_picked(mode: String) ## "endless" or a kind of moon for the lab
+
+## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
+## Shown on the start and game over cards while the vertical slice is built; not for release.
+const LAB_MODES := [["endless", "Endless"], ["twin", "Twin"], ["retro", "Retro"], ["pulsar", "Pulsar"]]
 
 const INK := Color("f3ecdf")
 const MUTED := Color("9aa0cf")
@@ -30,6 +35,7 @@ var over_why: Label
 var over_score: Label
 var over_best: Label
 var over_stats: Label
+var mode_label: Label
 var pause_card: Control
 var pause_title: Label
 var pause_sub: Label
@@ -86,7 +92,15 @@ func _ready() -> void:
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
 		sound_button.add_theme_color_override(c, INK)
 	sound_button.pressed.connect(func() -> void: sound_toggled.emit())
-	bar.add_child(sound_button)
+	var right := VBoxContainer.new()
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right.add_theme_constant_override("separation", 6)
+	bar.add_child(right)
+	right.add_child(sound_button)
+	mode_label = _label("", _spaced(body_700, 1.5), 11, SAND)
+	mode_label.uppercase = true
+	mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right.add_child(mode_label)
 	set_sound(false)
 
 	hint_label = _label("", body_700, 15, SAND)
@@ -123,6 +137,7 @@ func _ready() -> void:
 		steps.add_child(v)
 	_card(start_card).add_child(steps)
 	_card(start_card).add_child(_pill("Tap to start"))
+	_card(start_card).add_child(_lab_row())
 
 	over_card = _overlay()
 	over_card.visible = false
@@ -141,6 +156,7 @@ func _ready() -> void:
 	over_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(over_card).add_child(over_stats)
 	_card(over_card).add_child(_pill("Tap to fly again"))
+	_card(over_card).add_child(_lab_row())
 
 	pause_card = _overlay()
 	pause_card.visible = false
@@ -200,6 +216,11 @@ func set_combo(combo: int, mult: int) -> void:
 
 func set_sound(on: bool) -> void:
 	sound_button.text = "SOUND ON" if on else "SOUND OFF"
+
+
+## The small tag under the sound button: which lab is running, or nothing in the endless mode.
+func set_mode(text: String) -> void:
+	mode_label.text = text
 
 
 func set_hint(text: String) -> void:
@@ -284,6 +305,44 @@ func _overlay() -> Control:
 
 func _card(overlay: Control) -> VBoxContainer:
 	return overlay.get_child(0).get_child(0)
+
+
+func _lab_row() -> Control:
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var title := _label("Lab: try one kind of moon", body_500, 12, MUTED)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	box.add_child(row)
+	for m in LAB_MODES:
+		var b := Button.new()
+		b.name = "Lab_" + m[0]
+		b.text = m[1]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 32)
+		b.add_theme_font_override("font", body_700)
+		b.add_theme_font_size_override("font_size", 12)
+		for st in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(1, 1, 1, 0.08 if st == "pressed" else 0.0)
+			sb.border_color = Color(INK, 0.25)
+			sb.set_border_width_all(2)
+			sb.set_corner_radius_all(16)
+			sb.content_margin_left = 12
+			sb.content_margin_right = 12
+			sb.anti_aliasing = true
+			b.add_theme_stylebox_override(st, sb)
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+			b.add_theme_color_override(c, INK)
+		var mode: String = m[0]
+		b.pressed.connect(func() -> void: mode_picked.emit(mode))
+		row.add_child(b)
+	return box
 
 
 func _pill(text: String) -> Control:
