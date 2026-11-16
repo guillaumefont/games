@@ -17,7 +17,7 @@ canvas, wrapped as an Android WebView app (`android/`). Added to the monorepo on
 ## Build numbers
 
 - Build number = 1000 + run number of the **Perigee builds** workflow, as for the other games. It is the APK's
-  `versionCode` (set by `android/build.sh`; the manifest's values are placeholders, do not bump them).
+  `versionCode` (read from the `BUILD` environment variable by `android/build.gradle`; don't hard-code one).
 - All APKs share one app id and `android/debug.keystore`, so a PR build installs over the main build.
 - There is no self-update: the game ships inside the APK, so a new build means installing the new APK.
 
@@ -26,9 +26,18 @@ canvas, wrapped as an Android WebView app (`android/`). Added to the monorepo on
 - Everything is inside one IIFE in `web/index.html`. `window.perigeeTest` is a read-only view of the game
   state for the play test; keep its fields (`state`, `score`, `hops`, `holding`, `player`, `planets`) working.
 - The game must stay self-contained and work offline: no CDN scripts or remote fonts (the play test fails on
-  any network request). Add assets under `web/`; `android/build.sh` copies all of `web/` into the APK.
+  any network request). Add assets under `web/`; the Gradle build copies all of `web/` into the APK.
 - Known quirk: `makePlanet(planets.length, …)` uses the array length as the moon index `k`, but far moons are
   culled from the array, so `k` repeats and difficulty (`diff(k)`) stops ramping after the first ~12 moons.
+
+## Android and Google Play
+
+- `android/` is a Gradle project (AGP 8.11, compileSdk/targetSdk 36, which Google Play requires). Cloud sessions
+  can't reach Google's Maven repository, so the Android build is only checked by the **Perigee builds** workflow.
+- Release builds are signed with the Play upload key when `PERIGEE_UPLOAD_KEYSTORE` is set (CI, on `main`),
+  otherwise with `debug.keystore`. Never commit the upload key.
+- `web/privacy.html` must describe what the app really collects; update it with any new SDK or data.
+  The Play listing text and Data safety answers are in `store/listing.md`; launch steps in `store/README.md`.
 
 ## Tests
 
