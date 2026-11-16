@@ -8,6 +8,9 @@ const INK := Color("f3ecdf")
 const SAND := Color("f2c879")
 const SPACE := Color("141634")
 const SPACE_2 := Color("1d2150")
+const TEAL := Color("6fd6c5")
+const CORAL := Color("ff8a6b")
+const LILAC := Color("b49cff")
 const MAX_STEPS_PER_FRAME := 30
 const RESUME_COUNTDOWN := 3.0
 
@@ -25,6 +28,7 @@ var over_shown := false
 var new_best := false
 var shake := 0.0
 var particles: Array[Dictionary] = []
+var popups: Array[Dictionary] = [] ## score text floating up in the world: {x, y, text, col, life}
 var stars: Array[Dictionary] = []
 var _acc := 0.0
 var _alpha := 1.0 ## how far between the last two steps we draw
@@ -183,15 +187,30 @@ func _handle_events() -> void:
 			"launch":
 				sfx.play("launch")
 			"capture":
-				if e.first:
-					sfx.play(sfx.catch_sound(e.hops))
-				else:
+				if not e.first:
 					sfx.play("revisit")
+				elif e.perigee:
+					sfx.play("perigee")
+					_popup(e.x, e.y - 14.0, "Perigee +%d" % e.points, TEAL)
+					_vibrate(18)
+				else:
+					sfx.play(sfx.catch_sound(e.hops))
+					_popup(e.x, e.y - 14.0, "+%d" % e.points, INK)
+				if e.skipped > 0:
+					sfx.play("leap")
+					_popup(e.x, e.y - 32.0, "Leap ×%d  +%d" % [e.skipped, e.leap_points], CORAL)
+					_burst(e.x, e.y, CORAL, 24, 120.0)
+					shake = maxf(shake, 4.0)
+					_vibrate(30)
 				_burst(e.x, e.y, COLORS[e.col], 10, 55.0)
 				_vibrate(12)
 			"spark":
 				_burst(e.x, e.y, SAND, 10, 70.0)
+				_popup(e.x, e.y - 12.0, "+%d" % e.points, SAND)
 				sfx.play("spark")
+			"graze":
+				_popup(e.x, e.y - 14.0, "Graze +1", LILAC)
+				sfx.play("graze")
 			"die":
 				_burst(e.x, e.y, INK, 30, 160.0)
 				shake = 10.0
@@ -214,9 +233,13 @@ func _record_run() -> void:
 
 func _update_hud() -> void:
 	hud.set_score(sim.score)
+	if sim.state == "play":
+		hud.set_combo(sim.combo, sim.mult)
+	else:
+		hud.set_best(save.data.best)
 	if sim.state == "over" and not over_shown and sim.t - sim.death_t >= Sim.RESTART_LOCK:
 		over_shown = true
-		hud.show_over(sim.score, sim.death_why, save.data.best, new_best)
+		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats())
 	var hint := ""
 	if sim.state == "play" and sim.hops < 3:
 		if sim.player.planet != null:
@@ -226,7 +249,24 @@ func _update_hud() -> void:
 	hud.set_hint(hint)
 
 
+func _run_stats() -> String:
+	var parts: Array[String] = []
+	parts.append("%d %s" % [sim.perigees, "perigee" if sim.perigees == 1 else "perigees"])
+	if sim.leaps > 0:
+		parts.append("%d %s" % [sim.leaps, "leap" if sim.leaps == 1 else "leaps"])
+	parts.append("best combo %d" % sim.best_combo)
+	return " · ".join(parts)
+
+
+func _popup(x: float, y: float, text: String, col: Color) -> void:
+	popups.append({"x": x, "y": y, "text": text, "col": col, "life": 1.1})
+
+
 func _update_effects(delta: float) -> void:
+	for q in popups:
+		q.y -= delta * 28.0
+		q.life -= delta
+	popups = popups.filter(func(q: Dictionary) -> bool: return q.life > 0.0)
 	for q in particles:
 		q.x += q.vx * delta
 		q.y += q.vy * delta
@@ -296,6 +336,9 @@ func _draw() -> void:
 			draw_circle(c, pl.ring, Color(SAND, 0.07), true, -1.0, true)
 		var col := SAND if inside else (Color(INK, 0.12) if pl == p.planet else Color(INK, 0.32))
 		_dashed_circle(c, pl.ring, 3.0, 7.0, -t * 10.0, 2.4 if inside else 1.4, col)
+		if pl != p.planet:
+			# the perigee ring: a catch inside it is a perigee
+			_dashed_circle(c, pl.perigee_radius(), 2.0, 5.0, -t * 10.0, 1.0, Color(TEAL, 0.85 if inside else 0.35))
 		if pl.flash > 0.0:
 			draw_arc(c, lerpf(p.r_target, pl.ring, pl.flash), 0, TAU, 96, Color(SAND, pl.flash * 0.6), 2.0, true)
 
@@ -321,7 +364,7 @@ func _draw() -> void:
 	# moons
 	for pl in sim.planets:
 		var c: Vector2 = pos[pl]
-		var fade := 0.45 if pl.visited and pl != p.planet else 1.0
+		var fade := 0.25 if pl.skipped else (0.45 if pl.visited and pl != p.planet else 1.0)
 		var col: Color = COLORS[pl.col]
 		var gr := pl.pr * 2.2
 		draw_texture_rect(_glow, Rect2(c - Vector2(gr, gr), Vector2(gr, gr) * 2.0), false, Color(col, fade))
@@ -349,6 +392,12 @@ func _draw() -> void:
 	# particles
 	for q in particles:
 		draw_rect(Rect2(q.x - 1.5, q.y - 1.5, 3, 3), Color(q.col, clampf(q.life / 0.9, 0.0, 1.0)))
+	# score popups
+	for q in popups:
+		var font: Font = hud.body_700
+		var fs := 13
+		var tw := font.get_string_size(q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(font, Vector2(q.x - tw / 2.0, q.y), q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(q.col, clampf(q.life / 0.5, 0.0, 1.0)))
 	draw_set_transform(Vector2.ZERO)
 
 

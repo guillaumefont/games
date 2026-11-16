@@ -29,6 +29,7 @@ var over_card: Control
 var over_why: Label
 var over_score: Label
 var over_best: Label
+var over_stats: Label
 var pause_card: Control
 var pause_title: Label
 var pause_sub: Label
@@ -136,6 +137,9 @@ func _ready() -> void:
 	over_best.uppercase = true
 	over_best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(over_card).add_child(over_best)
+	over_stats = _label("", body_500, 13, MUTED)
+	over_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_card(over_card).add_child(over_stats)
 	_card(over_card).add_child(_pill("Tap to fly again"))
 
 	pause_card = _overlay()
@@ -185,6 +189,13 @@ func set_score(v: int) -> void:
 
 func set_best(v: int) -> void:
 	best_label.text = "Best %d" % v
+	best_label.add_theme_color_override("font_color", MUTED)
+
+
+## During a run the line under the score shows the combo, teal once it multiplies.
+func set_combo(combo: int, mult: int) -> void:
+	best_label.text = ("×%d · combo %d" % [mult, combo]) if mult > 1 else "combo %d" % combo
+	best_label.add_theme_color_override("font_color", TEAL if mult > 1 else MUTED)
 
 
 func set_sound(on: bool) -> void:
@@ -200,7 +211,8 @@ func show_start(on: bool) -> void:
 	start_card.visible = on
 
 
-func show_over(score: int, why: String, best: int, new_best: bool) -> void:
+func show_over(score: int, why: String, best: int, new_best: bool, stats := "") -> void:
+	over_stats.text = stats
 	over_score.text = str(score)
 	over_why.text = why
 	if new_best and score > 0:

@@ -18,6 +18,7 @@ func check(cond: bool, what: String) -> void:
 ## unvisited moon, and holds only while inside an unvisited moon's ring.
 ## Returns "press", "release", "tap" or "" for this step.
 class Bot:
+	var deep := false ## wait for the perigee ring before holding
 	var down := false
 	var orbit_steps := 0
 
@@ -48,7 +49,7 @@ class Bot:
 			return ""
 		var in_ring := false
 		for q in s.planets:
-			if not q.visited and Vector2(q.x - p.x, q.y - p.y).length() < q.ring:
+			if not q.visited and Vector2(q.x - p.x, q.y - p.y).length() < (q.perigee_radius() if deep else q.ring):
 				in_ring = true
 		if in_ring and not down:
 			down = true
@@ -71,11 +72,12 @@ static func apply(s: Sim, action: String) -> void:
 
 
 ## Plays seed `seed_in` with the bot for at most `max_steps`; returns [sim, inputs].
-func bot_run(seed_in: int, max_steps: int) -> Array:
+func bot_run(seed_in: int, max_steps: int, deep := false) -> Array:
 	var s := Sim.new(seed_in, 400, 700)
 	s.press()
 	s.release() # the start tap
 	var bot := Bot.new()
+	bot.deep = deep
 	var inputs: Array = []
 	for i in max_steps:
 		var act := bot.decide(s)
@@ -86,6 +88,45 @@ func bot_run(seed_in: int, max_steps: int) -> Array:
 		if s.state == "over":
 			break
 	return [s, inputs]
+
+
+## Puts the ship in flight `dist` below moon `pl`, heading up at it, passing `miss` to its side.
+## The moon just before it is treated as the one just left.
+static func fly_at(s: Sim, pl: Sim.Planet, dist: float, miss: float) -> void:
+	var p := s.player
+	p.planet = null
+	p.last = null
+	for q in s.planets:
+		if q.k == pl.k - 1:
+			p.last = q
+	p.fly_t = 0.0
+	s.flight_id += 1
+	p.x = pl.x + miss
+	p.y = pl.y + dist
+	p.vx = 0.0
+	p.vy = -pl.speed
+	p.speed = pl.speed
+	s.cam_y = pl.y
+	s.cam_x = 0.0
+
+
+## Steps until `pl` catches the ship (pressing once the ship is `press_at` from its centre),
+## the run ends, or 3 s pass. Returns the capture event, or {}.
+static func catch(s: Sim, pl: Sim.Planet, press_at: float) -> Dictionary:
+	for i in 360:
+		var d := Vector2(s.player.x - pl.x, s.player.y - pl.y).length()
+		if not s.holding and d < press_at:
+			s.press()
+		s.step()
+		for e in s.events:
+			if e.type == "capture":
+				s.events.clear()
+				s.release()
+				return e
+		s.events.clear()
+		if s.state != "play":
+			break
+	return {}
 
 
 func _initialize() -> void:
@@ -143,6 +184,12 @@ func _initialize() -> void:
 			best_seed = seed_in
 	check(best_hops >= 10, "the bot hops at least 10 moons on one of five seeds (best %d)" % best_hops)
 
+	var deep_r := bot_run(best_seed, 120 * 60, true)
+	var ds: Sim = deep_r[0]
+	print("    deep bot, seed %d: %d moons, score %d, %d perigees, best combo %d" % [best_seed, ds.hops, ds.score, ds.perigees, ds.best_combo])
+	check(ds.perigees >= 10 and ds.perigees * 2 >= ds.hops and ds.score > ds.hops * 2,
+		"a bot that waits for the perigee ring scores mostly perigees and far more points")
+
 	# --- replay: same seed + same inputs = same run ---
 	var rec := bot_run(best_seed, 120 * 60)
 	var a: Sim = rec[0]
@@ -192,6 +239,72 @@ func _initialize() -> void:
 	check(caught and m.player.vr < 0.0, "the orbit starts from the incoming radial speed (spiral in, %.0f)" % m.player.vr)
 	m.release()
 	check(m.player.planet == pl1, "a release right after a capture does not fling")
+
+	# --- scoring: perigee combo, leaps, grazes, sparks ---
+	var sc := Sim.new(21, 400, 700)
+	sc.press()
+	sc.release()
+	var m1 := sc.planets[1]
+	var ev := {}
+	fly_at(sc, m1, m1.ring + 40.0, 0.0)
+	ev = catch(sc, m1, m1.perigee_radius() - 2.0)
+	check(ev.get("perigee", false) and ev.points == 2 and sc.score == 2 and sc.combo == 1,
+		"a catch inside the perigee ring is a perigee: 2 points, combo 1 (%s)" % [ev])
+	var m2 := sc.planets[2]
+	sc.combo = 4
+	sc._set_mult()
+	fly_at(sc, m2, m2.ring + 40.0, 0.0)
+	ev = catch(sc, m2, m2.perigee_radius() - 2.0)
+	check(ev.get("perigee", false) and ev.points == 6 and sc.mult == 3, "combo 5 multiplies a perigee by 3 (%d points)" % ev.get("points", 0))
+	var m3 := sc.planets[3]
+	fly_at(sc, m3, m3.ring + 40.0, 0.0)
+	ev = catch(sc, m3, m3.ring - 2.0) # held just inside the edge of the ring
+	check(not ev.get("perigee", true) and ev.get("points", 0) == 1 and sc.combo == 0 and sc.mult == 1, "a shallow catch scores 1 and resets the combo (%s)" % [ev])
+	check(sc.perigees == 2 and sc.best_combo == 5, "perigees and best combo are counted")
+
+	var lp := Sim.new(22, 400, 700)
+	lp.press()
+	lp.release()
+	var target := lp.planets[2]
+	fly_at(lp, target, target.ring + 40.0, 0.0)
+	ev = catch(lp, target, target.perigee_radius() - 2.0)
+	check(ev.get("skipped", 0) == 1 and lp.hops == 2 and lp.planets[1].skipped and lp.planets[1].visited,
+		"catching moon 2 straight from moon 0 is a leap: moon 1 counts as passed")
+	check(ev.get("leap_points", 0) == 6 and lp.score == 8 and lp.leaps == 1 and lp.combo == 2,
+		"a 1-moon leap scores 3 times the multiplier and adds a combo step (score %d)" % lp.score)
+	var far := lp.planets[5]
+	fly_at(lp, far, far.ring + 40.0, 0.0)
+	ev = catch(lp, far, far.perigee_radius() - 2.0)
+	check(ev.get("skipped", 0) == 2 and ev.get("leap_points", 0) == 9 * ev.mult, "a 2-moon leap scores 9 times the multiplier")
+	check(Sim.LEAP_POINTS[3] == 18, "a 3-moon leap scores 18 times the multiplier")
+
+	var gz := Sim.new(23, 400, 700)
+	gz.press()
+	gz.release()
+	var gm := gz.planets[1]
+	fly_at(gz, gm, gm.ring + 40.0, gm.pr + 9.0)
+	var grazed_at := -1
+	for i in 120:
+		gz.step()
+		if gz.grazes > 0 and grazed_at < 0:
+			grazed_at = i
+	check(gz.grazes == 1 and gz.score == 1, "skimming a moon without holding is one graze, +1 (%d grazes)" % gz.grazes)
+
+	var sp := Sim.new(24, 400, 700)
+	sp.press()
+	sp.release()
+	var spark := sp.sparks[0]
+	sp.player.planet = null
+	sp.player.x = spark.x
+	sp.player.y = spark.y + 30.0
+	sp.player.vx = 0.0
+	sp.player.vy = -sp.player.speed
+	sp.cam_y = spark.y
+	sp.combo = 1
+	sp._set_mult()
+	for i in 30:
+		sp.step()
+	check(spark.got and sp.combo == 2 and sp.score == 2, "a spark raises the combo and scores the multiplier (score %d)" % sp.score)
 
 	# --- losing and restarting ---
 	var d := Sim.new(9, 400, 700)

@@ -78,6 +78,7 @@ func _initialize() -> void:
 			break
 	check(main.sim.hops >= 5, "the bot hops 5 moons with the Space key (%d)" % main.sim.hops)
 	check(main.hud.score_label.text == str(main.sim.score), "HUD shows the score")
+	check(main.hud.best_label.text.contains("combo %d" % main.sim.combo), "during a run the HUD shows the combo (%s)" % main.hud.best_label.text)
 
 	# pause: losing focus freezes the run
 	main.on_press() # a finger down when focus goes
@@ -119,6 +120,7 @@ func _initialize() -> void:
 	tick(0.6)
 	check(main.hud.over_card.visible and main.hud.over_score.text == str(final), "the game over card shows the score")
 	check(main.hud.over_best.text == "New best", "it says New best")
+	check(main.hud.over_stats.text.contains("perigee") and main.hud.over_stats.text.contains("best combo"), "it sums up the run (%s)" % main.hud.over_stats.text)
 	check(main.hud.best_label.text == "Best %d" % final, "HUD best updated")
 	var saved := SaveData.new(SAVE)
 	saved.load_file()

@@ -15,6 +15,13 @@ const MAX_FLIGHT := 4.5 ## seconds in flight before you are lost
 const RESTART_LOCK := 0.45 ## seconds after a death before a tap restarts
 const TRAIL := 44 ## trail points (one per step, so about 0.37 s)
 
+# Scoring (perigee combo and leaps, chosen by Guillaume on 2026-11-16; same rules as the options page demos)
+const INNER_GAP := 16.0 ## the deepest orbit is this far above a moon's surface
+const PERIGEE_DEPTH := 0.6 ## a catch this deep into the ring (0 = edge, 1 = deepest orbit) is a perigee
+const PERIGEE_POINTS := 2 ## times the multiplier
+const MAX_MULT := 5
+const LEAP_POINTS: Array[int] = [0, 3, 9, 18] ## by moons skipped (3 or more: 18), times the multiplier
+
 
 class Planet:
 	var k := 0 ## running moon number in this run (0 = the first moon)
@@ -31,6 +38,16 @@ class Planet:
 	var speed := 185.0 ## orbit speed around this moon
 	var spin := 0.0
 	var flash := 0.0
+	var skipped := false ## passed by a leap, never caught
+	var graze_flight := -1 ## the flight that last grazed it (one graze per moon per flight)
+
+	## Radius inside which a catch is a perigee.
+	func perigee_radius() -> float:
+		return ring - PERIGEE_DEPTH * (ring - (pr + INNER_GAP))
+
+	## How deep a distance from the centre is in the ring: 0 at the ring, 1 at the deepest orbit.
+	func depth(d: float) -> float:
+		return clampf((ring - d) / (ring - (pr + INNER_GAP)), 0.0, 1.0)
 
 
 class Spark:
@@ -76,6 +93,14 @@ var t := 0.0
 var score := 0
 var hops := 0 ## moons reached in this run
 var sparks_got := 0
+var combo := 0 ## perigees, sparks and skipped moons in a row; a shallow catch resets it
+var mult := 1 ## score multiplier: 1 + combo / 2, up to MAX_MULT
+var best_combo := 0
+var perigees := 0
+var grazes := 0
+var leaps := 0
+var last_k := 0 ## highest moon number caught (leaps skip the ones in between)
+var flight_id := 0
 var moons_made := 0 ## moons generated so far: the difficulty index (see make_planet)
 var holding := false
 var swallow := false ## the press that started a run must not also fling on release
@@ -189,6 +214,14 @@ func new_run(seed_in: int) -> void:
 	hops = 0
 	score = 0
 	sparks_got = 0
+	combo = 0
+	mult = 1
+	best_combo = 0
+	perigees = 0
+	grazes = 0
+	leaps = 0
+	last_k = 0
+	flight_id = 0
 	moons_made = 0
 	holding = false
 	swallow = false
@@ -263,6 +296,7 @@ func launch() -> void:
 	p.last = p.planet
 	p.planet = null
 	p.fly_t = 0.0
+	flight_id += 1
 	events.append({"type": "launch", "x": p.x, "y": p.y})
 
 
@@ -293,12 +327,50 @@ func capture(pl: Planet) -> void:
 	p.cap_t = t
 	p.speed = pl.speed
 	var first := not pl.visited
+	var e := {"type": "capture", "x": p.x, "y": p.y, "col": pl.col, "first": first, "perigee": false, "points": 0, "skipped": 0}
 	if first:
 		pl.visited = true
 		hops += 1
-		score += 1
+		# a leap: moons between the last one caught and this one count as passed
+		var skipped := maxi(0, pl.k - last_k - 1)
+		last_k = maxi(last_k, pl.k)
+		if skipped > 0:
+			for q in planets:
+				if not q.visited and q.k < pl.k:
+					q.visited = true
+					q.skipped = true
+			hops += skipped
+		if pl.depth(d) >= PERIGEE_DEPTH:
+			_add_combo(1)
+			perigees += 1
+			e.perigee = true
+			e.points = PERIGEE_POINTS * mult
+		else:
+			combo = 0
+			_set_mult()
+			e.points = 1
+		score += e.points
+		if skipped > 0:
+			leaps += 1
+			_add_combo(skipped)
+			var lp := LEAP_POINTS[mini(skipped, 3)] * mult
+			score += lp
+			e.skipped = skipped
+			e.leap_points = lp
+	e.hops = hops
+	e.mult = mult
 	pl.flash = 1.0
-	events.append({"type": "capture", "x": p.x, "y": p.y, "col": pl.col, "first": first, "hops": hops})
+	events.append(e)
+
+
+func _add_combo(n: int) -> void:
+	combo += n
+	best_combo = maxi(best_combo, combo)
+	_set_mult()
+
+
+func _set_mult() -> void:
+	mult = mini(MAX_MULT, 1 + combo / 2)
 
 
 func die(why: String) -> void:
@@ -404,13 +476,20 @@ func _fly(dt: float) -> void:
 		if holding and d < pl.ring:
 			capture(pl)
 			break
+		# graze: skimming past a moon close to its surface without being caught
+		if d < pl.pr + INNER_GAP and pl.graze_flight != flight_id:
+			pl.graze_flight = flight_id
+			grazes += 1
+			score += 1
+			events.append({"type": "graze", "x": p.x, "y": p.y, "points": 1})
 	# sparks
 	for s in sparks:
 		if not s.got and Vector2(p.x - s.x, p.y - s.y).length() < 20.0:
 			s.got = true
-			score += 1
 			sparks_got += 1
-			events.append({"type": "spark", "x": s.x, "y": s.y})
+			_add_combo(1)
+			score += mult
+			events.append({"type": "spark", "x": s.x, "y": s.y, "points": mult})
 	# lost
 	var sx := p.x - cam_x
 	var sy := p.y - cam_y
@@ -463,4 +542,4 @@ func predict() -> Array[Dictionary]:
 
 ## A short fingerprint of the run so far, for the replay test.
 func fingerprint() -> String:
-	return "%s|%d|%d|%d|%d|%.3f|%.3f" % [state, steps, score, hops, moons_made, player.x, player.y]
+	return "%s|%d|%d|%d|%d|%d|%.3f|%.3f" % [state, steps, score, hops, combo, moons_made, player.x, player.y]
