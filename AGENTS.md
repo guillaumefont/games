@@ -6,9 +6,11 @@ Each game folder has its own `AGENTS.md` with game-specific notes. The rules bel
 
 Rule from Guillaume, 2026-11-15. It replaces the older per-game merge rules.
 
-- Agents may merge their own PRs into `main`, but **only through GitHub auto-merge** (squash). Never merge a
-  PR directly and never bypass the `main` ruleset. GitHub then merges the PR itself once every required check
-  is green. (A real merge queue needs an organization-owned repo, and this repo belongs to a personal account.)
+- Agents may merge their own PRs into `main` (squash) **only when all checks are green**. While checks are still
+  running, turn on GitHub auto-merge (squash) so GitHub merges the PR once every required check is green. If the
+  checks are already green, GitHub refuses auto-merge, so merge the PR directly (squash); Guillaume allowed this
+  on 2026-11-16. Never bypass the `main` ruleset. (A real merge queue needs an organization-owned repo, and this
+  repo belongs to a personal account.)
 - **All checks must be green.** The required check is **CI gate** (`.github/workflows/ci-gate.yml`), which
   waits for the build and headless test workflows of every game the PR touches and fails if any of them fails.
   Don't turn on auto-merge for a PR whose checks are red, and never skip, disable or weaken a test or the gate
