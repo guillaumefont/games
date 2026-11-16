@@ -19,13 +19,22 @@ var intensity := 0.0
 var pan_bus := ["SfxL", "SfxC", "SfxR"]
 
 func _ready() -> void:
+	# Mix (2026-11-16): effects share one "Sfx" bus with a gentle glue compressor, and the music ducks under
+	# busy fighting through a compressor keyed on that bus. Nothing is made louder (Guillaume, PR #4).
+	var si := AudioServer.bus_count
+	AudioServer.add_bus(si); AudioServer.set_bus_name(si, "Sfx"); AudioServer.set_bus_send(si, "Master")
+	var glue := AudioEffectCompressor.new(); glue.threshold = -14.0; glue.ratio = 2.5; glue.attack_us = 8000.0; glue.release_ms = 180.0
+	AudioServer.add_bus_effect(si, glue)
 	for i in 3:
 		var idx := AudioServer.bus_count
-		AudioServer.add_bus(idx); AudioServer.set_bus_name(idx, pan_bus[i]); AudioServer.set_bus_send(idx, "Master")
+		AudioServer.add_bus(idx); AudioServer.set_bus_name(idx, pan_bus[i]); AudioServer.set_bus_send(idx, "Sfx")
 		var p := AudioEffectPanner.new(); p.pan = [-0.55, 0.0, 0.55][i]
 		AudioServer.add_bus_effect(idx, p)
 	var mi := AudioServer.bus_count
 	AudioServer.add_bus(mi); AudioServer.set_bus_name(mi, "Music"); AudioServer.set_bus_send(mi, "Master")
+	var duck := AudioEffectCompressor.new(); duck.sidechain = &"Sfx"; duck.threshold = -24.0; duck.ratio = 3.0
+	duck.attack_us = 15000.0; duck.release_ms = 600.0
+	AudioServer.add_bus_effect(mi, duck)
 	var lim := AudioEffectLimiter.new(); AudioServer.add_bus_effect(0, lim)
 	for n in NAMES:
 		var path := "res://sfx/%s.wav" % n
