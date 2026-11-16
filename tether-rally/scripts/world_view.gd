@@ -2508,7 +2508,7 @@ func _v_buggy(ch: Node3D, P: Array, k: Dictionary) -> Dictionary:
 	for ez: float in [-8.0, 8.0]:
 		_bar(P, Vector3(-46, 42, ez), Vector3(-56, 50, ez), 3.0, k["steel"])
 	P.append(pbox(Vector3(2, 70, 2), k["dark"], Vector3(-48, 72, 16)))   # whip flag
-	P.append(pbox(Vector3(18, 12, 1.5), k["top"], Vector3(-39, 100, 16)))
+	P.append(pbox(Vector3(18, 12, 1.5), k["top"], Vector3(-57, 100, 16)))   # flies off the back of the pole
 	_lamps(P, k, 66.5, 21, [-13.0, 13.0], Vector3(3, 5, 8))
 	_lamps(P, k, -47.5, 28, [-16.0, 16.0], Vector3(3, 4, 8), true)
 	return { "side": [-46, 22, 23, 33, 22], "tops": [[-6, 23, 34, 34, 40], [24, 64, 33.77, 24.47, 40]],

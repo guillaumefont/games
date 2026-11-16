@@ -497,7 +497,7 @@ class Swatch extends Control:
 			["glass", [Vector2(56, 44), Vector2(68.5, 44), Vector2(68.5, 58), Vector2(58, 58)]]],
 		"buggy": [["wheel", -40, 18], ["wheel", 42, 18],
 			["line", [Vector2(-48, 37), Vector2(-48, 107)]],
-			["body", [Vector2(-48, 94), Vector2(-30, 94), Vector2(-30, 106), Vector2(-48, 106)]],
+			["body", [Vector2(-66, 94), Vector2(-48, 94), Vector2(-48, 106), Vector2(-66, 106)]],
 			["low", [Vector2(-50, 14), Vector2(46, 14), Vector2(46, 22), Vector2(-50, 22)]],
 			["dark", [Vector2(-49, 33), Vector2(-27, 33), Vector2(-27, 45), Vector2(-49, 45)]],
 			["dark", [Vector2(-17, 32), Vector2(-11, 32), Vector2(-11, 48), Vector2(-17, 48)]],
