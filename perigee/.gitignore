@@ -3,5 +3,4 @@
 /build/
 *.tmp
 export_credentials.cfg
-/android/
 __pycache__/

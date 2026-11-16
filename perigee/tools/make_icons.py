@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draws the Perigee icon (a coral moon in its dotted capture ring, with the ship on its orbit)
 in the game's colours, and writes icon.png (Godot project icon), icons/ (Android launcher icon
-and adaptive icon layers) and web/icon.png (the web prototype).
+and adaptive icon layers), web/icon.png and the launcher icons of the WebView app in android/res.
 Run from anywhere: python3 perigee/tools/make_icons.py (needs Pillow)."""
 import math
 import os
@@ -86,4 +86,8 @@ fg.save(os.path.join(ICONS, "adaptive-foreground-432.png"), optimize=True)
 mono = Image.new("RGBA", fg.size, (255, 255, 255, 0))
 mono.putalpha(fg.getchannel("A"))
 mono.save(os.path.join(ICONS, "adaptive-monochrome-432.png"), optimize=True)
+for name, px in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+    out = os.path.join(ROOT, "android", "res", f"mipmap-{name}")
+    os.makedirs(out, exist_ok=True)
+    draw(px).save(os.path.join(out, "ic_launcher.png"), optimize=True)
 print("icons written")
