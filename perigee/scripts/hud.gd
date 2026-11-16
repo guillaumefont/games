@@ -13,6 +13,9 @@ signal settings_opened
 signal setting_changed(key: String, value: Variant)
 signal settings_closed
 signal tutorial_requested
+signal hangar_opened
+signal cosmetic_picked(id: String)
+signal hangar_closed
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
 ## Shown on the start and game over cards while the vertical slice is built; not for release.
@@ -61,6 +64,12 @@ var pause_card: Control
 var pause_title: Label
 var pause_sub: Label
 var start_pill_label: Label
+var hangar_card: Control
+var hangar_sparks: Label
+var hangar_next: Label
+var hangar_bar: ProgressBar
+var hangar_items := {} ## item id -> Button
+var over_unlock: Label
 var settings_card: Control
 var settings_sliders := {} ## setting key -> HSlider
 var settings_toggles := {} ## setting key -> Button
@@ -175,6 +184,10 @@ func _ready() -> void:
 	voyage_button.name = "Voyage"
 	voyage_button.pressed.connect(func() -> void: voyage_opened.emit())
 	menu_row.add_child(voyage_button)
+	var hangar_button := _ghost_button("Hangar", 15, 44, 22)
+	hangar_button.name = "Hangar"
+	hangar_button.pressed.connect(func() -> void: hangar_opened.emit())
+	menu_row.add_child(hangar_button)
 	var settings_button := _ghost_button("Settings", 15, 44, 22)
 	settings_button.name = "Settings"
 	settings_button.pressed.connect(func() -> void: settings_opened.emit())
@@ -198,6 +211,10 @@ func _ready() -> void:
 	over_stats = _label("", body_500, 13, MUTED)
 	over_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(over_card).add_child(over_stats)
+	over_unlock = _label("", body_700, 14, SAND)
+	over_unlock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	over_unlock.visible = false
+	_card(over_card).add_child(over_unlock)
 	_card(over_card).add_child(_pill("Tap to fly again"))
 	over_lab_row = _lab_row()
 	_card(over_card).add_child(over_lab_row)
@@ -220,6 +237,7 @@ func _ready() -> void:
 	_build_voyage_card()
 	_build_clear_card()
 	_build_settings_card()
+	_build_hangar_card()
 
 	pause_card = _overlay()
 	pause_card.visible = false
@@ -462,6 +480,114 @@ func show_tutorial_done(score: int) -> void:
 ## The words on the start card's pill: "Tap to play Drift", or the tutorial's on a first run.
 func set_start_text(text: String) -> void:
 	start_pill_label.text = text
+
+
+# ---------- hangar: the spark unlock track ----------
+
+func _build_hangar_card() -> void:
+	hangar_card = _overlay()
+	hangar_card.visible = false
+	hangar_card.color = Color(SPACE, 0.94)
+	hangar_card.mouse_filter = Control.MOUSE_FILTER_STOP
+	var card := _card(hangar_card)
+	var title := _label("Hangar", display_800, 36, INK)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(title)
+	hangar_sparks = _label("", _spaced(body_700, 1.5), 12, SAND)
+	hangar_sparks.uppercase = true
+	hangar_sparks.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(hangar_sparks)
+	hangar_bar = ProgressBar.new()
+	hangar_bar.show_percentage = false
+	hangar_bar.custom_minimum_size = Vector2(300, 8)
+	hangar_bar.max_value = 1.0
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(INK, 0.15)
+	bg.set_corner_radius_all(4)
+	var fg := StyleBoxFlat.new()
+	fg.bg_color = SAND
+	fg.set_corner_radius_all(4)
+	hangar_bar.add_theme_stylebox_override("background", bg)
+	hangar_bar.add_theme_stylebox_override("fill", fg)
+	card.add_child(_centered(hangar_bar))
+	hangar_next = _label("", body_500, 13, MUTED)
+	hangar_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(hangar_next)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	for it in Unlocks.TRACK:
+		var b := Button.new()
+		b.name = "Item_" + it.id
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(104, 92)
+		var box := VBoxContainer.new()
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.alignment = BoxContainer.ALIGNMENT_CENTER
+		box.add_theme_constant_override("separation", 2)
+		b.add_child(box)
+		box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var icon := CosmeticIcon.new(it.id, it.kind)
+		icon.name = "Icon"
+		box.add_child(_centered(icon))
+		var name := _label(it.name, body_700, 13, INK)
+		name.name = "Name"
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(name)
+		var sub := _label(it.kind, body_500, 11, MUTED)
+		sub.name = "Sub"
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(sub)
+		var id: String = it.id
+		b.pressed.connect(func() -> void: cosmetic_picked.emit(id))
+		grid.add_child(b)
+		hangar_items[id] = b
+	card.add_child(_centered(grid))
+	var note := _label("Collect sparks in any mode to move along the track.", body_500, 12, MUTED)
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(note)
+	var done := _ghost_button("Done", 13, 36, 18)
+	done.name = "Done"
+	done.pressed.connect(func() -> void: hangar_closed.emit())
+	card.add_child(_centered(done))
+
+
+## Opens (or refreshes) the hangar for `sparks` collected all-time and the `equipped` ids.
+func show_hangar(sparks: int, equipped: Dictionary) -> void:
+	hangar_sparks.text = "%d sparks collected" % sparks
+	hangar_bar.value = Unlocks.progress(sparks)
+	var nxt := Unlocks.next_item(sparks)
+	hangar_next.text = ("Next: %s at %d" % [Unlocks.label(nxt), nxt.at]) if not nxt.is_empty() else "Track complete"
+	for it in Unlocks.TRACK:
+		var b: Button = hangar_items[it.id]
+		var open := sparks >= int(it.at)
+		var on: bool = equipped.get(it.kind, "") == it.id
+		b.disabled = not open
+		b.find_child("Icon", true, false).locked = not open
+		var sub: Label = b.find_child("Sub", true, false)
+		sub.text = ("Equipped" if on else it.kind.capitalize()) if open else "%d sparks" % it.at
+		sub.add_theme_color_override("font_color", SAND if on else MUTED)
+		for st in ["normal", "hover", "pressed", "focus", "hover_pressed", "disabled"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(1, 1, 1, 0.06 if on else 0.0)
+			sb.border_color = SAND if on else Color(INK, 0.1 if not open else 0.25)
+			sb.set_border_width_all(2)
+			sb.set_corner_radius_all(14)
+			sb.anti_aliasing = true
+			b.add_theme_stylebox_override(st, sb)
+	hangar_card.visible = true
+	start_card.visible = false
+
+
+func hide_hangar() -> void:
+	hangar_card.visible = false
+
+
+## A line on the game over card for cosmetics a run just unlocked ("" hides it).
+func set_over_unlock(text: String) -> void:
+	over_unlock.text = text
+	over_unlock.visible = text != ""
 
 
 # ---------- settings ----------

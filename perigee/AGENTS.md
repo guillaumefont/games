@@ -75,6 +75,10 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 - Settings live in `save.data.settings` (volumes on the Music/Sfx buses, vibration, aim guide, reduced motion,
   high-contrast rings). Assists may change what you see, never how points are scored. The future Daily must record
   whether the aim guide was on.
+- The spark unlock track (`scripts/unlocks.gd`): all-time sparks (`save.data.sparks`, banked by `main._bank_sparks()`
+  at the end of every Drift and Voyage run) unlock cosmetics in a fixed order; `save.data.equipped` holds one id per
+  kind (ship, trail, palette). No random rewards. Cosmetics are drawn by `scripts/looks.gd` and must stay looks-only;
+  palettes keep four moon colours apart by lightness too. The Hangar card shows the track and equips items.
 - `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
 - Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
   on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or
@@ -102,8 +106,8 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 
 - `tests/sim_test.gd` (rules: bot, replay, difficulty ramp, momentum, game over), `tests/game_test.gd`
   (scene: input, HUD, save, pause/resume, settings) and `tests/voyage_test.gd` (sectors, stars, unlocks, Voyage
-  screens) and `tests/onboarding_test.gd` (tutorial, settings) run in `perigee-test.yml` (check "Perigee headless test").
-  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` last; CI greps for it. A new test file gets a step there.
+  screens) `tests/onboarding_test.gd` (tutorial, settings) and `tests/unlocks_test.gd` (unlock track, hangar) run in `perigee-test.yml` (check "Perigee headless test").
+  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` last; CI greps for it. A new test file gets a step there.
 - `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
 - Every change comes with a test of what it should do; a bug fix gets a regression test.
 - Screenshots of the Godot game for reviews: `tools/screenshots.gd` (see README).
