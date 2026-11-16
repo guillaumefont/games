@@ -18,6 +18,7 @@ var sim: Sim
 var save: SaveData
 var hud: Hud
 var sfx: Sfx
+var music: Music
 ## Where the save lives; tests point it elsewhere before the node enters the tree.
 var save_path := "user://save.json"
 
@@ -49,6 +50,10 @@ func _ready() -> void:
 	sfx = Sfx.new()
 	add_child(sfx)
 	sfx.enabled = bool(save.get_setting("sound"))
+	music = Music.new()
+	add_child(music)
+	music.enabled = sfx.enabled
+	music.play("drift")
 	hud = Hud.new()
 	add_child(hud)
 	hud.set_best(save.data.best)
@@ -183,6 +188,7 @@ func pause_game() -> void:
 	button_down = false
 	sim.cancel()
 	hud.show_pause(true)
+	music.ducked = true
 	_update_frame_cap()
 
 
@@ -190,6 +196,7 @@ func _resume() -> void:
 	paused = false
 	resume_left = 0.0
 	hud.show_pause(false)
+	music.ducked = false
 	# a finger kept down through the countdown counts as holding
 	sim.holding = button_down
 	_update_frame_cap()
@@ -197,6 +204,7 @@ func _resume() -> void:
 
 func _toggle_sound() -> void:
 	sfx.enabled = not sfx.enabled
+	music.enabled = sfx.enabled
 	save.set_setting("sound", sfx.enabled)
 	save.save_file()
 	hud.set_sound(sfx.enabled)
@@ -276,7 +284,7 @@ func _handle_events() -> void:
 				sfx.play("spark")
 			"clear":
 				_burst(e.x, e.y, SAND, 40, 180.0)
-				sfx.play("leap")
+				sfx.play("clear")
 				_vibrate(40)
 				_record_clear()
 			"graze":
@@ -347,6 +355,11 @@ func _update_hud() -> void:
 			"Under %d s (%.1f s)" % [int(sector.par), sim.run_t],
 			Voyage.goal_text(sector.goal),
 		], not Voyage.next_sector(sector.id).is_empty())
+		var lit := 0
+		for got in st:
+			if got:
+				sfx.play("star", 0.25 + 0.22 * lit)
+				lit += 1
 	var hint := ""
 	if sim.state == "play" and sim.hops < 3:
 		if sim.player.planet != null:
