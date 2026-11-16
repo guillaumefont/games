@@ -117,6 +117,37 @@ func _initialize() -> void:
 	main.on_release()
 	await run(0.25)
 	await shot("12-tutorial-flight")
+	# the hangar part way along the track, then a run with Dart, Comet and Aurora
+	main.hud.settings_toggles.high_contrast.button_pressed = false
+	main.hud.settings_toggles.aim_guide.button_pressed = false
+	main.save.data.sparks = 150
+	main.save.data.equipped = {"ship": "ship_dart", "trail": "trail_comet", "palette": "palette_aurora"}
+	main.open_hangar()
+	await run(0.3)
+	await shot("13-hangar")
+	main.close_hangar()
+	main.start_mode("endless")
+	var cbot := preload("res://tests/sim_test.gd").Bot.new()
+	for i in 120 * 30:
+		match cbot.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		if main.sim.hops >= 6 and main.sim.player.planet == null and main.sim.player.fly_t > 0.25:
+			break
+	await run(0.0)
+	await shot("14-cosmetics")
+	main.on_release()
+	main.save.data.sparks = 190
+	main.sim.sparks_got = 12
+	main.sim.die("Drifted off into the dark")
+	await run(0.8)
+	await shot("15-unlocked")
 	quit(0)
 
 

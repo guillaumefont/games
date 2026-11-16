@@ -3,7 +3,6 @@ extends Node2D
 ## interpolation between steps, turns the one button into sim.press()/release(), and handles
 ## the save, sound, haptics, and pausing when the app goes to the background.
 
-const COLORS: Array[Color] = [Color("ff8a6b"), Color("6fd6c5"), Color("f2c879"), Color("b49cff")]
 const INK := Color("f3ecdf")
 const SAND := Color("f2c879")
 const SPACE := Color("141634")
@@ -45,6 +44,7 @@ var _alpha := 1.0 ## how far between the last two steps we draw
 var _vis := RandomNumberGenerator.new() ## looks only (particles, stars, shake); never the game
 var _crescent := PackedVector2Array() ## moon shadow shape for radius 1
 var _glow: Texture2D
+var _palette: Array = Unlocks.palette("palette_pastel") ## moon colours of the equipped palette
 
 
 func _ready() -> void:
@@ -71,6 +71,9 @@ func _ready() -> void:
 	hud.setting_changed.connect(change_setting)
 	hud.settings_closed.connect(close_settings)
 	hud.tutorial_requested.connect(start_tutorial)
+	hud.hangar_opened.connect(open_hangar)
+	hud.cosmetic_picked.connect(equip)
+	hud.hangar_closed.connect(close_hangar)
 	_apply_volumes()
 	if not save.data.tutorial_done:
 		hud.set_start_text("Tap to learn to fly")
@@ -114,6 +117,43 @@ func start_tutorial() -> void:
 	sim.events.append({"type": "start"})
 	hud.set_mode("How to play")
 	tutorial_misses = 0
+
+
+func open_hangar() -> void:
+	hud.show_hangar(int(save.data.sparks), save.data.equipped)
+
+
+func close_hangar() -> void:
+	hud.hide_hangar()
+	if sim.state == "start":
+		hud.show_start(true)
+
+
+## Equips an unlocked cosmetic (locked ones are ignored).
+func equip(id: String) -> void:
+	var it := Unlocks.item(id)
+	if it.is_empty() or not Unlocks.is_unlocked(id, int(save.data.sparks)):
+		return
+	save.data.equipped[it.kind] = id
+	save.save_file()
+	sfx.play("toggle")
+	if hud.hangar_card.visible:
+		hud.show_hangar(int(save.data.sparks), save.data.equipped)
+
+
+## Adds a run's sparks to the all-time count (the unlock track) and says what that unlocked.
+func _bank_sparks() -> void:
+	var before := int(save.data.sparks)
+	save.data.sparks = before + sim.sparks_got
+	var got := Unlocks.newly_unlocked(before, int(save.data.sparks))
+	var names: Array[String] = []
+	for it in got:
+		names.append(Unlocks.label(it))
+	hud.set_over_unlock(("Unlocked: " + ", ".join(names)) if not names.is_empty() else "")
+	if not got.is_empty():
+		sfx.play("star", 0.6)
+		if sim.state == "clear":
+			_popup(sim.player.x, sim.player.y - 40.0, "Unlocked: " + ", ".join(names), SAND)
 
 
 func open_settings() -> void:
@@ -316,6 +356,7 @@ func _handle_events() -> void:
 				clear_shown = false
 				new_best = false
 				hud.set_score(0)
+				hud.set_over_unlock("")
 				# a Voyage retry replays the same layout
 				sim.next_seed = int(sector.seed) if mode == "voyage" else _new_seed()
 				_update_frame_cap()
@@ -339,7 +380,7 @@ func _handle_events() -> void:
 					_burst(e.x, e.y, CORAL, 24, 120.0)
 					shake = maxf(shake, 4.0)
 					_vibrate(30)
-				_burst(e.x, e.y, COLORS[e.col], 10, 55.0)
+				_burst(e.x, e.y, _palette[e.col], 10, 55.0)
 				_vibrate(12)
 			"spark":
 				_burst(e.x, e.y, SAND, 10, 70.0)
@@ -381,7 +422,7 @@ func _record_clear() -> void:
 	rec["time"] = minf(float(rec.get("time", INF)), snappedf(sim.run_t, 0.01))
 	save.data.voyage[sector.id] = rec
 	save.data.runs = int(save.data.runs) + 1
-	save.data.sparks = int(save.data.sparks) + sim.sparks_got
+	_bank_sparks()
 	save.save_file()
 
 
@@ -389,7 +430,7 @@ func _record_run() -> void:
 	if mode == "voyage":
 		new_best = false
 		save.data.runs = int(save.data.runs) + 1
-		save.data.sparks = int(save.data.sparks) + sim.sparks_got
+		_bank_sparks()
 		save.save_file()
 		_update_frame_cap()
 		return
@@ -401,7 +442,7 @@ func _record_run() -> void:
 	if new_best:
 		save.data.best = sim.score
 	save.data.runs = int(save.data.runs) + 1
-	save.data.sparks = int(save.data.sparks) + sim.sparks_got
+	_bank_sparks()
 	save.save_file()
 	hud.set_best(save.data.best)
 	_update_frame_cap()
@@ -547,6 +588,7 @@ func _draw() -> void:
 	for pl in sim.planets:
 		pos[pl] = Vector2(Sim.planet_x(pl, t), pl.y)
 
+	_palette = Unlocks.palette(save.data.equipped.palette)
 	var calm := bool(save.get_setting("reduced_motion"))
 	var contrast := bool(save.get_setting("high_contrast"))
 	# capture rings
@@ -610,7 +652,7 @@ func _draw() -> void:
 	for pl in sim.planets:
 		var c: Vector2 = pos[pl]
 		var fade := 0.25 if pl.skipped else (0.45 if pl.visited and pl != p.planet else 1.0)
-		var col: Color = COLORS[pl.col]
+		var col: Color = _palette[pl.col]
 		var gr := pl.pr * 2.2
 		draw_texture_rect(_glow, Rect2(c - Vector2(gr, gr), Vector2(gr, gr) * 2.0), false, Color(col, fade))
 		draw_circle(c, pl.pr, Color(col, fade), true, -1.0, true)
@@ -639,12 +681,12 @@ func _draw() -> void:
 	# trail and ship
 	if sim.state != "over" or sim.t - sim.death_t < 0.05:
 		var tr := p.trail
-		var n := tr.size()
-		for i in range(2, n, 2):
-			var f := float(i) / n
-			var to: Vector2 = ship if i >= n - 2 else tr[i]
-			draw_line(tr[i - 2], to, Color(INK, f * 0.5), maxf(f * 5.0, 0.5), true)
-		draw_circle(ship, 5.5, INK, true, -1.0, true)
+		var eq: Dictionary = save.data.equipped
+		Looks.draw_trail(self, eq.trail, tr, ship, _palette, t)
+		var heading := Vector2.ZERO
+		if tr.size() >= 2:
+			heading = (ship - tr[-2]).normalized()
+		Looks.draw_ship(self, eq.ship, ship, heading, t)
 		if sim.holding and p.planet == null and sim.state == "play":
 			draw_arc(ship, 10.0 + sin(t * 14.0) * 1.5, 0, TAU, 32, SAND, 1.5, true)
 

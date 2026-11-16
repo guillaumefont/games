@@ -21,6 +21,7 @@ const DEFAULTS := {
 		"high_contrast": false, ## brighter, thicker rings; the perigee ring told apart by its dashes, not its colour
 		"aim_guide": false, ## the fling guide on every hop, not just the first three
 	},
+	"equipped": {"ship": "ship_pebble", "trail": "trail_stardust", "palette": "palette_pastel"}, ## Unlocks ids by kind
 	"tutorial_done": false, ## the first-run tutorial was finished (or skipped)
 	"voyage": {}, ## sector id -> {stars, score, time}: best of each
 }
@@ -46,8 +47,8 @@ func load_file() -> void:
 		return
 	var loaded: Dictionary = _migrate(parsed)
 	for key in loaded:
-		if key == "settings" and loaded[key] is Dictionary:
-			data.settings.merge(loaded[key], true)
+		if key in ["settings", "equipped"] and loaded[key] is Dictionary:
+			data[key].merge(loaded[key], true)
 		elif key in data:
 			data[key] = loaded[key]
 	# JSON numbers come back as floats
