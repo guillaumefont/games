@@ -366,10 +366,36 @@ func _option_changed(key: String, value) -> void:
 		"music_vol", "sfx_vol":
 			sfx.set_volumes(Settings.get_opt("music_vol"), Settings.get_opt("sfx_vol"))
 		"quality":
-			view.set_quality(value)
+			_apply_quality(value)
 		"haptics":
 			if value:
 				Haptics.hook()   # a tick so you feel it is on
+
+# Changing the graphics quality. The first switch into a shader set this run hasn't drawn
+# (Low, or back up from a Low start) compiles every material's shaders and freezes the game
+# for a moment, so that one switch happens behind the static loading screen, put on screen
+# first. Taps during it are kept: the last one wins.
+var _quality_busy := false
+var _quality_want := -1
+func _apply_quality(q: int) -> void:
+	_quality_want = q
+	if _quality_busy:
+		return
+	if not view.quality_compiles(q):
+		view.set_quality(q)
+		return
+	_quality_busy = true
+	ui.show_loading("Preparing graphics")
+	ui.set_loading_progress(1.0, true)
+	await get_tree().process_frame   # the screen is drawn before the freeze starts
+	await get_tree().process_frame
+	view.set_quality(_quality_want)
+	await get_tree().process_frame   # this frame compiles the shaders
+	await get_tree().process_frame
+	ui.hide_loading()
+	_quality_busy = false
+	if _quality_want != view.quality:
+		_apply_quality(_quality_want)
 
 func _pause_action(what: String) -> void:
 	match what:
