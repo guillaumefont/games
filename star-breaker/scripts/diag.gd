@@ -19,6 +19,9 @@ static var _seen := {}
 
 
 static func start() -> void:
+	# one log per app session: the portrait scene and the main scene both call this
+	if _f != null:
+		return
 	_t0 = Time.get_ticks_msec()
 	if FileAccess.file_exists(PATH):
 		var txt := FileAccess.get_file_as_string(PATH).strip_edges()

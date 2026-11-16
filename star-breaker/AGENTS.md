@@ -52,6 +52,7 @@ godot --headless --path . --script tests/icon_test.gd    # project icon and Andr
 godot --headless --path . --script tests/fort_test.gd    # fortress decoration: draw calls, back wall, corridor kept clear
 godot --headless --path . --script tests/balance_test.gd # power-up spacing, losing the pod on death, pod ram, late worlds
 godot --headless --path . --script tests/pods_test.gd    # second pod at the back, one tap launches/recalls both, death drops one
+godot --headless --path . --script tests/vertical_test.gd # portrait preview: drag, charge beam, pod, ultimates, barriers, bosses
 ```
 
 Screenshots (needs a display, e.g. `xvfb-run -a`):
@@ -213,3 +214,20 @@ the pod model spins on its `spin` child around X, the root only turns it to face
 - Game logic runs in stage units (224 x 126, y down) at a fixed 60 ticks per second; `X()` /
   `Y()` in `scripts/main.gd` map them to 3D.
 - GDScript can't infer types from Dictionary fields: write `var k: float = d.x * 2`, not `:=`.
+
+## Portrait preview (vertical slice)
+
+- The portrait shoot 'em up is being built beside the landscape game, not inside it:
+  `scenes/vertical.tscn` with `scripts/vgame.gd` (game), `vhud.gd` (HUD and menus),
+  `vships.gd` (ship kits and models) and `vstage.gd` (seeded stage events). The title's
+  "Vertical preview" button opens it; "Back to the main game" returns to `main.tscn`. Don't
+  refactor `main.gd` for it: the portrait game will replace landscape when it is ready.
+- Stage units are 126 x 224 with y up; `X()` / `Y()` in `vgame.gd` map them to 3D. Side-view
+  models are turned top-down by `VShips.upright()`.
+- The screen turns to portrait at runtime (`DisplayServer.screen_set_orientation`), so the
+  preview ships in a game pack without a new APK.
+- Tests and tools that drive `vgame.gd` tick by tick set `driven = true` (otherwise
+  `_physics_process` overwrites `inp` from real input) and `pause_on_focus_out = false`.
+- Screenshots: `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
+- `Diag.start()` only opens one log per app session, so switching scenes doesn't wipe it.
+- The portrait scene has no `_warm_up()` yet; add one there before it becomes the main game.

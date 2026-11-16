@@ -49,3 +49,5 @@ jobs:
         run: ./godot --headless --path . --script tests/balance_test.gd
       - name: Two pods (second pod at the back, launch and recall both, death)
         run: ./godot --headless --path . --script tests/pods_test.gd
+      - name: Portrait preview (drag, charge beam, pod, ultimates, barriers, bosses)
+        run: ./godot --headless --path . --script tests/vertical_test.gd

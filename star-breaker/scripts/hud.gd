@@ -71,6 +71,8 @@ var _crash_report := ""
 var _btn_gfx: Button
 ## Main menu line with the running build; tapping it restarts the game on the newest build.
 var btn_build: Button
+## Opens the portrait game (scenes/vertical.tscn).
+var btn_vertical: Button
 var _build_id := ""
 var _boss_name: Label
 var _fade: ColorRect
@@ -600,6 +602,11 @@ func _build_title() -> Control:
 	v.add_child(gap)
 	v.add_child(_play_button())
 	v.add_child(_endless_button())
+	# the portrait game (vertical slice), a preview while it is being built
+	btn_vertical = _small_button("Vertical preview")
+	btn_vertical.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	btn_vertical.pressed.connect(func(): mode_chosen.emit("vertical"))
+	v.add_child(btn_vertical)
 	var kr := _keys([["▲ ▼", "Choose"], ["Enter", "Play"]], MENU_W)
 	kr.alignment = FlowContainer.ALIGNMENT_BEGIN
 	kr.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

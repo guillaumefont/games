@@ -2796,7 +2796,9 @@ func update() -> void:
 				hud.select_mode("normal")
 			if hit("right") or hit("down"):
 				hud.select_mode("endless")
-			if _want_mode != "":
+			if _want_mode == "vertical":
+				open_vertical()
+			elif _want_mode != "":
 				hud.select_mode(_want_mode)
 				new_game(0, _want_mode)
 			elif hit("start") or hit("fire"):
@@ -2851,6 +2853,17 @@ func update() -> void:
 	_want_mode = ""
 	if shake > 0.0:
 		shake *= 0.85
+
+
+## Switches to the portrait game (the vertical slice). Tests swap `vertical_fn` for a stub.
+var vertical_fn := func():
+	get_tree().change_scene_to_file("res://scenes/vertical.tscn")
+
+
+func open_vertical() -> void:
+	Diag.note("OPEN_VERTICAL")
+	_save()
+	vertical_fn.call()
 
 
 func _exit_tree() -> void:
