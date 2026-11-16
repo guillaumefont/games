@@ -41,6 +41,8 @@ func key(down: bool) -> void:
 func new_main() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
 	main.save_path = SAVE
+	# the first-run tutorial has its own test
+	main.ready.connect(func() -> void: main.save.data.tutorial_done = true)
 	root.add_child(main)
 	main.set_process(false)
 

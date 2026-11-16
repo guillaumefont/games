@@ -24,6 +24,8 @@ var save_path := "user://save.json"
 
 ## "endless", or a kind of moon for a lab run (tries one new kind; never counts for the best score)
 var mode := "endless"
+const TUTORIAL_SEED := 4242
+const TUTORIAL_RECIPE := {"moons": 6, "rescue": true}
 const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
 var sector: Dictionary = {} ## the Voyage sector being played
 var clear_shown := false
@@ -33,6 +35,8 @@ var button_down := false ## the one button as the player holds it right now
 var over_shown := false
 var new_best := false
 var shake := 0.0
+var tutorial_misses := 0
+var _miss_t := -10.0 ## sim time of the last tutorial rescue, for its hint
 var particles: Array[Dictionary] = []
 var popups: Array[Dictionary] = [] ## score text floating up in the world: {x, y, text, col, life}
 var stars: Array[Dictionary] = []
@@ -63,6 +67,13 @@ func _ready() -> void:
 	hud.voyage_opened.connect(open_voyage)
 	hud.sector_picked.connect(start_sector)
 	hud.clear_action.connect(_clear_action)
+	hud.settings_opened.connect(open_settings)
+	hud.setting_changed.connect(change_setting)
+	hud.settings_closed.connect(close_settings)
+	hud.tutorial_requested.connect(start_tutorial)
+	_apply_volumes()
+	if not save.data.tutorial_done:
+		hud.set_start_text("Tap to learn to fly")
 	_vis.randomize()
 	for i in 140:
 		stars.append({"x": _vis.randf(), "y": _vis.randf(), "z": _vis.randf_range(0.15, 1.0), "tw": _vis.randf() * 6.0})
@@ -88,6 +99,52 @@ func start_mode(m: String) -> void:
 	hud.set_mode(MODE_NAMES.get(m, ""))
 
 
+## The first-run tutorial: a short gentle run with hints, where missing a moon puts you back on
+## the last one instead of ending the run. Finishing it (moon 6) marks it done.
+func start_tutorial() -> void:
+	if paused:
+		return
+	mode = "tutorial"
+	sector = {}
+	hud.hide_settings()
+	hud.set_timer(0.0, 0.0)
+	sim.recipe = TUTORIAL_RECIPE.duplicate()
+	sim.new_run(TUTORIAL_SEED)
+	sim.swallow = button_down # the tap that started it must not fling
+	sim.events.append({"type": "start"})
+	hud.set_mode("How to play")
+	tutorial_misses = 0
+
+
+func open_settings() -> void:
+	hud.show_settings(save.data.settings)
+
+
+func close_settings() -> void:
+	hud.hide_settings()
+	save.save_file()
+	if sim.state == "start":
+		hud.show_start(true)
+	elif sim.state == "over":
+		hud.show_start(false)
+
+
+func change_setting(key: String, value: Variant) -> void:
+	save.set_setting(key, value)
+	if key.ends_with("_volume"):
+		_apply_volumes()
+		if key == "sfx_volume":
+			sfx.play("toggle")
+
+
+func _apply_volumes() -> void:
+	for bus in [["Music", "music_volume"], ["Sfx", "sfx_volume"]]:
+		var i := AudioServer.get_bus_index(bus[0])
+		var v := float(save.get_setting(bus[1]))
+		AudioServer.set_bus_volume_db(i, linear_to_db(maxf(v, 0.0001)))
+		AudioServer.set_bus_mute(i, v <= 0.0)
+
+
 func open_voyage() -> void:
 	hud.show_voyage(save.data.voyage)
 
@@ -107,6 +164,9 @@ func start_sector(id: String) -> void:
 
 
 func _clear_action(action: String) -> void:
+	if mode == "tutorial":
+		start_mode("endless")
+		return
 	if sector.is_empty():
 		return
 	match action:
@@ -162,6 +222,9 @@ func on_press() -> void:
 	if sim.state == "clear":
 		if clear_shown:
 			_clear_action("next")
+		return
+	if sim.state == "start" and not save.data.tutorial_done:
+		start_tutorial()
 		return
 	sim.press()
 
@@ -286,7 +349,17 @@ func _handle_events() -> void:
 				_burst(e.x, e.y, SAND, 40, 180.0)
 				sfx.play("clear")
 				_vibrate(40)
-				_record_clear()
+				if mode == "tutorial":
+					save.data.tutorial_done = true
+					save.save_file()
+					hud.set_start_text("Tap to play Drift")
+				else:
+					_record_clear()
+			"rescue":
+				tutorial_misses += 1
+				_miss_t = sim.t
+				_popup(e.x, e.y - 14.0, "Try again", SAND)
+				sfx.play("revisit")
 			"graze":
 				_popup(e.x, e.y - 14.0, "Graze +1", LILAC)
 				sfx.play("graze")
@@ -347,7 +420,10 @@ func _update_hud() -> void:
 		hud.set_over_row(mode == "voyage")
 		var line := ("Moon %d of %d" % [mini(sim.hops, sector.moons), sector.moons]) if mode == "voyage" else ""
 		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats(), line)
-	if sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
+	if mode == "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
+		clear_shown = true
+		hud.show_tutorial_done(sim.score)
+	if mode != "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
 		clear_shown = true
 		var st := Voyage.stars(sector, sim)
 		hud.show_clear(sector.id, sim.score, st, [
@@ -361,12 +437,34 @@ func _update_hud() -> void:
 				sfx.play("star", 0.25 + 0.22 * lit)
 				lit += 1
 	var hint := ""
-	if sim.state == "play" and sim.hops < 3:
+	if mode == "tutorial":
+		hint = _tutorial_hint()
+	elif sim.state == "play" and sim.hops < 3:
 		if sim.player.planet != null:
 			hint = "Release to fling" if sim.holding else "Tap, or hold and release, to fling"
 		else:
 			hint = "Keep holding…" if sim.holding else "Hold to catch the next moon"
 	hud.set_hint(hint)
+
+
+## What the tutorial asks for next, from where the player is.
+func _tutorial_hint() -> String:
+	if sim.state != "play":
+		return ""
+	var p := sim.player
+	if sim.t - _miss_t < 2.0:
+		return "Missed! Hold as you cross the next dotted ring"
+	if p.planet != null:
+		if sim.hops == 0:
+			return "Tap to fling off your moon"
+		if sim.hops < 3:
+			return "Nice catch! Fling again"
+		if sim.perigees == 0:
+			return "Hold late: a catch inside the teal ring is a Perigee"
+		return "Perigees and sparks build your combo. Reach the gold moon"
+	if sim.holding:
+		return "Keep holding…"
+	return "Hold when you reach the dotted ring"
 
 
 func _run_stats() -> String:
@@ -399,6 +497,8 @@ func _update_effects(delta: float) -> void:
 
 
 func _burst(x: float, y: float, col: Color, n: int, sp: float) -> void:
+	if bool(save.get_setting("reduced_motion")):
+		n = ceili(n / 3.0)
 	for i in n:
 		var a := _vis.randf() * TAU
 		var s := _vis.randf_range(0.3, 1.0) * sp
@@ -429,16 +529,17 @@ func _draw() -> void:
 	var cam := Vector2(lerpf(sim.cam_px, sim.cam_x, a), lerpf(sim.cam_py, sim.cam_y, a))
 	var p := sim.player
 
+	var reduce_motion := bool(save.get_setting("reduced_motion"))
 	# background gradient and parallax stars (screen space)
 	draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(w, 0), Vector2(w, h), Vector2(0, h)]),
 		PackedColorArray([SPACE, SPACE, SPACE_2, SPACE_2]))
 	for s in stars:
 		var yy := fposmod(s.y * h - cam.y * s.z * 0.25, h)
-		var al: float = (0.35 + 0.35 * sin(t * 1.5 + s.tw)) * s.z
+		var al: float = (0.35 + (0.0 if reduce_motion else 0.35 * sin(t * 1.5 + s.tw))) * s.z
 		var r: float = s.z * 1.6 + 0.3
 		draw_rect(Rect2(s.x * w, yy, r, r), Color(INK, al))
 
-	var sk := _vis.randf_range(-shake, shake) if shake > 0.0 else 0.0
+	var sk := _vis.randf_range(-shake, shake) if shake > 0.0 and not reduce_motion else 0.0
 	draw_set_transform(Vector2(w / 2.0 - cam.x + sk, h / 2.0 - cam.y + sk * 0.6))
 
 	var ship := Vector2(lerpf(p.px, p.x, a), lerpf(p.py, p.y, a))
@@ -446,6 +547,8 @@ func _draw() -> void:
 	for pl in sim.planets:
 		pos[pl] = Vector2(Sim.planet_x(pl, t), pl.y)
 
+	var calm := bool(save.get_setting("reduced_motion"))
+	var contrast := bool(save.get_setting("high_contrast"))
 	# capture rings
 	for pl in sim.planets:
 		if pl.visited and pl != p.planet:
@@ -468,15 +571,24 @@ func _draw() -> void:
 			col = Color(INK, 0.07)
 		# a retrograde ring's dashes run the other way
 		var flow := t * 10.0 if pl.kind == "retro" else -t * 10.0
-		_dashed_circle(c, pl.ring, 3.0, 7.0, flow, 2.4 if inside else 1.4, col, skip_c, skip_r)
+		if calm:
+			flow = 0.0
+		if contrast and lit:
+			col.a = maxf(col.a, 0.8 if pl != p.planet else 0.3)
+		_dashed_circle(c, pl.ring, 3.0, 7.0, flow, (2.4 if inside else 1.4) + (1.0 if contrast else 0.0), col, skip_c, skip_r)
 		if pl != p.planet:
-			# the perigee ring: a catch inside it is a perigee
-			_dashed_circle(c, pl.perigee_radius(), 2.0, 5.0, flow, 1.0, Color(TEAL, (0.85 if inside else 0.35) * (1.0 if lit else 0.3)))
+			# the perigee ring: a catch inside it is a perigee. High contrast tells it apart by its
+			# long dashes as well as its colour.
+			var pa := (0.85 if inside else 0.35) * (1.0 if lit else 0.3)
+			if contrast:
+				_dashed_circle(c, pl.perigee_radius(), 9.0, 4.0, flow, 2.2, Color(TEAL, minf(pa * 2.0, 1.0)))
+			else:
+				_dashed_circle(c, pl.perigee_radius(), 2.0, 5.0, flow, 1.0, Color(TEAL, pa))
 		if pl.flash > 0.0:
 			draw_arc(c, lerpf(p.r_target, pl.ring, pl.flash), 0, TAU, 96, Color(SAND, pl.flash * 0.6), 2.0, true)
 
 	# guide dots for the first hops
-	if sim.state == "play" and p.planet != null and sim.hops < 3:
+	if sim.state == "play" and p.planet != null and (sim.hops < 3 or bool(save.get_setting("aim_guide")) or mode == "tutorial"):
 		var pts := sim.predict()
 		for i in pts.size():
 			var q: Dictionary = pts[i]

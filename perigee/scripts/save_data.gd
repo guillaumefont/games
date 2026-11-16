@@ -12,7 +12,16 @@ const DEFAULTS := {
 	"best": 0, ## best score in the endless mode
 	"runs": 0, ## runs finished
 	"sparks": 0, ## sparks collected, all time (the future currency)
-	"settings": {"sound": false, "vibration": true},
+	"settings": {
+		"sound": false,
+		"vibration": true,
+		"music_volume": 0.7, ## 0..1, the Music bus
+		"sfx_volume": 1.0, ## 0..1, the Sfx bus
+		"reduced_motion": false, ## no shake, still dashes and stars, fewer particles
+		"high_contrast": false, ## brighter, thicker rings; the perigee ring told apart by its dashes, not its colour
+		"aim_guide": false, ## the fling guide on every hop, not just the first three
+	},
+	"tutorial_done": false, ## the first-run tutorial was finished (or skipped)
 	"voyage": {}, ## sector id -> {stars, score, time}: best of each
 }
 
