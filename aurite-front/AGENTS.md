@@ -182,3 +182,9 @@ in your PR, keep it short, and mention the change in the PR description.
   silhouette rim; off when `fog_on` is 0, as for the build icons). Filmic tone, mild grading and bloom on emissive parts
   are in `View3D._ready`, and turned off on the GL Compatibility fallback, which already renders darker. Water depth and
   shore foam come from a heightmap texture of `S.H` (`height_tex`), not the depth buffer (it read empty here).
+- Front-end overhaul (2026-11-16, brief and story bible in the Aurite project): terrain calm-down constants are
+  `View3D.TERR_*` (vertex jitter, colour noise, grass desaturation, softened facet normals). On units, large
+  team-coloured parts are painted with the faction hull (`Models.HULL`), tinted by `PAINT_TOP` (roofs) and
+  `PAINT_SIDE`; parts thinner than `ACCENT_MAX` keep the full team colour. Buildings are unchanged.
+  Effects go through an `Sfx` bus (glue compressor) and the Music bus ducks under it (sidechain compressor);
+  nothing is louder.
