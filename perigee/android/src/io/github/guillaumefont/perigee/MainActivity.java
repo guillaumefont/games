@@ -1,6 +1,8 @@
 package io.github.guillaumefont.perigee;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
@@ -12,12 +14,14 @@ import android.view.WindowManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebViewClient;
 import android.window.OnBackInvokedDispatcher;
 
 /** Full-screen WebView that plays the bundled game (assets/www/index.html, a copy of ../web). */
 public class MainActivity extends Activity {
     private WebView web;
+    private Bridge bridge;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -40,10 +44,22 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setTextZoom(100);
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                Uri u = req.getUrl();
+                if ("file".equals(u.getScheme())) return false;
+                // links out of the game (the privacy policy) open in the browser, never inside the game
+                try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) { }
+                return true;
+            }
+        });
         web.setWebChromeClient(new WebChromeClient());
         web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         web.setHapticFeedbackEnabled(false);
+        // ads, the remove-ads purchase and analytics, exposed to the page as window.PerigeeAndroid
+        bridge = new Bridge(this, web, new Stats(this), getSharedPreferences("perigee", MODE_PRIVATE));
+        web.addJavascriptInterface(bridge, "PerigeeAndroid");
         setContentView(web);
         hideSystemUi();
         if (Build.VERSION.SDK_INT >= 33) {
@@ -53,6 +69,7 @@ public class MainActivity extends Activity {
         }
         if (state != null) web.restoreState(state);
         else web.loadUrl("file:///android_asset/www/index.html");
+        bridge.start();
     }
 
     @SuppressWarnings("deprecation")
@@ -109,6 +126,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (bridge != null) bridge.stop();
         if (web != null) web.destroy();
         super.onDestroy();
     }

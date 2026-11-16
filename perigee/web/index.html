@@ -39,6 +39,12 @@ body{background:var(--space);color:var(--ink);font-family:var(--body);overflow:h
 .big{font-family:var(--display);font-weight:800;font-size:72px;line-height:1;font-variant-numeric:tabular-nums;}
 .label{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
 .newbest{color:var(--teal);font-weight:700;letter-spacing:.08em;}
+.actions{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:4px;}
+.btn{pointer-events:auto;background:transparent;border:1.5px solid rgba(243,236,223,.25);color:var(--ink);border-radius:999px;min-height:40px;padding:0 16px;font:700 12px var(--body);letter-spacing:.1em;text-transform:uppercase;}
+.btn:focus-visible{outline:2px solid var(--sand);outline-offset:2px;}
+.btn.hot{border-color:var(--teal);color:var(--teal);}
+.btn:disabled{opacity:.5;}
+.note{font-size:13px;color:var(--muted);min-height:1em;}
 @keyframes pulse{50%{transform:scale(1.05);}}
 @media (prefers-reduced-motion:reduce){.go{animation:none;}}
 </style>
@@ -62,6 +68,10 @@ body{background:var(--space);color:var(--ink);font-family:var(--body);overflow:h
       <b>Sparks</b><span>between moons are worth a bonus point.</span>
     </div>
     <div class="go">Tap to start</div>
+    <div class="actions">
+      <button class="btn" id="buyStart" type="button" hidden>Remove ads</button>
+      <button class="btn" id="privacy" type="button">Privacy</button>
+    </div>
   </div>
 </div>
 
@@ -70,7 +80,10 @@ body{background:var(--space);color:var(--ink);font-family:var(--body);overflow:h
     <div class="label" id="overWhy">Lost in the dark</div>
     <div class="big" id="overScore">0</div>
     <div class="label" id="overBest">Best 0</div>
+    <button class="btn hot" id="cont" type="button" hidden>Continue</button>
     <div class="go">Tap to fly again</div>
+    <div class="actions"><button class="btn" id="buyOver" type="button" hidden>Remove ads</button></div>
+    <div class="note" id="note"></div>
   </div>
 </div>
 
@@ -111,6 +124,7 @@ for(let i=0;i<140;i++) stars.push({x:Math.random(),y:Math.random(),z:rand(.15,1)
 
 // ---------- sound ----------
 let audio=null, soundOn=false;
+try { soundOn = localStorage.getItem('perigee-sound') === '1'; } catch(e) {}
 function ensureAudio(){ if(!audio){ try{ audio=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(audio&&audio.state==='suspended') audio.resume(); }
 function tone(f1,f2,dur,type='sine',vol=.12){
   if(!soundOn||!audio) return;
@@ -123,8 +137,10 @@ $('mute').addEventListener('pointerdown', e=>{ e.stopPropagation(); });
 $('mute').addEventListener('click', e=>{
   e.stopPropagation(); soundOn=!soundOn; ensureAudio();
   $('mute').textContent = soundOn?'Sound on':'Sound off';
+  try { localStorage.setItem('perigee-sound', soundOn?'1':'0'); } catch(e) {}
   if(soundOn) tone(520,780,.12);
 });
+$('mute').textContent = soundOn?'Sound on':'Sound off';
 function buzz(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
 
 // ---------- difficulty ----------
@@ -143,6 +159,9 @@ function diff(k){
 
 // ---------- world ----------
 let planets, sparks, player, camY, camX, state, score, t, hops, particles, shake, lastFrame, holding, deathWhy;
+let made = 0;          // moons made this run: the difficulty index (planets.length repeats once far moons are culled)
+let lastMoon = null;   // the last moon the ship was caught by: where a continued run resumes
+let continued = false; // a run can be continued once
 
 function makePlanet(k, prev){
   const d = diff(k);
@@ -168,7 +187,7 @@ function makePlanet(k, prev){
 function ensurePlanets(){
   while(planets.length===0 || planets[planets.length-1].y > camY - H*1.2){
     const prev = planets[planets.length-1];
-    planets.push(makePlanet(planets.length, prev));
+    planets.push(makePlanet(made++, prev));
   }
   // cull far below
   while(planets.length>3 && planets[0].y > camY + H*1.5 && planets[0]!==player.planet && planets[0]!==player.last) planets.shift();
@@ -178,7 +197,7 @@ function ensurePlanets(){
 function reset(){
   planets=[]; sparks=[]; particles=[]; shake=0; t=0; hops=0; score=0; holding=false;
   camY=0; camX=0;
-  const p0 = makePlanet(0,null); p0.visited=true; planets.push(p0);
+  const p0 = makePlanet(0,null); p0.visited=true; planets.push(p0); made=1; lastMoon=p0; continued=false;
   player = { x:0, y:0, vx:0, vy:0, planet:p0, last:null, ang:Math.PI*0.5, r:p0.pr+30, rTarget:p0.pr+30, dir:1, speed:p0.speed, vr:0, vt:p0.speed, flyT:0, capT:-9, trail:[] };
   camW=1;
   camY = -H*0.18;
@@ -191,8 +210,8 @@ function updateScore(){ scoreEl.textContent = score; }
 // ---------- input ----------
 function press(){
   ensureAudio();
-  if(state==='start'){ startEl.hidden=true; state='play'; holding=false; swallow=true; return; }
-  if(state==='over'){ if(t - deathT > .45){ overEl.hidden=true; reset(); state='play'; holding=false; swallow=true; } return; }
+  if(state==='start'){ startEl.hidden=true; state='play'; holding=false; swallow=true; native('runStart'); return; }
+  if(state==='over'){ if(t - deathT > .45){ overEl.hidden=true; reset(); state='play'; holding=false; swallow=true; native('runStart'); native('restart'); } return; }
   holding=true;
 }
 function release(){
@@ -231,7 +250,7 @@ function capture(pl){
   const ux=dx/(d||1), uy=dy/(d||1);
   p.vr = p.vx*ux + p.vy*uy;
   p.vt = Math.abs(-uy*p.vx + ux*p.vy);
-  p.planet=pl; p.capT=t; p.speed=pl.speed;
+  p.planet=pl; p.capT=t; p.speed=pl.speed; lastMoon=pl;
   if(!pl.visited){
     pl.visited=true; hops++; score++; updateScore();
     tone(440*Math.pow(1.06, Math.min(hops,24)%12), 880*Math.pow(1.06, Math.min(hops,24)%12), .16,'sine',.1);
@@ -249,14 +268,55 @@ function die(why){
   let nb=false;
   if(score>best){ best=score; nb=true; try{ localStorage.setItem('perigee-best',best); }catch(e){} }
   bestEl.textContent='Best '+best;
+  native('runEnd', score, hops, continued);
   setTimeout(()=>{
     $('overScore').textContent=score;
     $('overWhy').textContent=why;
     $('overBest').innerHTML = nb && score>0 ? '<span class="newbest">New best</span>' : 'Best '+best;
+    $('note').textContent='';
+    refreshButtons();
     overEl.hidden=false;
   }, 450);
 }
 let deathT=0, swallow=false, camW=1;
+
+// Continue the run (after a rewarded ad, or free with "Remove ads"): back in orbit around the last moon, score kept.
+function revive(){
+  if(state!=='over' || continued) return;
+  const pl=lastMoon, p=player;
+  if(!planets.includes(pl)) planets.unshift(pl);
+  p.planet=pl; p.last=null; p.vr=0; p.speed=pl.speed; p.vt=pl.speed; p.dir=1; p.ang=-Math.PI/2;
+  p.r=p.rTarget=pl.pr+30; p.capT=t; p.flyT=0; p.trail=[];
+  p.x=pl.x+Math.cos(p.ang)*p.r; p.y=pl.y+Math.sin(p.ang)*p.r;
+  continued=true; holding=false; swallow=false; overEl.hidden=true; state='play';
+  pl.flash=1; burst(p.x,p.y,C.teal,24,90); tone(440,880,.25,'sine',.1);
+}
+
+// ---------- Android app (ads, "Remove ads", analytics) ----------
+// The Android shell exposes window.PerigeeAndroid; the browser build has none of it.
+const N = window.PerigeeAndroid || null;
+let nat = { adsRemoved:false, canContinue:false, price:'' };
+function native(fn, ...args){ try{ if(N && N[fn]) return N[fn](...args); }catch(e){} }
+function readNative(){ try{ if(N) nat = Object.assign(nat, JSON.parse(N.state())); }catch(e){} }
+function refreshButtons(){
+  readNative();
+  const canBuy = !!N && !nat.adsRemoved && !!nat.price;
+  for(const id of ['buyStart','buyOver']){ $(id).hidden=!canBuy; $(id).textContent='Remove ads · '+nat.price; }
+  const c=$('cont');
+  c.hidden = !(N && nat.canContinue && !continued && state==='over');
+  c.disabled = false;
+  c.textContent = nat.adsRemoved ? 'Continue' : 'Watch an ad to continue';
+}
+window.perigeeNative = { onEvent(name, data){
+  if(name==='state'){ nat=Object.assign(nat,data); refreshButtons(); }
+  else if(name==='continue'){ if(data && data.ok) revive(); else { $('cont').hidden=true; $('note').textContent='No ad right now. Tap to fly again.'; } }
+  else if(name==='purchaseFailed'){ if(data!=='cancelled') $('note').textContent='The purchase didn\'t go through.'; refreshButtons(); }
+}};
+for(const id of ['cont','buyStart','buyOver','privacy']) $(id).addEventListener('pointerdown', e=>e.stopPropagation());
+$('cont').addEventListener('click', e=>{ e.stopPropagation(); $('cont').disabled=true; native('continueRun'); });
+for(const id of ['buyStart','buyOver']) $(id).addEventListener('click', e=>{ e.stopPropagation(); native('buyRemoveAds'); });
+$('privacy').addEventListener('click', e=>{ e.stopPropagation(); if(N) native('privacy'); else window.open('privacy.html','_blank'); });
+refreshButtons();
 
 function burst(x,y,col,n,sp){
   for(let i=0;i<n;i++){ const a=Math.random()*6.283, s=rand(.3,1)*sp; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rand(.4,.9),max:.9,col}); }
@@ -456,7 +516,7 @@ function frame(now){
 }
 
 // Read-only view of the game for the automated play test (tests/play_test.mjs). Not used by the game.
-window.perigeeTest = { get state(){ return state; }, get score(){ return score; }, get hops(){ return hops; }, get holding(){ return holding; }, get player(){ return player; }, get planets(){ return planets; } };
+window.perigeeTest = { get state(){ return state; }, get score(){ return score; }, get hops(){ return hops; }, get holding(){ return holding; }, get player(){ return player; }, get planets(){ return planets; }, get continued(){ return continued; }, get made(){ return made; } };
 
 reset(); state='start';
 requestAnimationFrame(frame);

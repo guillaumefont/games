@@ -11,7 +11,8 @@ What has to happen, in order. Steps marked **you** need Guillaume's accounts; th
 2. **Payments profile** (Play Console > Setup > Payments profile), needed to sell `remove_ads`.
 3. **AdMob account** (https://admob.google.com), then an Android app linked to the Play listing, with two ad
    units: an interstitial ("between runs") and a rewarded one ("continue"). Send me the app ID and the two
-   unit IDs; they aren't secret. Until then the app uses Google's test ads.
+   unit IDs (or put them in `perigee/android/gradle.properties` yourself); they aren't secret. Until then the
+   app shows Google's test ads, which earn nothing.
 4. **Firebase project** (https://console.firebase.google.com) with Google Analytics on, and an Android app
    with package `io.github.guillaumefont.perigee`. Download `google-services.json` and commit it to
    `perigee/android/` (it isn't secret either). It gives day-1 and day-7 retention and paying users.
@@ -40,8 +41,8 @@ workflow on `main` (Actions > Perigee builds > Run workflow): its run has a `per
 2. Paste the listing and answer the App content forms from [listing.md](listing.md).
 3. Testing > Internal testing: create a release and upload `perigee.aab` from step 2 by hand (Play needs the
    first bundle that way). Keep Play App Signing on (the default).
-4. Create the `remove_ads` product (listing.md). Play only allows products once a bundle with billing is
-   uploaded, so this waits for the ads and purchase update.
+4. Create the `remove_ads` product (listing.md). Play only allows products once a bundle with the billing
+   library is uploaded. Until the product exists, the game simply hides its "Remove ads" button.
 
 ## 4. Automatic uploads (optional, you)
 

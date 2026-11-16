@@ -8,6 +8,13 @@
 // Play upload key; otherwise with debug.keystore, the committed test key (never upload that to Play).
 plugins {
     id 'com.android.application' version '8.11.1'
+    id 'com.google.gms.google-services' version '4.4.3' apply false
+}
+
+// Firebase (analytics) is set up from google-services.json, the Firebase project's config. Until that file is
+// committed the plugin is skipped and the app runs without analytics.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
 }
 
 def env = { String name, String fallback = null -> System.getenv(name) ?: fallback }
@@ -23,6 +30,15 @@ android {
         targetSdk 36 // Google Play requires 36 for new apps and updates since 2026-08-31
         versionCode Integer.parseInt(env('BUILD', '1'))
         versionName env('VERSION_NAME', "dev-b${env('BUILD', '1')}")
+
+        // AdMob ids, from gradle.properties (Google's test ids until the real ones are set there)
+        manifestPlaceholders = [admobAppId: project.property('perigee.admob.appId')]
+        buildConfigField 'String', 'ADMOB_INTERSTITIAL', "\"${project.property('perigee.admob.interstitial')}\""
+        buildConfigField 'String', 'ADMOB_REWARDED', "\"${project.property('perigee.admob.rewarded')}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     signingConfigs {
@@ -71,6 +87,15 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+}
+
+dependencies {
+    implementation 'com.android.billingclient:billing:8.0.0'
+    implementation 'com.google.android.gms:play-services-ads:24.4.0'
+    implementation 'com.google.android.ump:user-messaging-platform:3.2.0'
+    implementation platform('com.google.firebase:firebase-bom:34.0.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'androidx.annotation:annotation:1.9.1'
 }
 
 base {

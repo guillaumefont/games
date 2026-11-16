@@ -2,7 +2,8 @@
 //   node perigee/tests/play_test.cjs
 // Checks that the page loads offline with no script errors and its bundled fonts, that a simple
 // bot can hop from moon to moon and score, that drifting off ends the run with the game-over card,
-// that the best score is kept, and that tapping again starts a fresh run.
+// that the best score is kept, and that tapping again starts a fresh run. Then, with a fake of the
+// Android shell's window.PerigeeAndroid, checks the remove-ads, privacy and continue buttons.
 // The bot reads the game through window.perigeeTest (read-only) and plays with the Space key,
 // exactly like a player: tap to fling, hold while crossing a ring to get caught.
 // The last line printed on success is "PLAY TEST DONE"; CI checks for it.
@@ -111,6 +112,50 @@ function check(ok, what) {
   check((await page.textContent('#best')) === `Best ${final}`, 'HUD keeps the best score');
 
   await page.screenshot({ path: process.env.SHOT || path.join(require('os').tmpdir(), 'perigee.png') });
+  check(await page.isHidden('#cont') && await page.isHidden('#buyStart'), 'the browser build shows no continue or purchase buttons');
+
+  // Android app: the shell's window.PerigeeAndroid is faked here to check the page's side of it.
+  const app = await browser.newPage({ viewport: { width: 412, height: 860 } });
+  app.on('pageerror', e => errors.push(String(e)));
+  app.on('request', r => { if (!r.url().startsWith('file:') && !r.url().startsWith('data:')) external.push(r.url()); });
+  await app.addInitScript(() => {
+    window.calls = [];
+    window.PerigeeAndroid = {};
+    for (const fn of ['runStart', 'runEnd', 'restart', 'continueRun', 'buyRemoveAds', 'privacy'])
+      window.PerigeeAndroid[fn] = (...a) => window.calls.push([fn, ...a]);
+    window.PerigeeAndroid.state = () => JSON.stringify({ adsRemoved: false, canContinue: true, price: '$1.99' });
+  });
+  await app.goto(PAGE);
+  await app.waitForFunction(() => window.perigeeTest && window.perigeeTest.state === 'start');
+  check((await app.textContent('#buyStart')).includes('$1.99') && await app.isVisible('#buyStart'), 'app: start card offers "Remove ads" with its price');
+  await app.click('#privacy');
+  await app.click('#buyStart');
+  check(await app.evaluate(() => window.perigeeTest.state === 'start'), 'app: the buttons do not start the game');
+  await app.keyboard.down('Space'); await app.keyboard.up('Space');
+  // fling off without holding: the run ends
+  await app.waitForTimeout(300);
+  await app.keyboard.down('Space'); await app.keyboard.up('Space');
+  await app.waitForFunction(() => window.perigeeTest.state === 'over', null, { timeout: 20000 });
+  await app.waitForSelector('#cont:not([hidden])', { timeout: 5000 });
+  check((await app.textContent('#cont')) === 'Watch an ad to continue', 'app: game over offers a continue');
+  await app.click('#cont');
+  await app.evaluate(() => window.perigeeNative.onEvent('continue', { ok: true })); // the ad was watched
+  const revived = await app.evaluate(() => ({ s: window.perigeeTest.state, c: window.perigeeTest.continued, on: !!window.perigeeTest.player.planet }));
+  check(revived.s === 'play' && revived.c && revived.on, 'app: a rewarded continue puts the ship back in orbit');
+  check(await app.isHidden('#over'), 'app: the game over card hides on continue');
+  await app.waitForTimeout(300);
+  await app.keyboard.down('Space'); await app.keyboard.up('Space');
+  await app.waitForFunction(() => window.perigeeTest.state === 'over', null, { timeout: 20000 });
+  await app.waitForSelector('#over:not([hidden])', { timeout: 5000 });
+  check(await app.isHidden('#cont'), 'app: only one continue per run');
+  await app.waitForTimeout(600);
+  await app.keyboard.down('Space'); await app.keyboard.up('Space');
+  const calls = (await app.evaluate(() => window.calls)).map(c => c[0]);
+  console.log('app calls:', calls.join(' '));
+  check(['privacy', 'buyRemoveAds', 'runStart', 'runEnd', 'continueRun', 'restart'].every(c => calls.includes(c)),
+    'app: the page calls the shell for privacy, purchase, continue, restart and analytics');
+  check(calls.filter(c => c === 'runEnd').length === 2, 'app: each death is reported once');
+
   check(errors.length === 0, 'no script errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   check(external.length === 0, 'no network requests (works offline)' + (external.length ? ': ' + external.join(' ') : ''));
   await browser.close();

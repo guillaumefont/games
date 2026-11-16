@@ -6,6 +6,12 @@
         android:allowBackup="true" android:hardwareAccelerated="true"
         android:enableOnBackInvokedCallback="true"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${admobAppId}"/>
+        <!-- Firebase consent mode: everything denied until Stats.applyConsent() reads the consent form's answers -->
+        <meta-data android:name="google_analytics_default_allow_analytics_storage" android:value="false"/>
+        <meta-data android:name="google_analytics_default_allow_ad_storage" android:value="false"/>
+        <meta-data android:name="google_analytics_default_allow_ad_user_data" android:value="false"/>
+        <meta-data android:name="google_analytics_default_allow_ad_personalization_signals" android:value="false"/>
         <activity android:name=".MainActivity" android:exported="true"
             android:screenOrientation="sensorPortrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|smallestScreenSize|uiMode"
