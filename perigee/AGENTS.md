@@ -48,6 +48,11 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   never activates them.
 - The save file is `scripts/save_data.gd`: add new fields to `DEFAULTS`; to change a field's meaning bump
   `VERSION` and add a step to `_migrate()`.
+- Scoring (perigee combo and leaps, Guillaume's picks of 2026-11-16) is in `sim.gd` with the same numbers as
+  the options page demos: a catch at depth >= `PERIGEE_DEPTH` (0.6) is a perigee worth `2 x mult`; perigees,
+  sparks and skipped moons raise `combo`, a shallow catch resets it; `mult = 1 + combo / 2`, up to 5. Catching a
+  moon past the next one is a leap (`LEAP_POINTS` 3/9/18 by moons skipped, times `mult`); skipped moons count as
+  passed. A graze (within `INNER_GAP` of a surface, not caught) is +1 once per moon per flight.
 - `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
 - Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
   on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or

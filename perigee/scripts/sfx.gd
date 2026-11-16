@@ -23,6 +23,9 @@ func _ready() -> void:
 	_clips.spark = tone(990, 1480, 0.1, "square", 0.04)
 	_clips.die = tone(220, 60, 0.45, "sawtooth", 0.07)
 	_clips.toggle = tone(520, 780, 0.12, "sine", 0.12)
+	_clips.perigee = chime([880.0, 1318.5], 0.09, 0.1) # a bright rising fifth
+	_clips.leap = chime([660.0, 880.0, 1100.0], 0.07, 0.09)
+	_clips.graze = tone(620, 520, 0.08, "triangle", 0.05)
 	# a new moon rises in pitch with each hop, wrapping every 12
 	for i in 12:
 		var f := 440.0 * pow(1.06, i)
@@ -40,6 +43,29 @@ func play(name: String) -> void:
 
 func catch_sound(hops: int) -> String:
 	return "catch%d" % (mini(hops, 24) % 12)
+
+
+## Short notes one after another, mixed into one clip.
+static func chime(freqs: Array, note: float, vol: float) -> AudioStreamWAV:
+	var parts: Array[PackedByteArray] = []
+	for f in freqs:
+		parts.append(tone(f, f * 1.01, note * 1.6, "sine", vol).data)
+	var total := int(note * RATE) * (freqs.size() - 1) * 2 + parts[-1].size()
+	var mix := PackedFloat32Array()
+	mix.resize(total / 2)
+	for i in parts.size():
+		var off := int(note * RATE) * i
+		for j in parts[i].size() / 2:
+			mix[off + j] += parts[i].decode_s16(j * 2) / 32767.0
+	var bytes := PackedByteArray()
+	bytes.resize(mix.size() * 2)
+	for i in mix.size():
+		bytes.encode_s16(i * 2, int(clampf(mix[i], -1.0, 1.0) * 32767.0))
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = RATE
+	w.data = bytes
+	return w
 
 
 ## A tone sweeping exponentially from f1 to f2 Hz with an exponential fade, like the web

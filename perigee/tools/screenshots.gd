@@ -29,9 +29,9 @@ func _initialize() -> void:
 	await shot("2-first-hop-guide")
 	# fling at the next moon and hold through its ring
 	await aim_and_fling()
-	await run_until(func() -> bool: return _in_ring(), 3.0)
+	await run_until(func() -> bool: return _in_perigee_ring(), 3.0)
 	main.on_press()
-	await run(0.05)
+	await run(0.3)
 	await shot("3-caught")
 	# skip ahead: a fresh run played by the test bot until moon 30
 	main.on_release()
@@ -57,6 +57,16 @@ func _initialize() -> void:
 	await run(1.0)
 	await shot("5-game-over")
 	quit(0)
+
+
+func _in_perigee_ring() -> bool:
+	var p: Sim.Player = main.sim.player
+	if p.planet != null:
+		return false
+	for q in main.sim.planets:
+		if not q.visited and Vector2(q.x - p.x, q.y - p.y).length() < q.perigee_radius():
+			return true
+	return false
 
 
 func _in_ring() -> bool:
