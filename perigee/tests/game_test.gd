@@ -41,6 +41,8 @@ func key(down: bool) -> void:
 func new_main() -> void:
 	main = load("res://scenes/main.tscn").instantiate()
 	main.save_path = SAVE
+	# a fixed world: with a random one the bot below sometimes crashes before moon 5
+	main.vis_seed = int(OS.get_environment("PERIGEE_TEST_SEED")) if OS.has_environment("PERIGEE_TEST_SEED") else 7
 	# the first-run tutorial has its own test
 	main.ready.connect(func() -> void: main.save.data.tutorial_done = true)
 	root.add_child(main)

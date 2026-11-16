@@ -20,6 +20,7 @@ var sfx: Sfx
 var music: Music
 ## Where the save lives; tests point it elsewhere before the node enters the tree.
 var save_path := "user://save.json"
+var vis_seed := -1 ## >= 0 fixes the looks RNG, and with it the worlds' seeds (tests only)
 
 ## "endless", or a kind of moon for a lab run (tries one new kind; never counts for the best score)
 var mode := "endless"
@@ -77,7 +78,10 @@ func _ready() -> void:
 	_apply_volumes()
 	if not save.data.tutorial_done:
 		hud.set_start_text("Tap to learn to fly")
-	_vis.randomize()
+	if vis_seed >= 0:
+		_vis.seed = vis_seed
+	else:
+		_vis.randomize()
 	for i in 140:
 		stars.append({"x": _vis.randf(), "y": _vis.randf(), "z": _vis.randf_range(0.15, 1.0), "tw": _vis.randf() * 6.0})
 	_crescent = _make_crescent()
