@@ -1,0 +1,71 @@
+name: CI gate
+
+# One check to make required on main: "CI gate".
+# The game workflows only run when their own folder changes, and their job names repeat
+# (export, sim, test), so none of them can be a required check on its own. This job works out
+# which game workflows a PR triggers, waits for them to finish on the PR's latest commit, and
+# passes only if every one of them succeeded. A PR that touches no game passes right away.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for the game workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+
+          # Same path filters as the game workflows.
+          expected=()
+          add_game() { # <folder> <builds workflow name> <tests workflow name>
+            if grep -qE "^($1/|\.github/workflows/$1-)" <<<"$files"; then
+              expected+=("$2" "$3")
+            elif grep -qx '.github/publish-pages.sh' <<<"$files"; then
+              expected+=("$2")
+            fi
+          }
+          add_game tether-rally "Tether Rally builds" "Tether Rally headless sim"
+          add_game star-breaker "Star Breaker builds" "Star Breaker headless test"
+          add_game aurite-front "Aurite Front builds" "Aurite Front headless sim"
+
+          if [ ${#expected[@]} -eq 0 ]; then
+            echo "This PR touches no game, nothing to wait for."
+            exit 0
+          fi
+          printf 'Waiting for: %s\n' "${expected[@]}"
+
+          for _ in $(seq 1 110); do
+            pending=0
+            for wf in "${expected[@]}"; do
+              # Newest run of that workflow for this commit (a re-run replaces the older one).
+              run=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&event=pull_request&per_page=100" \
+                --jq "[.workflow_runs[] | select(.name == \"$wf\")] | sort_by(.created_at) | last | \"\(.status) \(.conclusion)\"")
+              case "$run" in
+                "completed success") ;;
+                "completed "*) echo "::error::$wf finished with: ${run#completed }"; exit 1 ;;
+                *) pending=1 ;;
+              esac
+            done
+            [ $pending -eq 0 ] && { echo "All game workflows passed."; exit 0; }
+            sleep 30
+          done
+          echo "::error::Timed out waiting for the game workflows."
+          exit 1

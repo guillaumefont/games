@@ -3,9 +3,8 @@
 ## Pull requests
 
 - Work on a branch and open a PR against `main`.
-- **Merge your PR as soon as CI is green, without asking** (Builds and Headless sim pass on the PR's latest
-  commit, and it has no merge conflict). Guillaume, 2026-11-13. Never merge on red or pending CI,
-  and never skip or disable a test to get green.
+- **Merging:** see the root [`AGENTS.md`](../AGENTS.md): auto-merge only, once all checks are green
+  (the required **CI gate** check).
 - Add a **Try it** section to the PR body with the preview APK, once the PR number is known:
 
   ```
