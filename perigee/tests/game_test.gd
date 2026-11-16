@@ -133,6 +133,27 @@ func _initialize() -> void:
 	check(main.sim.state == "play" and main.sim.score == 0 and not main.hud.over_card.visible, "a tap restarts from zero")
 	check(main.sim.player.planet != null, "the restart tap does not fling")
 
+	# the lab: a run of one new kind of moon, never counted for the best score
+	main.sim.die("test")
+	tick(0.6)
+	var lab_button: Button = main.hud.over_card.find_child("Lab_twin", true, false)
+	check(lab_button != null, "the game over card has the lab buttons")
+	lab_button.pressed.emit()
+	tick(0.1)
+	var kinds := {}
+	for pl in main.sim.planets:
+		kinds[pl.kind] = true
+	check(main.sim.state == "play" and main.mode == "twin" and kinds.has("twin") and not main.hud.over_card.visible, "Twin starts a lab run with twin moons")
+	check(main.hud.mode_label.text == "Lab · Twin moons", "the HUD says which lab is running")
+	main.sim.score = 999
+	main.sim.die("test")
+	tick(0.6)
+	saved.load_file()
+	check(saved.data.best == final, "a lab run never sets the best score")
+	main.hud.start_card.find_child("Lab_endless", true, false).pressed.emit()
+	tick(0.1)
+	check(main.mode == "endless" and main.sim.recipe.is_empty() and main.hud.mode_label.text == "", "Endless goes back to the normal mode")
+
 	# settings: sound toggles and is kept
 	main.hud.sound_button.pressed.emit()
 	check(main.sfx.enabled and main.hud.sound_button.text == "SOUND ON", "the sound button turns sound on")

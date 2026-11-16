@@ -53,6 +53,11 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   sparks and skipped moons raise `combo`, a shallow catch resets it; `mult = 1 + combo / 2`, up to 5. Catching a
   moon past the next one is a leap (`LEAP_POINTS` 3/9/18 by moons skipped, times `mult`); skipped moons count as
   passed. A graze (within `INNER_GAP` of a surface, not caught) is +1 once per moon per flight.
+- Kinds of moon (`Planet.kind`): `twin` (a linked pair with the same `k`, sharing a figure-eight ring; catching
+  either counts both), `retro` (the orbit reverses: `vt` starts negative and eases through zero), `pulsar` (the ring
+  only catches while `lit(t)`). `sim.recipe.mix` weights them; an empty recipe is the endless mode and rolls nothing,
+  so its worlds stay exactly as before. The lab buttons on the start and game over cards run one kind (never for
+  the best score); they are for the vertical slice, not for release.
 - `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
 - Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
   on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or

@@ -306,6 +306,84 @@ func _initialize() -> void:
 		sp.step()
 	check(spark.got and sp.combo == 2 and sp.score == 2, "a spark raises the combo and scores the multiplier (score %d)" % sp.score)
 
+	# --- new kinds of moon (the lab) ---
+	var plain := Sim.new(31, 400, 700)
+	var plain_kinds := {}
+	for pl in plain.planets:
+		plain_kinds[pl.kind] = true
+	check(plain_kinds.keys() == ["moon"], "the endless mode has plain moons only")
+	var with_recipe := Sim.new(31, 400, 700)
+	with_recipe.recipe = {"mix": {"twin": 1.0}}
+	with_recipe.new_run(31)
+	var tw: Sim.Planet = with_recipe.planets[1]
+	check(tw.kind == "twin" and tw.partner != null and tw.partner.partner == tw and with_recipe.planets[2] == tw.partner,
+		"a twin comes as a linked pair")
+	var gap := Vector2(tw.ox - tw.partner.ox, tw.y - tw.partner.y).length()
+	check(gap < tw.ring + tw.partner.ring and gap > tw.pr + tw.partner.pr + 20.0, "the twins' rings overlap in a figure eight (%.0f apart)" % gap)
+	check(absf(tw.ox) <= 135.0 and absf(tw.partner.ox) <= 135.0, "both twins stay on screen")
+	fly_at(with_recipe, tw.partner, tw.partner.ring + 40.0, 0.0)
+	with_recipe.player.last = with_recipe.planets[0]
+	ev = catch(with_recipe, tw.partner, tw.partner.perigee_radius() - 2.0)
+	check(not ev.is_empty() and tw.visited and tw.partner.visited and with_recipe.hops == 1, "catching either twin counts the pair once")
+	var t3: Sim.Planet = with_recipe.planets[3]
+	check(t3.k == 2 and t3.kind == "twin", "the next pair is moon 2 (pairs share a number, so leaps still count moons)")
+
+	var rt := Sim.new(32, 400, 700)
+	rt.recipe = {"mix": {"retro": 1.0}}
+	rt.new_run(32)
+	var rm: Sim.Planet = rt.planets[1]
+	check(rm.kind == "retro", "the retro lab makes retrograde moons")
+	fly_at(rt, rm, rm.ring + 40.0, 30.0)
+	rt.player.last = rt.planets[0]
+	ev = catch(rt, rm, rm.ring - 2.0)
+	var arrive_dir := rt.player.dir
+	check(not ev.is_empty() and rt.player.vt < 0.0, "a retrograde capture keeps moving the way we came at first")
+	var ang0 := rt.player.ang
+	for i in 120 * 2:
+		rt.step()
+	var turn := (rt.player.ang - ang0) * arrive_dir
+	check(rt.player.vt > rt.player.speed * 0.9,
+		"then it eases into the reversed orbit (speed %.0f)" % rt.player.vt)
+	var plain_dir := Sim.new(32, 400, 700)
+	var pm := plain_dir.planets[1]
+	plain_dir.press()
+	plain_dir.release()
+	fly_at(plain_dir, pm, pm.ring + 40.0, 30.0)
+	plain_dir.player.last = plain_dir.planets[0]
+	catch(plain_dir, pm, pm.ring - 2.0)
+	check(plain_dir.player.dir == -arrive_dir, "it orbits the other way from a plain moon caught on the same line")
+
+	var ps := Sim.new(33, 400, 700)
+	ps.recipe = {"mix": {"pulsar": 1.0}}
+	ps.new_run(33)
+	var pu: Sim.Planet = ps.planets[1]
+	check(pu.kind == "pulsar", "the pulsar lab makes pulsars")
+	# wait for the ring to go dark, then fly through holding: no catch
+	var guard := 0
+	while (pu.lit(ps.t) or pu.lit(ps.t + 0.3)) and guard < 400:
+		ps.step()
+		guard += 1
+	fly_at(ps, pu, pu.ring + 12.0, pu.pr + 18.0)
+	ps.player.last = ps.planets[0]
+	ps.press()
+	var caught_dark := false
+	for i in 30:
+		ps.step()
+		if ps.player.planet == pu:
+			caught_dark = true
+	check(not caught_dark and ps.state == "play", "a dark pulsar ring does not catch (%s)" % ps.state)
+	# park the ship back on moon 0 while the ring lights up again
+	ps.player.planet = ps.planets[0]
+	var lit_wait := 0
+	while not pu.lit(ps.t) and lit_wait < 400:
+		ps.step()
+		lit_wait += 1
+	fly_at(ps, pu, 20.0, pu.pr + 18.0) # already inside the ring
+	ps.player.last = ps.planets[0]
+	ps.holding = true
+	ps.step()
+	check(ps.player.planet == pu, "a lit pulsar ring catches (%s, lit %s)" % [ps.state, pu.lit(ps.t)])
+
 	# --- losing and restarting ---
 	var d := Sim.new(9, 400, 700)
 	d.press()

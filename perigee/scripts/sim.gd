@@ -22,6 +22,13 @@ const PERIGEE_POINTS := 2 ## times the multiplier
 const MAX_MULT := 5
 const LEAP_POINTS: Array[int] = [0, 3, 9, 18] ## by moons skipped (3 or more: 18), times the multiplier
 
+# Kinds of moon (plan: "Content: new kinds of moon"). Each changes the timing or the line, never the controls.
+const KINDS: Array[String] = ["moon", "twin", "retro", "pulsar"]
+const TWIN_RING := 0.72 ## each twin's ring, relative to a single moon's ring at that point of the curve
+const TWIN_SEP := 1.15 ## distance between the twins, in twin rings (under 2: the rings overlap in a figure eight)
+const PULSAR_PERIOD := 1.6 ## seconds per blink
+const PULSAR_LIT := 0.6 ## part of each blink the ring is lit (and can catch)
+
 
 class Planet:
 	var k := 0 ## running moon number in this run (0 = the first moon)
@@ -38,8 +45,16 @@ class Planet:
 	var speed := 185.0 ## orbit speed around this moon
 	var spin := 0.0
 	var flash := 0.0
+	var kind := "moon" ## see KINDS
+	var partner: Planet = null ## the other twin
+	var gx := 0.0 ## where the next moon is placed from (the centre of a twin pair)
+	var pulse_ph := 0.0 ## pulsar blink phase, 0..1
 	var skipped := false ## passed by a leap, never caught
 	var graze_flight := -1 ## the flight that last grazed it (one graze per moon per flight)
+
+	## A pulsar's ring only catches while lit; every other ring always does.
+	func lit(time: float) -> bool:
+		return kind != "pulsar" or fposmod(time / PULSAR_PERIOD + pulse_ph, 1.0) < PULSAR_LIT
 
 	## Radius inside which a catch is a perigee.
 	func perigee_radius() -> float:
@@ -81,6 +96,10 @@ var rng := RandomNumberGenerator.new()
 var seed_value := 0
 ## The seed the next run uses when a tap restarts after a game over. The owner picks it.
 var next_seed := 0
+## What the world is made of: {"mix": {kind: weight}} (weights of the KINDS after the first moon).
+## The default is the endless mode of the prototype: plain moons only. The lab and, later, Voyage
+## sectors pass their own.
+var recipe: Dictionary = {}
 
 ## Size of the visible play area in world units (the prototype's W and H). Leaving the
 ## screen kills, so this is part of the rules: keep it fixed for replays.
@@ -156,18 +175,27 @@ func make_planet(prev: Planet) -> Planet:
 	var d := curve(k)
 	var p := Planet.new()
 	p.k = k
+	p.kind = _roll_kind() if k > 0 else "moon"
+	var twin_ring := float(d.ring) * TWIN_RING
+	var half_sep := twin_ring * TWIN_SEP / 2.0 if p.kind == "twin" else 0.0
 	if prev != null:
 		var gap: float = d.gap
 		var a := rng.randf_range(-1.05, 1.05)
-		p.ox = prev.ox + sin(a) * gap
+		p.ox = prev.gx + sin(a) * gap
 		p.y = prev.y - cos(a) * gap
-		if absf(p.ox) > 130.0:
+		if absf(p.ox) > 130.0 - half_sep:
 			a = -a
-			p.ox = prev.ox + sin(a) * gap
-		p.ox = clampf(p.ox, -135.0, 135.0)
+			p.ox = prev.gx + sin(a) * gap
+		p.ox = clampf(p.ox, -135.0 + half_sep, 135.0 - half_sep)
+	p.gx = p.ox
 	p.x = p.ox
 	p.pr = 24.0 if k == 0 else rng.randf_range(15.0, 25.0)
 	p.ring = START_RING if k == 0 else float(d.ring)
+	if p.kind == "twin":
+		p.pr = rng.randf_range(12.0, 16.0)
+		p.ring = twin_ring
+	if p.kind == "pulsar":
+		p.pulse_ph = rng.randf()
 	if k >= 12 and rng.randf() < clampf((k - 12) / 25.0, 0.35, 0.8):
 		p.amp = minf(70.0, (k - 10) * 2.4)
 	p.freq = rng.randf_range(0.55, 0.9)
@@ -175,13 +203,33 @@ func make_planet(prev: Planet) -> Planet:
 	p.col = k % 4
 	p.speed = d.speed
 	p.spin = rng.randf() * TAU
+	if p.kind == "twin":
+		var q := Planet.new()
+		q.k = k
+		q.kind = "twin"
+		q.gx = p.gx
+		q.y = p.y
+		q.ox = p.ox + half_sep
+		p.ox -= half_sep
+		p.x = p.ox
+		q.x = q.ox
+		q.pr = rng.randf_range(12.0, 16.0)
+		q.ring = p.ring
+		q.amp = p.amp
+		q.freq = p.freq
+		q.ph = p.ph
+		q.col = (p.col + 1) % 4
+		q.speed = p.speed
+		q.spin = rng.randf() * TAU
+		p.partner = q
+		q.partner = p
 	if prev != null:
 		# a spark near the midpoint, slightly off the straight line
-		var mx := (prev.ox + p.ox) / 2.0
+		var mx := (prev.gx + p.gx) / 2.0
 		var my := (prev.y + p.y) / 2.0
-		var dx := p.ox - prev.ox
+		var dx := p.gx - prev.gx
 		var dy := p.y - prev.y
-		var l := Vector2(dx, dy).length()
+		var l := maxf(Vector2(dx, dy).length(), 1.0)
 		var off := rng.randf_range(-26.0, 26.0)
 		var s := Spark.new()
 		s.x = mx - dy / l * off
@@ -190,9 +238,27 @@ func make_planet(prev: Planet) -> Planet:
 	return p
 
 
+func _roll_kind() -> String:
+	var mix: Dictionary = recipe.get("mix", {})
+	if mix.is_empty():
+		return "moon" # no roll: the endless mode stays exactly the prototype's world
+	var total := 0.0
+	for kind in mix:
+		total += float(mix[kind])
+	var r := rng.randf() * total
+	for kind in mix:
+		r -= float(mix[kind])
+		if r < 0.0:
+			return kind
+	return "moon"
+
+
 func ensure_planets() -> void:
 	while planets.is_empty() or planets[-1].y > cam_y - H * 1.2:
-		planets.append(make_planet(null if planets.is_empty() else planets[-1]))
+		var pl := make_planet(null if planets.is_empty() else planets[-1])
+		planets.append(pl)
+		if pl.partner != null:
+			planets.append(pl.partner)
 	# cull far below
 	while planets.size() > 3 and planets[0].y > cam_y + H * 1.5 \
 			and planets[0] != player.planet and planets[0] != player.last:
@@ -323,13 +389,20 @@ func capture(pl: Planet) -> void:
 	var uy := dy / (d if d != 0.0 else 1.0)
 	p.vr = p.vx * ux + p.vy * uy
 	p.vt = absf(-uy * p.vx + ux * p.vy)
+	if pl.kind == "retro":
+		# a retrograde moon turns the orbit around: keep moving the way we came (negative speed
+		# in the new direction), then ease through zero into the reversed orbit
+		p.dir = -p.dir
+		p.vt = -p.vt
 	p.planet = pl
 	p.cap_t = t
 	p.speed = pl.speed
 	var first := not pl.visited
-	var e := {"type": "capture", "x": p.x, "y": p.y, "col": pl.col, "first": first, "perigee": false, "points": 0, "skipped": 0}
+	var e := {"type": "capture", "x": p.x, "y": p.y, "col": pl.col, "first": first, "perigee": false, "points": 0, "skipped": 0, "kind": pl.kind}
 	if first:
 		pl.visited = true
+		if pl.partner != null:
+			pl.partner.visited = true
 		hops += 1
 		# a leap: moons between the last one caught and this one count as passed
 		var skipped := maxi(0, pl.k - last_k - 1)
@@ -473,7 +546,7 @@ func _fly(dt: float) -> void:
 		if d < pl.pr + 3.0:
 			die("Crashed into a moon")
 			return
-		if holding and d < pl.ring:
+		if holding and d < pl.ring and pl.lit(t):
 			capture(pl)
 			break
 		# graze: skimming past a moon close to its surface without being caught
