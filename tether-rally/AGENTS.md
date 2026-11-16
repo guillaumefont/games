@@ -125,6 +125,13 @@ Low (no shadows, no MSAA) needs other shader versions than Medium/High, compiled
 drawn with it: `main._apply_quality` covers that first switch with the loading screen
 (`WorldView.quality_compiles`). Anything else that changes shader variants at run time needs the same.
 
+Mid-race hitches are usually first-time shader compiles: any `Environment` switch (`fog_enabled`, glow, SSAO...)
+or a material flag picks other shader versions for everything drawn. Don't toggle such switches during a
+race: keep them set and vary an amount instead (fog stays on at density 0, `_cine_fog`; the
+"finish line stutter" case in `tests/camera_test.gd`). To find one, log frame times from `main._process`
+in a `--promo=` run under xvfb/opengl3, and delete the caches first (`~/.local/share/godot/app_userdata/Tether Rally/shader_cache`
+and `~/.cache/mesa_shader_cache*`), or the hitch only shows on the very first run.
+
 Car ambient occlusion is baked, not rendered (the Mobile renderer has no SSAO): `tools/bake_car_ao.gd`
 ray traces each vehicle's game model once into `art/car_ao.res` (per-vertex shading, applied as vertex
 colours by `WorldView.apply_ao`). After changing any vehicle's parts, rerun

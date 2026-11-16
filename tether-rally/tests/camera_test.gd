@@ -1,6 +1,8 @@
 extends SceneTree
 # Headless check of the cinematic camera shots (WorldView.CINE_SHOTS):
 # - racing keeps the top-down gameplay view (no shot, no fog)
+# - "finish line stutter": the fog switch never flips (menu, countdown, race, finish, results),
+#   only its density, since flipping it swaps every material's shader version mid-race
 # - the countdown intro is back to the gameplay view by GO (3.0 s into the countdown)
 # - the low orbits never put the lens inside the land, a road bank or a bridge, on any track
 const TrackData = preload("res://scripts/track.gd")
@@ -46,8 +48,9 @@ func _run() -> void:
 			view.update_camera(race, "race", dt)
 			var look := view.camera.global_transform.basis.z
 			var pitch := rad_to_deg(asin(look.y))
-			if absf(pitch - rad_to_deg(WorldView.PITCH)) > 0.5 or view.env.fog_enabled:
-				fail("racing camera changed (pitch %.1f, fog %s)" % [pitch, view.env.fog_enabled])
+			if absf(pitch - rad_to_deg(WorldView.PITCH)) > 0.5 or view.env.fog_density > 0.0:
+				fail("racing camera changed (pitch %.1f, fog %.3f)" % [pitch, view.env.fog_density])
+			_finish_line_stutter(view, race)
 		# every shot, all the way round the track: the eye stays clear of the land
 		var worst := INF
 		var sv := 0.0
@@ -75,3 +78,33 @@ func _run() -> void:
 	else:
 		print("camera_test: ok")
 		quit(0)
+
+# "finish line stutter": crossing the line started the low finish shot, which switched the
+# fog on. Fog on/off picks other shader versions for every material, so the first finish
+# compiled them all in one frame. The switch must stay as it is from the menu to the
+# results; only the density shows the fog (thick on the finish shot, none while racing).
+func _finish_line_stutter(view, race) -> void:
+	var c = race.cars[0]
+	var on: bool = view.env.fog_enabled
+	var flips := []
+	var steps := [["menu", ""], ["count", "intro"], ["race", ""], ["done", "finish"], ["results", "win"], ["menu", ""]]
+	var thick := 0.0
+	for st in steps:
+		if st[0] == "menu":
+			view.cine_reset()
+		else:
+			view.cine(st[1], c)
+		for k in 45:
+			view.update_camera(race if st[0] != "menu" else null, st[0], 1.0 / 30.0)
+			if view.env.fog_enabled != on:
+				flips.append(st[0])
+				on = view.env.fog_enabled
+			if st[0] == "done":
+				thick = maxf(thick, view.env.fog_density)
+	if not flips.is_empty():
+		fail("finish line stutter: the fog was switched on/off during %s" % [flips])
+	if thick <= 0.0:
+		fail("finish line stutter: no fog on the low finish shot")
+	if view.env.fog_density > 0.0:
+		fail("finish line stutter: fog left on the menu (%.3f)" % view.env.fog_density)
+	view.cine_reset()
