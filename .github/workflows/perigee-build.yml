@@ -1,0 +1,130 @@
+name: Perigee builds
+
+# Packages the web game (perigee/web/, one HTML file plus fonts) as an Android APK, a full-screen
+# WebView that plays offline (perigee/android/, built without Gradle), and publishes both on
+# GitHub Pages (gh-pages branch):
+#   main           -> https://<owner>.github.io/<repo>/perigee/ (play in the browser) + perigee.apk
+#   pull request N -> https://<owner>.github.io/<repo>/perigee/pr/N/ + perigee.apk
+# Each open PR keeps its own preview, linked in a comment on the PR; it is removed when the PR
+# is closed. The APK is also attached to each run as an artifact.
+# Builds only push to the gh-pages branch; the site itself is deployed by pages.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "perigee/**"
+      - ".github/workflows/perigee-*.yml"
+      - ".github/publish-pages.sh"
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "perigee/**"
+      - ".github/workflows/perigee-*.yml"
+      - ".github/publish-pages.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write # start the Deploy Pages workflow
+
+# one build per branch/PR at a time (a newer push cancels the older build)
+concurrency:
+  group: builds-perigee-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  APK_NAME: perigee.apk
+
+jobs:
+  export:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same scheme as the other games: build number = 1000 + run number. It is the APK's
+      # versionCode, which only grows, so every build installs over the previous one.
+      - name: Build number
+        run: echo "BUILD=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends android-sdk-platform-23 aapt dalvik-exchange zipalign apksigner > /dev/null
+
+      # Every APK must be signed with the SAME key, or Android refuses to install it over the
+      # previous one. So the test keystore is fixed: perigee/android/debug.keystore, unless an
+      # ANDROID_DEBUG_KEYSTORE_BASE64 secret provides another one.
+      - name: Build the APK (test-signed)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          OUT="$RUNNER_TEMP/out"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          ks="$GITHUB_WORKSPACE/perigee/android/debug.keystore"
+          if [ -n "$KEYSTORE_B64" ]; then ks="$RUNNER_TEMP/debug.keystore"; echo "$KEYSTORE_B64" | base64 -d > "$ks"; fi
+          name="1.0-${PR:+pr$PR.}b$BUILD"
+          echo "VERSION_NAME=$name" >> "$GITHUB_ENV"
+          KEYSTORE="$ks" VERSION_NAME="$name" bash perigee/android/build.sh "$OUT/$APK_NAME"
+          printf '{"build": %d, "name": "%s", "apk": "%s", "commit": "%s"}\n' \
+            "$BUILD" "$name" "$APK_NAME" "${GITHUB_SHA::7}" > "$OUT/version.json"
+          cat "$OUT/version.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perigee-apk
+          path: ${{ runner.temp }}/out/${{ env.APK_NAME }}
+
+      - name: Publish to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEST: ${{ github.event.pull_request.number && format('perigee/pr/{0}', github.event.pull_request.number) || 'perigee' }}
+        run: |
+          mkdir -p "$OUT/stage"
+          cp -r perigee/web/. "$OUT/stage/"
+          cp "$OUT/$APK_NAME" "$OUT/version.json" "$OUT/stage/"
+          bash .github/publish-pages.sh "$OUT/stage" "$DEST" "Build of ${GITHUB_SHA::7} for $DEST"
+
+      - name: Deploy the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" || echo "::warning::Could not start Deploy Pages"
+
+      - name: Link the preview on the PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const n = context.issue.number;
+            const base = `https://${context.repo.owner}.github.io/${context.repo.repo}/perigee/pr/${n}/`;
+            const body = `<!-- preview:perigee -->\n**Perigee preview of this PR** (build ${process.env.BUILD}, updated on every push, sha ${context.sha.slice(0, 7)})\n\n- Play in the browser: ${base}\n- Android APK: ${base}${process.env.APK_NAME}\n\nIt may take a minute after the build for GitHub Pages to refresh. The APK is also attached to the workflow run as an artifact.`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: n });
+            const old = comments.find(c => c.body.startsWith('<!-- preview:perigee -->'));
+            if (old) await github.rest.issues.updateComment({ ...context.repo, comment_id: old.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: n, body });
+
+  # a closed PR's preview is deleted
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Remove the PR preview
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/publish-pages.sh "" "perigee/pr/${{ github.event.pull_request.number }}" "Remove perigee preview of PR ${{ github.event.pull_request.number }}"
+
+      - name: Deploy the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}" || echo "::warning::Could not start Deploy Pages"
