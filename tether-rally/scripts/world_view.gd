@@ -103,7 +103,14 @@ func _ready() -> void:
 	env.ambient_light_color = Color("#a9c2dc")
 	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = false
+	# fog stays switched on with zero density: only the low cinematic shots thicken it
+	# (_cine_fog). Turning fog on or off picks other shader versions for every material, so
+	# flipping it at the finish compiled them all mid-race: the finish line stutter.
+	env.fog_enabled = true
+	env.fog_density = 0.0
+	env.fog_light_energy = 1.0
+	env.fog_sun_scatter = 0.0
+	env.fog_sky_affect = 0.0
 	env.glow_enabled = true      # soft bloom on the emissive rotors and gems
 	env.glow_intensity = 0.35
 	env.glow_hdr_threshold = 1.3  # high enough that sunlit snow does not bloom
@@ -3349,7 +3356,7 @@ func cine_reset() -> void:
 	_cine_lift = 0.0
 	cine_side = Vector2.ZERO
 	if env:
-		env.fog_enabled = false
+		env.fog_density = 0.0
 
 func cine_active() -> bool:
 	return cine_k > 0.001
@@ -3477,11 +3484,8 @@ func _cine_floor(p: Vector2) -> float:
 	return h * U
 
 # Low shots see the edge of the world: fade the distance into the sky colour.
+# Fog is never switched off, only thinned to nothing (see _ready): switching it would swap
+# every material's shader version and stall a frame while they compile.
 func _cine_fog(w: float) -> void:
-	env.fog_enabled = w > 0.01
-	if env.fog_enabled:
-		env.fog_light_color = env.background_color
-		env.fog_light_energy = 1.0
-		env.fog_sun_scatter = 0.0
-		env.fog_density = 0.03 * w
-		env.fog_sky_affect = 0.0
+	env.fog_light_color = env.background_color
+	env.fog_density = 0.03 * w if w > 0.01 else 0.0
