@@ -127,6 +127,7 @@ var last_k := 0 ## highest moon number caught (leaps skip the ones in between)
 var flight_id := 0
 var moons_made := 0 ## moons generated so far: the difficulty index (see make_planet)
 var holding := false
+var launched_from: Planet = null ## the moon of the last fling (the tutorial's rescue goes back to it)
 var swallow := false ## the press that started a run must not also fling on release
 var death_t := 0.0
 var death_why := ""
@@ -293,7 +294,8 @@ func ensure_planets() -> void:
 			planets.append(pl.partner)
 	# cull far below
 	while planets.size() > 3 and planets[0].y > cam_y + H * 1.5 \
-			and planets[0] != player.planet and planets[0] != player.last:
+			and planets[0] != player.planet and planets[0] != player.last \
+			and not (planets[0] == launched_from and recipe.get("rescue", false)):
 		planets.pop_front()
 	while not sparks.is_empty() and sparks[0].y > cam_y + H * 1.5:
 		sparks.pop_front()
@@ -303,6 +305,7 @@ func ensure_planets() -> void:
 func new_run(seed_in: int) -> void:
 	seed_value = seed_in
 	next_seed = seed_in + 1
+	launched_from = null
 	rng.seed = seed_in
 	planets.clear()
 	sparks.clear()
@@ -395,6 +398,7 @@ func launch() -> void:
 	p.vx = v.x / m * p.speed
 	p.vy = v.y / m * p.speed
 	p.last = p.planet
+	launched_from = p.planet
 	p.planet = null
 	p.fly_t = 0.0
 	flight_id += 1
@@ -488,6 +492,31 @@ func _set_mult() -> void:
 
 func die(why: String) -> void:
 	if state != "play":
+		return
+	if recipe.get("rescue", false) and launched_from != null:
+		# the tutorial never ends a run: back into orbit round the moon we left
+		var pl: Planet = launched_from
+		var p := player
+		p.planet = pl
+		p.ang = -PI / 2.0
+		p.r = pl.pr + 30.0
+		p.r_target = p.r
+		p.vr = 0.0
+		p.vt = pl.speed
+		p.speed = pl.speed
+		p.vx = 0.0
+		p.vy = 0.0
+		p.x = Sim.planet_x(pl, t) + cos(p.ang) * p.r
+		p.y = pl.y + sin(p.ang) * p.r
+		p.px = p.x
+		p.py = p.y
+		p.cap_t = t
+		p.trail.clear()
+		p.last = null
+		holding = false
+		combo = 0
+		_set_mult()
+		events.append({"type": "rescue", "x": p.x, "y": p.y, "why": why})
 		return
 	state = "over"
 	death_t = t

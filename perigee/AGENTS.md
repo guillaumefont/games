@@ -68,6 +68,13 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in
   D major pentatonic so they sit on the music. The music loops through `loop=true` in its `.import` file (a looping
   Ogg is fine on Android; looping WAVs are not). Music plays on the "Music" bus, effects on "Sfx" (`Sfx.ensure_buses()`).
+- First run: until `save.data.tutorial_done`, the start card's tap starts the tutorial (`main.start_tutorial()`,
+  a fixed seed and the recipe `{"moons": 6, "rescue": true}`; `rescue` turns a death into a return to the moon of the
+  last fling, so the tutorial never ends in game over). Settings' "How to play" replays it. Tests that expect the start
+  card to start Drift set `tutorial_done` from `main.ready` (see `game_test.gd`).
+- Settings live in `save.data.settings` (volumes on the Music/Sfx buses, vibration, aim guide, reduced motion,
+  high-contrast rings). Assists may change what you see, never how points are scored. The future Daily must record
+  whether the aim guide was on.
 - `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
 - Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
   on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or
@@ -95,8 +102,8 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 
 - `tests/sim_test.gd` (rules: bot, replay, difficulty ramp, momentum, game over), `tests/game_test.gd`
   (scene: input, HUD, save, pause/resume, settings) and `tests/voyage_test.gd` (sectors, stars, unlocks, Voyage
-  screens) run in `perigee-test.yml` (check "Perigee headless test").
-  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` last; CI greps for it. A new test file gets a step there.
+  screens) and `tests/onboarding_test.gd` (tutorial, settings) run in `perigee-test.yml` (check "Perigee headless test").
+  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` last; CI greps for it. A new test file gets a step there.
 - `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
 - Every change comes with a test of what it should do; a bug fix gets a regression test.
 - Screenshots of the Godot game for reviews: `tools/screenshots.gd` (see README).

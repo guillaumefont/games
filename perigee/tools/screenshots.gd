@@ -16,6 +16,8 @@ func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(out)
 	main = load("res://scenes/main.tscn").instantiate()
 	main.save_path = "user://screenshots_save.json"
+	# the first-run tutorial has its own test
+	main.ready.connect(func() -> void: main.save.data.tutorial_done = true)
 	root.add_child(main)
 	main.set_process(false)
 	await process_frame
@@ -98,6 +100,23 @@ func _initialize() -> void:
 			break
 	await run(1.0)
 	await shot("9-voyage-clear")
+	# settings, with high-contrast rings on for the next shot
+	main.on_release() # the bot may have left the button down
+	main.hud.hide_clear()
+	main.open_settings()
+	main.hud.settings_toggles.high_contrast.button_pressed = true
+	main.hud.settings_toggles.aim_guide.button_pressed = true
+	await run(0.2)
+	await shot("10-settings")
+	main.close_settings()
+	# the tutorial, with high-contrast rings: the first hint, then in flight
+	main.start_tutorial()
+	await run(1.0)
+	await shot("11-tutorial")
+	main.on_press()
+	main.on_release()
+	await run(0.25)
+	await shot("12-tutorial-flight")
 	quit(0)
 
 

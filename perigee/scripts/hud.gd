@@ -9,6 +9,10 @@ signal mode_picked(mode: String) ## "endless" or a kind of moon for the lab
 signal voyage_opened
 signal sector_picked(id: String)
 signal clear_action(action: String) ## "next", "replay" or "map"
+signal settings_opened
+signal setting_changed(key: String, value: Variant)
+signal settings_closed
+signal tutorial_requested
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
 ## Shown on the start and game over cards while the vertical slice is built; not for release.
@@ -49,11 +53,17 @@ var clear_score: Label
 var clear_stars: Array[StarIcon] = []
 var clear_lines: Array[Label] = []
 var clear_pill_label: Label
+var clear_big: Control ## the three big stars
+var clear_buttons: Control ## Replay and Map
 var over_lab_row: Control
 var over_voyage_row: Control
 var pause_card: Control
 var pause_title: Label
 var pause_sub: Label
+var start_pill_label: Label
+var settings_card: Control
+var settings_sliders := {} ## setting key -> HSlider
+var settings_toggles := {} ## setting key -> Button
 var _pills: Array[Control] = []
 var _t := 0.0
 
@@ -154,11 +164,22 @@ func _ready() -> void:
 		v.custom_minimum_size.x = 210
 		steps.add_child(v)
 	_card(start_card).add_child(steps)
-	_card(start_card).add_child(_pill("Tap to play Drift"))
+	var start_pill := _pill("Tap to play Drift")
+	start_pill_label = start_pill.get_child(0).get_child(0)
+	_card(start_card).add_child(start_pill)
+	var menu_row := HBoxContainer.new()
+	menu_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu_row.add_theme_constant_override("separation", 10)
+	menu_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var voyage_button := _ghost_button("Voyage", 15, 44, 22)
 	voyage_button.name = "Voyage"
 	voyage_button.pressed.connect(func() -> void: voyage_opened.emit())
-	_card(start_card).add_child(_centered(voyage_button))
+	menu_row.add_child(voyage_button)
+	var settings_button := _ghost_button("Settings", 15, 44, 22)
+	settings_button.name = "Settings"
+	settings_button.pressed.connect(func() -> void: settings_opened.emit())
+	menu_row.add_child(settings_button)
+	_card(start_card).add_child(menu_row)
 	_card(start_card).add_child(_lab_row())
 
 	over_card = _overlay()
@@ -198,6 +219,7 @@ func _ready() -> void:
 
 	_build_voyage_card()
 	_build_clear_card()
+	_build_settings_card()
 
 	pause_card = _overlay()
 	pause_card.visible = false
@@ -305,6 +327,8 @@ func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bo
 		clear_lines[i].text = lines[i]
 		clear_lines[i].add_theme_color_override("font_color", INK if stars[i] else MUTED)
 	clear_pill_label.text = "TAP FOR NEXT SECTOR" if has_next else "TAP FOR THE MAP"
+	clear_big.visible = true
+	clear_buttons.visible = true
 	clear_card.visible = true
 
 
@@ -387,6 +411,7 @@ func _build_clear_card() -> void:
 		big.add_child(st)
 		clear_stars.append(st)
 	card.add_child(big)
+	clear_big = big
 	var list := GridContainer.new()
 	list.columns = 2
 	list.add_theme_constant_override("h_separation", 10)
@@ -415,6 +440,144 @@ func _build_clear_card() -> void:
 		b.pressed.connect(func() -> void: clear_action.emit(act))
 		row.add_child(b)
 	card.add_child(row)
+	clear_buttons = row
+
+
+## The tutorial's last card, on the clear card's layout: three tips instead of stars.
+func show_tutorial_done(score: int) -> void:
+	clear_title.text = "You're ready to fly"
+	clear_score.text = str(score)
+	clear_big.visible = false
+	clear_buttons.visible = false
+	var tips := ["Perigees score double and build your combo",
+		"Fling past a moon to leap it for big points",
+		"Voyage has hand-made sectors with stars to win"]
+	for i in 3:
+		clear_lines[i].text = tips[i]
+		clear_lines[i].add_theme_color_override("font_color", INK)
+	clear_pill_label.text = "TAP TO PLAY DRIFT"
+	clear_card.visible = true
+
+
+## The words on the start card's pill: "Tap to play Drift", or the tutorial's on a first run.
+func set_start_text(text: String) -> void:
+	start_pill_label.text = text
+
+
+# ---------- settings ----------
+
+const SLIDERS := [["music_volume", "Music"], ["sfx_volume", "Effects"]]
+const TOGGLES := [
+	["vibration", "Vibration", "On", "Off"],
+	["aim_guide", "Aim guide", "Every hop", "First hops"],
+	["reduced_motion", "Reduced motion", "On", "Off"],
+	["high_contrast", "High-contrast rings", "On", "Off"],
+]
+
+
+func _build_settings_card() -> void:
+	settings_card = _overlay()
+	settings_card.visible = false
+	settings_card.color = Color(SPACE, 0.94)
+	settings_card.mouse_filter = Control.MOUSE_FILTER_STOP # taps here never start a run
+	var card := _card(settings_card)
+	var title := _label("Settings", display_800, 36, INK)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(title)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 12)
+	card.add_child(grid)
+	for row in SLIDERS:
+		var key: String = row[0]
+		var l := _label(row[1], body_700, 15, INK)
+		l.custom_minimum_size.x = 150
+		grid.add_child(l)
+		var sl := HSlider.new()
+		sl.name = "Slider_" + key
+		sl.min_value = 0.0
+		sl.max_value = 1.0
+		sl.step = 0.1
+		sl.focus_mode = Control.FOCUS_NONE
+		sl.custom_minimum_size = Vector2(150, 36)
+		sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_style_slider(sl)
+		sl.value_changed.connect(func(v: float) -> void: setting_changed.emit(key, v))
+		grid.add_child(sl)
+		settings_sliders[key] = sl
+	for row in TOGGLES:
+		var key: String = row[0]
+		var l := _label(row[1], body_700, 15, INK)
+		grid.add_child(l)
+		var b := _ghost_button(row[3], 13, 36, 18)
+		b.name = "Toggle_" + key
+		b.toggle_mode = true
+		b.custom_minimum_size.x = 150
+		b.set_meta("labels", [row[2], row[3]])
+		b.toggled.connect(func(on: bool) -> void:
+			b.text = b.get_meta("labels")[0 if on else 1]
+			setting_changed.emit(key, on))
+		grid.add_child(b)
+		settings_toggles[key] = b
+	var note := _label("The aim guide and high-contrast rings only change what you see.", body_500, 12, MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note.custom_minimum_size.x = 300
+	card.add_child(note)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	var howto := _ghost_button("How to play", 13, 36, 18)
+	howto.name = "HowToPlay"
+	howto.pressed.connect(func() -> void: tutorial_requested.emit())
+	row.add_child(howto)
+	var done := _ghost_button("Done", 13, 36, 18)
+	done.name = "Done"
+	done.pressed.connect(func() -> void: settings_closed.emit())
+	row.add_child(done)
+	card.add_child(row)
+
+
+## Opens the settings card showing `values` (the save's settings); no signals fire while filling it.
+func show_settings(values: Dictionary) -> void:
+	for key in settings_sliders:
+		settings_sliders[key].set_value_no_signal(float(values.get(key, 1.0)))
+	for key in settings_toggles:
+		var b: Button = settings_toggles[key]
+		var on := bool(values.get(key, false))
+		b.set_pressed_no_signal(on)
+		b.text = b.get_meta("labels")[0 if on else 1]
+	settings_card.visible = true
+	start_card.visible = false
+
+
+func hide_settings() -> void:
+	settings_card.visible = false
+
+
+func _style_slider(sl: HSlider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(INK, 0.18)
+	track.set_corner_radius_all(3)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	sl.add_theme_stylebox_override("slider", track)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = SAND
+	fill.set_corner_radius_all(3)
+	fill.content_margin_top = 3
+	fill.content_margin_bottom = 3
+	sl.add_theme_stylebox_override("grabber_area", fill)
+	sl.add_theme_stylebox_override("grabber_area_highlight", fill)
+	var img := Image.create(22, 22, false, Image.FORMAT_RGBA8)
+	for y in 22:
+		for x in 22:
+			var d := Vector2(x - 10.5, y - 10.5).length()
+			img.set_pixel(x, y, Color(INK, clampf(10.0 - d, 0.0, 1.0)))
+	var tex := ImageTexture.create_from_image(img)
+	sl.add_theme_icon_override("grabber", tex)
+	sl.add_theme_icon_override("grabber_highlight", tex)
 
 
 func _centered(c: Control) -> Control:
