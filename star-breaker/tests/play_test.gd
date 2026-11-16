@@ -102,6 +102,13 @@ func _initialize() -> void:
 	main._process(0.016)
 	check(not main.charge_fx.visible, "the charge glow goes away once fired")
 	check(novas[0].parts.has("pulses") and novas[0].parts.pulses.size() == 6 * main.PULSES, "the Nova laser has twister pulses: pink, cyan and white strands and haze")
+	# the strands line the whole beam from its first frame instead of growing out from the nose
+	var shown: Array = novas[0].parts.pulses.filter(func(pl): return pl.visible)
+	var xs: Array = shown.map(func(pl): return pl.position.x)
+	var nova_len: float = novas[0].ex - novas[0].sx
+	check(novas[0].t <= 1 and xs.min() < 30.0 and xs.max() + main.PULSE_LEN > nova_len - main.PULSE_GAP * main.PULSE_SPEED,
+			"the Nova's strands are spread along the full beam at once")
+	check(main.PULSES * main.PULSE_GAP * main.PULSE_SPEED > main.W * 2.0, "a strand's pulses span even the widest screen's beam")
 	var p0: Node3D = novas[0].parts.pulses[0]
 	main._process(0.016)
 	var px0: float = p0.position.x
