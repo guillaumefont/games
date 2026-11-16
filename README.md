@@ -28,6 +28,8 @@ change touches that game's folder (or its workflows):
 - `<game>-build.yml` exports Web and/or Android, publishes the build to its folder on the `gh-pages` branch,
   and comments a preview link on pull requests (removed when the PR closes).
 - `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml` run the headless tests.
+- `ci-gate.yml` (check **CI gate**) waits for the workflows a PR triggers and passes only if all of them pass.
+  It is the one required check on `main`.
 - `pages.yml` deploys the whole `gh-pages` branch, plus the site's root pages from `.github/pages/`
   (the list of games and the shared 404 page). It needs Settings > Pages > Source = "GitHub Actions".
 
