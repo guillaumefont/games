@@ -3,6 +3,8 @@ extends SceneTree
 # - racing keeps the top-down gameplay view (no shot, no fog)
 # - the countdown intro is back to the gameplay view by GO (3.0 s into the countdown)
 # - the low orbits never put the lens inside the land, a road bank or a bridge, on any track
+# - no shot frames the car closer than WorldView.CINE_MIN_DIST ("Closeup" case: the old 2.6 m
+#   tutorial orbit and 3.1 m win chase filled the screen and showed the low-poly facets)
 const TrackData = preload("res://scripts/track.gd")
 const Race = preload("res://scripts/race.gd")
 const Defs = preload("res://scripts/track_defs.gd")
@@ -22,6 +24,10 @@ func _run() -> void:
 	root.add_child(view)
 	await process_frame   # _ready: camera, environment
 	var dt := 1.0 / 30.0
+	for shot in WorldView.CINE_SHOTS:
+		for d in WorldView.CINE_SHOTS[shot]["dist"]:
+			if d < WorldView.CINE_MIN_DIST:
+				fail("%s shot frames the car from %.1f m (min %.1f m)" % [shot, d, WorldView.CINE_MIN_DIST])
 	for ti in Defs.TRACKS.size():
 		var tr := TrackData.new(Defs.TRACKS[ti], "standard")
 		view._clear(tr)
@@ -33,7 +39,7 @@ func _run() -> void:
 			view.cine_reset()
 			view.cine("intro", c)
 			view.update_camera(race, "count", 0.0, true)
-			if view.camera.position.y - (tr.height_at(c.last_s) * WorldView.U) > 2.0:
+			if view.camera.position.y - (tr.height_at(c.last_s) * WorldView.U) > 3.0:
 				fail("intro does not start low (eye %.2f m up)" % view.camera.position.y)
 			var t := 0.0
 			while t < 3.0:
@@ -63,6 +69,9 @@ func _run() -> void:
 					view.cine_t = k * 4.0   # round the orbit
 					var pose: Array = view._cine_pose()
 					var eye: Vector3 = pose[0]
+					if eye.distance_to(pose[1]) < WorldView.CINE_MIN_DIST - 0.01:
+						fail("%s shot: lens %.2f m from the car" % [shot, eye.distance_to(pose[1])])
+						break
 					var gap: float = eye.y - view._cine_floor(Vector2(eye.x, eye.z) / WorldView.U)
 					worst = minf(worst, gap)
 			sv += 150.0
