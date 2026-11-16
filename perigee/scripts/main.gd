@@ -24,6 +24,8 @@ var save_path := "user://save.json"
 ## "endless", or a kind of moon for a lab run (tries one new kind; never counts for the best score)
 var mode := "endless"
 const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
+var sector: Dictionary = {} ## the Voyage sector being played
+var clear_shown := false
 var paused := false
 var resume_left := 0.0 ## > 0 while counting down to resume
 var button_down := false ## the one button as the player holds it right now
@@ -53,6 +55,9 @@ func _ready() -> void:
 	hud.set_sound(sfx.enabled)
 	hud.sound_toggled.connect(_toggle_sound)
 	hud.mode_picked.connect(start_mode)
+	hud.voyage_opened.connect(open_voyage)
+	hud.sector_picked.connect(start_sector)
+	hud.clear_action.connect(_clear_action)
 	_vis.randomize()
 	for i in 140:
 		stars.append({"x": _vis.randf(), "y": _vis.randf(), "z": _vis.randf_range(0.15, 1.0), "tw": _vis.randf() * 6.0})
@@ -70,10 +75,46 @@ func start_mode(m: String) -> void:
 	if paused:
 		return
 	mode = m
+	sector = {}
+	hud.set_timer(0.0, 0.0)
 	sim.recipe = {} if m == "endless" else {"mix": {"moon": 1.0, m: 2.0}}
 	sim.new_run(_new_seed())
 	sim.events.append({"type": "start"})
 	hud.set_mode(MODE_NAMES.get(m, ""))
+
+
+func open_voyage() -> void:
+	hud.show_voyage(save.data.voyage)
+
+
+## Starts a Voyage sector: its fixed layout from the sector's seed and recipe.
+func start_sector(id: String) -> void:
+	var sec := Voyage.sector(id)
+	if sec.is_empty() or paused:
+		return
+	mode = "voyage"
+	sector = sec
+	sim.recipe = Voyage.recipe(sec)
+	sim.new_run(sec.seed)
+	sim.events.append({"type": "start"})
+	hud.hide_voyage()
+	hud.set_mode("Sector %s · %s" % [sec.id, Voyage.system_of(id).name])
+
+
+func _clear_action(action: String) -> void:
+	if sector.is_empty():
+		return
+	match action:
+		"next":
+			var nxt := Voyage.next_sector(sector.id)
+			if nxt.is_empty():
+				open_voyage()
+			else:
+				start_sector(nxt.id)
+		"replay":
+			start_sector(sector.id)
+		"map":
+			open_voyage()
 
 
 func _new_seed() -> int:
@@ -112,6 +153,10 @@ func on_press() -> void:
 			hud.show_pause(true, ceili(resume_left))
 		return
 	if sim.state == "over" and not over_shown:
+		return
+	if sim.state == "clear":
+		if clear_shown:
+			_clear_action("next")
 		return
 	sim.press()
 
@@ -194,10 +239,14 @@ func _handle_events() -> void:
 			"start":
 				hud.show_start(false)
 				hud.hide_over()
+				hud.hide_clear()
+				hud.hide_voyage()
 				over_shown = false
+				clear_shown = false
 				new_best = false
 				hud.set_score(0)
-				sim.next_seed = _new_seed()
+				# a Voyage retry replays the same layout
+				sim.next_seed = int(sector.seed) if mode == "voyage" else _new_seed()
 				_update_frame_cap()
 			"launch":
 				sfx.play("launch")
@@ -225,6 +274,11 @@ func _handle_events() -> void:
 				_burst(e.x, e.y, SAND, 10, 70.0)
 				_popup(e.x, e.y - 12.0, "+%d" % e.points, SAND)
 				sfx.play("spark")
+			"clear":
+				_burst(e.x, e.y, SAND, 40, 180.0)
+				sfx.play("leap")
+				_vibrate(40)
+				_record_clear()
 			"graze":
 				_popup(e.x, e.y - 14.0, "Graze +1", LILAC)
 				sfx.play("graze")
@@ -237,7 +291,27 @@ func _handle_events() -> void:
 	sim.events.clear()
 
 
+func _record_clear() -> void:
+	var st := Voyage.stars(sector, sim)
+	var got := st.count(true)
+	var rec: Dictionary = save.data.voyage.get(sector.id, {})
+	rec["stars"] = maxi(int(rec.get("stars", 0)), got)
+	rec["score"] = maxi(int(rec.get("score", 0)), sim.score)
+	rec["time"] = minf(float(rec.get("time", INF)), snappedf(sim.run_t, 0.01))
+	save.data.voyage[sector.id] = rec
+	save.data.runs = int(save.data.runs) + 1
+	save.data.sparks = int(save.data.sparks) + sim.sparks_got
+	save.save_file()
+
+
 func _record_run() -> void:
+	if mode == "voyage":
+		new_best = false
+		save.data.runs = int(save.data.runs) + 1
+		save.data.sparks = int(save.data.sparks) + sim.sparks_got
+		save.save_file()
+		_update_frame_cap()
+		return
 	if mode != "endless":
 		new_best = false
 		_update_frame_cap()
@@ -258,9 +332,21 @@ func _update_hud() -> void:
 		hud.set_combo(sim.combo, sim.mult)
 	else:
 		hud.set_best(save.data.best)
+	if mode == "voyage" and not sector.is_empty():
+		hud.set_timer(sim.run_t, float(sector.par))
 	if sim.state == "over" and not over_shown and sim.t - sim.death_t >= Sim.RESTART_LOCK:
 		over_shown = true
-		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats())
+		hud.set_over_row(mode == "voyage")
+		var line := ("Moon %d of %d" % [mini(sim.hops, sector.moons), sector.moons]) if mode == "voyage" else ""
+		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats(), line)
+	if sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
+		clear_shown = true
+		var st := Voyage.stars(sector, sim)
+		hud.show_clear(sector.id, sim.score, st, [
+			"Reach moon %d" % sector.moons,
+			"Under %d s (%.1f s)" % [int(sector.par), sim.run_t],
+			Voyage.goal_text(sector.goal),
+		], not Voyage.next_sector(sector.id).is_empty())
 	var hint := ""
 	if sim.state == "play" and sim.hops < 3:
 		if sim.player.planet != null:
@@ -410,6 +496,9 @@ func _draw() -> void:
 		var rot := Transform2D(pl.spin, Vector2.ZERO)
 		draw_circle(c + rot * Vector2(-0.35, -0.2) * pl.pr, pl.pr * 0.22, Color(SPACE, 0.16 * fade), true, -1.0, true)
 		draw_circle(c + rot * Vector2(0.3, 0.35) * pl.pr, pl.pr * 0.14, Color(SPACE, 0.16 * fade), true, -1.0, true)
+		if pl.finish and not pl.visited:
+			# a Voyage waypoint
+			draw_arc(c, pl.pr + 8.0 + sin(t * 4.0) * 2.0, 0, TAU, 48, SAND, 2.0, true)
 		if pl.kind == "pulsar":
 			# a beating white core, bright while the ring is lit
 			var beat := 0.5 + 0.5 * sin(t * TAU / Sim.PULSAR_PERIOD * 2.0)

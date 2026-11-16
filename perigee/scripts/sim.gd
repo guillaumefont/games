@@ -50,6 +50,7 @@ class Planet:
 	var gx := 0.0 ## where the next moon is placed from (the centre of a twin pair)
 	var pulse_ph := 0.0 ## pulsar blink phase, 0..1
 	var skipped := false ## passed by a leap, never caught
+	var finish := false ## a Voyage sector's waypoint
 	var graze_flight := -1 ## the flight that last grazed it (one graze per moon per flight)
 
 	## A pulsar's ring only catches while lit; every other ring always does.
@@ -96,9 +97,12 @@ var rng := RandomNumberGenerator.new()
 var seed_value := 0
 ## The seed the next run uses when a tap restarts after a game over. The owner picks it.
 var next_seed := 0
-## What the world is made of: {"mix": {kind: weight}} (weights of the KINDS after the first moon).
-## The default is the endless mode of the prototype: plain moons only. The lab and, later, Voyage
-## sectors pass their own.
+## What the world is made of. Every key is optional:
+##   mix: {kind: weight}  kinds of moon after the first one (none: plain moons, no random roll)
+##   moons: int           a Voyage sector: moon number `moons` is the waypoint, catching it clears the run
+##   k_offset: int        start further along the difficulty curve
+##   zigzag: [k, ...]     moons k, k+1, k+2 zigzag so k and k+2 line up: a shortcut line to leap along
+## The default is the endless mode of the prototype. The lab and Voyage sectors pass their own.
 var recipe: Dictionary = {}
 
 ## Size of the visible play area in world units (the prototype's W and H). Leaving the
@@ -108,6 +112,7 @@ var H := 700.0
 
 var state := "start" ## start, play or over
 var steps := 0 ## steps since this run began
+var run_t := 0.0 ## seconds played in this run (the Voyage clock)
 var t := 0.0
 var score := 0
 var hops := 0 ## moons reached in this run
@@ -172,10 +177,15 @@ static func assist(hops_in: int) -> float:
 func make_planet(prev: Planet) -> Planet:
 	var k := moons_made
 	moons_made += 1
-	var d := curve(k)
+	var dk := k + int(recipe.get("k_offset", 0)) # difficulty index
+	var d := curve(dk)
 	var p := Planet.new()
 	p.k = k
-	p.kind = _roll_kind() if k > 0 else "moon"
+	var zig := _zigzag_part(k)
+	p.kind = _roll_kind() if k > 0 and zig == 0 and not (k in recipe.get("zigzag", [])) else "moon"
+	if k == int(recipe.get("moons", -1)):
+		p.kind = "moon"
+		p.finish = true
 	var twin_ring := float(d.ring) * TWIN_RING
 	var half_sep := twin_ring * TWIN_SEP / 2.0 if p.kind == "twin" else 0.0
 	if prev != null:
@@ -187,6 +197,14 @@ func make_planet(prev: Planet) -> Planet:
 			a = -a
 			p.ox = prev.gx + sin(a) * gap
 		p.ox = clampf(p.ox, -135.0 + half_sep, 135.0 - half_sep)
+		if zig == 1: # out to the side...
+			p.ox = clampf(prev.gx + (190.0 if prev.gx <= 0.0 else -190.0), -135.0, 135.0)
+			p.y = prev.y - 140.0
+		elif zig == 2: # ...and back in line with the moon before it
+			p.ox = _zig_from
+			p.y = prev.y - 140.0
+	if k in recipe.get("zigzag", []):
+		_zig_from = p.ox
 	p.gx = p.ox
 	p.x = p.ox
 	p.pr = 24.0 if k == 0 else rng.randf_range(15.0, 25.0)
@@ -196,8 +214,8 @@ func make_planet(prev: Planet) -> Planet:
 		p.ring = twin_ring
 	if p.kind == "pulsar":
 		p.pulse_ph = rng.randf()
-	if k >= 12 and rng.randf() < clampf((k - 12) / 25.0, 0.35, 0.8):
-		p.amp = minf(70.0, (k - 10) * 2.4)
+	if dk >= 12 and zig == 0 and rng.randf() < clampf((dk - 12) / 25.0, 0.35, 0.8):
+		p.amp = minf(70.0, (dk - 10) * 2.4)
 	p.freq = rng.randf_range(0.55, 0.9)
 	p.ph = rng.randf() * TAU
 	p.col = k % 4
@@ -238,6 +256,19 @@ func make_planet(prev: Planet) -> Planet:
 	return p
 
 
+var _zig_from := 0.0 ## x of the first moon of the current zigzag
+
+
+## 1 or 2 for the second and third moons of a zigzag (see recipe), else 0.
+func _zigzag_part(k: int) -> int:
+	var zz: Array = recipe.get("zigzag", [])
+	if (k - 1) in zz:
+		return 1
+	if (k - 2) in zz:
+		return 2
+	return 0
+
+
 func _roll_kind() -> String:
 	var mix: Dictionary = recipe.get("mix", {})
 	if mix.is_empty():
@@ -254,7 +285,8 @@ func _roll_kind() -> String:
 
 
 func ensure_planets() -> void:
-	while planets.is_empty() or planets[-1].y > cam_y - H * 1.2:
+	while (planets.is_empty() or planets[-1].y > cam_y - H * 1.2) \
+			and moons_made <= int(recipe.get("moons", 1 << 30)):
 		var pl := make_planet(null if planets.is_empty() else planets[-1])
 		planets.append(pl)
 		if pl.partner != null:
@@ -276,6 +308,7 @@ func new_run(seed_in: int) -> void:
 	sparks.clear()
 	events.clear()
 	steps = 0
+	run_t = 0.0
 	t = 0.0
 	hops = 0
 	score = 0
@@ -323,6 +356,8 @@ func press() -> void:
 		swallow = true
 		events.append({"type": "start"})
 		return
+	if state == "clear":
+		return # the owner decides what comes next (next sector, replay)
 	if state == "over":
 		if t - death_t > RESTART_LOCK:
 			new_run(next_seed)
@@ -434,6 +469,11 @@ func capture(pl: Planet) -> void:
 	e.mult = mult
 	pl.flash = 1.0
 	events.append(e)
+	if first and pl.finish:
+		state = "clear"
+		death_t = t
+		holding = false
+		events.append({"type": "clear", "x": p.x, "y": p.y})
 
 
 func _add_combo(n: int) -> void:
@@ -463,6 +503,8 @@ func step() -> void:
 	var dt := DT
 	steps += 1
 	t += dt
+	if state == "play":
+		run_t += dt
 	var p := player
 	p.px = p.x
 	p.py = p.y
@@ -474,7 +516,7 @@ func step() -> void:
 		if pl.flash > 0.0:
 			pl.flash = maxf(0.0, pl.flash - dt * 2.0)
 
-	if state == "play" or state == "start":
+	if state == "play" or state == "start" or state == "clear":
 		if p.planet != null:
 			var pl := p.planet
 			# radius: critically damped spring that starts from the incoming radial speed

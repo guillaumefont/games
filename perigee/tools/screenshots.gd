@@ -1,6 +1,7 @@
 extends SceneTree
 ## Screenshots of the real game for reviews: start card, first hop with guide dots, a catch,
-## late game (moon 30+), game over, and the lab's twin, retro and pulsar moons. Needs a display:
+## late game (moon 30+), game over, the lab's twin, retro and pulsar moons, and Voyage (sector list,
+## a sector, the clear card). Needs a display:
 ##   xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
 ##     --script tools/screenshots.gd -- /tmp/perigee-shots
 
@@ -61,6 +62,42 @@ func _initialize() -> void:
 		main.start_mode(kind)
 		await run(1.2)
 		await shot("6-lab-" + kind)
+	# Voyage: the sector list, a sector in play, the clear card
+	main.save.data.voyage = {"1-1": {"stars": 3}, "1-2": {"stars": 2}, "1-3": {"stars": 1}}
+	main.open_voyage()
+	await run(0.3)
+	await shot("7-voyage-map")
+	main.start_sector("1-4")
+	var vbot := preload("res://tests/sim_test.gd").Bot.new()
+	vbot.deep = true
+	for i in 120 * 60:
+		match vbot.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		if main.sim.hops >= 9 and main.sim.player.planet == null:
+			break
+	await run(0.0)
+	await shot("8-voyage-sector")
+	for i in 120 * 30:
+		match vbot.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		if main.sim.state != "play":
+			break
+	await run(1.0)
+	await shot("9-voyage-clear")
 	quit(0)
 
 

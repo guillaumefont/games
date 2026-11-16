@@ -12,7 +12,7 @@ on:
       - ".github/workflows/perigee-*.yml"
 
 jobs:
-  # The Godot game: rules, replay and difficulty (sim_test), and the scene (game_test).
+  # The Godot game: rules, replay and difficulty (sim_test), the scene (game_test), and Voyage sectors (voyage_test).
   godot:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -37,6 +37,12 @@ jobs:
         run: |
           $RUNNER_TEMP/godot --headless --path . --script tests/game_test.gd 2>&1 | tee "$RUNNER_TEMP/game.log"
           grep -q "^GAME TEST DONE" "$RUNNER_TEMP/game.log"
+      - name: Voyage test
+        working-directory: perigee
+        run: |
+          set -o pipefail
+          $RUNNER_TEMP/godot --headless --path . --script tests/voyage_test.gd 2>&1 | tee "$RUNNER_TEMP/voyage.log"
+          grep -q "^VOYAGE TEST DONE" "$RUNNER_TEMP/voyage.log"
 
   # The original web prototype (perigee/web/), kept as the reference until the Godot game
   # feels the same.
