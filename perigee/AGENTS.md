@@ -64,6 +64,10 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   k, a shortcut line to leap), `mix`. Stars: clear, under `par`, the sector's goal. Pars come from
   `tools/par_times.gd` (bot best + 35%); rerun it after changing a sector or the rules, and keep `voyage_test.gd`
   green (the bot must clear every sector). Progress is `save.data.voyage[id] = {stars, score, time}`.
+- Audio is original and generated: `tools/audio/compose.py` (numpy + ffmpeg) writes the music track and every
+  sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in
+  D major pentatonic so they sit on the music. The music loops through `loop=true` in its `.import` file (a looping
+  Ogg is fine on Android; looping WAVs are not). Music plays on the "Music" bus, effects on "Sfx" (`Sfx.ensure_buses()`).
 - `web/`, `android/` and `store/` have a `.gdignore`, so Godot never imports them.
 - Android uses the Compatibility renderer, like Star Breaker (the Vulkan Mobile renderer hitched and crashed
   on Guillaume's Pixel). Don't run GDScript on worker threads, and don't use looping `AudioStreamWAV`s or

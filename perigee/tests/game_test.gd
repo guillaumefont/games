@@ -84,6 +84,7 @@ func _initialize() -> void:
 	main.on_press() # a finger down when focus goes
 	main._notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
 	check(main.paused and main.hud.pause_card.visible and not main.sim.holding, "losing focus pauses and lets go")
+	check(main.music.ducked, "the music is lowered while paused")
 	var t0: float = main.sim.t
 	tick(2.0)
 	check(main.sim.t == t0, "nothing moves while paused")
@@ -94,6 +95,7 @@ func _initialize() -> void:
 	check(main.paused and main.hud.pause_title.text == "2", "the countdown counts down")
 	tick(2.0)
 	check(not main.paused and not main.hud.pause_card.visible and main.sim.t > t0, "the run resumes after the countdown")
+	check(not main.music.ducked, "and the music comes back up")
 	main._notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
 	main._notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
 	check(main.paused, "a second focus loss keeps it paused")
@@ -157,6 +159,18 @@ func _initialize() -> void:
 	# settings: sound toggles and is kept
 	main.hud.sound_button.pressed.emit()
 	check(main.sfx.enabled and main.hud.sound_button.text == "SOUND ON", "the sound button turns sound on")
+	check(main.music.enabled and main.music.player.playing and main.music.target_db() == Music.VOLUME_DB
+		and main.music.player.bus == "Music", "and starts the music on the Music bus")
+	var track: AudioStreamOggVorbis = main.music.player.stream
+	check(track != null and track.loop and track.get_length() > 30.0, "the music track loops (%.1f s)" % (track.get_length() if track else 0.0))
+	var missing: Array[String] = []
+	for n in Sfx.NAMES + range(12).map(func(i): return "catch%d" % i):
+		if not main.sfx.has_clip(n):
+			missing.append(n)
+	check(missing.is_empty(), "every sound effect loads (missing: %s)" % [missing])
+	main.hud.sound_button.pressed.emit()
+	check(not main.music.enabled and main.music.target_db() == Music.SILENT, "sound off fades the music out")
+	main.hud.sound_button.pressed.emit()
 	main.queue_free()
 	await process_frame
 	new_main()
