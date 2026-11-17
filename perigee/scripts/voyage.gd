@@ -5,7 +5,8 @@ extends RefCounted
 ## Up to 3 stars per sector: clear it, beat the par time, and the sector's goal.
 ##
 ## Par times come from tools/par_times.gd (the test bot's best time plus 35%) until real play
-## sets them. tests/voyage_test.gd checks that the bot clears every sector and that the data is sound.
+## sets them. `points` are the sector's bronze, silver and gold points medals (see Medals), from the
+## same tool. tests/voyage_test.gd checks that the bot clears every sector and that the data is sound.
 
 const SYSTEMS: Array[Dictionary] = [
 	{
@@ -13,17 +14,17 @@ const SYSTEMS: Array[Dictionary] = [
 		"intro": "Twin moons: catch either one",
 		"sectors": [
 			{"id": "1-1", "seed": 1101, "moons": 10, "k_offset": 0, "zigzag": [3],
-				"goal": {"type": "perigees", "count": 4}, "par": 20.0},
+				"goal": {"type": "perigees", "count": 4}, "par": 20.0, "points": [35, 60, 90]},
 			{"id": "1-2", "seed": 1202, "moons": 12, "k_offset": 3, "mix": {"moon": 3.0, "twin": 1.0}, "zigzag": [6],
-				"goal": {"type": "sparks", "count": 6}, "par": 23.0},
+				"goal": {"type": "sparks", "count": 6}, "par": 23.0, "points": [40, 80, 115]},
 			{"id": "1-3", "seed": 1304, "moons": 12, "k_offset": 6, "mix": {"moon": 2.0, "twin": 1.0}, "zigzag": [2, 7],
-				"goal": {"type": "perigees", "count": 6}, "par": 28.0},
+				"goal": {"type": "perigees", "count": 6}, "par": 28.0, "points": [35, 70, 100]},
 			{"id": "1-4", "seed": 1404, "moons": 12, "k_offset": 6, "zigzag": [1, 4, 7],
-				"goal": {"type": "leaps", "count": 2}, "par": 24.0},
+				"goal": {"type": "leaps", "count": 2}, "par": 24.0, "points": [60, 110, 165]},
 			{"id": "1-5", "seed": 1505, "moons": 14, "k_offset": 10, "mix": {"moon": 1.0, "twin": 1.0}, "zigzag": [5],
-				"goal": {"type": "combo", "count": 8}, "par": 31.0},
+				"goal": {"type": "combo", "count": 8}, "par": 31.0, "points": [50, 95, 135]},
 			{"id": "1-6", "seed": 1608, "moons": 15, "k_offset": 14, "mix": {"moon": 2.0, "twin": 1.0}, "zigzag": [4, 10],
-				"goal": {"type": "perigees", "count": 8}, "par": 35.0},
+				"goal": {"type": "perigees", "count": 8}, "par": 35.0, "points": [55, 100, 150]},
 		],
 	},
 ]
