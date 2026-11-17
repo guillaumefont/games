@@ -496,7 +496,9 @@ func set_insets(l: float, t: float, r: float, b: float) -> void:
 	ps.content_margin_right = 8 + r; ps.content_margin_top = 8 + t; ps.content_margin_bottom = 8 + b
 	panel.add_theme_stylebox_override("panel", ps)
 	for k in overlays:
-		var o: Control = overlays[k]; var mc: MarginContainer = o.get_meta("mc")
+		var o: Control = overlays[k]
+		if not o.has_meta("mc"): continue   # the splash places itself
+		var mc: MarginContainer = o.get_meta("mc")
 		mc.add_theme_constant_override("margin_top", int(16 + t)); mc.add_theme_constant_override("margin_bottom", int(16 + b))
 		if o.get_meta("fit"): _fit_margins(o)
 		else:
@@ -736,8 +738,16 @@ func _title_fx(a: Label, b: Label, center: bool) -> void:
 
 ## Boot splash art (AF_MODE=splash renders it to res://splash.png).
 func build_splash() -> void:
-	var c := _overlay("splash", 720)
-	var bg: WarBG = overlays.splash.get_child(0); bg.hero = true; bg.t = 3.0
+	# fixed, never scrolls: the art keeps its design size and is scaled down as a whole to fit short screens
+	var o := Control.new(); o.name = "splash"; o.set_anchors_preset(Control.PRESET_FULL_RECT); o.mouse_filter = Control.MOUSE_FILTER_STOP
+	var bg := WarBG.new(); bg.full = true; bg.hero = true; bg.t = 3.0; bg.set_anchors_preset(Control.PRESET_FULL_RECT); bg.mouse_filter = Control.MOUSE_FILTER_IGNORE; o.add_child(bg)
+	var c := VBoxContainer.new(); c.mouse_filter = Control.MOUSE_FILTER_IGNORE; c.custom_minimum_size.x = 720; o.add_child(c)
+	add_child(o); overlays["splash"] = o; o.visible = false
+	var fit := func():
+		var ms := c.get_combined_minimum_size(); c.size = ms
+		var k := minf(1.0, minf((o.size.x - 32 - ins_l - ins_r) / ms.x, (o.size.y - 32 - ins_t - ins_b) / ms.y))
+		c.scale = Vector2.ONE * k; c.position = (o.size - ms * k) * 0.5
+	o.resized.connect(fit); c.minimum_size_changed.connect(fit)
 	c.alignment = BoxContainer.ALIGNMENT_CENTER; c.add_theme_constant_override("separation", 8)
 	var ins := Insignia.new(); ins.custom_minimum_size = Vector2(150, 150); ins.size_flags_horizontal = Control.SIZE_SHRINK_CENTER; c.add_child(ins)
 	var e := eyebrow("Vanguard  vs  Ashen Pact"); e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; e.add_theme_font_size_override("font_size", 14); c.add_child(e)
