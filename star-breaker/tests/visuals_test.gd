@@ -133,21 +133,21 @@ func _initialize() -> void:
 	check(single, "each arc is one strand, thin or haze, never both")
 	check(thin >= 24 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
 	check(jumped >= ps.size() - 2, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
-	var slid := 0
-	var held := 0
+	var jolted := 0
+	var alive := 0
 	var prev := []
 	for pl in ps:
-		prev.append([pl.y, pl.t, (pl.n as Node3D).basis])
+		prev.append([pl.y, pl.t, pl.ang])
 	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
 	for i in ps.size():
 		if ps[i].t != prev[i][1] + 1:
 			continue
+		alive += 1
 		var dy: float = absf(ps[i].y - prev[i][0])
-		if dy >= VFx.ARC_SPEED.x - 0.01 and dy <= VFx.ARC_SPEED.y + 0.01:
-			slid += 1
-		if (ps[i].n as Node3D).basis.is_equal_approx(prev[i][2]):
-			held += 1
-	check(slid > 10 and held == slid, "a living arc slides a little along the beam, keeping its shape (%d)" % slid)
+		var da: float = absf(ps[i].ang - prev[i][2])
+		if (dy > 0.0 or da > 0.0) and dy <= VFx.ARC_JOLT.x + 0.01 and da <= VFx.ARC_JOLT.y + 0.01:
+			jolted += 1
+	check(alive > 10 and jolted == alive, "a living arc jolts about erratically, within bounds (%d of %d)" % [jolted, alive])
 	ub.free()
 
 	# --- explosions ---
