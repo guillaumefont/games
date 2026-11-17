@@ -117,10 +117,17 @@ func _initialize() -> void:
 		else:
 			downs += 1
 	check(ps.size() == VFx.ULT_PULSES and ups > 0 and downs > 0, "Starbreak's pulses run both up and down the laser (%d up, %d down)" % [ups, downs])
-	var straight := true
-	for pl in ps:
-		straight = straight and (pl.n as Node3D).basis.is_equal_approx(Basis())
-	check(straight, "Starbreak's pulses run straight along the beam (no twister wobble)")
+	# no wobble: a pulse keeps its angle and shape as it travels
+	var pl0: Dictionary = ps[0]
+	for f in 3:
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 40 + f, 40 + f, false)
+		if not (pl0.n as Node3D).visible:
+			pl0.y = 100.0
+	var b0: Basis = (pl0.n as Node3D).basis
+	var y0: float = (pl0.n as Node3D).position.y
+	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 44, 44, false)
+	check((pl0.n as Node3D).basis.is_equal_approx(b0) and absf((pl0.n as Node3D).position.y - y0) > 1.0,
+		"a Starbreak pulse curls round the beam and slides along it without turning or wobbling")
 	ub.free()
 
 	# --- explosions ---

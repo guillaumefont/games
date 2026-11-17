@@ -182,8 +182,8 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 	if ult:
 		for i in ULT_PULSES:
 			var st := i % 3
-			var hard := Models.mesh(rod, pulse_mat(st))
-			var soft := Models.mesh(rod, pulse_mat(st + 3))
+			var hard := Models.mesh(ult_coil(true), pulse_mat(st))
+			var soft := Models.mesh(ult_coil(false), pulse_mat(st + 3))
 			var g := Node3D.new()
 			g.add_child(soft)
 			g.add_child(hard)
@@ -257,6 +257,16 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 
 ## Starbreak's pulses: each runs straight up or down the laser at its own speed, beside the core,
 ## and starts again at random once it has left the beam.
+## One turn of a strand curling round the beam, along +X, ULT_COIL long and of radius 1
+## (scaled to the beam): a hard strand or its haze.
+const ULT_COIL := 24.0
+
+
+static func ult_coil(hard: bool) -> ArrayMesh:
+	return Geo.cached("ucoil%s" % ("h" if hard else "z"), func(): return Geo.build_wound(Geo.helix(ULT_COIL, 1.0, ULT_COIL,
+			0.11 if hard else 0.36, 4 if hard else 6)))
+
+
 static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
 	var R := w / maxf(fade, 0.05) * 0.8
 	for pl in pulses:
@@ -267,14 +277,11 @@ static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) 
 		pl.y += pl.v if pl.up else -pl.v
 		if pl.y > len or pl.y < -pl.len:
 			_respawn(pl, len, w, false)
-		var y0: float = clampf(pl.y, 0.0, len)
-		var y1: float = clampf(pl.y + pl.len, 0.0, len)
+		# a pulse curls once round the beam, set at its own angle; it slides along without turning
 		var g: Node3D = pl.n
-		g.visible = y1 - y0 > 0.5 and fade > 0.05
+		g.visible = pl.y >= 0.0 and pl.y + pl.len <= len and fade > 0.05
 		if not g.visible:
 			continue
-		var a: float = pl.ang
-		g.position = Vector3(cos(a) * R * pl.r, y0, sin(a) * R * pl.r)
-		var th := 0.95 * fade
-		(pl.hard as Node3D).scale = Vector3(th, y1 - y0, th)
-		(pl.soft as Node3D).scale = Vector3(th * 3.2, y1 - y0, th * 3.2)
+		var r: float = R * pl.r * (0.6 + 0.4 * fade)
+		g.position = Vector3(0, pl.y, 0)
+		g.basis = Basis(Vector3.UP, pl.ang) * Basis(Vector3.BACK, PI / 2) * Basis().scaled(Vector3(pl.len / ULT_COIL, r, r))
