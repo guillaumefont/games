@@ -7,7 +7,7 @@ name: Perigee builds
 # The Google Play bundle is the Godot game (Guillaume's call, 2026-11-17), exported with Godot's Gradle
 # build template.
 # Published layout (main at /perigee/, pull request N at /perigee/pr/N/):
-#   index.html (Godot web) · perigee.apk (Godot) · privacy.html · prototype/ (web game) · perigee-webview.apk
+#   index.html (Godot web) · perigee.apk (Godot) · perigee.pck + update.json (its self-update) · privacy.html · prototype/ (web game) · perigee-webview.apk
 #
 # Packages the web game (perigee/web/, one HTML file plus fonts) as an Android APK, a full-screen
 # WebView that plays offline (perigee/android/, a Gradle project), and publishes both on
@@ -135,13 +135,23 @@ jobs:
             echo "GODOT_ANDROID_KEYSTORE_${k}_PASSWORD=android" >> "$GITHUB_ENV"
           done
 
-      - name: Godot import and build id
+      # Self-update, as in Star Breaker (scripts/boot.gd): the test APK checks update.json on Pages at
+      # launch and loads a newer game pack built for the same shell, or offers the new APK when the shell
+      # changed. The shell id hashes what a pack can't change: engine version, project settings, export
+      # presets and the boot scene. Stamped before the build id, which changes on every build.
+      - name: Godot import, self-update settings and build id
         working-directory: perigee
         env:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           $RUNNER_TEMP/godot --headless --path . --import
+          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/boot.gd scenes/boot.tscn; } | sha256sum | cut -c1-16)
+          base="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/perigee/"
+          printf '\n[perigee]\n\nbuild=%s\nshell="%s"\nupdate_url="%s"\nupdate_fallback_url="%s"\n' \
+            "$BUILD" "$shell" "$base${PR:+pr/$PR/}" "$base" >> project.godot
+          echo "SHELL_ID=$shell" >> "$GITHUB_ENV"
+          tail -6 project.godot
           id="b$BUILD${PR:+ pr$PR} ${SHA::7}"
           sed -i "/^config\/name=/a config/version=\"$id\"" project.godot
           grep -m1 '^config/version' project.godot
@@ -162,6 +172,17 @@ jobs:
           test -s "$OUT/godot-android/$APK_NAME"
           git checkout -- export_presets.cfg
 
+      - name: Godot game pack for self-update
+        working-directory: perigee
+        run: |
+          pck="$OUT/godot-android/perigee.pck"
+          $RUNNER_TEMP/godot --headless --path . --export-pack Android "$pck"
+          test -s "$pck"
+          id=$(grep -m1 '^config/version=' project.godot | cut -d'"' -f2)
+          printf '{"build": %s, "id": "%s", "shell": "%s", "pck": "perigee.pck", "size": %s, "sha256": "%s", "apk": "%s"}\n' \
+            "$BUILD" "$id" "$SHELL_ID" "$(stat -c%s "$pck")" "$(sha256sum "$pck" | cut -c1-64)" "$APK_NAME" > "$OUT/godot-android/update.json"
+          cat "$OUT/godot-android/update.json"
+
       # Google Play bundle: the Godot game through Godot's Gradle build template (preset "Android Play",
       # target SDK 36). On main and manual runs it is signed with the upload key (secrets
       # PERIGEE_UPLOAD_KEYSTORE_BASE64, PERIGEE_UPLOAD_KEY_ALIAS, PERIGEE_UPLOAD_KEY_PASSWORD; Godot uses one
@@ -174,6 +195,10 @@ jobs:
           UPLOAD_ALIAS: ${{ secrets.PERIGEE_UPLOAD_KEY_ALIAS }}
           UPLOAD_PASSWORD: ${{ secrets.PERIGEE_UPLOAD_KEY_PASSWORD }}
         run: |
+          # Play doesn't allow an app to download its own code: no update url, so the boot scene starts
+          # the game at once (and this preset has no internet permission)
+          sed -i '/^update_url=/d; /^update_fallback_url=/d' project.godot
+          if grep -q '^update_url=' project.godot; then echo "::error::the Play bundle must not self-update"; exit 1; fi
           name="2.0.$BUILD"
           sed -i "s/^version\/code=.*/version\/code=$BUILD/; s/^version\/name=.*/version\/name=\"$name\"/" export_presets.cfg
           if [ -n "$UPLOAD_B64" ]; then
@@ -233,7 +258,8 @@ jobs:
         run: |
           mkdir -p "$OUT/stage/prototype"
           cp -r "$OUT/godot-web/." "$OUT/stage/"
-          cp "$OUT/godot-android/$APK_NAME" "$OUT/version.json" perigee/web/privacy.html "$OUT/stage/"
+          cp "$OUT/godot-android/$APK_NAME" "$OUT/godot-android/perigee.pck" "$OUT/godot-android/update.json" \
+            "$OUT/version.json" perigee/web/privacy.html "$OUT/stage/"
           cp "$OUT/$APK_NAME" "$OUT/stage/perigee-webview.apk"
           cp -r perigee/web/. "$OUT/stage/prototype/"
           rm -f "$OUT/stage/prototype/.gdignore"

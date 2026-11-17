@@ -15,6 +15,7 @@ func _initialize() -> void:
 		out = args[0]
 	DirAccess.make_dir_recursive_absolute(out)
 	main = load("res://scenes/main.tscn").instantiate()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://screenshots_save.json")) # rewards pay once
 	main.save_path = "user://screenshots_save.json"
 	# the first-run tutorial has its own test
 	main.ready.connect(func() -> void: main.save.data.tutorial_done = true)
@@ -65,7 +66,8 @@ func _initialize() -> void:
 		await run(1.2)
 		await shot("6-lab-" + kind)
 	# Voyage: the sector list, a sector in play, the clear card
-	main.save.data.voyage = {"1-1": {"stars": 3}, "1-2": {"stars": 2}, "1-3": {"stars": 1}}
+	main.save.data.voyage = {"1-1": {"stars": 3, "score": 95, "time": 15.0}, "1-2": {"stars": 2, "score": 70, "time": 20.5},
+		"1-3": {"stars": 1, "score": 40, "time": 30.0}}
 	main.open_voyage()
 	await run(0.3)
 	await shot("7-voyage-map")

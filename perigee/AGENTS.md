@@ -28,7 +28,27 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   WebView: read from the `BUILD` environment variable by `android/build.gradle`). Don't hard-code one.
 - All APKs share one app id (`io.github.guillaumefont.perigee`) and `android/debug.keystore`, so a PR build installs
   over the main build, and the Godot and WebView APKs install over each other.
-- There is no self-update: a new build means installing the new APK.
+- The Godot test APK updates itself (next section); the WebView APK and the Play build don't.
+
+## Self-update (Godot test APK, as in Star Breaker)
+
+- The main scene is `scenes/boot.tscn` (`scripts/boot.gd`): at launch it fetches `update.json` from Pages and, if
+  a newer build was made for the same **shell**, downloads `perigee.pck` (the whole game), checks its size and
+  SHA-256 and loads it over the bundled game with `ProjectSettings.load_resource_pack()`. No reinstall needed.
+- The shell id (stamped by CI into a `[perigee]` section of `project.godot`, with the build and update urls) hashes
+  what a pack can't change: Godot version, `project.godot`, `export_presets.cfg` and the updater (`boot.gd`,
+  `boot.tscn`). Editing any of those makes the app offer the new APK instead ("Download update" or "Play this
+  version"), so avoid needless changes to them.
+- `boot.gd` must not use any game class (`Sim`, `Hud`, `Sfx`, ...): touching one before the pack loads would keep
+  the bundled version. Tests and tools load `scenes/main.tscn` directly.
+- PR APKs follow `pr/N/update.json`, then main once the preview is gone.
+- The start card's build line (`hud.build_button`) shows the running build and, after a quiet check of
+  `update.json`, "New build N · tap to update". Tapping it restarts the app (`main.refresh_game()`) so the launch
+  check loads the new pack; the web page just reloads. It restarts **only when a newer build is out**: a tap with
+  nothing new checks the server first and says "up to date" (or "can't check (offline)") instead.
+- **The Play bundle never self-updates** (Google Play forbids apps downloading their own code): CI deletes the
+  update urls before exporting "Android Play", and that preset has no internet permission. Only preset "Android"
+  (the test APK) has `permissions/internet`. `tests/update_test.gd` checks both.
 
 ## Godot game
 
@@ -64,6 +84,18 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   k, a shortcut line to leap), `mix`. Stars: clear, under `par`, the sector's goal. Pars come from
   `tools/par_times.gd` (bot best + 35%); rerun it after changing a sector or the rules, and keep `voyage_test.gd`
   green (the bot must clear every sector). Progress is `save.data.voyage[id] = {stars, score, time}`.
+- Medals (`scripts/medals.gd`, drawn by `scripts/medal_icon.gd`), Guillaume's ask of 2026-11-17: each sector has a
+  speed medal (bronze at par, silver at 88%, gold at 76% of par), a points medal (the sector's `points` marks,
+  suggested by `tools/par_times.gd`: 40/75/110% of the bot's all-perigee score) and an all-stars medal (3 of 3 stars);
+  each system has an all-stars medal, and Drift has points medals by one run (`Medals.DRIFT_POINTS`). They are read
+  from the best records the save already keeps (`voyage[id]`, `best`). Medals are rewards (Guillaume, 2026-11-17):
+  the first time a tier is won it pays bonus sparks onto the unlock track (`Medals.REWARD_SPARKS` 2/3/5 per tier,
+  5 for a sector's stars, 25 for a system's), and a system's all-stars medal also unlocks a cosmetic that is never on
+  the track or for sale (`Unlocks.REWARD_ITEMS`, Cradle: the Laurel ship). Paid reward ids go in `save.data.rewards`
+  so each pays once; `main._bank_sparks()` pays them after a run's records are saved. Keep them earned only by
+  play: purchases must never earn, upgrade or skip a medal or reward, and a future double-sparks purchase must not
+  double reward sparks. `voyage_test.gd` checks the bot wins
+  speed gold and points silver in every sector, so rerun `par_times.gd` after changing a sector.
 - Audio is original and generated: `tools/audio/compose.py` (numpy + ffmpeg) writes the music track and every
   sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in
   D major pentatonic so they sit on the music. The music loops through `loop=true` in its `.import` file (a looping
@@ -110,7 +142,8 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 
 - `tests/sim_test.gd` (rules: bot, replay, difficulty ramp, momentum, game over), `tests/game_test.gd`
   (scene: input, HUD, save, pause/resume, settings) and `tests/voyage_test.gd` (sectors, stars, unlocks, Voyage
-  screens) `tests/onboarding_test.gd` (tutorial, settings) and `tests/unlocks_test.gd` (unlock track, hangar) run in `perigee-test.yml` (check "Perigee headless test").
+  screens) `tests/onboarding_test.gd` (tutorial, settings), `tests/unlocks_test.gd` (unlock track, hangar) and
+  `tests/update_test.gd` (self-update: pack download and checks, APK offer, Play build) run in `perigee-test.yml` (check "Perigee headless test").
   Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` last; CI greps for it. A new test file gets a step there.
 - `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
 - Every change comes with a test of what it should do; a bug fix gets a regression test.

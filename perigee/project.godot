@@ -5,7 +5,7 @@ config_version=5
 
 config/name="Perigee"
 config/description="One-button orbit hopping: hop from moon to moon without drifting into the dark."
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/boot.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0784, 0.0863, 0.2039, 1)
 boot_splash/show_image=false
