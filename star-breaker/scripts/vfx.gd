@@ -35,8 +35,6 @@ const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 const ULT_PULSES := 42
 const ARC_LIFE := Vector2i(2, 6)
 const ARC_SHAPES := 12
-## The crackling haze round Starbreak: wider, faint arcs of glow only, in place of a smooth band.
-const ULT_HAZE := 26
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -231,16 +229,7 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 			n.add_child(g)
 			var pl := {n = g, hard = hard, soft = soft}
 			parts.pulses.append(pl)
-		for i in ULT_HAZE:
-			var hard := Models.mesh(arc_mesh(0, true), pulse_mat(i % 3))
-			var soft := Models.mesh(arc_mesh(0, false), pulse_mat(i % 3 + 3))
-			hard.visible = false
-			var g := Node3D.new()
-			g.add_child(soft)
-			g.add_child(hard)
-			n.add_child(g)
-			parts.pulses.append({n = g, hard = hard, soft = soft, haze = true})
-		# no smooth haze band and no ball at the bottom: the static is the glow
+		# no haze and no ball at the bottom: the static arcs alone light the beam
 		haze.visible = false
 		flare.visible = false
 		parts.ult = true
@@ -366,6 +355,6 @@ static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) 
 		g.visible = fade > 0.05 and pl.y + pl.len <= len
 		if not g.visible:
 			continue
-		var r: float = R * pl.r * (0.6 + 0.4 * fade) * (2.0 if pl.get("haze", false) else 1.0)
+		var r: float = R * pl.r * (0.6 + 0.4 * fade)
 		g.position = Vector3(0, pl.y, 0)
 		g.basis = Basis(Vector3.UP, pl.ang) * Basis(Vector3.BACK, PI / 2) * Basis().scaled(Vector3(pl.len * (-1.0 if pl.flip else 1.0), r, r))

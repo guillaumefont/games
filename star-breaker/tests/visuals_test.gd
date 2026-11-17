@@ -120,7 +120,7 @@ func _initialize() -> void:
 	check(ps.size() >= 30, "Starbreak crackles with many arcs (%d)" % ps.size())
 	var parts: Dictionary = ub.get_meta("parts")
 	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
-		"Starbreak has no smooth haze band and no ball at its base: its haze crackles too")
+		"Starbreak has no haze and no ball at its base")
 	check(jumped >= ps.size() - 2, "each arc is short lived and jumps elsewhere within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
 	var pl0: Dictionary = ps[0]
 	var b0: Basis = (pl0.n as Node3D).basis
