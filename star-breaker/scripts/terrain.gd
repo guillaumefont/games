@@ -12,8 +12,8 @@ extends RefCounted
 const X0 := -170.0
 const X1 := 170.0
 ## Column edges: dense in the middle where craters sit, coarse on the side ridges.
-const COLS := [-170.0, -140.0, -116.0, -96.0, -80.0, -68.0, -58.0, -48.0, -40.0, -32.0, -24.0, -16.0, -8.0, 0.0,
-	8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 58.0, 68.0, 80.0, 96.0, 116.0, 140.0, 170.0]
+const COLS := [-300.0, -230.0, -170.0, -140.0, -116.0, -96.0, -80.0, -68.0, -58.0, -48.0, -40.0, -32.0, -24.0, -16.0, -8.0, 0.0,
+	8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 58.0, 68.0, 80.0, 96.0, 116.0, 140.0, 170.0, 230.0, 300.0]
 const ROWS := 10
 ## Crater cells: one chance of a crater per this many world units.
 const CRATER_CELL := 52.0
@@ -95,7 +95,38 @@ static func height(x: float, wy: float) -> float:
 		if d < 1.0:
 			h -= float(cr[3]) * (1.0 - d * d)
 		h += float(cr[3]) * 0.55 * exp(-pow((d - 1.0) / 0.28, 2.0))
+	# the neon river cuts its bed through everything
+	var rd := x - river_x(wy)
+	if absf(rd) < 40.0:
+		# a flat bed between sloping banks
+		var carve := 1.0 - smoothstep(RIVER_BANK * 0.55, RIVER_BANK * 1.5, absf(rd))
+		h = lerpf(h, RIVER_BED, carve)
 	return h
+
+
+## The neon river: it swings in from one side of the screen, meanders across the floor for a
+## while and leaves again; each visit alternates cyan and pink.
+const RIVER_BED := -9.0
+const RIVER_BANK := 13.0
+const RIVER_W := 4.2
+const RIVER_FREQ := 0.0021
+
+
+## How much the river is on screen around `wy` (0 gone, 1 fully in).
+static func river_on(wy: float) -> float:
+	return smoothstep(-0.2, 0.35, sin(wy * RIVER_FREQ + 0.4))
+
+
+## The river's centre line at world distance `wy` (far off to a side while it is away).
+static func river_x(wy: float) -> float:
+	var meander := 34.0 * sin(wy * 0.0105 + 0.7) + 15.0 * sin(wy * 0.027 + 2.1)
+	var side := 1.0 if fposmod(floorf((wy * RIVER_FREQ + 0.4) / TAU), 2.0) < 1.0 else -1.0
+	return meander + side * (1.0 - river_on(wy)) * 280.0
+
+
+## 0 for a cyan visit of the river, 1 for a pink one.
+static func river_kind(wy: float) -> int:
+	return int(fposmod(floorf((wy * RIVER_FREQ + 0.4 + PI) / TAU), 2.0))
 
 
 ## Colour of a ground face from its height and slope (sRGB). `pc` is `colors(pal)`.
@@ -109,7 +140,8 @@ static func face_color(pc: Dictionary, zc: float, up: float, jit: float, tn := 0
 
 
 static func colors(pal: Dictionary) -> Dictionary:
-	return {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff)}
+	return {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
+		river = [Color(pal.river_a), Color(pal.river_b)]}
 
 
 ## Builds chunk `c` (CHUNK units long) in chunk space: x across, y along (0..len), z up.
@@ -189,13 +221,22 @@ class Builder:
 				var p2: Vector3 = t[2]
 				var nz := absf((p1 - p0).cross(p2 - p0).normalized().z)
 				var jit := Terrain.h2(p0.x + p2.y, y0 + p1.y) - 0.5
-				ground.tri(p0, p1, p2, Terrain.face_color(pc, (p0.z + p1.z + p2.z) / 3.0, nz, jit, tn), Vector3.BACK)
+				var col := Terrain.face_color(pc, (p0.z + p1.z + p2.z) / 3.0, nz, jit, tn)
+				# the river's light spills onto its banks
+				var cx := (p0.x + p1.x + p2.x) / 3.0
+				var cwy := y0 + (p0.y + p1.y + p2.y) / 3.0
+				var rd := absf(cx - Terrain.river_x(cwy))
+				if rd < 30.0:
+					var rc: Color = pc.river[Terrain.river_kind(cwy)]
+					col = col.lerp(rc, exp(-pow(rd / 15.0, 2.0)) * 0.55)
+				ground.tri(p0, p1, p2, col, Vector3.BACK)
 
 
 ## The chunk's node: the ground mesh plus crystals, boulders and the odd fissure.
 static func _features(c: int, len: float, pal: Dictionary, mats: Dictionary, ground: Acc, y0: float) -> Node3D:
 	var g := Node3D.new()
 	g.add_child(_mi(ground.mesh(), mats.ground, true))
+	_river(g, len, y0, mats)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = c * 7919 + 13
 	# crystal clusters on the slopes and crater rims
@@ -240,6 +281,73 @@ static func _features(c: int, len: float, pal: Dictionary, mats: Dictionary, gro
 			prev = q
 		g.add_child(_mi(fis.mesh(), mats.fissure_a if h2(c, 3.3) < 0.5 else mats.fissure_b, false))
 	return g
+
+
+## The river's ribbons in this chunk: a bright flowing core and a wide soft glow over it.
+static func _river(g: Node3D, len: float, y0: float, mats: Dictionary) -> void:
+	var steps := 24
+	var on := false
+	for k in [0, steps / 2, steps]:
+		on = on or absf(river_x(y0 + len * k / steps)) < 220.0
+	if not on:
+		return
+	var core := Acc.new()
+	var wide := Acc.new()
+	var prev := []
+	for k in steps + 1:
+		var ly := len * k / steps
+		var wy := y0 + ly
+		var x := river_x(wy)
+		var tx := river_x(wy + 0.5) - river_x(wy - 0.5)
+		var side := Vector3(1.0, -tx, 0).normalized()
+		var p := Vector3(x, ly, RIVER_BED + 1.2)
+		var row := [p, side, wy, river_kind(wy)]
+		if not prev.is_empty():
+			for spec in [[core, RIVER_W], [wide, RIVER_W * 3.4]]:
+				var acc: Acc = spec[0]
+				var w: float = spec[1]
+				var a0: Vector3 = prev[0] - prev[1] * w
+				var a1: Vector3 = prev[0] + prev[1] * w
+				var b0: Vector3 = p - side * w
+				var b1: Vector3 = p + side * w
+				var v0: float = prev[2] * 0.1
+				var v1: float = wy * 0.1
+				var c := Color(float(row[3]), 0, 0)
+				acc.quad_uv(a0, a1, b1, b0, Vector2(0, v0), Vector2(1, v0), Vector2(1, v1), Vector2(0, v1), c)
+		prev = row
+	g.add_child(_mi(wide.mesh(), mats.river_glow, false))
+	g.add_child(_mi(core.mesh(), mats.river, false))
+
+
+## The river's material: additive, flowing stripes along it, brightest down the middle;
+## vertex colour red picks cyan (0) or pink (1).
+static func river_mat(energy: float, sharp: float, a: String, b: String) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never;
+uniform vec3 col_a : source_color;
+uniform vec3 col_b : source_color;
+uniform float energy = 2.0;
+uniform float sharp = 1.5;
+varying float kind;
+void vertex() { kind = COLOR.r; }
+void fragment() {
+	float e = 1.0 - abs(UV.x * 2.0 - 1.0);
+	float body = pow(e, sharp);
+	float flow = 0.7 + 0.3 * sin(UV.y * 2.2 - TIME * 5.0) * sin(UV.y * 0.7 + TIME * 1.7);
+	float glint = smoothstep(0.92, 1.0, sin(UV.y * 3.1 - TIME * 7.0)) * e;
+	vec3 c = mix(col_a, col_b, step(0.5, kind));
+	ALBEDO = c * energy * (body * flow + glint * 0.8);
+}
+"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("col_a", Color(a))
+	m.set_shader_parameter("col_b", Color(b))
+	m.set_shader_parameter("energy", energy)
+	m.set_shader_parameter("sharp", sharp)
+	return m
 
 
 ## A cluster of 3-5 pointed hexagonal crystals leaning out from `at`.
@@ -324,6 +432,7 @@ class Acc:
 	var v := PackedVector3Array()
 	var n := PackedVector3Array()
 	var col := PackedColorArray()
+	var uv := PackedVector2Array()
 
 	func count() -> int:
 		return v.size()
@@ -354,12 +463,27 @@ class Acc:
 			n.append(nrm)
 			col.append(color)
 
+	## Adds quad a b c d (in order round it) with texture coordinates, facing up.
+	func quad_uv(a: Vector3, b: Vector3, c: Vector3, d: Vector3, ua: Vector2, ub: Vector2, uc: Vector2, ud: Vector2, color: Color) -> void:
+		for t in [[a, b, c, ua, ub, uc], [a, c, d, ua, uc, ud]]:
+			v.append(t[0])
+			v.append(t[2])
+			v.append(t[1])
+			uv.append(t[3])
+			uv.append(t[5])
+			uv.append(t[4])
+			for i in 3:
+				n.append(Vector3.BACK)
+				col.append(color)
+
 	func mesh() -> ArrayMesh:
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = v
 		arrays[Mesh.ARRAY_NORMAL] = n
 		arrays[Mesh.ARRAY_COLOR] = col
+		if uv.size() == v.size() and uv.size() > 0:
+			arrays[Mesh.ARRAY_TEX_UV] = uv
 		var m := ArrayMesh.new()
 		if v.size() > 0:
 			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

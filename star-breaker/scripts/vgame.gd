@@ -80,6 +80,8 @@ var stars: Array = []
 ## Floor tones (two) and the crater colour, from the world's palette.
 var _ground_mats: Array = []
 var _terrain_mats: Dictionary = {}
+## The visible part of the play plane in stage units (see `_on_resize`).
+var view := Rect2(-2.0, -2.0, W + 4.0, H + 4.0)
 var _building: Dictionary = {}  ## chunk index -> Terrain.Builder being built ahead of time
 var sun: DirectionalLight3D
 var beam_light: OmniLight3D
@@ -87,7 +89,7 @@ var boom_lights: Array = []
 var charge_ph := 0.0
 ## World 1's lighting and ground colours (sRGB).
 const LOOK := {sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640", t_low2 = "2a1440", t_mid = "3a3070", t_high = "7a6cc0",
-	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560"}
+	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560", river_a = "3ff0e0", river_b = "ff4fa3"}
 var look: Dictionary = {}
 var _lip_mat: Material = Models.std("b9a8ff", "8f6bff", 1.1)
 
@@ -280,7 +282,7 @@ func _warm_up() -> void:
 		var mat = Models.M[k]
 		if mat is Material:
 			list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
-	for mat in [_lip_mat] + _ground_mats:
+	for mat in [_lip_mat, _terrain_mats.river, _terrain_mats.river_glow] + _ground_mats:
 		list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
 	for c in ["ffb547", "3ff0e0", "fff1d0", "ff4fa3", "ff9a40", "4a5470", "dfe9ff", "ffffff", "ff9a3d"]:
 		list.append(Models.glow(c, 5))
@@ -363,6 +365,7 @@ func _setup_world() -> void:
 		ground = _ground_mats[0],
 		crystals = [Terrain.crystal_mat("6ff3e6", "2fd6c8", 0.9), Terrain.crystal_mat("ff7ac0", "ff2f8f", 0.85)],
 		fissure_a = Models.basic("c0408a", 1.15), fissure_b = Models.basic("3fb8b0", 1.1),
+		river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
 	}
 	stars = [_star_layer(160, -200, -150, 1.6, Color(pal.star_a)), _star_layer(90, -150, -110, 2.0, Color(pal.star_b))]
 	charge_fx = VFx.charge_node()
@@ -417,12 +420,19 @@ func _star_layer(n: int, z0: float, z1: float, sz: float, color: Color) -> Node3
 ## a wider window (desktop, web), where the ground and stars fill the sides.
 func _on_resize() -> void:
 	var vp := get_viewport().get_visible_rect().size
+	var hw := W / 2.0 + 2.0
+	var hh := H / 2.0 + 2.0
 	if vp.x / vp.y < W / H:
 		camera.keep_aspect = Camera3D.KEEP_WIDTH
-		camera.fov = rad_to_deg(2.0 * atan((W / 2.0 + 2.0) / CAM_D))
+		camera.fov = rad_to_deg(2.0 * atan(hw / CAM_D))
+		hh = hw * vp.y / maxf(1.0, vp.x)
 	else:
 		camera.keep_aspect = Camera3D.KEEP_HEIGHT
-		camera.fov = rad_to_deg(2.0 * atan((H / 2.0 + 2.0) / CAM_D))
+		camera.fov = rad_to_deg(2.0 * atan(hh / CAM_D))
+		hw = hh * vp.x / maxf(1.0, vp.y)
+	# what the screen shows of the play plane, in stage units: shots and bullets fly on to the
+	# real screen edge (a tall phone shows more than the 224-unit stage)
+	view = Rect2(W / 2.0 - hw, H / 2.0 - hh, hw * 2.0, hh * 2.0)
 
 
 ## Screen pixels per stage unit (canvas coordinates), for 1:1 dragging.
@@ -811,7 +821,7 @@ func ultimate() -> void:
 	if G.ship == "lance":
 		# Starbreak: a full-height beam sweeps across the screen
 		G.ult_t = 120
-		var b := {lv = 4, life = 120, x = 6.0, y0 = 0.0, y1 = H, w = 12.0, hit = {}, nova = true, ult = true}
+		var b := {lv = 4, life = 120, x = 6.0, y0 = view.position.y, y1 = view.end.y, w = 12.0, hit = {}, nova = true, ult = true}
 		b.m = _beam_node(4)
 		world.add_child(b.m)
 		G.beams.append(b)
@@ -973,7 +983,7 @@ func _update_shots() -> void:
 	for b in G.pb:
 		b.x += b.vx
 		b.y += b.vy
-		if b.y > H + 6 or b.x < -6 or b.x > W + 6:
+		if b.y > view.end.y + 6 or b.x < view.position.x - 6 or b.x > view.end.x + 6:
 			b.dead = true
 			continue
 		for bar in G.bars:
@@ -1013,7 +1023,7 @@ func _update_beams() -> void:
 			b.x = P.x
 			b.y0 = P.y + 6
 		# the beam stops at the first barrier above the ship
-		b.y1 = H + 4
+		b.y1 = view.end.y + 4
 		if not b.ult:
 			for bar in G.bars:
 				if bar.y > b.y0 and bar.y < b.y1 and bar_solid(bar, b.x, bar.y, 0.0):
@@ -1081,7 +1091,7 @@ func _update_eb() -> void:
 	for b in G.eb:
 		b.x += b.vx
 		b.y += b.vy
-		if b.x < -8 or b.x > W + 8 or b.y < -8 or b.y > H + 8 or in_rock(b.x, b.y, -1.0):
+		if b.x < view.position.x - 8 or b.x > view.end.x + 8 or b.y < view.position.y - 8 or b.y > view.end.y + 8 or in_rock(b.x, b.y, -1.0):
 			b.dead = true
 			continue
 		if P.alive and P.inv <= 0 and Vector2(b.x - P.x, b.y - P.y).length() < HITBOX + 0.8:
@@ -1714,7 +1724,8 @@ func _walls_node(c: int) -> Node3D:
 	var seen := false
 	for j in rows + 1:
 		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows)
-		seen = seen or wj.x > -4.0 or wj.y < W + 4.0
+		# wide screens show well past the stage's sides
+		seen = seen or wj.x > view.position.x - 4.0 or wj.y < view.end.x + 4.0
 	if not seen:
 		n.free()
 		return null
@@ -1744,8 +1755,10 @@ func _walls_node(c: int) -> Node3D:
 
 
 func update_chunks(scroll: float) -> void:
-	var a := floori((scroll - 90.0) / CHUNK)
-	var b := floori((scroll + H + 140.0) / CHUNK)
+	# the floor lies deeper than the play plane, so it shows more than the screen's height
+	var reach := view.size.y * 0.75
+	var a := floori((scroll + H / 2.0 - reach - 20.0) / CHUNK)
+	var b := floori((scroll + H / 2.0 + reach + 60.0) / CHUNK)
 	for c in chunks.keys():
 		if c < a or c > b + 2:
 			chunks[c].queue_free()
@@ -1933,7 +1946,7 @@ func _sync_beam(b: Dictionary) -> void:
 	var w: float = b.w * fade * (1.0 + 0.12 * sin(tt * 0.9))
 	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
 	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
-	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < H)
+	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y)
 
 
 func _sync_boss() -> void:
