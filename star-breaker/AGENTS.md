@@ -231,9 +231,10 @@ the pod model spins on its `spin` child around X, the root only turns it to face
 - Screenshots: `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
 - `Diag.start()` only opens one log per app session, so switching scenes doesn't wipe it.
 - The portrait scene has no `_warm_up()` yet; add one there before it becomes the main game.
-- Edge mode (`vg.edge`, the menu's FEEL switch, on by default) is the answer to "portrait lost
-  its edge": rock canyon walls from `VStage.walls(stage, d)` (`d` = scroll + y) that cost a hull
-  point and stop shots, a scrape bonus for flying close, Lance's guns silent once its charge
-  passes LV 1, 45 ticks of safety after a hit (90 in Soft) and no slow-motion after a lift.
-  Soft keeps the first preview's rules for comparison. Spawns go through `_fit()` so nothing
-  starts inside the rock; keep barrier gaps and canyons apart (the test checks every stage).
+- Rock is an occasional set piece, not the whole stage (Guillaume found the always-on corridor
+  of the Edge experiment boring): one short canyon (`VStage.CANYONS`, walls slide in and out)
+  and two islands (`VStage.ISLANDS`, a lozenge of rock in the open) per stage. Rock costs a
+  hull point, stops shots and bullets, and pays a scrape bonus for flying close. Spawns go
+  through `_fit()` so nothing starts inside a canyon wall; keep rock away from barriers and
+  the boss (the test checks every stage). Charging stays free (Edge's silent guns read as
+  broken).
