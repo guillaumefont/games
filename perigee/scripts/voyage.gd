@@ -1,7 +1,9 @@
 class_name Voyage
 extends RefCounted
-## Voyage: a route of star systems, each a row of short sectors with a fixed layout (a seed and a
-## recipe, see Sim.recipe), ending at a waypoint moon. Each system brings in one new kind of moon.
+## Voyage: a route of star systems, each a row of short sectors (levels) with a fixed layout (a seed
+## and a recipe, see Sim.recipe), ending at a waypoint moon. Each system brings in one new kind of moon:
+## Cradle twins, Backwash retro moons, Lantern pulsars. The map (scripts/voyage_map.gd) numbers the
+## levels 1, 2, 3... along the whole route (level_number).
 ## Up to 3 stars per sector: clear it, beat the par time, and the sector's goal.
 ##
 ## Par times come from tools/par_times.gd (the test bot's best time plus 35%) until real play
@@ -27,6 +29,42 @@ const SYSTEMS: Array[Dictionary] = [
 				"goal": {"type": "perigees", "count": 8}, "par": 35.0, "points": [55, 100, 150]},
 		],
 	},
+	{
+		"name": "Backwash",
+		"intro": "Retro moons: the orbit turns back",
+		"sectors": [
+			{"id": "2-1", "seed": 2101, "moons": 12, "k_offset": 8, "mix": {"moon": 3.0, "retro": 1.0}, "zigzag": [5],
+				"goal": {"type": "perigees", "count": 5}, "par": 25.0, "points": [40, 80, 115]},
+			{"id": "2-2", "seed": 2206, "moons": 13, "k_offset": 10, "mix": {"moon": 2.0, "retro": 1.0}, "zigzag": [3, 8],
+				"goal": {"type": "leaps", "count": 1}, "par": 26.0, "points": [55, 100, 150]},
+			{"id": "2-3", "seed": 2311, "moons": 14, "k_offset": 12, "mix": {"moon": 2.0, "retro": 1.0, "twin": 1.0}, "zigzag": [9],
+				"goal": {"type": "sparks", "count": 8}, "par": 28.0, "points": [50, 95, 140]},
+			{"id": "2-4", "seed": 2409, "moons": 14, "k_offset": 14, "mix": {"moon": 1.0, "retro": 1.0}, "zigzag": [2, 6, 10],
+				"goal": {"type": "leaps", "count": 2}, "par": 30.0, "points": [55, 100, 150]},
+			{"id": "2-5", "seed": 2510, "moons": 15, "k_offset": 16, "mix": {"moon": 1.0, "retro": 1.0, "twin": 1.0}, "zigzag": [7],
+				"goal": {"type": "combo", "count": 10}, "par": 31.0, "points": [60, 110, 160]},
+			{"id": "2-6", "seed": 2611, "moons": 16, "k_offset": 18, "mix": {"moon": 1.0, "retro": 2.0}, "zigzag": [4, 11],
+				"goal": {"type": "perigees", "count": 9}, "par": 32.0, "points": [65, 120, 175]},
+		],
+	},
+	{
+		"name": "Lantern",
+		"intro": "Pulsars: the ring only catches while lit",
+		"sectors": [
+			{"id": "3-1", "seed": 3130, "moons": 12, "k_offset": 10, "mix": {"moon": 3.0, "pulsar": 1.0}, "zigzag": [6],
+				"goal": {"type": "perigees", "count": 5}, "par": 26.0, "points": [55, 100, 145]},
+			{"id": "3-2", "seed": 3209, "moons": 13, "k_offset": 12, "mix": {"moon": 2.0, "pulsar": 1.0}, "zigzag": [3, 9],
+				"goal": {"type": "sparks", "count": 8}, "par": 24.0, "points": [50, 95, 140]},
+			{"id": "3-3", "seed": 3311, "moons": 14, "k_offset": 14, "mix": {"moon": 2.0, "pulsar": 1.0, "retro": 1.0}, "zigzag": [5],
+				"goal": {"type": "leaps", "count": 1}, "par": 27.0, "points": [55, 100, 150]},
+			{"id": "3-4", "seed": 3438, "moons": 15, "k_offset": 16, "mix": {"moon": 1.0, "pulsar": 1.0, "twin": 1.0}, "zigzag": [2, 7, 11],
+				"goal": {"type": "leaps", "count": 2}, "par": 32.0, "points": [65, 120, 175]},
+			{"id": "3-5", "seed": 3517, "moons": 16, "k_offset": 18, "mix": {"moon": 1.0, "pulsar": 1.0, "retro": 1.0}, "zigzag": [8],
+				"goal": {"type": "combo", "count": 10}, "par": 30.0, "points": [75, 140, 205]},
+			{"id": "3-6", "seed": 3620, "moons": 18, "k_offset": 20, "mix": {"moon": 1.0, "pulsar": 1.0, "retro": 1.0, "twin": 1.0}, "zigzag": [4, 10, 14],
+				"goal": {"type": "perigees", "count": 10}, "par": 41.0, "points": [75, 140, 205]},
+		],
+	},
 ]
 
 
@@ -35,6 +73,24 @@ static func all_sectors() -> Array[Dictionary]:
 	for sys in SYSTEMS:
 		for sec in sys.sectors:
 			out.append(sec)
+	return out
+
+
+## The level's number on the map, counted along the whole route from 1 (0 for an unknown id).
+static func level_number(id: String) -> int:
+	var all := all_sectors()
+	for i in all.size():
+		if all[i].id == id:
+			return i + 1
+	return 0
+
+
+## The furthest open level: where the player is on the route.
+static func current_id(progress: Dictionary) -> String:
+	var out := ""
+	for sec in all_sectors():
+		if unlocked(sec.id, progress):
+			out = sec.id
 	return out
 
 
