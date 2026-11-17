@@ -90,6 +90,8 @@ func _ready() -> void:
 	light.light_energy = 1.0
 	light.light_color = Color("#fff3e4")
 	light.shadow_enabled = true
+	# one shadow map, not cascades: the camera looks almost straight down, so all the ground
+	# it sees is at about the same distance and splits would only spend pixels on empty air
 	light.directional_shadow_max_distance = 60.0
 	light.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	add_child(light)
@@ -101,7 +103,14 @@ func _ready() -> void:
 	env.ambient_light_color = Color("#a9c2dc")
 	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = false
+	# fog stays switched on with zero density: only the low cinematic shots thicken it
+	# (_cine_fog). Turning fog on or off picks other shader versions for every material, so
+	# flipping it at the finish compiled them all mid-race: the finish line stutter.
+	env.fog_enabled = true
+	env.fog_density = 0.0
+	env.fog_light_energy = 1.0
+	env.fog_sun_scatter = 0.0
+	env.fog_sky_affect = 0.0
 	env.glow_enabled = true      # soft bloom on the emissive rotors and gems
 	env.glow_intensity = 0.35
 	env.glow_hdr_threshold = 1.3  # high enough that sunlit snow does not bloom
@@ -1294,21 +1303,59 @@ func _prop_kit() -> Dictionary:
 
 # Graphics quality (Settings "quality"): 0 Low, 1 Medium, 2 High.
 #   Low:    3D drawn at 70% resolution, no shadows, glow, weather, MSAA or release wind, half the trees
-#   Medium: 3D at 85% resolution, shadows, glow, weather, 2x MSAA
-#   High:   full resolution, everything on, softer shadows
+#   Medium: 3D at 85% resolution, shadows (2048 map, soft edges), glow, weather, 2x MSAA
+#   High:   full resolution, everything on, sharper and softer shadows (4096 map)
 # The UI is always drawn at full resolution. Tree count changes on the next track load.
 var quality := 2
 var effects_on := true
+# Low draws without shadows or MSAA, so every material needs other shader versions than
+# Medium and High; the first frame drawn in a new set compiles them all (a ~1-2 s freeze).
+# _drawn_sets remembers which sets this run has drawn, so main can cover that first switch.
+var _drawn_sets := {}
+static func shader_set(q: int) -> int:
+	return 0 if q <= 0 else 1
+func quality_compiles(q: int) -> bool:
+	return not _drawn_sets.has(shader_set(q))
 func set_quality(q: int) -> void:
 	quality = clampi(q, 0, 2)
+	_drawn_sets[shader_set(quality)] = true
 	effects_on = quality > 0
-	light.shadow_enabled = quality > 0
+	var sh := shadow_setup(quality)
+	light.shadow_enabled = sh["on"]
 	env.glow_enabled = quality > 0
 	var vp := get_viewport()
 	vp.scaling_3d_scale = [0.7, 0.85, 1.0][quality]
 	vp.msaa_3d = Viewport.MSAA_DISABLED if quality == 0 else Viewport.MSAA_2X
-	RenderingServer.directional_soft_shadow_filter_set_quality(
-		RenderingServer.SHADOW_QUALITY_SOFT_LOW if quality == 2 else RenderingServer.SHADOW_QUALITY_HARD)
+	if sh["on"]:
+		RenderingServer.directional_shadow_atlas_set_size(sh["map"], true)
+	RenderingServer.directional_soft_shadow_filter_set_quality(sh["filter"])
+
+# Shadow map per quality: its size in pixels and the edge filter. Hard (unfiltered) edges
+# showed every shadow-map pixel as a stair step, so Medium and High both filter them.
+# Set at run time, not in project.godot, so installed apps keep their APK.
+static func shadow_setup(q: int) -> Dictionary:
+	match q:
+		0: return { "on": false, "map": 2048, "filter": RenderingServer.SHADOW_QUALITY_HARD }
+		1: return { "on": true, "map": 2048, "filter": RenderingServer.SHADOW_QUALITY_SOFT_LOW }
+		_: return { "on": true, "map": 4096, "filter": RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM }
+
+# How far from the camera the sun's shadows reach, for a camera `dist` metres from what it
+# looks at. The shadow map covers that range, so the shorter it is the sharper the shadows.
+# The gameplay camera's farthest visible ground is ~1.2x dist deep (top corners of the screen,
+# 20:9 or narrower); 1.5x leaves room for land below the road. Low cinematic shots see far
+# into the distance, so they blend up to 2.2x (cine weight w).
+# The range moves in fixed steps (x1.25) and only steps down once it is clearly too big: a
+# range that changed every frame (the camera eases its zoom) resized the shadow pixels each
+# frame, so shadow edges crawled and flickered while racing.
+const SHADOW_STEP := 1.25
+const SHADOW_MIN := 20.0
+const SHADOW_MAX := 200.0
+static func shadow_range(dist: float, w: float, current: float) -> float:
+	var need := clampf(dist * lerpf(1.5, 2.2, w), SHADOW_MIN, SHADOW_MAX)
+	if need <= current and need >= current / SHADOW_STEP * 0.95:
+		return current
+	var n := ceilf(log(need / SHADOW_MIN) / log(SHADOW_STEP) - 0.001)
+	return minf(SHADOW_MIN * pow(SHADOW_STEP, maxf(n, 0.0)), SHADOW_MAX)
 
 # Speed feel: letting go of the tether sends a moment of wind streaming past the car:
 # thin light streaks along its sides and over the roof, left hanging in the air so the
@@ -2461,7 +2508,7 @@ func _v_buggy(ch: Node3D, P: Array, k: Dictionary) -> Dictionary:
 	for ez: float in [-8.0, 8.0]:
 		_bar(P, Vector3(-46, 42, ez), Vector3(-56, 50, ez), 3.0, k["steel"])
 	P.append(pbox(Vector3(2, 70, 2), k["dark"], Vector3(-48, 72, 16)))   # whip flag
-	P.append(pbox(Vector3(18, 12, 1.5), k["top"], Vector3(-39, 100, 16)))
+	P.append(pbox(Vector3(18, 12, 1.5), k["top"], Vector3(-57, 100, 16)))   # flies off the back of the pole
 	_lamps(P, k, 66.5, 21, [-13.0, 13.0], Vector3(3, 5, 8))
 	_lamps(P, k, -47.5, 28, [-16.0, 16.0], Vector3(3, 4, 8), true)
 	return { "side": [-46, 22, 23, 33, 22], "tops": [[-6, 23, 34, 34, 40], [24, 64, 33.77, 24.47, 40]],
@@ -3246,7 +3293,7 @@ func update_camera(race: Race, phase: String, dt: float, snap := false) -> void:
 	_cine_fog(w)
 	camera.position = eye
 	camera.look_at(look, Vector3.UP)
-	light.directional_shadow_max_distance = clampf(dist * 2.2, 30.0, 200.0)
+	light.directional_shadow_max_distance = shadow_range(dist, w, light.directional_shadow_max_distance)
 
 # ---------------------------------------------------------------- cinematic shots
 # Low-angle camera moves for the moments nobody is steering: the countdown, the finish and
@@ -3313,7 +3360,7 @@ func cine_reset() -> void:
 	_cine_lift = 0.0
 	cine_side = Vector2.ZERO
 	if env:
-		env.fog_enabled = false
+		env.fog_density = 0.0
 
 func cine_active() -> bool:
 	return cine_k > 0.001
@@ -3441,11 +3488,8 @@ func _cine_floor(p: Vector2) -> float:
 	return h * U
 
 # Low shots see the edge of the world: fade the distance into the sky colour.
+# Fog is never switched off, only thinned to nothing (see _ready): switching it would swap
+# every material's shader version and stall a frame while they compile.
 func _cine_fog(w: float) -> void:
-	env.fog_enabled = w > 0.01
-	if env.fog_enabled:
-		env.fog_light_color = env.background_color
-		env.fog_light_energy = 1.0
-		env.fog_sun_scatter = 0.0
-		env.fog_density = 0.03 * w
-		env.fog_sky_affect = 0.0
+	env.fog_light_color = env.background_color
+	env.fog_density = 0.03 * w if w > 0.01 else 0.0

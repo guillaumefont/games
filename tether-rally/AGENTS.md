@@ -89,6 +89,8 @@ godot --headless --path . --script tests/names_test.gd       # Tether Rally + tr
 godot --headless --path . --script tests/rivals_test.gd    # rival tiers get harder, stay beatable (~4 min)
 godot --headless --path . --script tests/obstacles_test.gd # the AI's line never touches an Obstacles post
 godot --headless --path . --script tests/camera_test.gd    # low camera shots: off while racing, never inside the land, never too close
+godot --headless --path . --script tests/shadow_test.gd    # sun shadows: soft edges, range holds still, covers the screen
+godot --headless --path . --script tests/quality_switch_test.gd # first switch to Low compiles shaders behind the loading screen
 godot --headless --path . --script tests/engine_test.gd    # every vehicle has an engine sound that loops cleanly
 godot --headless --path . --script tests/underpass_test.gd # all deck over a lower lane is a see-through window
 godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
@@ -113,6 +115,22 @@ does. Test with a long save too (four-digit coins, every medal kind): the home p
 
 Screenshots without a GPU: `xvfb-run -a godot --rendering-driver opengl3 --path . --resolution 1280x720 -- <demo flag>`
 with `SHOT_DIR=<dir>`. Demo flags in `scripts/main.gd`: `--demo=`, `--tutorial-demo`, `--cine-demo=` (camera shots).
+
+Sun shadows: one orthogonal shadow map (the near top-down camera sees all its ground at about one
+depth, so cascades would waste pixels). Map size and edge filter per quality are in
+`WorldView.shadow_setup`, set at run time rather than in `project.godot` so the APK shell stays
+the same; the range follows the camera in x1.25 steps (`shadow_range`), never every frame,
+or shadow edges flicker. The world is generated at load, so LightmapGI baking does not fit.
+Low (no shadows, no MSAA) needs other shader versions than Medium/High, compiled on the first frame
+drawn with it: `main._apply_quality` covers that first switch with the loading screen
+(`WorldView.quality_compiles`). Anything else that changes shader variants at run time needs the same.
+
+Mid-race hitches are usually first-time shader compiles: any `Environment` switch (`fog_enabled`, glow, SSAO...)
+or a material flag picks other shader versions for everything drawn. Don't toggle such switches during a
+race: keep them set and vary an amount instead (fog stays on at density 0, `_cine_fog`; the
+"finish line stutter" case in `tests/camera_test.gd`). To find one, log frame times from `main._process`
+in a `--promo=` run under xvfb/opengl3, and delete the caches first (`~/.local/share/godot/app_userdata/Tether Rally/shader_cache`
+and `~/.cache/mesa_shader_cache*`), or the hitch only shows on the very first run.
 
 Car ambient occlusion is baked, not rendered (the Mobile renderer has no SSAO): `tools/bake_car_ao.gd`
 ray traces each vehicle's game model once into `art/car_ao.res` (per-vertex shading, applied as vertex

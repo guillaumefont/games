@@ -1,0 +1,10 @@
+# Godot
+.godot/
+/build/
+*.tmp
+export_credentials.cfg
+__pycache__/
+
+# Godot Android build template, installed by CI for the Play bundle
+/android/build/
+/android/.build_version

@@ -1,0 +1,85 @@
+// Perigee's Android app: a full-screen WebView around a copy of ../web (bundled, so it plays offline).
+//
+//   ./gradlew assembleRelease   -> build/outputs/apk/release/perigee-release.apk  (test-signed preview APK)
+//   ./gradlew bundleRelease     -> build/outputs/bundle/release/perigee-release.aab (for Google Play)
+//
+// Version: BUILD (versionCode) and VERSION_NAME from the environment; CI sets BUILD = 1000 + run number.
+// Signing: with PERIGEE_UPLOAD_KEYSTORE (a path) and its passwords set, release builds are signed with the
+// Play upload key; otherwise with debug.keystore, the committed test key (never upload that to Play).
+plugins {
+    id 'com.android.application' version '8.11.1'
+}
+
+def env = { String name, String fallback = null -> System.getenv(name) ?: fallback }
+def uploadKeystore = env('PERIGEE_UPLOAD_KEYSTORE')
+
+android {
+    namespace 'io.github.guillaumefont.perigee'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.guillaumefont.perigee'
+        minSdk 23
+        targetSdk 36 // Google Play requires 36 for new apps and updates since 2026-08-31
+        versionCode Integer.parseInt(env('BUILD', '1'))
+        versionName env('VERSION_NAME', "dev-b${env('BUILD', '1')}")
+    }
+
+    signingConfigs {
+        test {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        if (uploadKeystore) {
+            upload {
+                storeFile file(uploadKeystore)
+                storePassword env('PERIGEE_UPLOAD_STORE_PASSWORD')
+                keyAlias env('PERIGEE_UPLOAD_KEY_ALIAS', 'upload')
+                keyPassword env('PERIGEE_UPLOAD_KEY_PASSWORD', env('PERIGEE_UPLOAD_STORE_PASSWORD'))
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.test
+        }
+        release {
+            minifyEnabled false
+            signingConfig uploadKeystore ? signingConfigs.upload : signingConfigs.test
+        }
+    }
+
+    // The sources keep the flat layout the Gradle-less build used.
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = [layout.buildDirectory.dir('generated/web').get().asFile]
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+base {
+    archivesName = 'perigee'
+}
+
+// The game itself: ../web is copied to assets/www (loaded from file:///android_asset/www/index.html).
+def copyWeb = tasks.register('copyWeb', Sync) {
+    from('../web')
+    into(layout.buildDirectory.dir('generated/web/www'))
+}
+tasks.named('preBuild') { dependsOn copyWeb }
