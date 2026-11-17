@@ -47,6 +47,7 @@ for n in (2, 3):
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@mipmap/icon_stage{n}_bg" />
     <foreground android:drawable="@mipmap/icon_stage{n}_fg" />
+    <monochrome android:drawable="@mipmap/icon_stage{n}_fg" />
 </adaptive-icon>
 ''')
 
