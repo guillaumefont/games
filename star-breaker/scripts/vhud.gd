@@ -9,7 +9,9 @@ signal resume_pressed
 signal retry_pressed
 signal next_pressed
 signal menu_pressed
-signal exit_pressed
+signal mute_pressed
+signal safe_toggled
+signal refresh_pressed
 signal pause_pressed
 signal ult_pressed
 
@@ -40,9 +42,16 @@ var menu_scr: Control
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
-## Edge mode (rock walls, Lance's guns quiet while charging) or the softer first preview.
-var edge := true
-var _edge_btns := {}
+var _stage_btns: Array = []
+var bests: Array = [0, 0, 0]
+var _crash: PanelContainer
+var _crash_txt: Label
+var _crash_report := ""
+var _btn_copy: Button
+var _btn_gfx: Button
+var btn_mute: Button
+var btn_build: Button
+var _build_id := ""
 var _result_title: Label
 var _result_sub: Label
 var _result_next: Button
@@ -152,7 +161,7 @@ func _build_menu() -> Control:
 	var t := _label("STAR BREAKER", 44, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	var s := _label("VERTICAL PREVIEW", 18, 700, C_LANCE, 4.0)
+	var s := _label("THE HOLLOW MOON", 18, 700, C_LANCE, 4.0)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(s)
 	var gap := Control.new()
@@ -173,21 +182,6 @@ func _build_menu() -> Control:
 		row.add_child(b)
 		_ship_btns[k] = b
 	v.add_child(row)
-	var fl := _label("FEEL", 16, 700, C_MUTED, 3.0)
-	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(fl)
-	var row2 := HBoxContainer.new()
-	row2.alignment = BoxContainer.ALIGNMENT_CENTER
-	row2.add_theme_constant_override("separation", 16)
-	for on in [true, false]:
-		var b := Button.new()
-		b.text = "EDGE" if on else "SOFT"
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2((COL_W - 16) / 2.0, 60)
-		b.pressed.connect(func(): select_edge(on))
-		row2.add_child(b)
-		_edge_btns[on] = b
-	v.add_child(row2)
 	var how := _label("", 16, 500, C_MUTED)
 	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -202,13 +196,126 @@ func _build_menu() -> Control:
 		var b := _button("%d  %s" % [i + 1, st.name], i == 0)
 		b.pressed.connect(func(): stage_chosen.emit(i, ship))
 		v.add_child(_center(b))
-	var ex := _button("Back to the main game", false, 60)
-	ex.add_theme_font_size_override("font_size", 18)
-	ex.pressed.connect(func(): exit_pressed.emit())
-	v.add_child(_center(ex))
+		_stage_btns.append(b)
+	_build_device(v)
 	select_ship(ship)
-	select_edge(edge)
 	return v.get_parent()
+
+
+## The crash notice (after a session that didn't end cleanly) and the device row: sound,
+## graphics (safe turns glow and MSAA off) and the build line (tap to restart and update).
+func _build_device(v: VBoxContainer) -> void:
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 8
+	v.add_child(gap)
+	_crash = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.85)
+	sb.border_color = Color(C_AMBER, 0.6)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(16)
+	sb.set_content_margin_all(14)
+	_crash.add_theme_stylebox_override("panel", sb)
+	_crash.custom_minimum_size.x = COL_W
+	var cv := VBoxContainer.new()
+	_crash.add_child(cv)
+	var ct := _label("THE GAME CLOSED UNEXPECTEDLY LAST TIME · SAFE GRAPHICS ARE ON", 13, 700, C_AMBER, 1.0)
+	ct.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ct.custom_minimum_size.x = COL_W - 28
+	cv.add_child(ct)
+	_crash_txt = _label("", 14, 500, C_MUTED)
+	_crash_txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_crash_txt.custom_minimum_size.x = COL_W - 28
+	cv.add_child(_crash_txt)
+	_btn_copy = _small_button("Copy crash report")
+	_btn_copy.pressed.connect(func():
+		DisplayServer.clipboard_set(_crash_report)
+		_btn_copy.text = "COPIED")
+	cv.add_child(_btn_copy)
+	_crash.hide()
+	v.add_child(_center(_crash))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 12)
+	btn_mute = _small_button("")
+	btn_mute.pressed.connect(func(): mute_pressed.emit())
+	row.add_child(btn_mute)
+	_btn_gfx = _small_button("")
+	_btn_gfx.pressed.connect(func():
+		Diag.set_safe(not Diag.safe)
+		_update_gfx()
+		safe_toggled.emit())
+	row.add_child(_btn_gfx)
+	v.add_child(row)
+	_build_id = str(ProjectSettings.get_setting("application/config/version", ""))
+	if _build_id == "":
+		_build_id = "dev"
+	btn_build = _small_button("")
+	btn_build.pressed.connect(func(): refresh_pressed.emit())
+	v.add_child(_center(btn_build))
+	set_muted(false)
+	_update_gfx()
+	set_build_state("idle")
+
+
+func _small_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text.to_upper()
+	b.focus_mode = Control.FOCUS_NONE
+	_style_button(b, false, 999)
+	b.add_theme_font_size_override("font_size", 15)
+	b.custom_minimum_size.y = 48
+	return b
+
+
+func set_muted(m: bool) -> void:
+	btn_mute.text = "SOUND: OFF" if m else "SOUND: ON"
+
+
+func _update_gfx() -> void:
+	_btn_gfx.text = "GRAPHICS: SAFE" if Diag.safe else "GRAPHICS: FULL"
+
+
+## What the build line says: "idle" (the build, tap to refresh), "new" (a newer build is
+## out, `build` is its number), or "restarting".
+func set_build_state(state: String, build := 0) -> void:
+	match state:
+		"new":
+			btn_build.text = "NEW BUILD %d · TAP TO UPDATE" % build
+			btn_build.add_theme_color_override("font_color", C_AMBER)
+		"restarting":
+			btn_build.text = "RESTARTING…"
+			btn_build.add_theme_color_override("font_color", C_TEXT)
+		_:
+			btn_build.text = "BUILD %s  ⟳  REFRESH" % _build_id.to_upper()
+			btn_build.add_theme_color_override("font_color", C_MUTED)
+
+
+func show_crash_notice(summary: String, report: String) -> void:
+	_crash_report = report
+	_crash_txt.text = summary
+	_crash.show()
+	_update_gfx()
+
+
+## Each stage's best score, shown on its button.
+func set_bests(b: Array) -> void:
+	bests = b.duplicate()
+	for i in _stage_btns.size():
+		var st: Dictionary = VStage.STAGES[i]
+		var t := "%d  %s" % [i + 1, st.name]
+		if i < bests.size() and int(bests[i]) > 0:
+			t += "  ·  " + _fmt(int(bests[i]))
+		_stage_btns[i].text = t.to_upper()
+
+
+static func _fmt(n: int) -> String:
+	var s := str(n)
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.substr(s.length() - 3) + out
+		s = s.substr(0, s.length() - 3)
+	return s + out
 
 
 func select_ship(k: String) -> void:
@@ -218,23 +325,13 @@ func select_ship(k: String) -> void:
 	_update_how()
 
 
-func select_edge(on: bool) -> void:
-	edge = on
-	for key in _edge_btns:
-		_style_button(_edge_btns[key], key == on)
-	_update_how()
-
-
 func _update_how() -> void:
 	var how: Label = menu_scr.find_child("how", true, false) if menu_scr else (find_child("how", true, false) as Label)
 	if not how:
 		return
 	var k := ship
 	var t := "%s: %s. Drag to fly, it fires on its own. Second finger: %s." % [VShips.KITS[k].name, VShips.KITS[k].sub, VShips.KITS[k].ult_name]
-	if edge:
-		t += " Rock walls hurt; skim them for points."
-		if k == "lance":
-			t += " Charging silences your guns."
+	t += " Rock hurts; skim it for points."
 	how.text = t
 
 

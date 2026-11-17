@@ -86,57 +86,57 @@ static func _fortress(ev: Array, a: float, b: float, rng: RandomNumberGenerator,
 		ev.append({d = d - 40, type = "drifter", x = gx, move = "dive", stop = 175.0})
 
 
-## Edge mode: the rock walls on both sides of the stage. Each canyon is [start, end, gap]:
-## between start and end the walls close in to leave a `gap` wide passage that wanders from
-## side to side. Elsewhere a thin rim of rock lines the screen. Rock spurs jut in from
-## alternate sides every so often. Walls only open up for the boss.
+## Rock set pieces, kept occasional so most of a stage is open sky. A canyon is
+## [start, end, gap]: the walls slide in from the screen edges to leave a `gap` wide passage
+## that wanders from side to side, then slide out again. An island is
+## [start, length, x, half-width]: a lozenge of rock in the open that splits the way in two.
 const CANYONS := [
-	[[420.0, 900.0, 74.0], [1960.0, 2140.0, 64.0]],
-	[[330.0, 860.0, 66.0], [2060.0, 2250.0, 58.0]],
-	[[260.0, 820.0, 60.0], [1540.0, 1850.0, 56.0]],
+	[[480.0, 760.0, 68.0]],
+	[[420.0, 700.0, 64.0]],
+	[[1560.0, 1800.0, 60.0]],
 ]
-const RIM := 7.0
-const FORT_RIM := 13.0
-const SPUR_EVERY := 150.0
-const SPUR := 15.0
+const ISLANDS := [
+	[[1040.0, 170.0, 63.0, 15.0], [2010.0, 150.0, 48.0, 13.0]],
+	[[860.0, 160.0, 63.0, 15.0], [2080.0, 150.0, 74.0, 14.0]],
+	[[360.0, 150.0, 63.0, 14.0], [640.0, 170.0, 46.0, 15.0]],
+]
+## Where the walls rest when there is no canyon: just off screen.
+const OFF := -30.0
 const EASE := 70.0
 
 
 ## The inner edges of the rock walls at distance `d` of stage `i`: x of the left wall's face and
-## of the right wall's face (the open passage is between them).
+## of the right wall's face (the open passage is between them). Off screen outside a canyon.
 static func walls(i: int, d: float) -> Vector2:
-	var s: Dictionary = STAGES[i]
-	var l := RIM
-	var r := RIM
-	var fa: float = s.fort[0]
-	var fb: float = s.fort[1]
-	var fk := smoothstep(fa - EASE, fa, d) * (1.0 - smoothstep(fb, fb + EASE, d))
-	l = lerpf(l, FORT_RIM, fk)
-	r = lerpf(r, FORT_RIM, fk)
-	var spur_on := 1.0 - fk
+	var l := OFF
+	var r := OFF
 	for c in CANYONS[i]:
 		var k := smoothstep(c[0] - EASE, c[0], d) * (1.0 - smoothstep(c[1], c[1] + EASE, d))
 		if k <= 0.0:
 			continue
 		var gap: float = c[2]
-		var room := (W - gap) / 2.0 - RIM
-		var mid := W / 2.0 + sin((d - c[0]) * 0.011 + i * 1.7) * room * 0.8
+		var room := (W - gap) / 2.0
+		var mid := W / 2.0 + sin((d - c[0]) * 0.011 + i * 1.7) * room * 0.75
 		l = lerpf(l, mid - gap / 2.0, k)
 		r = lerpf(r, W - (mid + gap / 2.0), k)
-		spur_on *= 1.0 - k
-	# rock spurs in open ground, alternating sides
-	var n := floorf(d / SPUR_EVERY)
-	var f := d / SPUR_EVERY - n
-	var bump := maxf(0.0, 1.0 - absf(f - 0.5) / 0.14) * SPUR * spur_on
-	if int(n) % 2 == 0:
-		l += bump
-	else:
-		r += bump
-	# the boss gets the whole screen (the scroll stops a screen short of the stage's end)
-	var open := smoothstep(s.length - H - 200.0, s.length - H - 40.0, d)
-	l = lerpf(l, 2.0, open)
-	r = lerpf(r, 2.0, open)
 	return Vector2(l, W - r)
+
+
+## The half-width of island `isl` at distance `d` (0 outside it): pointed at both ends.
+static func island_half(isl: Array, d: float) -> float:
+	var t := (d - float(isl[0])) / float(isl[1])
+	if t <= 0.0 or t >= 1.0:
+		return 0.0
+	return float(isl[3]) * pow(sin(PI * t), 0.6)
+
+
+## True when the point x at distance `d` of stage `i` is within `pad` of an island.
+static func on_island(i: int, x: float, d: float, pad: float) -> bool:
+	for isl in ISLANDS[i]:
+		var h := island_half(isl, d)
+		if h > 0.0 and absf(x - float(isl[2])) < h + pad:
+			return true
+	return false
 
 
 ## A repeatable pseudo-random number in 0..1 for a point (terrain jitter, decoration).
