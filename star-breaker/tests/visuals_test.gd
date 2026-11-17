@@ -121,7 +121,17 @@ func _initialize() -> void:
 	var parts: Dictionary = ub.get_meta("parts")
 	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
 		"Starbreak has no haze and no ball at its base")
-	check((ps[0].n as Node3D).get_child_count() == 1, "an arc is a thin strand with no haze of its own")
+	var thin := 0
+	var wide := 0
+	var single := true
+	for pl in ps:
+		single = single and (pl.n as Node3D).get_child_count() == 1
+		if pl.has("hard"):
+			thin += 1
+		else:
+			wide += 1
+	check(single, "each arc is one strand, thin or haze, never both")
+	check(thin >= 24 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
 	check(jumped >= ps.size() - 2, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
 	var slid := 0
 	var held := 0

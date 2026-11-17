@@ -35,6 +35,8 @@ const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 ## little up or down the beam at ARC_SPEED per tick for ARC_LIFE ticks (halfway between
 ## crackling in place and shooting along), then jumps somewhere else.
 const ULT_PULSES := 36
+## Wider, soft haze strands mixed in among the thin ones, moving the same way.
+const ULT_HAZE := 14
 const ARC_LIFE := Vector2i(4, 10)
 const ARC_SPEED := Vector2(1.5, 3.5)
 const ARC_SHAPES := 12
@@ -230,6 +232,12 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 			n.add_child(g)
 			var pl := {n = g, hard = hard}
 			parts.pulses.append(pl)
+		for i in ULT_HAZE:
+			var soft := Models.mesh(arc_mesh(0, false), pulse_mat(i % 3 + 3))
+			var g := Node3D.new()
+			g.add_child(soft)
+			n.add_child(g)
+			parts.pulses.append({n = g, soft = soft})
 		# no haze and no ball at the bottom: the static arcs alone light the beam
 		haze.visible = false
 		flare.visible = false
@@ -265,7 +273,10 @@ static func _respawn(pl: Dictionary, len: float) -> void:
 	pl.life = randi_range(ARC_LIFE.x, ARC_LIFE.y)
 	pl.t = 0
 	var v := randi() % ARC_SHAPES
-	(pl.hard as MeshInstance3D).mesh = arc_mesh(v, true)
+	if pl.has("hard"):
+		(pl.hard as MeshInstance3D).mesh = arc_mesh(v, true)
+	else:
+		(pl.soft as MeshInstance3D).mesh = arc_mesh(v, false)
 
 
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
