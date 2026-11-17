@@ -44,7 +44,8 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 - PR APKs follow `pr/N/update.json`, then main once the preview is gone.
 - The start card's build line (`hud.build_button`) shows the running build and, after a quiet check of
   `update.json`, "New build N · tap to update". Tapping it restarts the app (`main.refresh_game()`) so the launch
-  check loads the new pack; the web page just reloads.
+  check loads the new pack; the web page just reloads. It restarts **only when a newer build is out**: a tap with
+  nothing new checks the server first and says "up to date" (or "can't check (offline)") instead.
 - **The Play bundle never self-updates** (Google Play forbids apps downloading their own code): CI deletes the
   update urls before exporting "Android Play", and that preset has no internet permission. Only preset "Android"
   (the test APK) has `permissions/internet`. `tests/update_test.gd` checks both.

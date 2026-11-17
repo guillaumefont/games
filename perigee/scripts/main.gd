@@ -95,8 +95,14 @@ func _ready() -> void:
 	_check_update()
 
 
+var new_build := 0 ## a newer build seen on the update server, or 0
+var _checking := false
+var _check_ok := false ## the last check reached the update server
+
+
 ## Restarts the game so the launch-time updater (scripts/boot.gd) loads the newest build: the app
-## restarts on Android and desktop, the page reloads in the browser. Tests swap `restart_fn` for a stub.
+## restarts on Android and desktop, the page reloads in the browser. Only when a newer build is out
+## (refresh_game). Tests swap `restart_fn` for a stub.
 var restart_fn := func() -> void:
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("location.reload()")
@@ -106,8 +112,18 @@ var restart_fn := func() -> void:
 
 
 func refresh_game() -> void:
-	if sim.state != "start":
+	if sim.state != "start" or _checking:
 		return
+	if new_build == 0:
+		# nothing known yet: ask the server first, and restart only if a newer build is out
+		hud.set_build_state("checking")
+		await _check_update()
+		if new_build == 0:
+			hud.set_build_state("latest" if _check_ok else "offline")
+			await get_tree().create_timer(2.0).timeout
+			if new_build == 0:
+				hud.set_build_state("idle")
+			return
 	save.save_file()
 	hud.set_build_state("restarting")
 	await get_tree().create_timer(0.15).timeout # let the line show before the app goes away
@@ -124,27 +140,36 @@ static func build_number(version: String) -> int:
 ## says so on the start card's build line. Quiet when offline, and never on the Play build (no url).
 func _check_update() -> void:
 	var url := str(ProjectSettings.get_setting("perigee/update_url", ""))
-	if url == "" or OS.has_feature("web"):
+	if url == "" or OS.has_feature("web") or _checking:
 		return
+	_checking = true
+	var d = await fetch_update_json.call(url)
+	_checking = false
+	_check_ok = d is Dictionary
+	if d is Dictionary:
+		show_update(int(d.get("build", 0)))
+
+
+## update.json from the update server, or null when offline. Tests swap it for a stub.
+var fetch_update_json := func(url: String) -> Variant:
 	var http := HTTPRequest.new()
 	http.timeout = 6.0
 	add_child(http)
 	if http.request(url + "update.json?t=%d" % int(Time.get_unix_time_from_system())) != OK:
 		http.queue_free()
-		return
+		return null
 	var r: Array = await http.request_completed
 	http.queue_free()
 	if r[0] != HTTPRequest.RESULT_SUCCESS or r[1] != 200:
-		return
-	var d = JSON.parse_string((r[3] as PackedByteArray).get_string_from_utf8())
-	if d is Dictionary:
-		show_update(int(d.get("build", 0)))
+		return null
+	return JSON.parse_string((r[3] as PackedByteArray).get_string_from_utf8())
 
 
 ## Shows "new build" on the start card when `remote` is newer than the running build.
 func show_update(remote: int) -> void:
 	var have := build_number(str(ProjectSettings.get_setting("application/config/version", "")))
 	if have > 0 and remote > have:
+		new_build = remote
 		hud.set_build_state("new", remote)
 
 

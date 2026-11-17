@@ -754,8 +754,8 @@ func _style_ghost(b: Button, font_size: int, radius := 16) -> void:
 		b.add_theme_color_override(c, INK)
 
 
-## What the build line says: "idle" (this build, tap to refresh), "new" (build `build` is out,
-## tap to update) or "restarting".
+## What the build line says: "idle" (this build, tap to check), "checking", "latest" (no newer
+## build), "offline" (couldn't check), "new" (build `build` is out, tap to update) or "restarting".
 func set_build_state(state: String, build := 0) -> void:
 	var color := MUTED
 	match state:
@@ -764,6 +764,12 @@ func set_build_state(state: String, build := 0) -> void:
 			color = SAND
 		"restarting":
 			build_button.text = "Restarting…"
+		"checking":
+			build_button.text = "Checking for a new build…"
+		"offline":
+			build_button.text = "Build %s · can't check (offline)" % _build_id
+		"latest":
+			build_button.text = "Build %s · up to date" % _build_id
 		_:
 			build_button.text = "Build %s  ⟳" % _build_id
 	for c in ["font_color", "font_hover_color", "font_pressed_color"]:

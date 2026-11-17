@@ -192,10 +192,29 @@ func _initialize() -> void:
 	check(bb.visible and bb.text.begins_with("Build b1050"), "the start card shows which build this is: " + bb.text)
 	main.show_update(1049)
 	check(bb.text.begins_with("Build b1050"), "an older build on the server changes nothing")
-	main.show_update(1052)
-	check(bb.text == "New build 1052 · tap to update", "says when a newer build is out: " + bb.text)
 	var restarted := [false]
 	main.restart_fn = func() -> void: restarted[0] = true
+	ProjectSettings.set_setting("perigee/update_url", "http://updates.test/")
+	var server := [{"build": 1050}]
+	main.fetch_update_json = func(_url: String) -> Variant: return server[0]
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text == "Build b1050 test · up to date", "tapping with no newer build doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	check(bb.text.begins_with("Build b1050") and bb.text.ends_with("⟳"), "then the line goes back to the build")
+	server[0] = null
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text.ends_with("can't check (offline)"), "offline: tapping doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	server[0] = {"build": 1051}
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping when a newer build just came out restarts into it")
+	restarted[0] = false
+	ProjectSettings.set_setting("perigee/update_url", "")
+	main.show_update(1052)
+	check(bb.text == "New build 1052 · tap to update", "says when a newer build is out: " + bb.text)
 	bb.pressed.emit()
 	await create_timer(0.3).timeout
 	check(restarted[0] and bb.text == "Restarting…", "tapping it restarts into the new build")
