@@ -190,7 +190,7 @@ func _apply_volumes() -> void:
 
 
 func open_voyage() -> void:
-	hud.show_voyage(save.data.voyage)
+	hud.show_voyage(save.data.voyage, int(save.data.best))
 
 
 ## Starts a Voyage sector: its fixed layout from the sector's seed and recipe.
@@ -463,6 +463,13 @@ func _update_hud() -> void:
 	if sim.state == "over" and not over_shown and sim.t - sim.death_t >= Sim.RESTART_LOCK:
 		over_shown = true
 		hud.set_over_row(mode == "voyage")
+		if mode == "endless":
+			var tier := Medals.drift_tier(sim.score)
+			var nxt := Medals.next_points_text(Medals.DRIFT_POINTS, tier)
+			var txt := ("%s medal" % Medals.TIER_NAMES[tier]) if tier > 0 else "No medal yet"
+			hud.set_over_medal(tier, txt + ("  ·  " + nxt if nxt != "" else ""))
+		else:
+			hud.set_over_medal(-1, "")
 		var line := ("Moon %d of %d" % [mini(sim.hops, sector.moons), sector.moons]) if mode == "voyage" else ""
 		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats(), line)
 	if mode == "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
@@ -471,11 +478,16 @@ func _update_hud() -> void:
 	if mode != "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
 		clear_shown = true
 		var st := Voyage.stars(sector, sim)
+		var medals := Medals.of_run(sector, st, sim.run_t, sim.score)
 		hud.show_clear(sector.id, sim.score, st, [
 			"Reach moon %d" % sector.moons,
 			"Under %d s (%.1f s)" % [int(sector.par), sim.run_t],
 			Voyage.goal_text(sector.goal),
-		], not Voyage.next_sector(sector.id).is_empty())
+		], not Voyage.next_sector(sector.id).is_empty(), medals, {
+			"speed": Medals.next_speed_text(sector, medals.speed),
+			"points": Medals.next_points_text(Medals.points_marks(sector), medals.points),
+			"stars": "" if medals.stars > 0 else "Win all 3 stars",
+		})
 		var lit := 0
 		for got in st:
 			if got:

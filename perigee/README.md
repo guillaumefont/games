@@ -20,6 +20,7 @@ The folder is a Godot 4.7 project (2D, Compatibility renderer, portrait), next t
 - `scripts/main.gd`: runs the sim, draws it, handles the button, sound, haptics and pausing.
 - `scripts/hud.gd`: score, sound toggle, hints and the start, game over and pause cards.
 - `scripts/save_data.gd`: the versioned save file (`user://save.json`).
+- `scripts/medals.gd`: speed, points and all-stars medals (bronze, silver, gold) per Voyage sector, and Drift's points medals.
 - `scripts/sfx.gd` and `scripts/music.gd`: sound effects and the looping music track, from `audio/`.
 - `tools/audio/compose.py`: composes and renders all the audio (`python3 perigee/tools/audio/compose.py`).
 - `fonts/`: Unbounded and Manrope (SIL OFL 1.1, licences next to them).

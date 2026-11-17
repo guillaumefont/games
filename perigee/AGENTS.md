@@ -64,6 +64,13 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   k, a shortcut line to leap), `mix`. Stars: clear, under `par`, the sector's goal. Pars come from
   `tools/par_times.gd` (bot best + 35%); rerun it after changing a sector or the rules, and keep `voyage_test.gd`
   green (the bot must clear every sector). Progress is `save.data.voyage[id] = {stars, score, time}`.
+- Medals (`scripts/medals.gd`, drawn by `scripts/medal_icon.gd`), Guillaume's ask of 2026-11-17: each sector has a
+  speed medal (bronze at par, silver at 88%, gold at 76% of par), a points medal (the sector's `points` marks,
+  suggested by `tools/par_times.gd`: 40/75/110% of the bot's all-perigee score) and an all-stars medal (3 of 3 stars);
+  each system has an all-stars medal, and Drift has points medals by one run (`Medals.DRIFT_POINTS`). They are read
+  from the best records the save already keeps (`voyage[id]`, `best`), so there is no medal field to migrate. Keep
+  them earned only by play: purchases must never earn, upgrade or skip a medal. `voyage_test.gd` checks the bot wins
+  speed gold and points silver in every sector, so rerun `par_times.gd` after changing a sector.
 - Audio is original and generated: `tools/audio/compose.py` (numpy + ffmpeg) writes the music track and every
   sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in
   D major pentatonic so they sit on the music. The music loops through `loop=true` in its `.import` file (a looping

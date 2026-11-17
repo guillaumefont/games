@@ -132,6 +132,35 @@ func _initialize() -> void:
 	check(Voyage.unlocked("1-2", {"1-1": {"stars": 1}}) and not Voyage.unlocked("1-3", {"1-1": {"stars": 3}}), "clearing a sector opens the next")
 	check(Voyage.goal_text({"type": "perigees", "count": 4}) == "4 perigees", "goal text")
 
+	# --- medals: speed, points, all stars per sector; all stars per system; Drift points ---
+	for sec in Voyage.all_sectors():
+		var pm := Medals.points_marks(sec)
+		var sm := Medals.speed_marks(sec)
+		var deep := sector_sim(sec)
+		bot_play(deep, true)
+		check(pm.size() == 3 and pm[0] < pm[1] and pm[1] < pm[2] and sm[0] == float(sec.par) and sm[0] > sm[1] and sm[1] > sm[2],
+			"%s: bronze, silver and gold marks rise (points %s, speed %s)" % [sec.id, pm, sm])
+		check(Medals.speed_tier(sec, deep.run_t) == Medals.GOLD,
+			"%s: the bot's best line wins speed gold (%.1f s, gold under %.1f s)" % [sec.id, deep.run_t, sm[2]])
+		check(Medals.points_tier(sec, deep.score) == Medals.SILVER,
+			"%s: all perigees and no leaps win points silver; gold needs more (%d, gold at %d)" % [sec.id, deep.score, pm[2]])
+	check(Medals.speed_tier(s1, 20.0) == Medals.BRONZE and Medals.speed_tier(s1, 20.1) == Medals.NONE
+		and Medals.speed_tier(s1, 17.6) == Medals.SILVER and Medals.speed_tier(s1, 15.2) == Medals.GOLD, "speed tiers at par, 88% and 76% of par")
+	check(Medals.points_tier(s1, 34) == Medals.NONE and Medals.points_tier(s1, 35) == Medals.BRONZE
+		and Medals.points_tier(s1, 60) == Medals.SILVER and Medals.points_tier(s1, 500) == Medals.GOLD, "points tiers at the sector's marks")
+	check(Medals.of_sector(s1, {}) == {"speed": 0, "points": 0, "stars": 0}, "no medals before a clear")
+	check(Medals.of_sector(s1, {"stars": 3, "score": 90, "time": 15.0}) == {"speed": 3, "points": 3, "stars": 3}, "a best record wins every medal")
+	check(Medals.of_sector(s1, {"stars": 2, "score": 40, "time": 19.0}) == {"speed": 1, "points": 1, "stars": 0}, "two stars win no all-stars medal")
+	check(Medals.of_run(s1, [true, false, false], 25.0, 10) == {"speed": 0, "points": 0, "stars": 0}, "a slow, low clear wins nothing")
+	var all3 := {}
+	for sec in Voyage.SYSTEMS[0].sectors:
+		all3[sec.id] = {"stars": 3, "score": 0, "time": 99.0}
+	check(Medals.system_stars(Voyage.SYSTEMS[0], all3) == [18, 18], "every star of the system counts (%s)" % [Medals.system_stars(Voyage.SYSTEMS[0], all3)])
+	var tally := Medals.tally(all3, 300)
+	check(tally[Medals.GOLD] == 7 and tally[Medals.SILVER] == 1 and tally[Medals.BRONZE] == 0, "tally: 6 sector all-stars, the system's, and Drift silver (%s)" % [tally])
+	check(Medals.drift_tier(99) == Medals.NONE and Medals.drift_tier(100) == Medals.BRONZE and Medals.drift_tier(750) == Medals.GOLD, "Drift points medals")
+	check(Medals.next_speed_text(s1, Medals.BRONZE) == "Silver under 17.6 s" and Medals.next_points_text([35, 60, 90], Medals.GOLD) == "", "the next tier's text")
+
 	# --- the scene ---
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
 	main = load("res://scenes/main.tscn").instantiate()
@@ -177,6 +206,11 @@ func _initialize() -> void:
 	check(main.sim.state == "clear", "the bot clears 1-1 in the scene")
 	tick(1.0)
 	check(main.hud.clear_card.visible and main.hud.clear_title.text.contains("1-1"), "the clear card shows")
+	var won_m := Medals.of_run(Voyage.sector("1-1"), Voyage.stars(Voyage.sector("1-1"), main.sim), main.sim.run_t, main.sim.score)
+	check(main.hud.clear_medals.visible and main.hud.clear_medal_icons[0].tier == won_m.speed
+		and main.hud.clear_medal_icons[1].tier == won_m.points and main.hud.clear_medal_icons[2].tier == won_m.stars
+		and won_m.speed == Medals.GOLD,
+		"the clear card shows the run's medals (%s; %s / %s / %s)" % [won_m, main.hud.clear_medal_tiers[0].text, main.hud.clear_medal_tiers[1].text, main.hud.clear_medal_tiers[2].text])
 	var saved := SaveData.new(SAVE)
 	saved.load_file()
 	var rec: Dictionary = saved.data.voyage.get("1-1", {})
@@ -193,6 +227,19 @@ func _initialize() -> void:
 	check(main.hud.voyage_card.visible and not main.hud.over_card.visible, "Map opens the sector list")
 	b12 = main.hud.voyage_card.find_child("Sector_1-2", true, false)
 	check(not b12.disabled, "1-2 is open now")
+	b11 = main.hud.voyage_card.find_child("Sector_1-1", true, false)
+	var map_medals: Control = b11.get_child(0).get_child(2)
+	check((map_medals.get_child(0) as MedalIcon).tier == Medals.GOLD and (map_medals.get_child(1) as MedalIcon).tier == won_m.points,
+		"the sector list shows 1-1's best medals")
+	check(main.hud.voyage_stars.text.ends_with("/ 18 stars") and main.hud.voyage_tally.text.begins_with("Medals"),
+		"the sector list counts the system's stars and every medal (%s; %s)" % [main.hud.voyage_stars.text, main.hud.voyage_tally.text])
+	# Drift's game over card shows its points medal; Voyage's doesn't
+	main.start_mode("endless")
+	main.sim.score = 320
+	main.sim.die("test")
+	tick(0.6)
+	check(main.hud.over_medal_row.visible and main.hud.over_medal.tier == Medals.SILVER and main.hud.over_medal_label.text.contains("Gold at 750"),
+		"Drift's game over card shows the run's points medal (%s)" % main.hud.over_medal_label.text)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
 
 	if fails:
