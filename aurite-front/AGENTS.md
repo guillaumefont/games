@@ -110,11 +110,15 @@ godot --headless tests/sim_test.tscn   # must end with SIM TEST DONE and no SCRI
   Add a branch there for any new goal kind.
 - `AF_MODE=camp AF_SHOT=<dir>` shoots the campaign menu, every briefing, every opening view and a wide map view.
 - Campaign III, *The Hollow Song* (Guillaume 2026-11-15: "a third campaign for the burrow", meaning the Hollow Choir),
-  is played as the Choir during the Iron Tide war. It is `"free"` (open from the start, not locked behind II) and each
+  is played as the Choir during the Iron Tide war. Since the 2026-11 overhaul it is locked behind II (story order; it was `"free"` before) and each
   mission names its enemy army with `efac` (Vanguard or Pact; default is the old rule). The Cantor is its hero (required in
   1, 4, 6, 8; trainable from mission 7); the Deepmaw (`deepmaw`, mission-only) joins in 6 to 8 and is never required.
   Enemy waves sent at `"harv"` also go for Crystal Gardens. Use Choir types in its data (`garden`, `thrall`), not `D.sub`.
   It has no cutscenes yet (Guillaume has not judged the style of the first batch).
+- Story mood (overhaul, 2026-11-17): `Campaign.mood(camp, idx)` is 0 pulpy (I), 1 cracked (II from mission 5,
+  `Campaign.CRACK`), 2 grim (III); each mission carries `mood`. `main.menu_stage()` picks the menu and logo stage from
+  progress and `UI.set_stage()` restyles the menus (`UI.stage`, read by WarBG, Insignia, TitleMark, DoorArt, Hazard).
+  `AF_STAGE=0|1|2` forces a stage for screenshots.
 - Progress is saved per campaign in `user://campaigns.json`. Campaign II (the story sequel) stays locked until campaign I is won
   (Guillaume, 2026-11-14); `main.camp_open()`.
 - Wave plans spawn the units they name whatever the mission's `aiTech` says (it is often empty). The test jumps to

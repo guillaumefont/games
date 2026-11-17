@@ -11,6 +11,31 @@ const C_FG := Color("e4ebee")
 const C_DIM := Color("8b9aa3")
 const C_AUR := Color("f0b93f")
 const C_ACC := Color("e5483f")
+## Menu art stage, following the campaign's descent: 0 pulpy (campaign I), 1 cracked (II), 2 grim (III).
+## Sketch: picked with AF_STAGE for now.
+static var stage := 0
+var _stage_fx: Array[Callable] = []   # re-applies stage colours and words to the menu when the stage changes
+
+## Sets the menu art stage (main.menu_stage() picks it from campaign progress) and restyles every menu screen.
+func set_stage(st: int) -> void:
+	if OS.get_environment("AF_STAGE") != "": st = int(OS.get_environment("AF_STAGE"))   # screenshots of one stage
+	stage = clampi(st, 0, 2)
+	for f in _stage_fx: f.call()
+	for k in overlays: _redraw_tree(overlays[k])
+
+func _redraw_tree(n: Node) -> void:
+	if n is CanvasItem: (n as CanvasItem).queue_redraw()
+	for ch in n.get_children(): _redraw_tree(ch)
+static var _glow_tex: GradientTexture2D
+## Soft radial light (smooth, no banding): a white disc fading to nothing, tinted and stretched to r.
+static func glow(ci: CanvasItem, c: Vector2, r: Vector2, col: Color) -> void:
+	if _glow_tex == null:
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.2, 0.5, 0.8, 1.0])
+		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.7), Color(1, 1, 1, 0.28), Color(1, 1, 1, 0.07), Color(1, 1, 1, 0)])
+		_glow_tex = GradientTexture2D.new(); _glow_tex.gradient = g; _glow_tex.fill = GradientTexture2D.FILL_RADIAL
+		_glow_tex.fill_from = Vector2(0.5, 0.5); _glow_tex.fill_to = Vector2(1.0, 0.5); _glow_tex.width = 256; _glow_tex.height = 256
+	ci.draw_texture_rect(_glow_tex, Rect2(c - r, r * 2), false, col)
 const C_OK := Color("7fd68e")
 const C_BAD := Color("ff5a52")
 const PANEL_W := 188.0
@@ -35,6 +60,12 @@ var obj_box: Plate
 var toast_box: Plate
 var toast_l: Label
 var toast_t := 0.0
+var radio_box: Plate
+var radio_face: Portrait
+var radio_who: Label
+var radio_l: Label
+var radio_q: Array = []   # lines waiting: [who, line, warn]
+var radio_t := 0.0        # time left on the line showing
 var cmd_row: VBoxContainer
 var cmd_top: HBoxContainer
 var cmd_bot: HBoxContainer
@@ -212,6 +243,15 @@ func _build_hud() -> void:
 	toast_l = lbl("", f_disp, 13); th.add_child(toast_l); toast_box.visible = false
 	toast_box.anchor_left = 0.5; toast_box.anchor_right = 0.5; toast_box.offset_top = 70; toast_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	hud.add_child(toast_box)
+	# radio panel: the speaker's portrait and the line typing out, top centre (toasts drop below it while it shows)
+	radio_box = Plate.new(); radio_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rdh := HBoxContainer.new(); rdh.add_theme_constant_override("separation", 12); rdh.mouse_filter = Control.MOUSE_FILTER_IGNORE; radio_box.add_child(rdh)
+	radio_face = Portrait.new(); radio_face.custom_minimum_size = Vector2(68, 68); radio_face.live = true; rdh.add_child(radio_face)
+	var rdv := VBoxContainer.new(); rdv.add_theme_constant_override("separation", 2); rdv.alignment = BoxContainer.ALIGNMENT_CENTER; rdv.mouse_filter = Control.MOUSE_FILTER_IGNORE; rdh.add_child(rdv)
+	radio_who = lbl("", f_wide, 11, W_BRASS); rdv.add_child(radio_who)
+	radio_l = lbl("", f_body, 16, W_KHAKI); radio_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; radio_l.custom_minimum_size.x = 380; rdv.add_child(radio_l)
+	radio_box.anchor_left = 0.5; radio_box.anchor_right = 0.5; radio_box.offset_top = 66; radio_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	radio_box.visible = false; hud.add_child(radio_box)
 	# army groups on the left edge: tap selects the group, tap again centres the camera, hold stores the selection
 	# pinned under the OBJECTIVE button: at the phone's 1.5x scale the HUD is only ~400 units tall, so 4 x 36 fits above the command rows
 	groups_box = VBoxContainer.new(); groups_box.add_theme_constant_override("separation", 4); groups_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -306,6 +346,45 @@ func toast(msg: String, kind := "") -> void:
 	toast_box.visible = true; toast_t = 2.4
 	toast_box.reset_size()
 	toast_box.offset_left = -toast_box.size.x / 2; toast_box.offset_right = toast_box.size.x / 2
+
+## A radio line: the speaker's portrait, name and role, the line typing out. Lines queue; each stays long enough to read.
+func radio(who: String, line: String, warn := false) -> void:
+	radio_q.append([who, line, warn])
+	if not radio_box.visible: _radio_next()
+
+func _radio_next() -> void:
+	if radio_q.is_empty():
+		radio_box.visible = false; toast_box.offset_top = 70; return
+	var r: Array = radio_q.pop_front()
+	var sp: Dictionary = D.SPEAKERS.get(r[0], D.SPEAKERS.pact_hq)
+	radio_face.sp = sp; radio_face.queue_redraw()
+	radio_who.text = (sp.name + "  //  " + sp.role).to_upper()
+	radio_who.add_theme_color_override("font_color", C_BAD if r[2] else sp.flash)
+	radio_l.text = r[1]; radio_l.visible_ratio = 0.0
+	radio_box.add_theme_stylebox_override("panel", plate_sb(8.0, H_BG, W_LINE, C_BAD if r[2] else sp.flash)); radio_box.accent = C_BAD if r[2] else sp.flash
+	radio_box.visible = true; radio_t = 2.6 + r[1].length() * 0.055
+	radio_box.reset_size(); radio_box.offset_left = -radio_box.size.x / 2; radio_box.offset_right = radio_box.size.x / 2
+	toast_box.offset_top = 70 + radio_box.size.y + 8
+
+func _radio_tick(dt: float) -> void:
+	if not radio_box.visible: return
+	radio_t -= dt
+	radio_l.visible_ratio = minf(1.0, radio_l.visible_ratio + dt * 40.0 / maxf(1.0, radio_l.text.length()))
+	radio_face.live = radio_l.visible_ratio < 1.0
+	if radio_t <= 0: _radio_next()
+
+## Debrief on the end screen: one row per line, portrait, name, the line. lines: [{"who", "say"}]
+func set_debrief(lines: Array) -> void:
+	for ch in btn.end_debrief.get_children(): ch.queue_free()
+	btn.end_debrief.visible = lines.size() > 0
+	for ln in lines:
+		var sp: Dictionary = D.SPEAKERS.get(ln.who, D.SPEAKERS.pact_hq)
+		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12)
+		var pf := Portrait.new(); pf.sp = sp; pf.custom_minimum_size = Vector2(54, 54); h.add_child(pf)
+		var v := VBoxContainer.new(); v.alignment = BoxContainer.ALIGNMENT_CENTER; v.add_theme_constant_override("separation", 0); v.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(v)
+		v.add_child(lbl(sp.name.to_upper(), f_wide, 11, sp.flash))
+		var l := lbl("\u201c" + ln.say + "\u201d", f_body, 16, W_KHAKI); l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; v.add_child(l)
+		btn.end_debrief.add_child(h)
 
 # ---------------- side panel ----------------
 func _build_panel() -> void:
@@ -511,7 +590,11 @@ func _build_overlays() -> void:
 	_wide_fonts()
 	# ---- start: title on the left, orders dossier on the right
 	var c := _overlay("start", 1010, true, true)
-	var bar := HBoxContainer.new(); c.add_child(bar)
+	var bar := HBoxContainer.new(); bar.add_theme_constant_override("separation", 10); c.add_child(bar)
+	var rec := RecDot.new(); rec.custom_minimum_size = Vector2(14, 28); bar.add_child(rec)
+	var hq := lbl("", f_wide, 12, W_SAND); bar.add_child(hq)
+	var hfx := func(): hq.text = ["FIELD HQ  //  SABLE VALLEY  //  ALL FRONTS ACTIVE", "FIELD HQ  //  SABLE VALLEY  //  CONTACT INTERMITTENT", "FIELD HQ  //  SABLE VALLEY  //  NO SIGNAL FROM THE DEEP"][stage]
+	hfx.call(); _stage_fx.append(hfx)
 	var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL; bar.add_child(sp)
 	# build number and self-update status (scripts/updater.gd); tap to check, restart or get the new app
 	var up := Button.new(); up.flat = true; up.focus_mode = Control.FOCUS_NONE; up.add_theme_font_override("font", f_wide); up.add_theme_font_size_override("font_size", 12)
@@ -525,9 +608,10 @@ func _build_overlays() -> void:
 	var cols := HBoxContainer.new(); cols.add_theme_constant_override("separation", 28); cols.size_flags_vertical = Control.SIZE_EXPAND_FILL; c.add_child(cols)
 	var lc := VBoxContainer.new(); lc.size_flags_horizontal = Control.SIZE_EXPAND_FILL; lc.size_flags_stretch_ratio = 0.85; lc.add_theme_constant_override("separation", 12); cols.add_child(lc)
 	lc.alignment = BoxContainer.ALIGNMENT_CENTER
-	var ins := Insignia.new(); ins.custom_minimum_size = Vector2(56, 56); ins.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; lc.add_child(ins)
+	var ins := Insignia.new(); ins.custom_minimum_size = Vector2(84, 84); ins.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; lc.add_child(ins)
 	var tl := VBoxContainer.new(); tl.add_theme_constant_override("separation", -16)
-	tl.add_child(title("Aurite", 70)); tl.add_child(lbl("FRONT", f_title, 70, C_ACC)); lc.add_child(tl)
+	var t1 := title("Aurite", 70); var t2 := lbl("FRONT", f_title, 70, C_ACC); tl.add_child(t1); tl.add_child(t2); lc.add_child(tl)
+	_title_fx(t1, t2, false)
 	var rule := Hazard.new(); rule.stripe = true; rule.custom_minimum_size = Vector2(0, 8); lc.add_child(rule)
 	var fm := ghost("Field manual", func(): show_overlay("manual"), 48); fm.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN; fm.custom_minimum_size.x = 190; lc.add_child(fm)
 	var rc := VBoxContainer.new(); rc.size_flags_horizontal = Control.SIZE_EXPAND_FILL; rc.add_theme_constant_override("separation", 14); cols.add_child(rc)
@@ -535,6 +619,8 @@ func _build_overlays() -> void:
 	btn.camp_tile = _tile(rc, "Campaign", true, func(): main.show_campaigns())
 	btn.sk_tile = _tile(rc, "Skirmish", false, func(): show_overlay("skirmish"))
 	btn.sk_tile.get_meta("l1").text = "PICK YOUR ARMY AND THE ENEMY"
+	btn.sk_tile.get_meta("l2").text = "Vanguard  ·  Ashen Pact  ·  Hollow Choir"; btn.sk_tile.get_meta("l2").visible = true
+	var tk := Ticker.new(); tk.custom_minimum_size = Vector2(0, 30); tk.font = f_wide; tk.clip_contents = true; c.add_child(tk)
 	# ---- campaigns: chapters stacked in one list that scrolls on its own
 	c = _overlay("campaign", 1010, true, true)
 	var ch := HBoxContainer.new(); ch.add_theme_constant_override("separation", 16); c.add_child(ch)
@@ -594,6 +680,7 @@ func _build_overlays() -> void:
 	btn.end_title = title("Victory", 60); ev.add_child(btn.end_title)
 	btn.end_stamp = Stamp.new(); btn.end_stamp.custom_minimum_size = Vector2(170, 70); eh.add_child(btn.end_stamp)
 	btn.end_why = lbl("", f_body, 14, Color("ffb0a8")); btn.end_why.visible = false; d.add_child(btn.end_why)
+	btn.end_debrief = VBoxContainer.new(); btn.end_debrief.add_theme_constant_override("separation", 8); btn.end_debrief.visible = false; d.add_child(btn.end_debrief)
 	btn.end_stats = GridContainer.new(); btn.end_stats.columns = 5; btn.end_stats.add_theme_constant_override("h_separation", 8); btn.end_stats.add_theme_constant_override("v_separation", 8); d.add_child(btn.end_stats)
 	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 8); d.add_child(row)
 	btn.next = cta("Next mission", func(): main.next_mission()); btn.next.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(btn.next)
@@ -621,18 +708,37 @@ func _build_overlays() -> void:
 	var go := cta("Begin", func(): main.begin_mission()); go.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(go)
 	var bk := ghost("Back", func(): main.show_campaigns(), 52); bk.custom_minimum_size.x = 110; row.add_child(bk)
 
+## Title treatment per stage: colours age, a hard drop shadow, and the TitleMark overlay (crack, crystals).
+func _title_fx(a: Label, b: Label, center: bool) -> void:
+	var fx := func():
+		a.add_theme_color_override("font_color", [W_KHAKI, Color("c4bfae"), Color("a3aaa0")][stage])
+		b.add_theme_color_override("font_color", [C_ACC, Color("b4453b"), Color("8e2a22")][stage])
+	fx.call(); _stage_fx.append(fx)
+	for l in [a, b]:
+		l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7)); l.add_theme_constant_override("shadow_offset_x", 0); l.add_theme_constant_override("shadow_offset_y", 5)
+	var fs := a.get_theme_font_size("font_size")
+	var m := TitleMark.new(); m.mouse_filter = Control.MOUSE_FILTER_IGNORE; m.center = center
+	m.w = f_title.get_string_size("AURITE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x; m.lh = fs; m.b = b
+	m.set_anchors_preset(Control.PRESET_FULL_RECT); a.add_child(m)
+
 ## Boot splash art (AF_MODE=splash renders it to res://splash.png).
 func build_splash() -> void:
 	var c := _overlay("splash", 720)
 	var bg: WarBG = overlays.splash.get_child(0); bg.hero = true; bg.t = 3.0
 	c.alignment = BoxContainer.ALIGNMENT_CENTER; c.add_theme_constant_override("separation", 8)
-	var ins := Insignia.new(); ins.custom_minimum_size = Vector2(96, 96); ins.size_flags_horizontal = Control.SIZE_SHRINK_CENTER; c.add_child(ins)
+	var ins := Insignia.new(); ins.custom_minimum_size = Vector2(150, 150); ins.size_flags_horizontal = Control.SIZE_SHRINK_CENTER; c.add_child(ins)
 	var e := eyebrow("Vanguard  vs  Ashen Pact"); e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; e.add_theme_font_size_override("font_size", 14); c.add_child(e)
 	var tl := VBoxContainer.new(); tl.add_theme_constant_override("separation", -26); c.add_child(tl)
+	var tw := []
 	for w in [["AURITE", W_KHAKI], ["FRONT", C_ACC]]:
-		var l := lbl(w[0], f_title, 110, w[1]); l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; tl.add_child(l)
+		var l := lbl(w[0], f_title, 110, w[1]); l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; tl.add_child(l); tw.append(l)
+	_title_fx(tw[0], tw[1], true)
 	var hz := Hazard.new(); hz.stripe = true; hz.custom_minimum_size = Vector2(440, 10); hz.size_flags_horizontal = Control.SIZE_SHRINK_CENTER; c.add_child(hz)
-	var sub := lbl("THE WAR FOR AURITE", f_wide, 14, W_SAND); sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; c.add_child(sub)
+	var sub := lbl("", f_wide, 14, W_SAND); sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; c.add_child(sub)
+	var fx := func():
+		e.text = ["VANGUARD  VS  ASHEN PACT", "VANGUARD  VS  ASHEN PACT", "THE CHOIR IS SINGING"][stage]
+		sub.text = ["THE WAR FOR AURITE", "THE GROUND IS LISTENING", "IT WAS NEVER OURS"][stage]
+	fx.call(); _stage_fx.append(fx)
 
 func show_overlay(nm: String) -> void:
 	for k in overlays: overlays[k].visible = k == nm
@@ -668,27 +774,40 @@ func set_brief_heroes(list: Array, fac: String) -> void:
 func _tile(par: Control, t: String, main_action: bool, cb: Callable) -> Button:
 	var b := Button.new(); b.focus_mode = Control.FOCUS_NONE; b.custom_minimum_size = Vector2(0, 96); b.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	b.size_flags_stretch_ratio = 1.0; b.clip_contents = true
-	var bg := C_ACC.darkened(0.55) if main_action else W_OLIVE2
-	var bd := C_ACC if main_action else W_LINE
-	b.add_theme_stylebox_override("normal", cut(bg, bd, 2 if main_action else 1, 12))
-	b.add_theme_stylebox_override("hover", cut(bg.lightened(0.06), bd if main_action else W_SAND, 2 if main_action else 1, 12))
-	b.add_theme_stylebox_override("pressed", cut(bg.darkened(0.2), W_SAND, 2, 12))
+	var art := DoorArt.new(); art.main_action = main_action
+	art.set_anchors_preset(Control.PRESET_FULL_RECT); art.mouse_filter = Control.MOUSE_FILTER_IGNORE; b.add_child(art)
 	b.pressed.connect(cb)
 	var h := HBoxContainer.new(); h.set_anchors_preset(Control.PRESET_FULL_RECT); h.offset_left = 20; h.offset_right = -16; h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var v := VBoxContainer.new(); v.alignment = BoxContainer.ALIGNMENT_CENTER; v.size_flags_horizontal = Control.SIZE_EXPAND_FILL; v.mouse_filter = Control.MOUSE_FILTER_IGNORE; v.add_theme_constant_override("separation", 2); h.add_child(v)
 	v.add_child(lbl(t.to_upper(), f_title, 30, Color.WHITE if main_action else W_KHAKI))
-	var l1 := lbl("", f_wide, 14, W_BRASS if main_action else W_SAND); v.add_child(l1)
+	var l1 := lbl("", f_wide, 14, W_SAND); v.add_child(l1)
 	l1.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS; l1.clip_text = true; l1.custom_minimum_size.x = 60
-	var l2 := lbl("", f_body, 12, W_SAND); l2.visible = false; v.add_child(l2)
-	var ar := lbl(">>", f_title, 26, Color.WHITE if main_action else W_SAND); ar.size_flags_vertical = Control.SIZE_SHRINK_CENTER; ar.custom_minimum_size.x = 44; h.add_child(ar)
+	var l2 := lbl("", f_body, 15, W_SAND); l2.visible = false; v.add_child(l2)
+	b.set_meta("art", art)
+	var ar := GoMark.new(); ar.main_action = main_action; ar.size_flags_vertical = Control.SIZE_SHRINK_CENTER; ar.custom_minimum_size = Vector2(58, 58); ar.mouse_filter = Control.MOUSE_FILTER_IGNORE; h.add_child(ar)
+	b.mouse_entered.connect(func(): ar.hot = true); b.mouse_exited.connect(func(): ar.hot = false)
 	b.add_child(h); b.set_meta("l1", l1); b.set_meta("l2", l2)
 	par.add_child(b)
+	# the campaign door ages with the story: red, then rust, then near black with a green edge
+	var fx := func():
+		var bg: Color = [C_ACC.darkened(0.55), Color("3a1e19"), Color("0d1712")][stage] if main_action else W_OLIVE2
+		var bd: Color = [C_ACC, Color("a8483c"), Color("3fbf7a")][stage] if main_action else W_LINE
+		art.accent = bd if main_action else W_SAND
+		b.add_theme_stylebox_override("normal", cut(bg, bd, 2 if main_action else 1, 12))
+		b.add_theme_stylebox_override("hover", cut(bg.lightened(0.06), bd if main_action else W_SAND, 2 if main_action else 1, 12))
+		b.add_theme_stylebox_override("pressed", cut(bg.darkened(0.2), W_SAND, 2, 12))
+		l1.add_theme_color_override("font_color", [W_BRASS, Color("c9ae7e"), Color("8fe3b4")][stage] if main_action else W_SAND)
+	fx.call(); _stage_fx.append(fx)
 	return b
 
 ## Start screen campaign door: where the player left off.
 func set_camp_tile(line1: String, line2: String) -> void:
 	btn.camp_tile.get_meta("l1").text = line1.to_upper(); btn.camp_tile.get_meta("l2").text = line2
-	btn.camp_tile.get_meta("l2").visible = false
+	btn.camp_tile.get_meta("l2").visible = true
+
+## Campaign door art: the chapter numeral and one pip per mission, filled as they are won.
+func set_camp_progress(num: String, done: int, total: int) -> void:
+	var a: DoorArt = btn.camp_tile.get_meta("art"); a.num = num; a.done = done; a.total = total; a.queue_redraw()
 
 ## Every campaign as a chapter: a header, then its missions two to a row. rows: [{C, open, done}].
 func render_campaigns(rows: Array, focus_id: String) -> void:
@@ -765,6 +884,7 @@ func set_end_stats(rows: Array) -> void:
 		btn.end_stats.add_child(p)
 
 func tick(dt: float) -> void:
+	_radio_tick(dt)
 	if toast_t > 0:
 		toast_t -= dt
 		if toast_t <= 0: toast_box.visible = false
@@ -777,6 +897,12 @@ class WarBG extends Control:
 	var full := true
 	var hero := false   # splash art: crossed searchlights, big tanks in the foreground, frozen frame
 	var t := 0.0
+	# per UI.stage: sky top, sky mid, horizon, ground, far ridge, mid ridge, near earth, glow colour
+	const PAL := [
+		["0b0a08", "1a100c", "5a1f10", "140b08", "2c1610", "0f0907", "060403", Color(1.0, 0.42, 0.14)],
+		["08090b", "121518", "2a2d2c", "0d0e0e", "1c1e1e", "0b0c0c", "040505", Color(0.80, 0.66, 0.48)],
+		["020304", "050c09", "0c3020", "040706", "0a1310", "050908", "020303", Color(0.25, 1.0, 0.6)],
+	]
 	func _process(dt: float) -> void:
 		if full and not hero and is_visible_in_tree():
 			t += dt; queue_redraw()
@@ -791,6 +917,12 @@ class WarBG extends Control:
 			pts.append(Vector2(x, y0.call(x))); x += step
 		pts.append(Vector2(size.x + step, size.y)); pts.append(Vector2(0, size.y))
 		draw_colored_polygon(pts, col)
+	## Thin light line along the top of a ridge: rim light from the horizon behind it.
+	func _rim(y0: Callable, col: Color, step: float, w: float) -> void:
+		var pts := PackedVector2Array(); var x := 0.0
+		while x <= size.x + step:
+			pts.append(Vector2(x, y0.call(x))); x += step
+		draw_polyline(pts, col, w, true)
 	func _grad(r: Rect2, top: Color, bot: Color) -> void:
 		draw_polygon(PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]), PackedColorArray([top, top, bot, bot]))
 	func _tank(p: Vector2, u: float, col: Color, flip := false, ang := 0.0) -> void:
@@ -800,17 +932,55 @@ class WarBG extends Control:
 		draw_rect(Rect2(8, -16.5, 30, 3), col)
 		draw_line(Vector2(-6, -19), Vector2(-9, -30), col, 1.2)
 		draw_set_transform(Vector2.ZERO)
+	## A knocked-out tank: hull nose-down, turret thrown off, barrel bent.
+	func _wreck(p: Vector2, u: float, col: Color, flip := false, ang := 0.0) -> void:
+		draw_set_transform(p, ang, Vector2(-u if flip else u, u))
+		draw_colored_polygon(PackedVector2Array([Vector2(-26, 0), Vector2(26, 0), Vector2(31, -6), Vector2(25, -11), Vector2(-25, -11), Vector2(-31, -6)]), col)
+		draw_colored_polygon(PackedVector2Array([Vector2(-10, -11), Vector2(-4, -15), Vector2(2, -11)]), col)
+		draw_set_transform(p + Vector2(34 * u * (-1 if flip else 1), 3 * u), ang + 0.9, Vector2(-u if flip else u, u))
+		draw_colored_polygon(PackedVector2Array([Vector2(-13, 0), Vector2(12, 0), Vector2(9, -8), Vector2(-9, -8)]), col)
+		draw_polyline(PackedVector2Array([Vector2(10, -5), Vector2(26, -6), Vector2(36, 2)]), col, 3.0)
+		draw_set_transform(Vector2.ZERO)
+	## Crystal spire silhouette with a lit green edge.
+	func _spire(b: Vector2, h: float, w: float, ang: float, col: Color, lit: Color) -> void:
+		var d := Vector2(sin(ang), -cos(ang)); var pp := Vector2(-d.y, d.x)
+		var pts := PackedVector2Array([b + pp * w, b + d * h * 0.8 + pp * w * 0.8, b + d * h, b + d * h * 0.75 - pp * w * 0.9, b - pp * w])
+		draw_colored_polygon(pts, col)
+		draw_polyline(PackedVector2Array([b + pp * w * 0.15, b + d * h * 0.8 + pp * w * 0.1, b + d * h]), lit, maxf(1.0, w * 0.08), true)
+		draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2]]), Color(lit, lit.a * 0.6), maxf(1.0, w * 0.06), true)
 	func _draw() -> void:
 		var s := size
 		if not full:
 			draw_rect(Rect2(Vector2.ZERO, s), Color(0.03, 0.035, 0.025, 0.72))
 			return
+		var st: int = UI.stage; var P: Array = PAL[st]; var gc: Color = P[7]
 		var u := s.y / 486.0
 		var hz := s.y * 0.62
-		# sky: soot black down to a burning horizon
-		_grad(Rect2(0, 0, s.x, hz * 0.55), Color("0b0a08"), Color("1a100c"))
-		_grad(Rect2(0, hz * 0.55, s.x, hz * 0.45 + 2), Color("1a100c"), Color("4a1a0f"))
-		draw_rect(Rect2(0, hz, s.x, s.y - hz), Color("140b08"))
+		# sky
+		_grad(Rect2(0, 0, s.x, hz * 0.55), Color(P[0]), Color(P[1]))
+		_grad(Rect2(0, hz * 0.55, s.x, hz * 0.45 + 2), Color(P[1]), Color(P[2]))
+		draw_rect(Rect2(0, hz, s.x, s.y - hz), Color(P[3]))
+		# a broad smooth glow sitting on the horizon
+		UI.glow(self, Vector2(s.x * 0.5, hz), Vector2(s.x * 0.75, s.y * (0.22 if st < 2 else 0.32)), Color(gc, [0.30, 0.12, 0.24][st]))
+		# cloud banks lit from below
+		for i in 9:
+			var cx := fposmod(s.x * _h(i + 80) + t * (3 + 2 * _h(i + 81)) * u, s.x + 600 * u) - 300 * u
+			var cy := s.y * (0.12 + 0.32 * _h(i + 82)); var cw := (220 + 260 * _h(i + 83)) * u
+			var ca: float = [0.10, 0.16, 0.10][st]
+			UI.glow(self, Vector2(cx, cy), Vector2(cw, cw * 0.16), Color(Color(P[1]).darkened(0.5), 0.6))
+			UI.glow(self, Vector2(cx, cy + cw * 0.07), Vector2(cw * 0.8, cw * 0.07), Color(gc, ca * (cy / hz)))
+		if st == 2:
+			# aurora: slow green curtains over the night sky
+			for b in 3:
+				var pts := PackedVector2Array(); var cols := PackedColorArray(); var x := -20.0
+				while x <= s.x + 40:
+					var yy := s.y * (0.16 + 0.07 * b) + sin(x / (180.0 * u) + t * 0.15 + b * 1.7) * 18 * u + sin(x / (61.0 * u) + b) * 6 * u
+					pts.append(Vector2(x, yy)); cols.append(Color(gc, 0.0))
+					x += 20
+				var n := pts.size()
+				for k in range(n - 1, -1, -1):
+					pts.append(pts[k] + Vector2(0, (70 + 30 * b) * u)); cols.append(Color(gc, 0.07 * (0.6 + 0.4 * sin(pts[k].x / (90.0 * u) + t * 0.4 + b))))
+				draw_polygon(pts, cols)
 		# map grid
 		var g := 46.0 * u; var x := 0.0
 		while x < s.x:
@@ -818,98 +988,190 @@ class WarBG extends Control:
 		var y := 0.0
 		while y < s.y:
 			draw_line(Vector2(0, y), Vector2(s.x, y), Color(0.85, 0.8, 0.64, 0.025), 1.0); y += g
-		# fires glowing behind the far ridge
-		for i in 4:
-			var fx := s.x * (0.18 + 0.23 * i + 0.05 * _h(i + 3)); var fl := 0.85 + 0.15 * sin(t * (2.0 + i) + i)
-			draw_set_transform(Vector2(fx, hz), 0, Vector2(1.0, 0.35))
-			for k in 6:
-				draw_circle(Vector2.ZERO, (170 - k * 24) * u * fl, Color(0.95, 0.38, 0.12, 0.05))
-			draw_set_transform(Vector2.ZERO)
-		# searchlights sweeping the clouds
-		for i in 2:
+		# fires behind the far ridge: four in the first war, two dying ones later, none at the end
+		var nf: int = [4, 2, 0][st]
+		for i in nf:
+			var fx := s.x * (0.18 + 0.23 * i + 0.05 * _h(i + 3)) if st == 0 else s.x * (0.27 + 0.48 * i)
+			var fl := 0.85 + 0.15 * sin(t * (2.0 + i) + i)
+			UI.glow(self, Vector2(fx, hz), Vector2(190, 70) * u * fl, Color(gc, 0.55 if st == 0 else 0.25))
+			UI.glow(self, Vector2(fx, hz - 4 * u), Vector2(60, 22) * u * fl, Color(1, 0.8, 0.5, 0.45 if st == 0 else 0.15))
+		# searchlights: two sweeping, then one stuttering, then dark
+		var nl: int = [2, 1, 0][st]
+		for i in nl:
 			var o := Vector2(s.x * (0.58 + 0.3 * i), hz + 26 * u)
 			var a := -PI / 2 + sin(t * (0.23 + 0.07 * i) + i * 2.0) * 0.6
 			var al := 0.16
+			if st == 1: al = 0.10 * (0.4 + 0.6 * float(int(t * 9.0) % 7 != 0)); a = -PI / 2 - 0.35
 			if hero:
 				o = Vector2(s.x * (0.3 + 0.4 * i), hz + 30 * u); a = -PI / 2 + (0.42 if i == 0 else -0.42); al = 0.2
+				if st == 1: o = Vector2(s.x * 0.66, hz + 30 * u); a = -PI / 2 - 0.5; al = 0.12
 			var L := s.y * 1.1; var w := 0.07
+			var lc := Color(1, 0.93, 0.75) if st == 0 else Color(0.85, 0.9, 0.95)
 			draw_polygon(PackedVector2Array([o, o + Vector2(cos(a - w), sin(a - w)) * L, o + Vector2(cos(a + w), sin(a + w)) * L]),
-				PackedColorArray([Color(1, 0.93, 0.75, al), Color(1, 0.93, 0.75, 0.0), Color(1, 0.93, 0.75, 0.0)]))
-		if hero:
+				PackedColorArray([Color(lc, al), Color(lc, 0.0), Color(lc, 0.0)]))
+			UI.glow(self, o, Vector2(26, 26) * u, Color(lc, al * 2.5))
+		if hero and st == 0:
 			for fx in [0.12, 0.88]:
-				for k in 8:
-					draw_circle(Vector2(s.x * fx, hz - 4 * u), (90 - k * 10) * u, Color(1, 0.5 + k * 0.04, 0.18, 0.045))
-		# shell bursts on the horizon
-		for i in 3:
+				UI.glow(self, Vector2(s.x * fx, hz - 4 * u), Vector2(110, 110) * u, Color(1, 0.55, 0.2, 0.35))
+				UI.glow(self, Vector2(s.x * fx, hz - 4 * u), Vector2(36, 36) * u, Color(1, 0.85, 0.55, 0.55))
+		# shell bursts and tracers (the first war is loud)
+		var nb: int = [3, 1, 0][st]
+		for i in nb:
 			var ph := t * 0.55 + i * 0.37; var k := floorf(ph); var f := ph - k
 			if f < 0.3:
 				var bx := s.x * (0.08 + 0.84 * _h(k * 3.0 + i)); var e := 1.0 - f / 0.3
-				draw_circle(Vector2(bx, hz - 6 * u), 46 * u * (0.4 + f * 2), Color(1, 0.6, 0.25, 0.10 * e))
-				draw_circle(Vector2(bx, hz - 6 * u), 14 * u * (0.5 + f * 2), Color(1, 0.85, 0.55, 0.35 * e))
-		# far ridge with a radio mast
+				UI.glow(self, Vector2(bx, hz - 6 * u), Vector2.ONE * 70 * u * (0.4 + f * 2), Color(1, 0.6, 0.25, 0.30 * e))
+				UI.glow(self, Vector2(bx, hz - 6 * u), Vector2.ONE * 20 * u * (0.5 + f * 2), Color(1, 0.9, 0.6, 0.7 * e))
+		# far ridge
 		var far := func(px): return _ridge(px + 300, hz + 4 * u, 22 * u, 1.3, u)
-		_band(far, Color("2c1610"), 8)
+		var fc := Color(P[4])
+		if st == 2:
+			# crystal spires rising behind the ridge, lit from the green horizon
+			for i in 7:
+				var sx := s.x * (0.06 + 0.14 * i + 0.05 * _h(i + 120)); var sy: float = far.call(sx) + 6 * u
+				var hh := (60 + 150 * _h(i + 121)) * u * (1.4 if i == 4 else 1.0)
+				UI.glow(self, Vector2(sx, sy - hh * 0.5), Vector2(hh * 0.45, hh * 0.7), Color(gc, 0.10))
+				_spire(Vector2(sx, sy), hh, (10 + 10 * _h(i + 122)) * u, (_h(i + 123) - 0.5) * 0.5, fc, Color(gc, 0.55))
+				_spire(Vector2(sx + 16 * u, sy), hh * 0.55, 7 * u, 0.35, fc, Color(gc, 0.4))
+		_band(far, fc, 8)
+		_rim(far, Color(gc, [0.25, 0.10, 0.35][st]), 8, 1.5 * u)
 		var mx := s.x * 0.7; var my: float = far.call(mx)
-		draw_line(Vector2(mx, my), Vector2(mx, my - 54 * u), Color("2c1610"), 2.0 * u)
-		draw_line(Vector2(mx - 10 * u, my), Vector2(mx, my - 54 * u), Color("2c1610"), 1.0 * u)
-		draw_line(Vector2(mx + 10 * u, my), Vector2(mx, my - 54 * u), Color("2c1610"), 1.0 * u)
-		if int(t * 1.2) % 2 == 0: draw_circle(Vector2(mx, my - 56 * u), 2.2 * u, Color(1, 0.25, 0.2, 0.9))
-		# drifting smoke
-		for i in 7:
+		if st == 0:
+			draw_line(Vector2(mx, my), Vector2(mx, my - 54 * u), fc, 2.0 * u)
+			draw_line(Vector2(mx - 10 * u, my), Vector2(mx, my - 54 * u), fc, 1.0 * u)
+			draw_line(Vector2(mx + 10 * u, my), Vector2(mx, my - 54 * u), fc, 1.0 * u)
+			if hero or int(t * 1.2) % 2 == 0:
+				draw_circle(Vector2(mx, my - 56 * u), 2.2 * u, Color(1, 0.25, 0.2, 0.9))
+				UI.glow(self, Vector2(mx, my - 56 * u), Vector2.ONE * 12 * u, Color(1, 0.25, 0.2, 0.5))
+		elif st == 1:
+			# the mast is down, folded over the ridge; something green glints near its foot
+			var top := Vector2(mx + 40 * u, my - 22 * u)
+			draw_line(Vector2(mx, my), Vector2(mx + 8 * u, my - 30 * u), fc, 2.0 * u)
+			draw_line(Vector2(mx + 8 * u, my - 30 * u), top, fc, 2.0 * u)
+			draw_line(Vector2(mx - 10 * u, my), Vector2(mx + 8 * u, my - 30 * u), fc, 1.0 * u)
+			var gp := Vector2(s.x * 0.41, float(far.call(s.x * 0.41)) + 2 * u)
+			UI.glow(self, gp, Vector2(40, 22) * u, Color(0.3, 1.0, 0.6, 0.28 + 0.06 * sin(t * 1.3)))
+			_spire(gp + Vector2(0, 2 * u), 26 * u, 4 * u, 0.2, fc, Color(0.4, 1.0, 0.7, 0.7))
+			_spire(gp + Vector2(6 * u, 2 * u), 14 * u, 3 * u, -0.3, fc, Color(0.4, 1.0, 0.7, 0.5))
+		# drifting smoke: thicker and greyer as the war drags on
+		var ns: int = [7, 12, 6][st]
+		var smc: Color = [Color(0.22, 0.15, 0.12, 0.10), Color(0.16, 0.17, 0.17, 0.16), Color(0.05, 0.12, 0.09, 0.14)][st]
+		for i in ns:
 			var sx := fposmod(s.x * _h(i + 10) - t * (8 + 6 * _h(i)) * u, s.x + 400 * u) - 200 * u
 			var sy := hz - (10 + 70 * _h(i + 20)) * u
 			for k in 3:
-				draw_circle(Vector2(sx + k * 40 * u, sy - k * 6 * u), (60 + 30 * k) * u, Color(0.2, 0.15, 0.12, 0.05))
-		# mid ridge with an armored column
+				UI.glow(self, Vector2(sx + k * 40 * u, sy - k * 6 * u), Vector2(1.6, 0.9) * (70 + 30 * k) * u, smc)
+		# mid ridge with an armored column (or what is left of it)
 		var mid := func(px): return _ridge(px, hz + 46 * u, 26 * u, 4.2, u)
-		var mc := Color("0f0907")
+		var mc := Color(P[5])
 		_band(mid, mc, 8)
+		_rim(mid, Color(gc, [0.16, 0.07, 0.2][st]), 8, 1.2 * u)
 		for i in 4:
-			var tx := fposmod(s.x * [0.03, 0.13, 0.80, 0.91][i] + t * 4 * u, s.x + 80 * u) - 40 * u
+			var tx := fposmod(s.x * [0.03, 0.13, 0.80, 0.91][i] + (t * 4 * u if st == 0 else 0.0), s.x + 80 * u) - 40 * u
 			var ty: float = mid.call(tx)
 			var slope := atan2(float(mid.call(tx + 10)) - ty, 10.0)
-			_tank(Vector2(tx, ty + 2 * u), u * (1.0 - 0.1 * (i % 2)), mc, false, slope)
+			if st == 0 or (st == 1 and i != 2):
+				_tank(Vector2(tx, ty + 2 * u), u * (1.0 - 0.1 * (i % 2)), mc, false, slope)
+			else:
+				_wreck(Vector2(tx, ty + 5 * u), u * (1.0 - 0.1 * (i % 2)), mc, i % 2 == 1, slope + (0.18 if i % 2 == 0 else -0.14))
+				if st == 1:
+					# the burning wreck: a low fire and a column of smoke leaning with the wind
+					UI.glow(self, Vector2(tx, ty - 6 * u), Vector2(40, 22) * u, Color(1, 0.55, 0.2, 0.35 + 0.1 * sin(t * 6)))
+					for k in 6:
+						var ff := fposmod(t * 0.15 + k / 6.0, 1.0)
+						UI.glow(self, Vector2(tx + ff * 70 * u, ty - 10 * u - ff * 150 * u), Vector2.ONE * (14 + 50 * ff) * u, Color(0.12, 0.12, 0.12, 0.35 * (1.0 - ff)))
+		if st == 2:
+			for i in 5:
+				var cx := s.x * (0.22 + 0.15 * i + 0.04 * _h(i + 140)); var cy: float = mid.call(cx) + 4 * u
+				UI.glow(self, Vector2(cx, cy - 10 * u), Vector2(40, 30) * u, Color(gc, 0.16))
+				_spire(Vector2(cx, cy), (22 + 30 * _h(i + 141)) * u, 5 * u, (_h(i + 142) - 0.5) * 0.9, mc, Color(gc, 0.7))
 		# foreground: earth, tank traps and barbed wire
 		var near := func(px): return _ridge(px + 900, s.y * 0.9, 16 * u, 7.7, u)
-		var nc := Color("060403")
+		var nc := Color(P[6])
 		_band(near, nc, 8)
-		var px := 30.0 * u; var prev := Vector2(-1, -1)
+		_rim(near, Color(gc, [0.10, 0.05, 0.14][st]), 8, 1.0 * u)
+		var px := 30.0 * u; var prev := Vector2(-1, -1); var idx := 0
 		while px < s.x + 80 * u:
 			var py: float = near.call(px)
-			var top := Vector2(px, py - 30 * u)
+			var lean := 0.0 if st == 0 else (_h(px + 7) - 0.5) * (0.35 if st == 1 else 0.7)
+			var top := Vector2(px, py) + Vector2(sin(lean), -cos(lean)) * 30 * u
+			var broken := st == 2 and _h(px + 3) > 0.45 or st == 1 and _h(px + 3) > 0.8
 			draw_line(Vector2(px, py + 4 * u), top, nc, 3.0 * u)
-			if prev.x >= 0:
+			if prev.x >= 0 and not broken:
 				var pts := PackedVector2Array()
 				for k in 13:
 					var f2 := k / 12.0
-					pts.append(prev.lerp(top, f2) + Vector2(0, sin(f2 * PI) * 7 * u))
+					pts.append(prev.lerp(top, f2) + Vector2(0, sin(f2 * PI) * (7 + 10 * st) * u))
 				draw_polyline(pts, nc, 1.4 * u)
 				for k in range(1, 12, 2):
 					var bp := pts[k]
 					draw_line(bp + Vector2(-3, -3) * u, bp + Vector2(3, 3) * u, nc, 1.0 * u)
+			elif prev.x >= 0:
+				# snapped wire hanging from the post
+				draw_polyline(PackedVector2Array([top, top + Vector2(-12, 14) * u, top + Vector2(-18, 30) * u]), nc, 1.4 * u)
 			prev = top
 			if _h(px) > 0.55:
 				var hx := px + 40 * u; var hy: float = near.call(hx)
 				draw_line(Vector2(hx - 10 * u, hy), Vector2(hx + 10 * u, hy - 18 * u), nc, 2.5 * u)
 				draw_line(Vector2(hx + 10 * u, hy), Vector2(hx - 10 * u, hy - 18 * u), nc, 2.5 * u)
 				draw_line(Vector2(hx, hy + 2 * u), Vector2(hx + 2 * u, hy - 20 * u), nc, 2.5 * u)
-			px += 120 * u
+			if st == 2 and idx % 3 == 1:
+				var cx := px + 70 * u; var cy: float = near.call(cx) + 6 * u
+				UI.glow(self, Vector2(cx, cy - 18 * u), Vector2(60, 40) * u, Color(gc, 0.2))
+				_spire(Vector2(cx, cy), (40 + 50 * _h(px + 9)) * u, 9 * u, (_h(px + 11) - 0.5) * 0.8, nc, Color(gc, 0.8))
+				_spire(Vector2(cx + 12 * u, cy), (20 + 20 * _h(px + 13)) * u, 6 * u, 0.5, nc, Color(gc, 0.6))
+			px += 120 * u; idx += 1
 		if hero:
 			for tk in [[0.84, 3.4, true, 0.06], [0.15, 2.4, false, -0.04]]:
 				var tp := Vector2(s.x * tk[0], float(near.call(s.x * tk[0])) + 6 * u)
-				_tank(tp + Vector2(0, -2.5 * u), tk[1] * u, Color(0.95, 0.42, 0.15, 0.55), tk[2], tk[3])
-				_tank(tp, tk[1] * u, nc, tk[2], tk[3])
-		# embers
-		for i in 46:
-			var sp := (14 + 22 * _h(i + 40)) * u
-			var ey := s.y - fposmod(t * sp + _h(i + 50) * s.y, s.y * 0.85)
-			var ex := s.x * _h(i + 60) + sin(t * 0.8 + i) * 14 * u
-			var life := (s.y - ey) / (s.y * 0.85)
-			draw_circle(Vector2(ex, ey), (1.0 + _h(i + 70) * 1.4) * u, Color(1, 0.55 + 0.3 * _h(i), 0.2, 0.75 * (1.0 - life)))
+				if st == 0:
+					_tank(tp + Vector2(0, -2.5 * u), tk[1] * u, Color(1.0, 0.45, 0.15, 0.6), tk[2], tk[3])
+					_tank(tp, tk[1] * u, nc, tk[2], tk[3])
+				elif st == 1:
+					_tank(tp + Vector2(0, -2.0 * u), tk[1] * u, Color(0.75, 0.78, 0.8, 0.25), tk[2], tk[3])
+					_tank(tp, tk[1] * u, nc, tk[2], tk[3])
+				else:
+					_wreck(tp + Vector2(0, -2.0 * u), tk[1] * u, Color(gc, 0.35), tk[2], tk[3] + 0.12)
+					_wreck(tp, tk[1] * u, nc, tk[2], tk[3] + 0.12)
+		# particles: embers rising, then ash falling, then aurite motes drifting up
+		if st == 0:
+			for i in 46:
+				var sp := (14 + 22 * _h(i + 40)) * u
+				var ey := s.y - fposmod(t * sp + _h(i + 50) * s.y, s.y * 0.85)
+				var ex := s.x * _h(i + 60) + sin(t * 0.8 + i) * 14 * u
+				var life := (s.y - ey) / (s.y * 0.85)
+				var ec := Color(1, 0.55 + 0.3 * _h(i), 0.2, 0.8 * (1.0 - life))
+				draw_circle(Vector2(ex, ey), (1.0 + _h(i + 70) * 1.4) * u, ec)
+				if _h(i + 75) > 0.6: UI.glow(self, Vector2(ex, ey), Vector2.ONE * 7 * u, Color(ec, ec.a * 0.4))
+		elif st == 1:
+			for i in 70:
+				var sp := (6 + 10 * _h(i + 40)) * u
+				var ey := fposmod(t * sp + _h(i + 50) * s.y, s.y)
+				var ex := fposmod(s.x * _h(i + 60) + sin(t * 0.5 + i) * 20 * u - t * 6 * u, s.x)
+				var r := (0.8 + _h(i + 70) * 1.6) * u
+				draw_set_transform(Vector2(ex, ey), t * (0.5 + _h(i)) + i, Vector2(1.0, 0.45))
+				draw_circle(Vector2.ZERO, r, Color(0.72, 0.72, 0.7, 0.35 + 0.3 * _h(i + 77)))
+				draw_set_transform(Vector2.ZERO)
+		else:
+			for i in 38:
+				var sp := (4 + 8 * _h(i + 40)) * u
+				var ey := s.y - fposmod(t * sp + _h(i + 50) * s.y, s.y * 0.9)
+				var ex := s.x * _h(i + 60) + sin(t * 0.3 + i) * 10 * u
+				var life := (s.y - ey) / (s.y * 0.9)
+				var al := sin(PI * life) * (0.5 + 0.5 * _h(i + 71))
+				var r := (1.5 + 2.5 * _h(i + 70)) * u; var c := Vector2(ex, ey)
+				UI.glow(self, c, Vector2.ONE * r * 5, Color(gc, 0.25 * al))
+				draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 1.8), c + Vector2(r * 0.7, 0), c + Vector2(0, r * 1.8), c + Vector2(-r * 0.7, 0)]), Color(0.7, 1.0, 0.85, 0.85 * al))
+			# low fog hugging the ground
+			for i in 6:
+				var fx := fposmod(s.x * _h(i + 160) + t * 5 * u, s.x + 600 * u) - 300 * u
+				UI.glow(self, Vector2(fx, s.y * (0.82 + 0.08 * _h(i + 161))), Vector2(320, 50) * u, Color(0.1, 0.25, 0.18, 0.18))
 		# vignette, darker on the left behind the title
 		_grad(Rect2(0, 0, s.x, s.y * 0.25), Color(0, 0, 0, 0.55), Color(0, 0, 0, 0))
-		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(s.x * 0.5, 0), Vector2(s.x * 0.5, s.y), Vector2(0, s.y)]),
-			PackedColorArray([Color(0, 0, 0, 0.45), Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.45)]))
+		_grad(Rect2(0, s.y * 0.8, s.x, s.y * 0.2), Color(0, 0, 0, 0), Color(0, 0, 0, 0.5))
+		if not hero:
+			draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(s.x * 0.5, 0), Vector2(s.x * 0.5, s.y), Vector2(0, s.y)]),
+				PackedColorArray([Color(0, 0, 0, 0.45), Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.45)]))
 
 ## Panel with brass L-brackets in its corners.
 class Frame extends PanelContainer:
@@ -944,42 +1206,515 @@ class Hazard extends Control:
 		var h := size.y if stripe else 5.0
 		var y0 := 0.0 if stripe else size.y - h
 		var x := -h; var i := 0
-		var a := Color("d9a441", 0.9) if stripe else Color(0, 0, 0, 0.35)
+		var st: int = UI.stage if stripe else 0
+		var a: Color = [Color("d9a441", 0.9), Color("a88d55", 0.75), Color("5b4a30", 0.6)][st] if stripe else Color(0, 0, 0, 0.35)
 		while x < size.x:
-			if i % 2 == 0:
+			var wear := fposmod(sin(i * 12.9898) * 43758.5453, 1.0)
+			if i % 2 == 0 and not (st == 1 and wear > 0.86) and not (st == 2 and wear > 0.6):
+				a.a = [0.9, 0.5 + 0.35 * wear, 0.35 + 0.4 * wear][st] if stripe else 0.35
 				var pts := PackedVector2Array([Vector2(x, y0 + h), Vector2(x + h, y0), Vector2(x + 2 * h, y0), Vector2(x + h, y0 + h)])
 				for k in pts.size(): pts[k].x = clampf(pts[k].x, 0, size.x)
 				draw_colored_polygon(pts, a)
 			x += h; i += 1
 		if stripe: draw_rect(Rect2(0, 0, size.x, h), Color("d9a441", 0.25), false, 1.0)
 
-## Unit insignia: a shield with three chevrons and a star.
+## Unit insignia: a riveted brass shield with three chevrons and a star.
+## UI.stage ages it with the campaign: 0 polished, 1 tarnished and cracked with aurite glinting through, 2 split open by crystals.
 class Insignia extends Control:
-	func _draw() -> void:
-		var s := size; var c := Color("d9a441"); var k := Color("d8cba3")
-		var sh := PackedVector2Array([Vector2(s.x * 0.5, 0), Vector2(s.x, s.y * 0.14), Vector2(s.x * 0.92, s.y * 0.66), Vector2(s.x * 0.5, s.y), Vector2(s.x * 0.08, s.y * 0.66), Vector2(0, s.y * 0.14)])
-		# bold brass rim: a solid band (the shape minus an inset copy) with a dark keyline outside for contrast
-		var bw := maxf(3.0, s.x * 0.065)
-		var ol := sh.duplicate(); ol.append(ol[0]); draw_polyline(ol, Color("0b0d08"), 3.0, true)
-		draw_colored_polygon(sh, c); draw_polyline(ol, c, 1.0, true)
-		var inner: Array = Geometry2D.offset_polygon(sh, -bw, Geometry2D.JOIN_MITER)
-		if inner.size() > 0:
-			var ip: PackedVector2Array = inner[0]
-			draw_colored_polygon(ip, Color("21271a"))
-			ip.append(ip[0]); draw_polyline(ip, Color("8a6a2a"), 1.0, true)
-		# chevrons: even-width bands whose slanted ends all sit on one line per side, clear of the border
+	var clip := PackedVector2Array()   # when set, every fill is cut to this shape (stage 2 draws each half on its own)
+	const SH := [Vector2(0.5, 0), Vector2(1, 0.14), Vector2(0.92, 0.66), Vector2(0.5, 1), Vector2(0.08, 0.66), Vector2(0, 0.14)]
+	const LIGHT := Vector2(-0.55, -0.83)
+	const CRACK := [Vector2(0.78, 0.12), Vector2(0.69, 0.22), Vector2(0.74, 0.31), Vector2(0.57, 0.45), Vector2(0.62, 0.55), Vector2(0.45, 0.70), Vector2(0.50, 0.80), Vector2(0.40, 0.90)]
+	const SPLIT := [Vector2(0.60, -0.3), Vector2(0.58, 0.04), Vector2(0.65, 0.17), Vector2(0.52, 0.35), Vector2(0.58, 0.47), Vector2(0.44, 0.66), Vector2(0.50, 0.79), Vector2(0.41, 1.3)]
+	func _fill(p: PackedVector2Array, col: Color) -> void:
+		var qs: Array = [p] if clip.is_empty() else Geometry2D.intersect_polygons(p, clip)
+		for q: PackedVector2Array in qs:
+			draw_colored_polygon(q, col)
+			# polygons are not antialiased: a 1px smooth outline in the same colour softens the stair-steps
+			var o := q.duplicate(); o.append(q[0]); draw_polyline(o, col, 1.0, true)
+	func _dot(c: Vector2, r: float, col: Color) -> void:
+		if clip.is_empty() or Geometry2D.is_point_in_polygon(c, clip): draw_circle(c, r, col)
+	## Convex polygon moved inwards by d, keeping one vertex per corner (so rings can be cut into facets).
+	static func inset(p: PackedVector2Array, d: float) -> PackedVector2Array:
+		var c := Vector2.ZERO
+		for v in p: c += v
+		c /= p.size()
+		var n := p.size(); var lines := []
+		for i in n:
+			var a: Vector2 = p[i]; var b: Vector2 = p[(i + 1) % n]; var e := (b - a).normalized(); var nn := Vector2(-e.y, e.x)
+			if nn.dot(c - a) < 0: nn = -nn
+			lines.append([a + nn * d, e])
+		var out := PackedVector2Array()
+		for i in n:
+			var l0: Array = lines[(i - 1 + n) % n]; var l1: Array = lines[i]
+			var hit = Geometry2D.line_intersects_line(l0[0], l0[1], l1[0], l1[1])
+			out.append(hit if hit != null else l1[0])
+		return out
+	## Bevelled ring between two matching polygons, each facet shaded by how it faces the light.
+	func _ring(o: PackedVector2Array, i: PackedVector2Array, base: Color, amt: float, flip := false) -> void:
+		var c := Vector2.ZERO
+		for v in o: c += v
+		c /= o.size()
+		for k in o.size():
+			var k2 := (k + 1) % o.size()
+			var mid := (o[k] + o[k2]) * 0.5; var nrm := (mid - c).normalized()
+			var sh := nrm.dot(LIGHT.normalized()) * (-1.0 if flip else 1.0)
+			var col := base.lightened(sh * amt) if sh > 0 else base.darkened(-sh * amt * 1.2)
+			_fill(PackedVector2Array([o[k], o[k2], i[k2], i[k]]), col)
+	func _chev(s: Vector2, i: int, top: float, th: float) -> PackedVector2Array:
 		var m := -1.0 / 3.0; var dy := 0.042 * sqrt(1.0 + m * m); var sl := -3.2
-		var cut := 0.53 + m * 0.25 + dy / 2 - sl * 0.25   # the end line: y = cut + sl * (x - 0.5)
+		var cut := 0.53 + m * 0.25 + dy / 2 - sl * 0.25
+		var ap := 0.53 + 0.12 * i + dy * top; var d2 := dy * th
+		var u1 := (cut - ap) / (m - sl); var u2 := (cut - ap - d2) / (m - sl)
+		return PackedVector2Array([Vector2(0.5, ap) * s, Vector2(0.5 + u1, ap + m * u1) * s, Vector2(0.5 + u2, ap + d2 + m * u2) * s, Vector2(0.5, ap + d2) * s, Vector2(0.5 - u2, ap + d2 + m * u2) * s, Vector2(0.5 - u1, ap + m * u1) * s])
+	static func _pts(a: Array, s: Vector2) -> PackedVector2Array:
+		var p := PackedVector2Array()
+		for v in a: p.append(v * s)
+		return p
+	## Faceted aurite crystal: dark and lit halves, a bright ridge, a glow behind.
+	func crystal(base: Vector2, ang: float, ln: float, w: float, bright := 1.0) -> void:
+		var d := Vector2(cos(ang), sin(ang)); var pp := Vector2(-d.y, d.x)
+		var tip := base + d * ln; var sh := base + d * ln * 0.72
+		var r := 0.12
+		UI.glow(self, base + d * ln * 0.5, Vector2.ONE * ln * 0.9, Color(0.3, 1.0, 0.6, 0.22 * bright))
+		draw_colored_polygon(PackedVector2Array([base + pp * w, sh + pp * w, tip, sh - pp * w, base - pp * w]), Color("1d6a44"))
+		draw_colored_polygon(PackedVector2Array([base + pp * w, sh + pp * w, tip, sh + pp * w * r, base + pp * w * r]), Color("2f9b62").lerp(Color("57d892"), 0.3 * bright))
+		draw_colored_polygon(PackedVector2Array([base + pp * w * r, sh + pp * w * r, tip, sh - pp * w * 0.55, base - pp * w * 0.55]), Color("8ff5bf").lerp(Color("c9ffe2"), 0.4 * bright))
+		draw_polyline(PackedVector2Array([base + pp * w * r, sh + pp * w * r, tip]), Color(0.9, 1.0, 0.95, 0.85), maxf(1.0, w * 0.12), true)
+	func _draw() -> void:
+		var s := size; var st: int = UI.stage
+		if st == 2:
+			_split(s); return
+		var p := _pts(SH, s)
+		# soft cast shadow, then a dark keyline so the rim reads on any backdrop
+		var sp := p.duplicate()
+		for k in sp.size(): sp[k] += Vector2(s.x * 0.035, s.y * 0.05)
+		draw_colored_polygon(sp, Color(0, 0, 0, 0.45))
+		_shield(s, st)
+	func _shield(s: Vector2, st: int, wear := 0.0) -> void:
+		var p := _pts(SH, s)
+		var bw := maxf(3.0, s.x * 0.075)
+		var brass: Color = [Color("d9a441"), Color("9c8a63"), Color("4d4842")][st]
+		var keyl := inset(p, -maxf(1.5, s.x * 0.022))
+		_fill(keyl, Color("0b0d08"))
+		var i1 := inset(p, bw); var i2 := inset(p, bw + maxf(1.5, s.x * 0.03))
+		_ring(p, i1, brass, 0.45)
+		_ring(i1, i2, brass.darkened(0.15), 0.5, true)
+		# field: olive drab, darker toward the point, with a heraldic split light/dark down the middle
+		var fld: Color = [Color("232a1b"), Color("1e221c"), Color("161816")][st]
+		var steps := 10; var y0 := i2[0].y; var y1 := i2[3].y
+		for k in steps:
+			var a := y0 + (y1 - y0) * k / steps; var b := y0 + (y1 - y0) * (k + 1) / steps
+			var band := Geometry2D.intersect_polygons(i2, PackedVector2Array([Vector2(-s.x, a), Vector2(s.x * 2, a), Vector2(s.x * 2, b + 0.5), Vector2(-s.x, b + 0.5)]))
+			for q in band: _fill(q, fld.lightened(0.10 * (1.0 - float(k) / steps)).darkened(0.25 * float(k) / steps))
+		for q in Geometry2D.intersect_polygons(i2, PackedVector2Array([Vector2(-s.x, -s.y), Vector2(s.x * 0.5, -s.y), Vector2(s.x * 0.5, s.y * 2), Vector2(-s.x, s.y * 2)])):
+			_fill(q, Color(1, 1, 1, 0.035))
+		# rivets on the rim corners
+		if s.x >= 44:
+			for k in p.size():
+				var rc := (p[k] + i1[k]) * 0.5; var rr := maxf(1.2, s.x * 0.022)
+				_dot(rc + Vector2(rr * 0.35, rr * 0.45), rr, Color(0, 0, 0, 0.5))
+				_dot(rc, rr, brass.darkened(0.1)); _dot(rc - Vector2(rr, rr) * 0.3, rr * 0.45, brass.lightened(0.45))
+		# chevrons: shadow, body, a lit top edge
+		var kh: Color = [Color("d8cba3"), Color("b9b39d"), Color("6f6d60")][st]
 		for i in 3:
-			var ap := 0.53 + 0.12 * i
-			var u1 := (cut - ap) / (m - sl); var u2 := (cut - ap - dy) / (m - sl)
-			draw_colored_polygon(PackedVector2Array([Vector2(0.5, ap) * s, Vector2(0.5 + u1, ap + m * u1) * s, Vector2(0.5 + u2, ap + dy + m * u2) * s, Vector2(0.5, ap + dy) * s, Vector2(0.5 - u2, ap + dy + m * u2) * s, Vector2(0.5 - u1, ap + m * u1) * s]), k)
-		var st := PackedVector2Array(); var cc := Vector2(s.x * 0.5, s.y * 0.27)
+			var sh := _chev(s, i, 0.0, 1.0)
+			for k in sh.size(): sh[k] += Vector2(s.x * 0.012, s.y * 0.018)
+			_fill(sh, Color(0, 0, 0, 0.45))
+			_fill(_chev(s, i, 0.0, 1.0), kh.darkened(0.12))
+			_fill(_chev(s, i, 0.0, 0.55), kh)
+			_fill(_chev(s, i, 0.0, 0.18), kh.lightened(0.35))
+		if st == 1 and s.x >= 30:
+			# a chip knocked out of the lowest chevron's right arm
+			var cp := _pts([Vector2(0.735, 0.712), Vector2(0.795, 0.69), Vector2(0.775, 0.738)], s)
+			_fill(cp, fld.darkened(0.2))
+			draw_polyline(PackedVector2Array([cp[0], cp[1]]), kh.lightened(0.3), 1.0, true)
+		if st < 2: _star(s, st)
+		# gloss: a faint diagonal sheen over the top left
+		var gl := PackedVector2Array([Vector2(-s.x, -s.y), Vector2(s.x * 0.62, -s.y), Vector2(s.x * 0.05, s.y * 0.62), Vector2(-s.x, s.y * 0.62)])
+		for q in Geometry2D.intersect_polygons(p, gl): _fill(q, Color(1, 0.95, 0.8, 0.05 if st == 0 else 0.025))
+		if st == 1: _crack(s)
+		if st >= 1 and s.x >= 40: _scratches(s, i1)
+	func _star(s: Vector2, st: int) -> void:
+		var cc := Vector2(s.x * 0.5, s.y * 0.27); var ro := s.x * 0.135; var ri := s.x * 0.056
+		var red: Color = [Color("e5483f"), Color("9c4038"), Color("5a2a26")][st]
+		var outer := PackedVector2Array()
 		for i in 10:
-			var a := -PI / 2 + i * PI / 5; var r := s.x * (0.13 if i % 2 == 0 else 0.055)
-			st.append(cc + Vector2(cos(a), sin(a)) * r)
-		draw_colored_polygon(st, C_ACC_STAR)
-	const C_ACC_STAR := Color("e5483f")
+			var a := -PI / 2 + i * PI / 5; outer.append(cc + Vector2(cos(a), sin(a)) * ((ro if i % 2 == 0 else ri) + s.x * 0.018))
+		_fill(outer, Color("0b0d08"))
+		for i in 5:
+			var a := -PI / 2 + i * TAU / 5
+			var tip := cc + Vector2(cos(a), sin(a)) * ro
+			var l := cc + Vector2(cos(a - PI / 5), sin(a - PI / 5)) * ri; var r := cc + Vector2(cos(a + PI / 5), sin(a + PI / 5)) * ri
+			var nl := ((tip + l) * 0.5 - cc).normalized(); var nr := ((tip + r) * 0.5 - cc).normalized()
+			var L := LIGHT.normalized()
+			_fill(PackedVector2Array([cc, l, tip]), red.lightened(0.3) if nl.dot(L) > 0.0 else red.darkened(0.25))
+			_fill(PackedVector2Array([cc, tip, r]), red.lightened(0.3) if nr.dot(L) > 0.0 else red.darkened(0.25))
+	func _crack(s: Vector2) -> void:
+		var c := _pts(CRACK, s); var n := c.size()
+		var a := PackedVector2Array(); var b := PackedVector2Array()
+		for k in n:
+			var d := (c[mini(k + 1, n - 1)] - c[maxi(k - 1, 0)]).normalized(); var pp := Vector2(-d.y, d.x)
+			var w := s.x * 0.03 * sin(PI * (0.15 + 0.7 * float(k) / (n - 1)))
+			a.append(c[k] + pp * w); b.append(c[k] - pp * w * 0.6)
+		b.reverse(); a.append_array(b)
+		draw_colored_polygon(a, Color("060705"))
+		for k in range(2, n - 1): UI.glow(self, c[k], Vector2.ONE * s.x * 0.07, Color(0.35, 1.0, 0.6, 0.22))
+		draw_polyline(c.slice(2, n - 1), Color(0.6, 1.0, 0.78, 0.8), maxf(1.0, s.x * 0.006), true)
+		# lit lip on the upper side of the break
+		var lip := PackedVector2Array()
+		for k in n: lip.append(a[k])
+		draw_polyline(lip, Color(1, 1, 0.9, 0.35), 1.0, true)
+	func _scratches(s: Vector2, i1: PackedVector2Array) -> void:
+		for k in 9:
+			var h1 := fposmod(sin(k * 91.7 + 3.1) * 4375.5, 1.0); var h2 := fposmod(sin(k * 37.3 + 9.4) * 9137.1, 1.0)
+			var c := Vector2(0.2 + 0.6 * h1, 0.12 + 0.7 * h2) * s; var a := h1 * 6.0
+			var d := Vector2(cos(a), sin(a)) * s.x * (0.03 + 0.05 * h2)
+			draw_line(c - d, c + d, Color(1, 1, 1, 0.08), 1.0, true)
+	func _split(s: Vector2) -> void:
+		var sp := _pts(SPLIT, s)
+		var L := sp.duplicate(); L.append(Vector2(-s.x, s.y * 1.3)); L.append(Vector2(-s.x, -s.y * 0.3))
+		var R := sp.duplicate(); R.append(Vector2(s.x * 2, s.y * 1.3)); R.append(Vector2(s.x * 2, -s.y * 0.3))
+		# green light pouring out of the break
+		UI.glow(self, s * Vector2(0.53, 0.45), s * Vector2(0.8, 0.9), Color(0.2, 1.0, 0.55, 0.35))
+		UI.glow(self, s * Vector2(0.53, 0.45), s * Vector2(0.18, 0.5), Color(0.6, 1.0, 0.8, 0.5))
+		var p := _pts(SH, s)
+		for half in [[L, Vector2(-0.11, 0.04), -0.07], [R, Vector2(0.11, -0.01), 0.075]]:
+			var off: Vector2 = half[1] * s
+			draw_set_transform(off + s * 0.5 - (s * 0.5).rotated(half[2]), half[2], Vector2.ONE)
+			clip = half[0]
+			var sp2 := p.duplicate()
+			for k in sp2.size(): sp2[k] += Vector2(s.x * 0.035, s.y * 0.05)
+			_fill(sp2, Color(0, 0, 0, 0.5))
+			_shield(s, 2)
+			# green rim light along the broken edge
+			for e: PackedVector2Array in Geometry2D.intersect_polyline_with_polygon(sp, p):
+				draw_polyline(e, Color(0.55, 1.0, 0.75, 0.75), maxf(1.5, s.x * 0.016), true)
+			clip = PackedVector2Array()
+			draw_set_transform(Vector2.ZERO)
+		# crystals growing out of the wound, the tallest where the star used to be
+		var cr := [[0.56, 0.36, -2.25, 0.36, 0.06], [0.58, 0.45, -0.95, 0.34, 0.06], [0.57, 0.40, -1.62, 0.62, 0.09], [0.55, 0.46, -1.25, 0.44, 0.075],
+			[0.47, 0.64, -2.7, 0.16, 0.035], [0.50, 0.76, -0.35, 0.14, 0.03]]
+		for c in cr: crystal(Vector2(c[0], c[1]) * s, c[2], c[3] * s.y, c[4] * s.x)
+		
+## Marks laid over the AURITE / FRONT title for later stages: a crack through both words, then crystals and a green underglow.
+class TitleMark extends Control:
+	var w := 300.0      # width of the longer word
+	var lh := 60.0      # font size of the title
+	var center := false
+	var b: Label        # the second word (FRONT)
+	func _draw() -> void:
+		var st: int = UI.stage
+		if st == 0 or b == null: return
+		var x0 := (size.x - w) * 0.5 if center else 0.0
+		var top := size.y * 0.24; var off: float = b.position.y - (get_parent() as Control).position.y
+		var base2: float = off + b.size.y * 0.78; var top2: float = off + b.size.y * 0.24
+		if st == 2:
+			UI.glow(self, Vector2(x0 + w * 0.5, base2), Vector2(w * 0.8, lh * 0.5), Color(0.25, 1.0, 0.6, 0.18))
+		# crack: down through the U of AURITE, then on through the O of FRONT, each a tapered dark break with a green core
+		for seg in [[Vector2(0.255, top), Vector2(0.235, top + (base2 - top2) * 0.35), Vector2(0.285, top + (base2 - top2) * 0.55), Vector2(0.25, size.y * 0.78)],
+				[Vector2(0.43, top2), Vector2(0.41, top2 + (base2 - top2) * 0.3), Vector2(0.455, top2 + (base2 - top2) * 0.6), Vector2(0.43, base2)]]:
+			var c := PackedVector2Array()
+			for v: Vector2 in seg: c.append(Vector2(x0 + v.x * w, v.y))
+			var a := PackedVector2Array(); var r := PackedVector2Array(); var n := c.size()
+			for k in n:
+				var d := (c[mini(k + 1, n - 1)] - c[maxi(k - 1, 0)]).normalized(); var pp := Vector2(-d.y, d.x)
+				var wd := lh * (0.035 if st == 1 else 0.05) * sin(PI * (0.12 + 0.76 * float(k) / (n - 1)))
+				a.append(c[k] + pp * wd); r.append(c[k] - pp * wd * 0.5)
+			r.reverse(); a.append_array(r)
+			draw_colored_polygon(a, Color(0.02, 0.025, 0.02))
+			draw_polyline(c.slice(1, n - 1), Color(0.6, 1.0, 0.78, 0.5 if st == 1 else 0.85), 1.0, true)
+			if st == 2: UI.glow(self, c[1], Vector2.ONE * lh * 0.3, Color(0.3, 1.0, 0.6, 0.3))
+		if st == 2:
+			# crystals pushing up through FRONT's baseline
+			for cr in [[0.43, -1.75, 0.62, 0.05], [0.47, -1.25, 0.38, 0.04], [0.395, -2.3, 0.34, 0.035], [0.86, -1.8, 0.36, 0.035], [0.9, -1.3, 0.22, 0.028], [0.06, -1.9, 0.26, 0.03]]:
+				_crystal(Vector2(x0 + cr[0] * w, base2 + lh * 0.04), cr[1], cr[2] * lh, cr[3] * w)
+	func _crystal(base: Vector2, ang: float, ln: float, wd: float) -> void:
+		var d := Vector2(cos(ang), sin(ang)); var pp := Vector2(-d.y, d.x)
+		var tip := base + d * ln; var sh := base + d * ln * 0.72
+		UI.glow(self, base + d * ln * 0.5, Vector2.ONE * ln * 0.9, Color(0.3, 1.0, 0.6, 0.25))
+		draw_colored_polygon(PackedVector2Array([base + pp * wd, sh + pp * wd, tip, sh - pp * wd, base - pp * wd]), Color("1d6a44"))
+		draw_colored_polygon(PackedVector2Array([base + pp * wd, sh + pp * wd, tip, sh + pp * wd * 0.1, base + pp * wd * 0.1]), Color("3fae72"))
+		draw_colored_polygon(PackedVector2Array([base + pp * wd * 0.1, sh + pp * wd * 0.1, tip, sh - pp * wd * 0.55, base - pp * wd * 0.55]), Color("a8f8cf"))
+		draw_polyline(PackedVector2Array([base + pp * wd * 0.1, sh + pp * wd * 0.1, tip]), Color(0.9, 1, 0.95, 0.8), 1.0, true)
+
+## Speaker portrait for the radio panel and the debrief, drawn in code from a Data.SPEAKERS entry:
+## a lit bust on a faction-tinted screen with scanlines and a little radio static.
+class Portrait extends Control:
+	var sp := {}          # Data.SPEAKERS entry
+	var t := 0.0
+	var live := false     # animates static and a talking mouth while a line is being typed
+	func _process(dt: float) -> void:
+		if live and is_visible_in_tree():
+			t += dt; queue_redraw()
+	func _ell(c: Vector2, r: Vector2, col: Color, n := 28) -> void:
+		var p := PackedVector2Array()
+		for i in n: p.append(c + Vector2(cos(TAU * i / n) * r.x, sin(TAU * i / n) * r.y))
+		draw_colored_polygon(p, col)
+		p.append(p[0]); draw_polyline(p, col, 1.0, true)
+	func _poly(pts: Array, col: Color) -> void:
+		var p := PackedVector2Array()
+		for v in pts: p.append(v * size)
+		draw_colored_polygon(p, col)
+		p.append(p[0]); draw_polyline(p, col, 1.0, true)
+	func _draw() -> void:
+		var s := size
+		if sp.is_empty(): return
+		var tint: Color = sp.get("tint", Color("3a4030"))
+		# screen: tinted glass, darker at the bottom
+		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(s.x, 0), s, Vector2(0, s.y)]), PackedColorArray([tint.lightened(0.12), tint.lightened(0.12), tint.darkened(0.55), tint.darkened(0.55)]))
+		UI.glow(self, Vector2(s.x * 0.35, s.y * 0.3), s * 0.7, Color(tint.lightened(0.5), 0.25))
+		var skin: Color = sp.get("skin", Color("c99a78")); var hair: Color = sp.get("hair", Color("3a2a20"))
+		var uni: Color = sp.get("uniform", Color("3d4530")); var gear: String = sp.get("gear", "")
+		var lng: bool = sp.get("long", false); var old: float = sp.get("age", 0.3)
+		var c := Vector2(0.5, 0.47)
+		# long hair falls behind the head and onto the shoulders
+		if lng: _poly([Vector2(0.30, 0.36), Vector2(0.70, 0.36), Vector2(0.74, 0.74), Vector2(0.62, 0.80), Vector2(0.38, 0.80), Vector2(0.26, 0.74)], hair.darkened(0.15))
+		if gear == "hood": _poly([Vector2(0.26, 0.42), Vector2(0.5, 0.12), Vector2(0.74, 0.42), Vector2(0.80, 0.86), Vector2(0.20, 0.86)], uni.darkened(0.2))
+		# shoulders, collar and a faction flash
+		_poly([Vector2(0.04, 1.02), Vector2(0.10, 0.84), Vector2(0.30, 0.76), Vector2(0.70, 0.76), Vector2(0.90, 0.84), Vector2(0.96, 1.02)], uni)
+		_poly([Vector2(0.70, 0.76), Vector2(0.90, 0.84), Vector2(0.96, 1.02), Vector2(0.66, 1.02)], uni.darkened(0.25))
+		_poly([Vector2(0.38, 0.75), Vector2(0.5, 0.88), Vector2(0.62, 0.75), Vector2(0.58, 0.72), Vector2(0.42, 0.72)], uni.darkened(0.45))
+		_poly([Vector2(0.30, 0.76), Vector2(0.42, 0.75), Vector2(0.5, 0.92), Vector2(0.40, 0.98)], uni.lightened(0.12))
+		_poly([Vector2(0.70, 0.76), Vector2(0.58, 0.75), Vector2(0.5, 0.92), Vector2(0.60, 0.98)], uni.lightened(0.05))
+		var flash: Color = sp.get("flash", Color("d9a441"))
+		_poly([Vector2(0.14, 0.86), Vector2(0.26, 0.82), Vector2(0.27, 0.87), Vector2(0.15, 0.91)], flash)
+		# neck in shadow, then the head: rounded skull, a jaw, ears
+		_poly([Vector2(0.43, 0.60), Vector2(0.57, 0.60), Vector2(0.58, 0.76), Vector2(0.5, 0.80), Vector2(0.42, 0.76)], skin.darkened(0.3))
+		_ell(Vector2(0.325, 0.48) * s, Vector2(0.03, 0.05) * s, skin.darkened(0.08))
+		_ell(Vector2(0.675, 0.48) * s, Vector2(0.03, 0.05) * s, skin.darkened(0.2))
+		var jw: float = sp.get("jaw", 0.13)
+		_ell(Vector2(0.5, 0.42) * s, Vector2(0.17, 0.17) * s, skin)
+		_poly([Vector2(0.33, 0.44), Vector2(0.67, 0.44), Vector2(0.5 + jw, 0.58), Vector2(0.56, 0.665), Vector2(0.44, 0.665), Vector2(0.5 - jw, 0.58)], skin)
+		# shade the far side of the face (light from the upper left)
+		_poly([Vector2(0.56, 0.27), Vector2(0.64, 0.32), Vector2(0.67, 0.44), Vector2(0.5 + jw, 0.58), Vector2(0.56, 0.665), Vector2(0.52, 0.665), Vector2(0.58, 0.55), Vector2(0.60, 0.40)], skin.darkened(0.16))
+		# eyes, brows, nose, mouth
+		var ey := 0.455
+		for side: int in [-1, 1]:
+			var ex := 0.5 + side * 0.07
+			if sp.get("patch", false) and side == 1:
+				_ell(Vector2(ex, ey) * s, Vector2(0.04, 0.03) * s, Color("141414"))
+				draw_line(Vector2(0.33, 0.40) * s, Vector2(0.67, 0.44) * s, Color("141414"), maxf(1.0, s.x * 0.012), true)
+			else:
+				_ell(Vector2(ex, ey) * s, Vector2(0.028, 0.012) * s, Color(0.95, 0.93, 0.88) if not sp.get("glow", false) else Color(0.6, 1.0, 0.8))
+				_ell(Vector2(ex + 0.004, ey) * s, Vector2(0.012, 0.012) * s, Color("1d1712") if not sp.get("glow", false) else Color(0.3, 1.0, 0.6))
+				if sp.get("glow", false): UI.glow(self, Vector2(ex, ey) * s, Vector2.ONE * s.x * 0.06, Color(0.3, 1.0, 0.6, 0.6))
+			var bt: float = sp.get("brow", 0.0)   # positive: frowning
+			draw_line(Vector2(ex - side * 0.045, ey - 0.042 + bt * 0.01) * s, Vector2(ex + side * 0.035, ey - 0.042 - bt * 0.012) * s, hair.darkened(0.2), maxf(1.5, s.x * 0.018), true)
+			if old > 0.5:
+				draw_line(Vector2(ex + side * 0.04, ey + 0.012) * s, Vector2(ex + side * 0.06, ey + 0.03) * s, skin.darkened(0.3), 1.0, true)
+		draw_line(Vector2(0.505, 0.47) * s, Vector2(0.515, 0.535) * s, skin.darkened(0.3), maxf(1.0, s.x * 0.012), true)
+		_poly([Vector2(0.48, 0.545), Vector2(0.53, 0.545), Vector2(0.515, 0.555)], skin.darkened(0.35))
+		var talk := 0.0
+		if live: talk = absf(sin(t * 13.0)) * 0.018
+		var sm: float = sp.get("smile", 0.0)
+		_poly([Vector2(0.455, 0.595 - sm * 0.01), Vector2(0.5, 0.592 + sm * 0.012), Vector2(0.545, 0.595 - sm * 0.01), Vector2(0.5, 0.6 + talk)], Color("4a2420").lerp(skin.darkened(0.4), 0.4))
+		if old > 0.5:
+			draw_line(Vector2(0.44, 0.34) * s, Vector2(0.56, 0.335) * s, skin.darkened(0.2), 1.0, true)
+		if sp.get("scar", false):
+			draw_line(Vector2(0.40, 0.42) * s, Vector2(0.45, 0.56) * s, skin.lightened(0.25), maxf(1.0, s.x * 0.01), true)
+		# facial hair
+		var bd: String = sp.get("beard", "")
+		if bd == "full":
+			_poly([Vector2(0.35, 0.50), Vector2(0.42, 0.57), Vector2(0.58, 0.57), Vector2(0.65, 0.50), Vector2(0.62, 0.66), Vector2(0.5, 0.74), Vector2(0.38, 0.66)], hair)
+			_poly([Vector2(0.45, 0.6), Vector2(0.55, 0.6), Vector2(0.5, 0.615)], Color("3a201c"))
+		if bd == "full" or bd == "moustache":
+			_poly([Vector2(0.43, 0.585), Vector2(0.5, 0.565), Vector2(0.57, 0.585), Vector2(0.56, 0.6), Vector2(0.5, 0.585), Vector2(0.44, 0.6)], hair.lightened(0.05))
+		# hair on top, then headgear
+		if sp.get("hair_top", true) and gear != "helmet" and gear != "hood":
+			_poly([Vector2(0.33, 0.42), Vector2(0.34, 0.30), Vector2(0.42, 0.25), Vector2(0.56, 0.245), Vector2(0.65, 0.29), Vector2(0.675, 0.42), Vector2(0.64, 0.34), Vector2(0.52, 0.31), Vector2(0.40, 0.33)], hair)
+		match gear:
+			"cap":
+				var cc: Color = sp.get("cap", uni)
+				_poly([Vector2(0.30, 0.31), Vector2(0.33, 0.20), Vector2(0.5, 0.15), Vector2(0.70, 0.19), Vector2(0.72, 0.31)], cc)
+				_poly([Vector2(0.31, 0.29), Vector2(0.71, 0.29), Vector2(0.71, 0.33), Vector2(0.31, 0.33)], sp.get("band", flash))
+				_poly([Vector2(0.32, 0.33), Vector2(0.68, 0.33), Vector2(0.62, 0.38), Vector2(0.38, 0.38)], Color("15140f"))
+				_ell(Vector2(0.5, 0.24) * s, Vector2(0.025, 0.025) * s, flash.lightened(0.2))
+			"helmet":
+				var hc: Color = sp.get("cap", uni.lightened(0.05))
+				_poly([Vector2(0.29, 0.40), Vector2(0.30, 0.26), Vector2(0.40, 0.17), Vector2(0.60, 0.17), Vector2(0.70, 0.26), Vector2(0.71, 0.40), Vector2(0.66, 0.36), Vector2(0.34, 0.36)], hc)
+				_poly([Vector2(0.27, 0.36), Vector2(0.73, 0.36), Vector2(0.73, 0.39), Vector2(0.27, 0.39)], hc.darkened(0.3))
+				_poly([Vector2(0.36, 0.22), Vector2(0.46, 0.18), Vector2(0.45, 0.21)], hc.lightened(0.3))
+				# headset boom
+				draw_polyline(PackedVector2Array([Vector2(0.31, 0.47) * s, Vector2(0.33, 0.58) * s, Vector2(0.43, 0.6) * s]), Color("1a1a1a"), maxf(1.0, s.x * 0.014), true)
+			"goggles":
+				_poly([Vector2(0.32, 0.31), Vector2(0.68, 0.31), Vector2(0.68, 0.35), Vector2(0.32, 0.35)], Color("2a2420"))
+				for gx: float in [0.42, 0.58]:
+					_ell(Vector2(gx, 0.31) * s, Vector2(0.055, 0.045) * s, Color("6b5a3a"))
+					_ell(Vector2(gx, 0.31) * s, Vector2(0.04, 0.032) * s, Color(0.55, 0.75, 0.8))
+					_ell(Vector2(gx - 0.012, 0.3) * s, Vector2(0.012, 0.009) * s, Color(1, 1, 1, 0.8))
+			"hood":
+				_poly([Vector2(0.29, 0.46), Vector2(0.32, 0.27), Vector2(0.5, 0.17), Vector2(0.68, 0.27), Vector2(0.71, 0.46), Vector2(0.66, 0.36), Vector2(0.5, 0.29), Vector2(0.34, 0.36)], uni.darkened(0.1))
+		# screen effects: scanlines, a soft vignette, static, glass sheen and a hard frame
+		var y := 0.0
+		while y < s.y:
+			draw_line(Vector2(0, y), Vector2(s.x, y), Color(0, 0, 0, 0.12), 1.0); y += 3.0
+		for i in 18:
+			var hx := fposmod(sin(i * 12.9 + floorf(t * 12.0) * 7.1) * 43758.5, 1.0); var hy := fposmod(sin(i * 78.2 + floorf(t * 12.0) * 3.3) * 24634.6, 1.0)
+			draw_rect(Rect2(Vector2(hx, hy) * s, Vector2(2, 1)), Color(1, 1, 1, 0.12))
+		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(s.x * 0.55, 0), Vector2(0, s.y * 0.45)]), PackedColorArray([Color(1, 1, 1, 0.09), Color(1, 1, 1, 0), Color(1, 1, 1, 0)]))
+		draw_rect(Rect2(Vector2.ZERO, s), Color(0, 0, 0, 0.9), false, 3.0)
+		draw_rect(Rect2(Vector2(1.5, 1.5), s - Vector2(3, 3)), Color(flash, 0.75), false, 1.0)
+
+## The "go" mark on a door: a riveted plate with a bold arrow that leans forward on hover.
+class GoMark extends Control:
+	var main_action := false
+	var hot := false
+	var k := 0.0
+	func _process(dt: float) -> void:
+		var want := 1.0 if hot else 0.0
+		if absf(k - want) > 0.01: k = move_toward(k, want, dt * 6.0); queue_redraw()
+	func _draw() -> void:
+		var s := size; var c := s * 0.5; var r := minf(s.x, s.y) * 0.5 - 2
+		var st: int = UI.stage
+		var acc: Color = ([Color("e5483f"), Color("a8483c"), Color("3fbf7a")][st] if main_action else Color("a99c78"))
+		var p := PackedVector2Array()
+		for i in 8: p.append(c + Vector2(cos(PI / 8 + i * PI / 4), sin(PI / 8 + i * PI / 4)) * r)
+		var q := p.duplicate(); q.append(p[0])
+		var sh := p.duplicate()
+		for i in sh.size(): sh[i] += Vector2(0, 3)
+		draw_colored_polygon(sh, Color(0, 0, 0, 0.45))
+		draw_colored_polygon(p, acc.darkened(0.6).lerp(acc.darkened(0.35), k))
+		var ins := Insignia.inset(p, 4.0); var iq := ins.duplicate(); iq.append(ins[0])
+		draw_polyline(q, acc, 2.0, true); draw_polyline(iq, Color(acc, 0.35), 1.0, true)
+		for i in 4:
+			var rv := c + Vector2(cos(PI / 4 + i * PI / 2), sin(PI / 4 + i * PI / 2)) * (r - 6)
+			draw_circle(rv, 1.8, Color(acc.lightened(0.4), 0.8))
+		var fw := Color.WHITE if main_action else Color("d8cba3")
+		var o := c + Vector2(r * 0.12 * k - r * 0.05, 0); var a := r * 0.5
+		var arrow := PackedVector2Array([o + Vector2(-a, -a * 0.22), o + Vector2(a * 0.05, -a * 0.22), o + Vector2(a * 0.05, -a * 0.62), o + Vector2(a * 0.75, 0),
+			o + Vector2(a * 0.05, a * 0.62), o + Vector2(a * 0.05, a * 0.22), o + Vector2(-a, a * 0.22)])
+		var ash := arrow.duplicate()
+		for i in ash.size(): ash[i] += Vector2(0, 2)
+		draw_colored_polygon(ash, Color(0, 0, 0, 0.5)); draw_colored_polygon(arrow, fw)
+		var aq := arrow.duplicate(); aq.append(arrow[0]); draw_polyline(aq, fw, 1.0, true)
+		if k > 0.01: UI.glow(self, c, Vector2.ONE * r * 1.4, Color(acc, 0.25 * k))
+
+## A blinking red "on air" dot for the start screen's header.
+class RecDot extends Control:
+	var t := 0.0
+	func _process(dt: float) -> void:
+		if is_visible_in_tree(): t += dt; queue_redraw()
+	func _draw() -> void:
+		var on := fposmod(t, 1.6) < 1.1
+		var c := Vector2(7, size.y * 0.5)
+		var col := Color("e5483f") if UI.stage < 2 else Color("3fbf7a")
+		if on:
+			UI.glow(self, c, Vector2(12, 12), Color(col, 0.45)); draw_circle(c, 3.5, col)
+		else: draw_circle(c, 3.5, Color(col, 0.3))
+
+## Dispatch ticker along the bottom of the start screen: war news scrolling past, darker as the story descends.
+class Ticker extends Control:
+	var font: Font
+	var t := 0.0
+	const NEWS := [
+		["KETTLEFORD FOUNDRY LIGHTS ITS FIRES", "VANGUARD BARGES SIGHTED OFF THE SABLE COAST", "PACT MILITIA MUSTERS AT THE RIVER", "AURITE PRICE DOUBLES IN THE CAPITAL", "MARSHAL DACE PROMISES PEACE BY WINTER"],
+		["IRON TIDE MAKES LANDFALL", "FOUNDRY TOWNS EMPTY OVERNIGHT", "MINERS REPORT SINGING IN THE DEEP SHAFTS", "RELAY MASTS DOWN ACROSS THE VALLEY", "ORE FIELDS GROWING BACK FASTER THAN MINED"],
+		["THE CHOIR IS SINGING", "NO REPORTS FROM THE DEEP", "GLASS WHERE THE TOWNS WERE", "DO NOT LISTEN TO THE HUM", "IT WAS NEVER OURS"],
+	]
+	func _process(dt: float) -> void:
+		if is_visible_in_tree(): t += dt; queue_redraw()
+	func _draw() -> void:
+		var s := size; var st: int = UI.stage
+		var acc: Color = [Color("d9a441"), Color("a88d55"), Color("3fbf7a")][st]
+		draw_rect(Rect2(Vector2.ZERO, s), Color(0, 0, 0, 0.55))
+		draw_line(Vector2(0, 0.5), Vector2(s.x, 0.5), Color(acc, 0.5), 1.0)
+		draw_line(Vector2(0, s.y - 0.5), Vector2(s.x, s.y - 0.5), Color(acc, 0.25), 1.0)
+		var line := ""
+		for n in NEWS[st]: line += n + "      ///      "
+		var fs := 12; var w := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var x := 120.0 - fposmod(t * 40.0, w)
+		while x < s.x:
+			draw_string(font, Vector2(x, s.y * 0.5 + fs * 0.36), line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color("d8cba3") if st < 2 else Color("a3c9b0"))
+			x += w
+		# tag on the left, over the scrolling text
+		draw_rect(Rect2(0, 1, 110, s.y - 2), Color(acc.darkened(0.55), 1.0))
+		draw_colored_polygon(PackedVector2Array([Vector2(110, 1), Vector2(122, 1), Vector2(110, s.y - 1)]), Color(acc.darkened(0.55), 1.0))
+		draw_string(font, Vector2(14, s.y * 0.5 + 4.5), "DISPATCH", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, acc.lightened(0.2))
+
+## Craft layer behind a start-screen door: inner bevel, hatching, rivets and a faint emblem; aged with UI.stage.
+class DoorArt extends Control:
+	var main_action := false
+	var accent := Color("e5483f")
+	var num := "I"
+	var done := 0
+	var total := 8
+	var t := 0.0
+	func _process(dt: float) -> void:
+		if main_action and is_visible_in_tree():
+			t += dt; queue_redraw()
+	func _draw() -> void:
+		var s := size; var st: int = UI.stage
+		# top lit edge and a darker floor
+		draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(s.x, 0), Vector2(s.x, s.y * 0.45), Vector2(0, s.y * 0.45)]),
+			PackedColorArray([Color(1, 1, 1, 0.07), Color(1, 1, 1, 0.07), Color(1, 1, 1, 0), Color(1, 1, 1, 0)]))
+		draw_polygon(PackedVector2Array([Vector2(0, s.y * 0.6), Vector2(s.x, s.y * 0.6), Vector2(s.x, s.y), Vector2(0, s.y)]),
+			PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0), Color(0, 0, 0, 0.3), Color(0, 0, 0, 0.3)]))
+		# fine diagonal hatching
+		var x := -s.y
+		while x < s.x:
+			draw_line(Vector2(x, s.y), Vector2(x + s.y, 0), Color(1, 1, 1, 0.022), 1.0); x += 9
+		# inner keyline
+		draw_rect(Rect2(Vector2(7, 7), s - Vector2(14, 14)), Color(accent, 0.22), false, 1.0)
+		# rivets
+		for c in [Vector2(16, s.y - 14), Vector2(s.x - 16, 14), Vector2(s.x - 16, s.y - 14), Vector2(28, 14)]:
+			draw_circle(c + Vector2(0.6, 0.8), 2.6, Color(0, 0, 0, 0.5)); draw_circle(c, 2.6, Color(accent.darkened(0.3), 0.9)); draw_circle(c - Vector2(0.8, 0.8), 1.0, Color(1, 1, 1, 0.35))
+		# emblem, big and faint on the right: the shield for the campaign, a tank for skirmish
+		var ec := Color(1, 1, 1, 0.03)
+		if not main_action:
+			var h := s.y / 60.0
+			draw_set_transform(Vector2(s.x - 40 * h - 50, s.y * 0.78), -0.04, Vector2(h, h))
+			draw_colored_polygon(PackedVector2Array([Vector2(-26, 0), Vector2(26, 0), Vector2(31, -6), Vector2(25, -11), Vector2(-25, -11), Vector2(-31, -6)]), ec)
+			draw_colored_polygon(PackedVector2Array([Vector2(-13, -11), Vector2(12, -11), Vector2(9, -19), Vector2(-9, -19)]), ec)
+			draw_rect(Rect2(8, -16.5, 30, 3), ec)
+			draw_set_transform(Vector2.ZERO)
+		var f: Font = load("res://fonts/chakra-petch-latin-700-normal.woff2")
+		if main_action:
+			# the chapter numeral, huge and stencilled, behind everything
+			var fs := int(s.y * 0.95)
+			var nw := f.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_string(f, Vector2(s.x - nw - s.x * 0.16, s.y * 0.86), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.05))
+			# one pip per mission along the bottom: won ones filled, the next one pulsing
+			var pw := 30.0; var gap := 8.0; var px := 22.0; var py := s.y - 40.0
+			draw_string(f, Vector2(px, py - 8), "OPERATIONS", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.45))
+			for i in total:
+				var r := Rect2(px + i * (pw + gap), py, pw, 12)
+				var pts := PackedVector2Array([r.position + Vector2(4, 0), Vector2(r.end.x, r.position.y), r.end - Vector2(4, 0), Vector2(r.position.x, r.end.y)])
+				if i < done:
+					draw_colored_polygon(pts, Color(accent.lightened(0.35), 0.95))
+				elif i == done:
+					var pl := 0.5 + 0.5 * sin(t * 4.0)
+					draw_colored_polygon(pts, Color(accent.lightened(0.5), 0.25 + 0.35 * pl))
+					UI.glow(self, r.get_center(), Vector2(30, 16), Color(accent, 0.25 * pl))
+				pts.append(pts[0]); draw_polyline(pts, Color(1, 1, 1, 0.35), 1.0, true)
+		else:
+			# the three armies as small shields, top right
+			var cols := [Color("3fb4e8"), Color("e5483f"), Color("3fbf7a")]
+			for i in 3:
+				var o := Vector2(s.x - 190 + i * 44, 22); var h := 36.0
+				var p := PackedVector2Array()
+				for v in Insignia.SH: p.append(o + v * Vector2(h * 0.86, h))
+				var k := p.duplicate(); k.append(p[0])
+				draw_colored_polygon(p, Color(cols[i].darkened(0.55), 0.9)); draw_polyline(k, Color(cols[i], 0.9), 1.5, true)
+				var c := o + Vector2(h * 0.43, h * 0.45)
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-7, -2), c + Vector2(0, 4), c + Vector2(7, -2), c + Vector2(7, 2), c + Vector2(0, 8), c + Vector2(-7, 2)]), Color(cols[i], 0.9))
+		if st >= 1:
+			for k in 7:
+				var h1 := fposmod(sin(k * 51.7 + (3.1 if main_action else 7.7)) * 4375.5, 1.0); var h2 := fposmod(sin(k * 17.3 + 9.4) * 9137.1, 1.0)
+				var c := Vector2(s.x * h1, s.y * h2); var a := 0.3 + h1 * 0.6
+				draw_line(c, c + Vector2(cos(a), sin(a)) * (20 + 50 * h2), Color(1, 1, 1, 0.05), 1.0, true)
+		if st == 2 and main_action:
+			# aurite pushing in through the door's bottom right corner
+			UI.glow(self, Vector2(s.x - 30, s.y - 10), Vector2(170, 110), Color(0.25, 1.0, 0.6, 0.22))
+			for cr in [[s.x - 40, -2.0, 0.55, 12.0], [s.x - 64, -2.4, 0.35, 8.0], [s.x - 18, -1.6, 0.4, 8.0], [s.x - 90, -2.7, 0.2, 6.0]]:
+				_crystal(Vector2(cr[0], s.y + 4), cr[1], cr[2] * s.y, cr[3])
+	func _crystal(base: Vector2, ang: float, ln: float, wd: float) -> void:
+		var d := Vector2(cos(ang), sin(ang)); var pp := Vector2(-d.y, d.x)
+		var tip := base + d * ln; var sh := base + d * ln * 0.72
+		draw_colored_polygon(PackedVector2Array([base + pp * wd, sh + pp * wd, tip, sh - pp * wd, base - pp * wd]), Color("1d6a44"))
+		draw_colored_polygon(PackedVector2Array([base + pp * wd, sh + pp * wd, tip, sh + pp * wd * 0.1, base + pp * wd * 0.1]), Color("3fae72"))
+		draw_colored_polygon(PackedVector2Array([base + pp * wd * 0.1, sh + pp * wd * 0.1, tip, sh - pp * wd * 0.55, base - pp * wd * 0.55]), Color("a8f8cf"))
+		draw_polyline(PackedVector2Array([base + pp * wd * 0.1, sh + pp * wd * 0.1, tip]), Color(0.9, 1, 0.95, 0.8), 1.0, true)
 
 class HudDraw extends Control:
 	var ui

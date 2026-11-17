@@ -16,6 +16,7 @@ var combat: AudioStreamPlayer
 var music_level := 0.0
 var music_target := 0.0
 var intensity := 0.0
+var mood := 0   # story mood of the mission being played (Campaign.mood): picks the theme once the staged music lands
 var pan_bus := ["SfxL", "SfxC", "SfxR"]
 
 func _ready() -> void:

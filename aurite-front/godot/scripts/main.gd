@@ -220,6 +220,9 @@ func _panel_alert() -> void:
 func toast(msg: String, kind := "") -> void:
 	U.toast(msg, kind)
 
+func radio(who: String, line: String, warn := false) -> void:
+	U.radio(who, line, warn)
+
 func sfx(n: String, x = null, y = null) -> void:
 	if S == null or paused and n != "click": return
 	var big := n == "bigboom" or n == "siren" or n == "alert" or n == "ready"
@@ -256,6 +259,8 @@ func end_game(win: bool) -> void:
 	U.set_end_result(win)
 	U.btn.end_why.text = S.end_why if (M and not win) else ""
 	U.btn.end_why.visible = U.btn.end_why.text != ""
+	U.set_debrief(M.get("debrief", {}).get("win" if win else "loss", []) if M else [])
+	U.radio_q.clear()
 	if M and win: camp_save(M.camp, M.idx)
 	var last: bool = M != null and M.idx == D.camp(M.camp).missions.size() - 1
 	var sequel := _sequel(M.camp) if M else ""
@@ -308,7 +313,14 @@ func pick_campaign(id: String) -> void:
 func _camp_rows() -> Array:
 	return D.CAMPAIGNS.map(func(C): return {"C": C, "open": camp_open(C.id), "done": camp_prog(C.id)})
 
+## Menu art stage from the furthest point of the story the player has reached: grim once campaign III is open,
+## cracked once campaign II reaches mission 5, pulpy before.
+func menu_stage() -> int:
+	if camp_open("choir"): return 2
+	return 1 if camp_prog("vanguard") >= Campaign.CRACK else 0
+
 func show_start() -> void:
+	U.set_stage(menu_stage())
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
 	# continue where the player is: the furthest open campaign that is not finished
 	var cur: Dictionary = D.CAMPAIGNS[0]
@@ -318,6 +330,7 @@ func show_start() -> void:
 	var dn := mini(camp_prog(cur.id), cur.missions.size())
 	var nxt: String = ("Next: " + cur.missions[dn].title) if dn < cur.missions.size() else "All won: replay any mission"
 	U.set_camp_tile(nxt, "%s · %s  ·  %d of %d secured" % [cur.num, cur.name, dn, cur.missions.size()])
+	U.set_camp_progress(cur.num, dn, cur.missions.size())
 	U.show_overlay("start")
 	paused = true
 	A.music_stop()
@@ -403,6 +416,7 @@ func next_mission() -> void:
 
 func play(opt: Dictionary) -> void:
 	last_opt = opt
+	A.mood = int(opt.mission.mood) if opt.has("mission") else 0
 	U.show_overlay("")
 	new_game(opt.get("diff", diff), opt)
 	paused = false
@@ -1242,7 +1256,7 @@ func _autotest(dir: String) -> void:
 	await _shot(dir + "/00_start.png")
 	var mode := OS.get_environment("AF_MODE")
 	if mode == "splash":
-		U.build_splash(); U.show_overlay("splash")
+		U.build_splash(); U.set_stage(menu_stage()); U.show_overlay("splash")
 		await get_tree().create_timer(0.5).timeout
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png("res://splash.png")
@@ -1251,6 +1265,8 @@ func _autotest(dir: String) -> void:
 		await _menu_shots(dir); get_tree().quit(); return
 	if mode == "camp":
 		await _camp_shots(dir); get_tree().quit(); return
+	if mode == "radio":
+		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "cine":
 		await _cine_shots(dir); get_tree().quit(); return
 	if OS.get_environment("AF_CAMP") != "": camp_id = OS.get_environment("AF_CAMP")
@@ -1304,6 +1320,35 @@ func _autotest(dir: String) -> void:
 	await _shot(dir + "/06_fight.png")
 	print("AUTOTEST time=", S.time, " over=", S.over, " ents=", S.ents.size())
 	get_tree().quit()
+
+## AF_MODE=radio: every speaker's portrait, the radio panel in a mission, then a debrief (sample lines from the
+## campaign I script).
+func _radio_shots(dir: String) -> void:
+	var g := GridContainer.new(); g.columns = 4; g.add_theme_constant_override("h_separation", 24); g.add_theme_constant_override("v_separation", 12)
+	g.position = Vector2(40, 30); U.overlays.start.add_child(g)
+	for k in D.SPEAKERS:
+		var v := VBoxContainer.new(); g.add_child(v)
+		var p := UI.Portrait.new(); p.sp = D.SPEAKERS[k]; p.custom_minimum_size = Vector2(150, 150); v.add_child(p)
+		v.add_child(U.lbl(D.SPEAKERS[k].name.to_upper(), U.f_wide, 12, D.SPEAKERS[k].flash))
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/01_portraits.png")
+	g.queue_free()
+	camp_id = "ashen"; brief_i = 0
+	play({"mission": D.camp("ashen").missions[0], "level": "normal"})
+	await get_tree().create_timer(1.0).timeout
+	radio("foreman", "Morning, Vey! Lovely day for a rebellion.")
+	await get_tree().create_timer(1.0).timeout
+	await _shot(dir + "/02_radio_typing.png")
+	await get_tree().create_timer(2.5).timeout
+	await _shot(dir + "/03_radio.png")
+	U.radio_q.clear(); U._radio_next()
+	radio("dace", "A bonfire? How quaint. Take that hill.", true)
+	await get_tree().create_timer(3.0).timeout
+	await _shot(dir + "/04_radio_enemy.png")
+	S.mission = S.mission.duplicate(); S.mission.debrief = {"win": [{"who": "vey", "say": "Hear that? Bells in every town."}, {"who": "brann", "say": "Kettleford's foundry is yours, girl. Come and use it."}]}
+	S.over = true; end_game(true)
+	await get_tree().create_timer(1.6).timeout
+	await _shot(dir + "/05_debrief.png")
 
 ## AF_MODE=menus: one screenshot per menu screen.
 func _menu_shots(dir: String) -> void:
