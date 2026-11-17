@@ -357,6 +357,17 @@ func show_start() -> void:
 	paused = true
 	A.music_stop()
 
+## Wipes campaign progress and watched cutscenes (the difficulty stays), back to the start of chapter I:
+## the menu, the splash and the home screen icon follow on the next start screen.
+func reset_progress() -> void:
+	var d := {"_level": camp_level()}
+	var f := FileAccess.open("user://campaigns.json", FileAccess.WRITE)
+	if f: f.store_string(JSON.stringify(d)); f.close()
+	camp_id = D.CAMPAIGNS[0].id
+	U.set_stage(menu_stage())
+	show_campaigns()
+	U.toast("Progress reset")
+
 func show_campaigns() -> void:
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
 	U.render_campaigns(_camp_rows(), camp_id)
@@ -1285,6 +1296,8 @@ func _autotest(dir: String) -> void:
 		await _shot(dir + "/splash.png"); get_tree().quit(); return
 	if mode == "menus":
 		await _menu_shots(dir); get_tree().quit(); return
+	if mode == "reset":
+		await _reset_shots(dir); get_tree().quit(); return
 	if mode == "camp":
 		await _camp_shots(dir); get_tree().quit(); return
 	if mode == "icon":
@@ -1469,6 +1482,18 @@ func _cine_shots(dir: String) -> void:
 	await get_tree().create_timer(1.0).timeout
 	await _shot(dir + "/after_skip.png")
 	print("CINE game running=", not paused, " mission=", S.mission.title if S.mission else "")
+
+## AF_MODE=reset: a save with chapter III open, then the reset button (armed, then done) and the start screen after it.
+func _reset_shots(dir: String) -> void:
+	var d := {"_level": "hard"}
+	for C in D.CAMPAIGNS: d[C.id] = C.missions.size()
+	var f := FileAccess.open("user://campaigns.json", FileAccess.WRITE); f.store_string(JSON.stringify(d)); f = null
+	show_start(); await get_tree().create_timer(0.5).timeout; await _shot(dir + "/1_start_before.png")
+	show_campaigns(); await get_tree().create_timer(0.3).timeout
+	U.btn.reset.pressed.emit(); await get_tree().create_timer(0.2).timeout; await _shot(dir + "/2_armed.png")
+	U.btn.reset.pressed.emit(); await get_tree().create_timer(0.3).timeout; await _shot(dir + "/3_reset.png")
+	print("after reset: stage ", menu_stage(), " level ", camp_level(), " file ", _camp_file())
+	show_start(); await get_tree().create_timer(0.5).timeout; await _shot(dir + "/4_start_after.png")
 
 ## AF_MODE=camp: the campaign menu, then every mission's briefing and its opening view, zoomed out. AF_CAMP picks one campaign.
 func _camp_shots(dir: String) -> void:

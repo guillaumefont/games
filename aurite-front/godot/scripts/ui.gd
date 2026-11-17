@@ -627,6 +627,19 @@ func _build_overlays() -> void:
 	var cb := ghost("Back", func(): main.show_start(), 44); cb.custom_minimum_size.x = 130; ch.add_child(cb)
 	var chv := VBoxContainer.new(); chv.add_theme_constant_override("separation", -4); chv.size_flags_horizontal = Control.SIZE_EXPAND_FILL; ch.add_child(chv)
 	chv.alignment = BoxContainer.ALIGNMENT_CENTER; chv.add_child(title("Campaigns", 30))
+	# wipe the story progress: the first tap arms it, a second tap within 4 s does it
+	var rb := ghost("Reset progress", func(): pass, 44); rb.custom_minimum_size.x = 170; ch.add_child(rb); btn.reset = rb
+	rb.pressed.connect(func():
+		if rb.has_meta("armed"):
+			rb.remove_meta("armed"); rb.text = "RESET PROGRESS"
+			for k in ["font_color", "font_hover_color", "font_pressed_color"]: rb.add_theme_color_override(k, W_KHAKI)
+			main.reset_progress(); return
+		rb.set_meta("armed", true); rb.text = "TAP AGAIN TO WIPE"
+		for k in ["font_color", "font_hover_color", "font_pressed_color"]: rb.add_theme_color_override(k, Color("ff6a5c"))
+		get_tree().create_timer(4.0).timeout.connect(func():
+			if is_instance_valid(rb) and rb.has_meta("armed"):
+				rb.remove_meta("armed"); rb.text = "RESET PROGRESS"
+				for k in ["font_color", "font_hover_color", "font_pressed_color"]: rb.add_theme_color_override(k, W_KHAKI)))
 	camp_scroll = ScrollContainer.new(); camp_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	camp_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; camp_scroll.custom_minimum_size.y = 100
 	var vsb := camp_scroll.get_v_scroll_bar(); vsb.custom_minimum_size.x = 6
