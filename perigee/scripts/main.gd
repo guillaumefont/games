@@ -28,6 +28,7 @@ const TUTORIAL_SEED := 4242
 const TUTORIAL_RECIPE := {"moons": 6, "rescue": true}
 const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
 var sector: Dictionary = {} ## the Voyage sector being played
+var run_rewards: Array[Dictionary] = [] ## Medals rewards paid out at the end of the last run
 var clear_shown := false
 var paused := false
 var resume_left := 0.0 ## > 0 while counting down to resume
@@ -205,7 +206,7 @@ func start_tutorial() -> void:
 
 
 func open_hangar() -> void:
-	hud.show_hangar(int(save.data.sparks), save.data.equipped)
+	hud.show_hangar(int(save.data.sparks), save.data.equipped, save.data.rewards)
 
 
 func close_hangar() -> void:
@@ -217,20 +218,30 @@ func close_hangar() -> void:
 ## Equips an unlocked cosmetic (locked ones are ignored).
 func equip(id: String) -> void:
 	var it := Unlocks.item(id)
-	if it.is_empty() or not Unlocks.is_unlocked(id, int(save.data.sparks)):
+	if it.is_empty() or not Unlocks.is_unlocked(id, int(save.data.sparks), save.data.rewards):
 		return
 	save.data.equipped[it.kind] = id
 	save.save_file()
 	sfx.play("toggle")
 	if hud.hangar_card.visible:
-		hud.show_hangar(int(save.data.sparks), save.data.equipped)
+		hud.show_hangar(int(save.data.sparks), save.data.equipped, save.data.rewards)
 
 
-## Adds a run's sparks to the all-time count (the unlock track) and says what that unlocked.
+## Adds a run's sparks, and the bonus sparks of any medal rewards it won (call it after the run's
+## records are saved), to the all-time count (the unlock track), and says what that unlocked.
 func _bank_sparks() -> void:
 	var before := int(save.data.sparks)
-	save.data.sparks = before + sim.sparks_got
-	var got := Unlocks.newly_unlocked(before, int(save.data.sparks))
+	var bonus := 0
+	var got: Array[Dictionary] = []
+	run_rewards = Medals.unclaimed(save.data.voyage, int(save.data.best), save.data.rewards)
+	for r in run_rewards:
+		save.data.rewards.append(r.id)
+		bonus += int(r.sparks)
+		var it := Unlocks.reward_item(r.id)
+		if not it.is_empty():
+			got.append(it)
+	save.data.sparks = before + sim.sparks_got + bonus
+	got.append_array(Unlocks.newly_unlocked(before, int(save.data.sparks)))
 	var names: Array[String] = []
 	for it in got:
 		names.append(Unlocks.label(it))
@@ -580,6 +591,9 @@ func _update_hud() -> void:
 			var tier := Medals.drift_tier(sim.score)
 			var nxt := Medals.next_points_text(Medals.DRIFT_POINTS, tier)
 			var txt := ("%s medal" % Medals.TIER_NAMES[tier]) if tier > 0 else "No medal yet"
+			var won := _reward_sparks("drift")
+			if won > 0:
+				txt += "  ·  +%d sparks" % won
 			hud.set_over_medal(tier, txt + ("  ·  " + nxt if nxt != "" else ""))
 		else:
 			hud.set_over_medal(-1, "")
@@ -599,7 +613,11 @@ func _update_hud() -> void:
 		], not Voyage.next_sector(sector.id).is_empty(), medals, {
 			"speed": Medals.next_speed_text(sector, medals.speed),
 			"points": Medals.next_points_text(Medals.points_marks(sector), medals.points),
-			"stars": "" if medals.stars > 0 else "Win all 3 stars",
+			"stars": "" if medals.stars > 0 else "Win all 3 stars · +%d" % Medals.ALL_STARS_SPARKS,
+		}, {
+			"speed": _reward_sparks("speed", sector.id),
+			"points": _reward_sparks("points", sector.id),
+			"stars": _reward_sparks("stars", sector.id) + _reward_sparks("system"),
 		})
 		var lit := 0
 		for got in st:
@@ -635,6 +653,16 @@ func _tutorial_hint() -> String:
 	if sim.holding:
 		return "Keep holding…"
 	return "Hold when you reach the dotted ring"
+
+
+## Bonus sparks the last run's rewards of `kind` paid (for `sector_id` when given: rewards
+## left unpaid from older records are paid too, but not shown on this sector's card).
+func _reward_sparks(kind: String, sector_id := "") -> int:
+	var n := 0
+	for r in run_rewards:
+		if r.kind == kind and (sector_id == "" or r.sector == sector_id):
+			n += int(r.sparks)
+	return n
 
 
 func _run_stats() -> String:

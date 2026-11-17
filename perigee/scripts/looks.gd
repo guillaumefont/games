@@ -16,6 +16,14 @@ static func draw_ship(ci: CanvasItem, id: String, pos: Vector2, dir: Vector2, t:
 			var side := Vector2(-d.y, d.x)
 			ci.draw_colored_polygon(PackedVector2Array([pos + d * 9.0, pos - d * 6.0 + side * 6.0,
 				pos - d * 3.0, pos - d * 6.0 - side * 6.0]), INK)
+		"ship_laurel":
+			# the Cradle all-stars reward: a gold ship in a wreath of leaves
+			ci.draw_circle(pos, 4.5, SAND, true, -1.0, true)
+			for side in [-1.0, 1.0]:
+				for i in 4:
+					var a: float = PI / 2.0 + side * (0.55 + i * 0.5)
+					var at := pos + Vector2(cos(a), sin(a)) * 8.5
+					ci.draw_circle(at, 1.7, Color(SAND, 0.9), true, -1.0, true)
 		"ship_halo":
 			ci.draw_circle(pos, 4.0, INK, true, -1.0, true)
 			ci.draw_arc(pos, 8.5 + sin(t * 3.0) * 0.8, 0, TAU, 28, SAND, 1.5, true)

@@ -391,7 +391,10 @@ func show_voyage(progress: Dictionary, drift_best := 0) -> void:
 	voyage_stars.text = "%d / %d stars" % ss
 	voyage_stars_medal.tier = Medals.GOLD if ss[0] >= ss[1] else Medals.NONE
 	var t := Medals.tally(progress, drift_best)
-	voyage_tally.text = "Medals  %d gold · %d silver · %d bronze" % [t[Medals.GOLD], t[Medals.SILVER], t[Medals.BRONZE]]
+	var bonus := 0
+	for r in Medals.rewards(progress, drift_best):
+		bonus += int(r.sparks)
+	voyage_tally.text = "Rewards  %d gold · %d silver · %d bronze · +%d sparks" % [t[Medals.GOLD], t[Medals.SILVER], t[Medals.BRONZE], bonus]
 	voyage_card.visible = true
 
 
@@ -402,8 +405,9 @@ func hide_voyage() -> void:
 ## The sector clear card: stars earned, with what each one is for.
 ## `medals` is this run's {"speed", "points", "stars"} tiers and `next` what each next tier needs
 ## ("" once won at the top).
+## `won` is the bonus sparks each medal's new rewards paid this run.
 func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bool,
-		medals := {}, next := {}) -> void:
+		medals := {}, next := {}, won := {}) -> void:
 	clear_title.text = "Sector %s clear" % id
 	clear_score.text = str(score)
 	for i in 3:
@@ -420,7 +424,9 @@ func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bo
 		else:
 			clear_medal_tiers[i].text = Medals.TIER_NAMES[tier] if tier > 0 else "Not yet"
 		clear_medal_tiers[i].add_theme_color_override("font_color", MedalIcon.COLORS[tier] if tier > 0 else MUTED)
-		clear_medal_next[i].text = str(next.get(kind, ""))
+		var paid := int(won.get(kind, 0))
+		clear_medal_next[i].text = ("+%d sparks" % paid) if paid > 0 else str(next.get(kind, ""))
+		clear_medal_next[i].add_theme_color_override("font_color", SAND if paid > 0 else MUTED)
 	clear_medals.visible = not medals.is_empty()
 	clear_big.visible = true
 	clear_buttons.visible = true
@@ -565,8 +571,16 @@ func _build_clear_card() -> void:
 		clear_medal_icons.append(icon)
 		clear_medal_tiers.append(tier_l)
 		clear_medal_next.append(next_l)
-	card.add_child(medals)
-	clear_medals = medals
+	var rewards_box := VBoxContainer.new()
+	rewards_box.add_theme_constant_override("separation", 6)
+	rewards_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var head := _label("Rewards", _spaced(body_700, 1.7), 11, SAND)
+	head.uppercase = true
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rewards_box.add_child(head)
+	rewards_box.add_child(medals)
+	card.add_child(rewards_box)
+	clear_medals = rewards_box
 	var pill := _pill("Tap for next sector")
 	clear_pill_label = pill.get_child(0).get_child(0)
 	card.add_child(pill)
@@ -641,7 +655,7 @@ func _build_hangar_card() -> void:
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 8)
-	for it in Unlocks.TRACK:
+	for it in Unlocks.TRACK + Unlocks.REWARD_ITEMS:
 		var b := Button.new()
 		b.name = "Item_" + it.id
 		b.focus_mode = Control.FOCUS_NONE
@@ -668,7 +682,7 @@ func _build_hangar_card() -> void:
 		grid.add_child(b)
 		hangar_items[id] = b
 	card.add_child(_centered(grid))
-	var note := _label("Collect sparks in any mode to move along the track.", body_500, 12, MUTED)
+	var note := _label("Collect sparks and win medals to move along the track.", body_500, 12, MUTED)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(note)
 	var done := _ghost_button("Done", 13, 36, 18)
@@ -678,19 +692,20 @@ func _build_hangar_card() -> void:
 
 
 ## Opens (or refreshes) the hangar for `sparks` collected all-time and the `equipped` ids.
-func show_hangar(sparks: int, equipped: Dictionary) -> void:
+func show_hangar(sparks: int, equipped: Dictionary, claimed: Array = []) -> void:
 	hangar_sparks.text = "%d sparks collected" % sparks
 	hangar_bar.value = Unlocks.progress(sparks)
 	var nxt := Unlocks.next_item(sparks)
 	hangar_next.text = ("Next: %s at %d" % [Unlocks.label(nxt), nxt.at]) if not nxt.is_empty() else "Track complete"
-	for it in Unlocks.TRACK:
+	for it in Unlocks.TRACK + Unlocks.REWARD_ITEMS:
 		var b: Button = hangar_items[it.id]
-		var open := sparks >= int(it.at)
+		var open := Unlocks.is_unlocked(it.id, sparks, claimed)
 		var on: bool = equipped.get(it.kind, "") == it.id
 		b.disabled = not open
 		b.find_child("Icon", true, false).locked = not open
 		var sub: Label = b.find_child("Sub", true, false)
-		sub.text = ("Equipped" if on else it.kind.capitalize()) if open else "%d sparks" % it.at
+		var how: String = it.get("how", "%d sparks" % int(it.get("at", 0)))
+		sub.text = ("Equipped" if on else it.kind.capitalize()) if open else how
 		sub.add_theme_color_override("font_color", SAND if on else MUTED)
 		for st in ["normal", "hover", "pressed", "focus", "hover_pressed", "disabled"]:
 			var sb := StyleBoxFlat.new()

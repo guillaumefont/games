@@ -88,8 +88,13 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   speed medal (bronze at par, silver at 88%, gold at 76% of par), a points medal (the sector's `points` marks,
   suggested by `tools/par_times.gd`: 40/75/110% of the bot's all-perigee score) and an all-stars medal (3 of 3 stars);
   each system has an all-stars medal, and Drift has points medals by one run (`Medals.DRIFT_POINTS`). They are read
-  from the best records the save already keeps (`voyage[id]`, `best`), so there is no medal field to migrate. Keep
-  them earned only by play: purchases must never earn, upgrade or skip a medal. `voyage_test.gd` checks the bot wins
+  from the best records the save already keeps (`voyage[id]`, `best`). Medals are rewards (Guillaume, 2026-11-17):
+  the first time a tier is won it pays bonus sparks onto the unlock track (`Medals.REWARD_SPARKS` 2/3/5 per tier,
+  5 for a sector's stars, 25 for a system's), and a system's all-stars medal also unlocks a cosmetic that is never on
+  the track or for sale (`Unlocks.REWARD_ITEMS`, Cradle: the Laurel ship). Paid reward ids go in `save.data.rewards`
+  so each pays once; `main._bank_sparks()` pays them after a run's records are saved. Keep them earned only by
+  play: purchases must never earn, upgrade or skip a medal or reward, and a future double-sparks purchase must not
+  double reward sparks. `voyage_test.gd` checks the bot wins
   speed gold and points silver in every sector, so rerun `par_times.gd` after changing a sector.
 - Audio is original and generated: `tools/audio/compose.py` (numpy + ffmpeg) writes the music track and every
   sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in

@@ -11,6 +11,11 @@ extends RefCounted
 ## Each system has an all-stars medal too (every star of every sector), and Drift has points medals
 ## by the best single run (DRIFT_POINTS).
 ##
+## Medals are rewards: the first time a tier is won it pays bonus sparks (REWARD_SPARKS, banked on the
+## unlock track like collected sparks), and the system all-stars medal also unlocks a cosmetic that
+## is only won this way (Unlocks.REWARD_ITEMS). Claimed reward ids go in save.data.rewards, so each
+## pays once. Ids: "<sector>:<kind>:<tier>", "<system>:stars", "drift:points:<tier>".
+##
 ## Medals come only from how a run was played (time, score, stars), read from the best records the
 ## save already keeps (save.data.voyage[id] = {stars, score, time}, save.data.best). Nothing bought can
 ## ever earn, upgrade or skip one.
@@ -25,6 +30,11 @@ const TIER_NAMES: Array[String] = ["None", "Bronze", "Silver", "Gold"]
 const SPEED_FACTORS: Array[float] = [1.0, 0.88, 0.76]
 ## Drift points medals: the score of one run.
 const DRIFT_POINTS: Array[int] = [100, 300, 750]
+
+## Bonus sparks the first time each tier is won (index = tier): winning gold straight away pays all three.
+const REWARD_SPARKS: Array[int] = [0, 2, 3, 5]
+const ALL_STARS_SPARKS := 5 ## a sector's three stars
+const SYSTEM_STARS_SPARKS := 25 ## every star of a system, with its cosmetic
 
 
 ## The three speed marks of a sector in seconds, rounded down to a tenth: [bronze, silver, gold].
@@ -113,15 +123,49 @@ static func tally(progress: Dictionary, drift_best: int) -> Dictionary:
 	return out
 
 
+## Every reward earned so far: [{id, sparks, kind, tier, sector}], in route order. A tier pays
+## its own step, and the ones below it are earned too.
+static func rewards(progress: Dictionary, drift_best: int) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for sys in Voyage.SYSTEMS:
+		for sec in sys.sectors:
+			var m := of_sector(sec, progress.get(sec.id, {}))
+			for kind in ["speed", "points"]:
+				for t in range(1, int(m[kind]) + 1):
+					out.append({"id": "%s:%s:%d" % [sec.id, kind, t], "sparks": REWARD_SPARKS[t], "kind": kind, "tier": t, "sector": sec.id})
+			if m.stars != NONE:
+				out.append({"id": "%s:stars:3" % sec.id, "sparks": ALL_STARS_SPARKS, "kind": "stars", "tier": GOLD, "sector": sec.id})
+		var ss := system_stars(sys, progress)
+		if ss[0] >= ss[1]:
+			out.append({"id": "%s:stars" % sys.name, "sparks": SYSTEM_STARS_SPARKS, "kind": "system", "tier": GOLD, "sector": ""})
+	for t in range(1, drift_tier(drift_best) + 1):
+		out.append({"id": "drift:points:%d" % t, "sparks": REWARD_SPARKS[t], "kind": "drift", "tier": t, "sector": ""})
+	return out
+
+
+## The rewards earned but not yet in `claimed`.
+static func unclaimed(progress: Dictionary, drift_best: int, claimed: Array) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for r in rewards(progress, drift_best):
+		if not claimed.has(r.id):
+			out.append(r)
+	return out
+
+
+## Bonus sparks a sector's next tier of `kind` pays, for "Gold at 165 · +5 sparks".
+static func next_reward_sparks(tier: int) -> int:
+	return REWARD_SPARKS[mini(tier + 1, GOLD)]
+
+
 ## What the next speed tier needs, for the clear card: "Silver under 20.2 s", or "" at gold.
 static func next_speed_text(sec: Dictionary, tier: int) -> String:
 	if tier >= GOLD:
 		return ""
-	return "%s under %.1f s" % [TIER_NAMES[tier + 1], speed_marks(sec)[tier]]
+	return "%s under %.1f s · +%d" % [TIER_NAMES[tier + 1], speed_marks(sec)[tier], next_reward_sparks(tier)]
 
 
 ## What the next points tier needs: "Gold at 90", or "" at gold.
 static func next_points_text(marks: Array, tier: int) -> String:
 	if tier >= GOLD:
 		return ""
-	return "%s at %d" % [TIER_NAMES[tier + 1], int(marks[tier])]
+	return "%s at %d · +%d" % [TIER_NAMES[tier + 1], int(marks[tier]), next_reward_sparks(tier)]

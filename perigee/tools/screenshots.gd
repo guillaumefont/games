@@ -15,6 +15,7 @@ func _initialize() -> void:
 		out = args[0]
 	DirAccess.make_dir_recursive_absolute(out)
 	main = load("res://scenes/main.tscn").instantiate()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://screenshots_save.json")) # rewards pay once
 	main.save_path = "user://screenshots_save.json"
 	# the first-run tutorial has its own test
 	main.ready.connect(func() -> void: main.save.data.tutorial_done = true)

@@ -158,8 +158,20 @@ func _initialize() -> void:
 	check(Medals.system_stars(Voyage.SYSTEMS[0], all3) == [18, 18], "every star of the system counts (%s)" % [Medals.system_stars(Voyage.SYSTEMS[0], all3)])
 	var tally := Medals.tally(all3, 300)
 	check(tally[Medals.GOLD] == 7 and tally[Medals.SILVER] == 1 and tally[Medals.BRONZE] == 0, "tally: 6 sector all-stars, the system's, and Drift silver (%s)" % [tally])
+	# rewards: each tier pays once, gold straight away pays all three steps
+	var r1 := Medals.rewards({"1-1": {"stars": 3, "score": 90, "time": 15.0}}, 0)
+	var r1_sparks := 0
+	for r in r1:
+		r1_sparks += int(r.sparks)
+	check(r1.size() == 7 and r1_sparks == 10 + 10 + Medals.ALL_STARS_SPARKS, "a perfect 1-1 earns 7 rewards worth %d sparks (%d)" % [25, r1_sparks])
+	var claimed1: Array = ["1-1:speed:1", "1-1:speed:2", "1-1:speed:3"]
+	check(Medals.unclaimed({"1-1": {"stars": 3, "score": 90, "time": 15.0}}, 0, claimed1).size() == 4, "claimed rewards never pay again")
+	var all_r := Medals.rewards(all3, 0)
+	check(all_r[-1].id == "Cradle:stars" and Unlocks.reward_item("Cradle:stars").id == "ship_laurel", "every Cradle star wins the Laurel ship")
+	check(not Unlocks.is_unlocked("ship_laurel", 100000) and Unlocks.is_unlocked("ship_laurel", 0, ["Cradle:stars"]),
+		"no amount of sparks unlocks Laurel, only its reward")
 	check(Medals.drift_tier(99) == Medals.NONE and Medals.drift_tier(100) == Medals.BRONZE and Medals.drift_tier(750) == Medals.GOLD, "Drift points medals")
-	check(Medals.next_speed_text(s1, Medals.BRONZE) == "Silver under 17.6 s" and Medals.next_points_text([35, 60, 90], Medals.GOLD) == "", "the next tier's text")
+	check(Medals.next_speed_text(s1, Medals.BRONZE) == "Silver under 17.6 s · +3" and Medals.next_points_text([35, 60, 90], Medals.GOLD) == "", "the next tier's text")
 
 	# --- the scene ---
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
@@ -213,6 +225,12 @@ func _initialize() -> void:
 		"the clear card shows the run's medals (%s; %s / %s / %s)" % [won_m, main.hud.clear_medal_tiers[0].text, main.hud.clear_medal_tiers[1].text, main.hud.clear_medal_tiers[2].text])
 	var saved := SaveData.new(SAVE)
 	saved.load_file()
+	var paid := 0
+	for r in Medals.rewards({"1-1": saved.data.voyage.get("1-1", {})}, 0):
+		paid += int(r.sparks)
+	check(saved.data.rewards.has("1-1:speed:3") and int(saved.data.sparks) == main.sim.sparks_got + paid
+		and main.hud.clear_medal_next[0].text == "+10 sparks",
+		"the clear pays its rewards into the unlock track once (%d sparks, %d run + %d rewards; %s)" % [saved.data.sparks, main.sim.sparks_got, paid, main.hud.clear_medal_next[0].text])
 	var rec: Dictionary = saved.data.voyage.get("1-1", {})
 	check(int(rec.get("stars", 0)) >= 1 and int(rec.get("score", 0)) == main.sim.score, "stars and score are saved (%s)" % [rec])
 	main.on_press()
@@ -231,14 +249,28 @@ func _initialize() -> void:
 	var map_medals: Control = b11.get_child(0).get_child(2)
 	check((map_medals.get_child(0) as MedalIcon).tier == Medals.GOLD and (map_medals.get_child(1) as MedalIcon).tier == won_m.points,
 		"the sector list shows 1-1's best medals")
-	check(main.hud.voyage_stars.text.ends_with("/ 18 stars") and main.hud.voyage_tally.text.begins_with("Medals"),
+	check(main.hud.voyage_stars.text.ends_with("/ 18 stars") and main.hud.voyage_tally.text.begins_with("Rewards"),
 		"the sector list counts the system's stars and every medal (%s; %s)" % [main.hud.voyage_stars.text, main.hud.voyage_tally.text])
+	# the system's all-stars reward unlocks Laurel in the hangar
+	for sec in Voyage.SYSTEMS[0].sectors:
+		main.save.data.voyage[sec.id] = {"stars": 3, "score": 0, "time": 99.0}
+	main.open_hangar()
+	var laurel_sub: Label = main.hud.hangar_items.ship_laurel.find_child("Sub", true, false)
+	check(main.hud.hangar_items.ship_laurel.disabled and laurel_sub.text == "All Cradle stars", "Laurel shows how to win it (%s)" % laurel_sub.text)
+	main.close_hangar()
+	main.sim.sparks_got = 0
+	main._bank_sparks()
+	main.equip("ship_laurel")
+	check(main.save.data.rewards.has("Cradle:stars") and main.save.data.equipped.ship == "ship_laurel"
+		and main.hud.over_unlock.text.contains("Laurel"), "the all-stars reward unlocks Laurel and it can be equipped (%s)" % main.hud.over_unlock.text)
+	main.save.data.equipped.ship = "ship_pebble"
 	# Drift's game over card shows its points medal; Voyage's doesn't
 	main.start_mode("endless")
 	main.sim.score = 320
 	main.sim.die("test")
 	tick(0.6)
-	check(main.hud.over_medal_row.visible and main.hud.over_medal.tier == Medals.SILVER and main.hud.over_medal_label.text.contains("Gold at 750"),
+	check(main.hud.over_medal_row.visible and main.hud.over_medal.tier == Medals.SILVER and main.hud.over_medal_label.text.contains("Gold at 750 · +5")
+		and main.hud.over_medal_label.text.contains("+5 sparks"),
 		"Drift's game over card shows the run's points medal (%s)" % main.hud.over_medal_label.text)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
 
