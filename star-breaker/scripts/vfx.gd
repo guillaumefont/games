@@ -29,9 +29,9 @@ const PULSE_LEN := 18.0
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 ## How wide the twister opens at each charge level.
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
-## How fast Starbreak's strands move compared with the Nova's (Guillaume: the ultimate's
-## strands were "too much"; it lasts 2 s, so they can take their time).
-const ULT_PACE := 0.3
+## Starbreak's strands: no twister, but straight pulses of pink, cyan and white light running
+## up and down the laser at random (Guillaume found the twister's wobble too much there).
+const ULT_PULSES := 16
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -166,7 +166,7 @@ static func sync_charge(n: Node3D, charge: int, charge_max: int, lv: int, tt: in
 ## The laser line: a white core in a soft sheath and haze, a flare at the muzzle, a flare where
 ## it strikes, and from level 2 the twister: corkscrew pulses of the level's strands lining
 ## the whole beam and streaming up it, staggered out of phase.
-static func beam_node(lv: int) -> Node3D:
+static func beam_node(lv: int, ult := false) -> Node3D:
 	init()
 	var n := Node3D.new()
 	var rod := Models.geo("vbrod", func(): return Geo.xf(Geo.cyl(0.5, 0.5, 1.0, 6), Transform3D(Basis(), Vector3(0, 0.5, 0))))
@@ -179,7 +179,20 @@ static func beam_node(lv: int) -> Node3D:
 	for c in [haze, sheath, core, flare, tip]:
 		n.add_child(c)
 	var parts := {core = core, sheath = sheath, haze = haze, flare = flare, tip = tip, pulses = []}
-	if lv >= 2:
+	if ult:
+		for i in ULT_PULSES:
+			var st := i % 3
+			var hard := Models.mesh(rod, pulse_mat(st))
+			var soft := Models.mesh(rod, pulse_mat(st + 3))
+			var g := Node3D.new()
+			g.add_child(soft)
+			g.add_child(hard)
+			n.add_child(g)
+			var pl := {n = g, hard = hard, soft = soft}
+			_respawn(pl, 0.0, 1.0, true)
+			parts.pulses.append(pl)
+		parts.ult = true
+	elif lv >= 2:
 		for st in 6:
 			if not (STRANDS[lv] as Array).has(st % 3):
 				continue
@@ -199,9 +212,19 @@ static func pulse_y(i: int, lag: int, t: float) -> float:
 	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
+## A Starbreak pulse starts again: a random strand position round the beam, length, speed and
+## direction; it enters from the end it travels away from (or anywhere on the first frame).
+static func _respawn(pl: Dictionary, len: float, w: float, anywhere: bool) -> void:
+	pl.up = randf() < 0.5
+	pl.v = randf_range(2.0, 7.0)
+	pl.len = randf_range(10.0, 34.0)
+	pl.ang = randf() * TAU
+	pl.r = randf_range(0.55, 1.0)
+	pl.y = randf() * len if anywhere else (-pl.len if pl.up else len)
+
+
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
-## `pace` slows the strands (Starbreak's twister turns and climbs at ULT_PACE).
-static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool, pace := 1.0) -> void:
+static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool) -> void:
 	var p: Dictionary = n.get_meta("parts")
 	var open := 1.0 + maxf(0.0, 3.0 - t) * 0.2
 	var cw := maxf(0.15, w * 0.3 * open)
@@ -217,15 +240,41 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 	tip.visible = hit_end
 	tip.position = Vector3(0, len, 1)
 	tip.scale = Vector3(1, 1, 0) * (w * 3.0 * fade * (1.0 + 0.25 * sin(tt * 2.3)) + 0.01) + Vector3.BACK
-	var spin := t * 0.35 * pace
-	# wider beams (Starbreak) open the twister wider
-	var wide := maxf(1.0, w / maxf(fade, 0.05) / 7.0)
+	if p.has("ult"):
+		_sync_ult(p.pulses, len, w, fade, t)
+		return
+	var spin := t * 0.35
 	for pl in p.pulses:
-		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t * pace)
+		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t)
 		pl.visible = y + PULSE_LEN < len
 		if not pl.visible:
 			continue
 		# each pulse opens up a little as it travels, spinning as it goes
-		var grow: float = (0.75 + 0.35 * minf(1.0, y / 110.0)) * fade * TWIST_GROW[lv] * wide
+		var grow: float = (0.75 + 0.35 * minf(1.0, y / 110.0)) * fade * TWIST_GROW[lv]
 		pl.position = Vector3(0, y, 0)
 		pl.basis = Basis(Vector3.BACK, PI / 2) * Basis(Vector3.RIGHT, -spin) * Basis().scaled(Vector3(1, grow, grow))
+
+
+## Starbreak's pulses: each runs straight up or down the laser at its own speed, beside the core,
+## and starts again at random once it has left the beam.
+static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
+	var R := w / maxf(fade, 0.05) * 0.8
+	for pl in pulses:
+		if pl.get("fresh", true):
+			# spread along the whole beam on its first frame
+			pl.fresh = false
+			_respawn(pl, len, w, true)
+		pl.y += pl.v if pl.up else -pl.v
+		if pl.y > len or pl.y < -pl.len:
+			_respawn(pl, len, w, false)
+		var y0: float = clampf(pl.y, 0.0, len)
+		var y1: float = clampf(pl.y + pl.len, 0.0, len)
+		var g: Node3D = pl.n
+		g.visible = y1 - y0 > 0.5 and fade > 0.05
+		if not g.visible:
+			continue
+		var a: float = pl.ang
+		g.position = Vector3(cos(a) * R * pl.r, y0, sin(a) * R * pl.r)
+		var th := 0.95 * fade
+		(pl.hard as Node3D).scale = Vector3(th, y1 - y0, th)
+		(pl.soft as Node3D).scale = Vector3(th * 3.2, y1 - y0, th * 3.2)

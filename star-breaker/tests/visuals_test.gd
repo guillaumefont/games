@@ -104,16 +104,23 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
-	# --- Starbreak's strands move slower than the Nova's ---
-	check(VFx.ULT_PACE < 0.5, "Starbreak's strands turn and climb slower than the Nova's")
-	var nb := VFx.beam_node(4)
-	var ub := VFx.beam_node(4)
-	VFx.sync_beam(nb, 4, 400.0, 7.0, 1.0, 10, 10, false)
-	VFx.sync_beam(ub, 4, 400.0, 7.0, 1.0, 10, 10, false, VFx.ULT_PACE)
-	var p0: Node3D = (nb.get_meta("parts").pulses as Array)[0]
-	var p1: Node3D = (ub.get_meta("parts").pulses as Array)[0]
-	check(p1.position.y < p0.position.y, "a Starbreak pulse has climbed less after the same ticks")
-	nb.free()
+	# --- Starbreak's strands: straight pulses running up and down at random ---
+	var ub := VFx.beam_node(4, true)
+	var ups := 0
+	var downs := 0
+	for f in 40:
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, f, f, false)
+	var ps: Array = ub.get_meta("parts").pulses
+	for pl in ps:
+		if pl.up:
+			ups += 1
+		else:
+			downs += 1
+	check(ps.size() == VFx.ULT_PULSES and ups > 0 and downs > 0, "Starbreak's pulses run both up and down the laser (%d up, %d down)" % [ups, downs])
+	var straight := true
+	for pl in ps:
+		straight = straight and (pl.n as Node3D).basis.is_equal_approx(Basis())
+	check(straight, "Starbreak's pulses run straight along the beam (no twister wobble)")
 	ub.free()
 
 	# --- explosions ---
