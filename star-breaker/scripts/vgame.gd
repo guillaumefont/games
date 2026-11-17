@@ -11,7 +11,7 @@ extends Node3D
 const W := 126.0
 const H := 224.0
 const SCROLL := 0.6
-const CAM_D := 330.0
+const CAM_D := 215.0
 const GROUND_Z := -18.0
 const CHUNK := 64.0
 ## Ticks of holding for each charge level of Lance's beam (LV 1-3, then the Nova at 4 s).
@@ -79,6 +79,16 @@ var shield_m: Node3D
 var stars: Array = []
 ## Floor tones (two) and the crater colour, from the world's palette.
 var _ground_mats: Array = []
+var _terrain_mats: Dictionary = {}
+var _building: Dictionary = {}  ## chunk index -> Terrain.Builder being built ahead of time
+var sun: DirectionalLight3D
+var beam_light: OmniLight3D
+var boom_lights: Array = []
+var charge_ph := 0.0
+## World 1's lighting and ground colours (sRGB).
+const LOOK := {sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640", t_low2 = "2a1440", t_mid = "3a3070", t_high = "7a6cc0",
+	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560"}
+var look: Dictionary = {}
 var _lip_mat: Material = Models.std("b9a8ff", "8f6bff", 1.1)
 
 
@@ -135,6 +145,8 @@ func in_rock(x: float, y: float, pad: float) -> bool:
 func _ready() -> void:
 	Diag.start()
 	Models.init()
+	# one 2048 shadow map covers the whole view (orthogonal sun); plenty for low poly shapes
+	RenderingServer.directional_shadow_atlas_set_size(2048, true)
 	_setup_world()
 	audio = Sfx.new()
 	add_child(audio)
@@ -197,6 +209,7 @@ func _save() -> void:
 ## Safe graphics (on after a crash, or from the menu): no glow and no MSAA.
 func apply_safe() -> void:
 	_env.glow_enabled = not Diag.safe
+	sun.shadow_enabled = not Diag.safe
 	get_viewport().msaa_3d = Viewport.MSAA_DISABLED if Diag.safe else Viewport.MSAA_2X
 
 
@@ -271,6 +284,9 @@ func _warm_up() -> void:
 		list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
 	for c in ["ffb547", "3ff0e0", "fff1d0", "ff4fa3", "ff9a40", "4a5470", "dfe9ff", "ffffff", "ff9a3d"]:
 		list.append(Models.glow(c, 5))
+	list.append_array(VFx.warm_list())
+	list.append(VFx.charge_node())
+	list.append(VFx.beam_node(4))
 	for n in list:
 		w.add_child(n)
 	Models.set_flash(flashed, true)
@@ -285,13 +301,16 @@ func _warm_up() -> void:
 
 func _setup_world() -> void:
 	var pal: Dictionary = Worlds.LIST[0].pal
+	look = LOOK.duplicate()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(pal.bg)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(pal.amb)
-	env.ambient_light_energy = 0.75
-	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.ambient_light_color = Color(look.amb)
+	env.ambient_light_energy = 0.4
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_white = 6.0
+	env.tonemap_exposure = 1.05
 	env.glow_enabled = not Diag.safe
 	env.glow_intensity = 0.9
 	env.glow_bloom = 0.04
@@ -299,6 +318,16 @@ func _setup_world() -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	for i in range(1, 8):
 		env.set("glow_levels/%d" % i, 1.0 if i in [2, 3, 4, 5] else 0.0)
+	# depth haze: the play plane stays crisp, the moon's floor sinks into violet
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color(look.fog)
+	env.fog_light_energy = 1.0
+	env.fog_density = 1.0
+	env.fog_depth_begin = CAM_D + 30.0
+	env.fog_depth_end = CAM_D + 210.0
+	env.fog_depth_curve = 1.4
+	env.fog_sun_scatter = 0.0
 	_env = env
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -309,27 +338,51 @@ func _setup_world() -> void:
 	camera.position = Vector3(0, 0, CAM_D)
 	add_child(camera)
 	camera.current = true
-	var sun := DirectionalLight3D.new()
-	sun.light_color = Color("fff0dd")
-	sun.light_energy = 1.1
+	# a low, warm sun from the upper left: it lights the facets and throws every ship's and
+	# enemy's shadow down onto the moon (the main cue for depth)
+	sun = DirectionalLight3D.new()
+	sun.light_color = Color(look.sun)
+	sun.light_energy = 1.35
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = CAM_D + 260.0
+	sun.shadow_bias = 0.06
+	sun.shadow_normal_bias = 1.2
+	sun.shadow_opacity = 0.78
 	add_child(sun)
-	sun.look_at_from_position(Vector3(-60, -40, 140), Vector3.ZERO)
+	sun.look_at_from_position(Vector3(-70, 85, 150), Vector3.ZERO)
 	var rim := DirectionalLight3D.new()
 	rim.light_color = Color(pal.rim)
-	rim.light_energy = 0.45
+	rim.light_energy = 0.55
+	rim.light_specular = 0.6
 	add_child(rim)
-	rim.look_at_from_position(Vector3(80, 90, 40), Vector3.ZERO)
+	rim.look_at_from_position(Vector3(90, -80, 40), Vector3.ZERO)
 	world = Node3D.new()
 	add_child(world)
-	_ground_mats = [Models.std(pal.plate2), Models.std(pal.far), Models.std(pal.bg)]
-	for m in _ground_mats:
-		(m as BaseMaterial3D).albedo_color = (m as BaseMaterial3D).albedo_color.darkened(0.45)
+	_ground_mats = [Terrain.ground_mat(), Models.std(pal.far), Models.std(pal.bg)]
+	_terrain_mats = {
+		ground = _ground_mats[0],
+		crystals = [Terrain.crystal_mat("6ff3e6", "2fd6c8", 0.9), Terrain.crystal_mat("ff7ac0", "ff2f8f", 0.85)],
+		fissure_a = Models.basic("c0408a", 1.15), fissure_b = Models.basic("3fb8b0", 1.1),
+	}
 	stars = [_star_layer(160, -200, -150, 1.6, Color(pal.star_a)), _star_layer(90, -150, -110, 2.0, Color(pal.star_b))]
-	charge_fx = Node3D.new()
-	for c in ["4a5470", "dfe9ff", "ffffff"]:
-		charge_fx.add_child(Models.glow(c, 1.0))
+	charge_fx = VFx.charge_node()
 	charge_fx.visible = false
 	world.add_child(charge_fx)
+	# real light from the charge ball and the beam: it washes the ship and the moon below
+	beam_light = OmniLight3D.new()
+	beam_light.omni_range = 120.0
+	beam_light.omni_attenuation = 1.3
+	beam_light.light_energy = 0.0
+	beam_light.visible = false
+	world.add_child(beam_light)
+	for i in 2:
+		var l := OmniLight3D.new()
+		l.omni_range = 90.0
+		l.omni_attenuation = 1.6
+		l.light_color = Color("ffb070")
+		l.visible = false
+		world.add_child(l)
+		boom_lights.append({l = l, t = 0, e = 0.0})
 	shield_m = Models.glow("3ff0e0", 26)
 	shield_m.visible = false
 	world.add_child(shield_m)
@@ -511,6 +564,7 @@ func teardown() -> void:
 	for c in chunks.values():
 		c.queue_free()
 	chunks = {}
+	_building = {}
 	for n in [ship_m, pod_m]:
 		if is_instance_valid(n):
 			n.queue_free()
@@ -729,7 +783,7 @@ func fire_main() -> void:
 
 
 func shot(x: float, y: float, vx: float, vy: float, mat: Material, d: int) -> void:
-	var m := Models.mesh(Models.geo("vshot", func(): return Geo.box(0.9, 4.2, 0.9)), mat)
+	var m := VFx.bolt(mat, "ffb547" if mat == Models.M.pod_shot else "3ff0e0")
 	m.rotation.z = atan2(-vx, vy)
 	world.add_child(m)
 	G.pb.append({x = x, y = y, vx = vx, vy = vy, d = d, m = m})
@@ -746,15 +800,7 @@ func fire_beam(lv: int) -> void:
 
 
 func _beam_node(lv: int) -> Node3D:
-	var n := Node3D.new()
-	var core := Models.mesh(Models.geo("vbeam", func(): return Geo.box(1, 1, 1)), Models.M.beam)
-	n.add_child(core)
-	var cols := ["dfe9ff", "dfe9ff", "dfe9ff", "3ff0e0", "ff4fa3"]
-	var haze := Models.glow(cols[lv], 1)
-	n.add_child(haze)
-	n.set_meta("core", core)
-	n.set_meta("haze", haze)
-	return n
+	return VFx.beam_node(lv)
 
 
 func ultimate() -> void:
@@ -1519,24 +1565,65 @@ func glow_fx(color: String, x: float, y: float, z: float, s: float, life: int, v
 
 
 func boom(x: float, y: float, r: float, big := false) -> void:
-	glow_fx("fff1d0", x, y, 4, r * 2.2, 18)
-	glow_fx("ff9a40", x, y, 3, r * 3.2, 26)
+	glow_fx("fff1d0", x, y, 4, r * 2.4, 16)
+	glow_fx("ff9a40", x, y, 3, r * 3.6, 26)
+	# a shock ring racing out
+	var ring := Models.mesh(VFx.ring_mesh(), VFx._ring_mats[0])
+	ring.position = Vector3(X(x), Y(y), 2)
+	world.add_child(ring)
+	fx.append({m = ring, kind = "ring", life = 20 if big else 14, t = 0, s = r * (3.4 if big else 2.4), vx = 0.0, vy = 0.0})
 	for j in (8 if big else 4):
 		var a := randf() * TAU
 		var sp := randf_range(0.4, 1.4) * (1.6 if big else 1.0)
-		glow_fx("ff4fa3" if j % 2 else "ffb547", x, y, 5, r * 0.7, 22, cos(a) * sp, sin(a) * sp)
+		glow_fx("ff4fa3" if j % 2 else "ffb547", x, y, 5, r * 0.6, 20, cos(a) * sp, sin(a) * sp)
+	# lit debris tumbling away and falling towards the moon (they throw shadows as they go)
+	for j in (9 if big else 5):
+		var a := randf() * TAU
+		var sp := randf_range(0.5, 1.6) * (1.4 if big else 1.0)
+		var d := Models.mesh(VFx.shard_mesh(), VFx._debris_mats[j % VFx._debris_mats.size()])
+		d.position = Vector3(X(x), Y(y), 1)
+		d.scale = Vector3.ONE * randf_range(0.5, 1.1) * clampf(r / 4.0, 0.6, 1.8)
+		world.add_child(d)
+		fx.append({m = d, kind = "debris", life = 40, t = 0, s = 1.0, vx = cos(a) * sp, vy = sin(a) * sp, vz = randf_range(0.2, 1.0),
+			spin = Vector3(randf_range(-0.3, 0.3), randf_range(-0.3, 0.3), randf_range(-0.3, 0.3))})
+	# and a flash of real light on everything around
+	var best: Dictionary = boom_lights[0]
+	for bl in boom_lights:
+		if bl.t < best.t:
+			best = bl
+	best.t = 14
+	best.e = 3.5 if big else 2.0
+	best.l.position = Vector3(X(x), Y(y), 12)
+	best.l.omni_range = 60.0 + r * 6.0
 
 
 func spark(x: float, y: float) -> void:
 	glow_fx("fff1d0", x, y, 5, 4, 8)
+	for j in 2:
+		var a := randf() * TAU
+		glow_fx("ffe0b0", x, y, 5, 1.6, 7, cos(a) * 1.2, sin(a) * 1.2)
 
 
 func update_fx() -> void:
 	for f in fx:
 		f.t += 1
 		var k: float = 1.0 - float(f.t) / f.life
-		var s: float = f.s * maxf(0.0, k)
-		f.m.scale = Vector3(s, s, 1)
+		match f.get("kind", "glow"):
+			"ring":
+				var rs: float = f.s * (0.3 + 0.7 * sqrt(1.0 - k))
+				f.m.scale = Vector3(rs, rs, 1)
+				f.m.material_override = VFx._ring_mats[clampi(int((1.0 - k) * 6.0), 0, 5)]
+			"debris":
+				f.m.rotation += f.spin
+				f.vz -= 0.06
+				f.m.position.z += f.vz
+				f.vx *= 0.97
+				f.vy *= 0.97
+				if f.t > f.life - 8:
+					f.m.scale *= 0.85
+			_:
+				var s: float = f.s * maxf(0.0, k)
+				f.m.scale = Vector3(s, s, 1)
 		f.m.position.x += f.vx
 		f.m.position.y += f.vy
 		if f.t >= f.life:
@@ -1546,63 +1633,10 @@ func update_fx() -> void:
 
 # ---------- ground ----------
 
-## One strip of ground, CHUNK units long: low poly rock with ridges rising at both edges and
-## crystal spikes along them.
-func build_chunk(c: int) -> Node3D:
-	var g := Node3D.new()
-	var nx := 16
-	var ny := 5
-	var x0 := -160.0
-	var x1 := 160.0
-	var pts := []
-	for j in ny + 1:
-		var row := []
-		for i in nx + 1:
-			var x := lerpf(x0, x1, float(i) / nx)
-			var wy := c * CHUNK + CHUNK * j / ny
-			var edge := smoothstep(46.0, 120.0, absf(x))
-			var n := sin(wy * 0.061 + x * 0.13) * 0.5 + sin(wy * 0.027 - x * 0.071 + 1.3) * 0.5
-			# a jitter that only depends on the vertex's world position, so chunks meet
-			var jit := VStage.hash(Vector2(x, wy)) - 0.5
-			var z := edge * 46.0 + n * 7.0 + jit * 5.0
-			row.append(Vector3(x, CHUNK * j / ny, z))
-		pts.append(row)
-	var low_a := []
-	var low_b := []
-	var high := []
-	for j in ny:
-		for i in nx:
-			var a: Vector3 = pts[j][i]
-			var b: Vector3 = pts[j][i + 1]
-			var d: Vector3 = pts[j + 1][i]
-			var e: Vector3 = pts[j + 1][i + 1]
-			for t in [[a, b, e], [a, e, d]]:
-				var zc: float = (t[0].z + t[1].z + t[2].z) / 3.0
-				if zc > 16.0:
-					high.append(t)
-				elif VStage.hash(Vector2(t[0].x + t[1].x, c * 31.0 + j + t[2].y)) > 0.5:
-					low_a.append(t)
-				else:
-					low_b.append(t)
-	g.add_child(Models.mesh(Geo.build_facing(low_a, Vector3.BACK), _ground_mats[0]))
-	g.add_child(Models.mesh(Geo.build_facing(low_b, Vector3.BACK), _ground_mats[1]))
-	g.add_child(Models.mesh(Geo.build_facing(high, Vector3.BACK), Models.M.rock))
-	var rng := RandomNumberGenerator.new()
-	rng.seed = c * 7919 + 13
-	for k in 4:
-		var side := -1.0 if k % 2 == 0 else 1.0
-		var x := side * rng.randf_range(72, 118)
-		var cm := Models.mesh(Models.geo("vcry", func(): return Geo.cone(2.8, 14, 4)), Models.M.crystal_c if k == 1 else Models.M.crystal_m,
-				Vector3(x, rng.randf_range(4, CHUNK - 4), 26.0 + smoothstep(46.0, 120.0, absf(x)) * 18.0))
-		cm.rotation = Vector3(PI / 2 + rng.randf_range(-0.4, 0.4), 0, rng.randf_range(-0.5, 0.5))
-		g.add_child(cm)
-	# a few dark craters on the floor
-	for k in 2:
-		var cr := Models.mesh(Geo.cached("vcrat", func(): return Geo.build_facing(Geo.disc(1.0, 7), Vector3.BACK)), _ground_mats[2],
-				Vector3(rng.randf_range(-40, 40), rng.randf_range(6, CHUNK - 6), 8.0))
-		var r := rng.randf_range(4, 9)
-		cr.scale = Vector3(r * 1.3, r, 1)
-		g.add_child(cr)
+## One strip of ground, CHUNK units long (see `Terrain`), with the canyon walls that reach it.
+func build_chunk(c: int, g: Node3D = null) -> Node3D:
+	if g == null:
+		g = Terrain.build_chunk(c, CHUNK, look, _terrain_mats)
 	if not G.is_empty():
 		var wn := _walls_node(c)
 		if wn:
@@ -1644,57 +1678,39 @@ func _build_islands() -> void:
 	G.islands = []
 	for isl in VStage.ISLANDS[G.stage]:
 		var n := Node3D.new()
-		var steps := 14
-		var outline := []
-		for k in steps + 1:
-			var t := float(k) / steps
-			outline.append([t * float(isl[1]), VStage.island_half(isl, isl[0] + t * float(isl[1]))])
+		var steps := 16
 		var cx: float = X(isl[2])
-		var top := []
-		var faces := {-1.0: [], 1.0: []}
+		var acc := Terrain.Acc.new()
 		var lip := []
 		for side in [-1.0, 1.0]:
+			var rows := []
+			for k in steps + 1:
+				var t := float(k) / steps
+				var ly := t * float(isl[1])
+				var h := VStage.island_half(isl, isl[0] + ly)
+				# jitter the drawn rock inwards, never past the collision edge
+				var jh := maxf(0.0, h - VStage.hash(Vector2(ly, side)) * 1.2) if k > 0 and k < steps else 0.0
+				rows.append([Vector3(cx + side * jh, ly, 0), jh])
+			Terrain.cliff(acc, rows, -side, look, float(isl[0]) + side * 1000.0)
 			for k in steps:
-				var a: Array = outline[k]
-				var b: Array = outline[k + 1]
-				var ja := VStage.hash(Vector2(a[0], side)) * 1.2
-				var jb := VStage.hash(Vector2(b[0], side)) * 1.2
-				var pa := Vector3(cx + side * maxf(0.0, a[1] - ja), a[0], 0)
-				var pb := Vector3(cx + side * maxf(0.0, b[1] - jb), b[0], 0)
-				var za := VStage.hash(Vector2(a[0], 5.0)) * 2.0 + 1.5
-				var zb := VStage.hash(Vector2(b[0], 5.0)) * 2.0 + 1.5
-				top.append([Vector3(cx, a[0], za), pa, pb])
-				top.append([Vector3(cx, a[0], za), pb, Vector3(cx, b[0], zb)])
-				var qa := Vector3(cx + side * (maxf(0.0, a[1] - ja) + 7.0), a[0], -60)
-				var qb := Vector3(cx + side * (maxf(0.0, b[1] - jb) + 7.0), b[0], -60)
-				faces[side].append([pa, qa, qb])
-				faces[side].append([pa, qb, pb])
-				var ia := Vector3(pa.x - side, pa.y, 0.3)
-				var ib := Vector3(pb.x - side, pb.y, 0.3)
-				lip.append([ia, Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
-				lip.append([ia, Vector3(pb.x, pb.y, 0.3), ib])
-		n.add_child(Models.mesh(Geo.build_facing(top, Vector3.BACK), Models.M.rock))
-		for side in faces:
-			n.add_child(Models.mesh(Geo.build_facing(faces[side], Vector3(side, 0, 0.4).normalized()), Models.M.rock2))
+				var pa: Vector3 = rows[k][0]
+				var pb: Vector3 = rows[k + 1][0]
+				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
+				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3), Vector3(pb.x - side * 0.8, pb.y, 0.3)])
+		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 		n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 		world.add_child(n)
 		G.islands.append({d = float(isl[0]), m = n})
 
 
-## The canyon walls of chunk `c` (null when no wall reaches the screen there), built in the chunk's frame but raised to just under the
-## ship's plane: a flat cliff top, a glowing lip on the exact edge the ship collides with, and
-## a face dropping to the floor.
+## The canyon walls of chunk `c` (null when no wall reaches the screen there), built in the
+## chunk's frame but raised to the ship's plane: a faceted cliff top, a glowing lip on the
+## exact edge the ship collides with, and a banded face dropping to the floor.
 func _walls_node(c: int) -> Node3D:
 	var n := Node3D.new()
+	n.name = "Walls"
 	n.position.z = -GROUND_Z + 50.0 - 7.0
 	var rows := 16
-	var top_l := []
-	var top_r := []
-	var face_l := []
-	var face_r := []
-	var lip_l := []
-	var lip_r := []
-	var prev: Array = []
 	var seen := false
 	for j in rows + 1:
 		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows)
@@ -1702,62 +1718,69 @@ func _walls_node(c: int) -> Node3D:
 	if not seen:
 		n.free()
 		return null
+	var left := []
+	var right := []
 	for j in rows + 1:
 		var ly := CHUNK * j / rows
 		var d := c * CHUNK + ly
 		var w := VStage.walls(G.stage, d)
 		# jitter the drawn rock a little, but never past the collision edge
-		var jl := VStage.hash(Vector2(d, 3.0)) * 1.4
-		var jr := VStage.hash(Vector2(d, 7.0)) * 1.4
-		var row := [X(w.x) - jl, X(w.y) + jr, VStage.hash(Vector2(d, 11.0)) * 2.0]
-		if not prev.is_empty():
-			var y0: float = ly - CHUNK / rows
-			var a0: float = prev[0]
-			var a1: float = row[0]
-			var b0: float = prev[1]
-			var b1: float = row[1]
-			var z0: float = prev[2]
-			var z1: float = row[2]
-			# cliff tops, with a step back from the lip
-			top_l.append([Vector3(-120, y0, z0 - 2), Vector3(a0 - 10, y0, z0), Vector3(a1 - 10, ly, z1)])
-			top_l.append([Vector3(-120, y0, z0 - 2), Vector3(a1 - 10, ly, z1), Vector3(-120, ly, z1 - 2)])
-			top_l.append([Vector3(a0 - 10, y0, z0), Vector3(a0 - 1, y0, 0), Vector3(a1 - 1, ly, 0)])
-			top_l.append([Vector3(a0 - 10, y0, z0), Vector3(a1 - 1, ly, 0), Vector3(a1 - 10, ly, z1)])
-			top_r.append([Vector3(120, y0, z0 - 2), Vector3(b1 + 10, ly, z1), Vector3(b0 + 10, y0, z0)])
-			top_r.append([Vector3(120, y0, z0 - 2), Vector3(120, ly, z1 - 2), Vector3(b1 + 10, ly, z1)])
-			top_r.append([Vector3(b0 + 10, y0, z0), Vector3(b1 + 1, ly, 0), Vector3(b0 + 1, y0, 0)])
-			top_r.append([Vector3(b0 + 10, y0, z0), Vector3(b1 + 10, ly, z1), Vector3(b1 + 1, ly, 0)])
-			# the lip: the line the ship must not cross
-			lip_l.append([Vector3(a0 - 1, y0, 0.3), Vector3(a0, y0, 0.3), Vector3(a1, ly, 0.3)])
-			lip_l.append([Vector3(a0 - 1, y0, 0.3), Vector3(a1, ly, 0.3), Vector3(a1 - 1, ly, 0.3)])
-			lip_r.append([Vector3(b0, y0, 0.3), Vector3(b0 + 1, y0, 0.3), Vector3(b1 + 1, ly, 0.3)])
-			lip_r.append([Vector3(b0, y0, 0.3), Vector3(b1 + 1, ly, 0.3), Vector3(b1, ly, 0.3)])
-			# faces down to the floor, sloping out a little
-			face_l.append([Vector3(a0, y0, 0), Vector3(a0 + 7, y0, -60), Vector3(a1 + 7, ly, -60)])
-			face_l.append([Vector3(a0, y0, 0), Vector3(a1 + 7, ly, -60), Vector3(a1, ly, 0)])
-			face_r.append([Vector3(b0, y0, 0), Vector3(b1, ly, 0), Vector3(b1 - 7, ly, -60)])
-			face_r.append([Vector3(b0, y0, 0), Vector3(b1 - 7, ly, -60), Vector3(b0 - 7, y0, -60)])
-		prev = row
-	n.add_child(Models.mesh(Geo.build_facing(top_l + top_r, Vector3.BACK), Models.M.rock))
-	n.add_child(Models.mesh(Geo.build_facing(face_l, Vector3(1, 0, 0.4).normalized()), Models.M.rock2))
-	n.add_child(Models.mesh(Geo.build_facing(face_r, Vector3(-1, 0, 0.4).normalized()), Models.M.rock2))
-	n.add_child(Models.mesh(Geo.build_facing(lip_l + lip_r, Vector3.BACK), _lip_mat))
+		left.append([Vector3(X(w.x) - VStage.hash(Vector2(d, 3.0)) * 1.4, ly, 0), 200.0])
+		right.append([Vector3(X(w.y) + VStage.hash(Vector2(d, 7.0)) * 1.4, ly, 0), 200.0])
+	var acc := Terrain.Acc.new()
+	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
+	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
+	var lip := []
+	for j in rows:
+		for side in [[left, -1.0], [right, 1.0]]:
+			var a: Vector3 = side[0][j][0]
+			var b: Vector3 = side[0][j + 1][0]
+			var s: float = side[1]
+			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(a.x, a.y, 0.3), Vector3(b.x, b.y, 0.3)])
+			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(b.x, b.y, 0.3), Vector3(b.x + s * 0.9, b.y, 0.3)])
+	n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
+	n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 	return n
 
 
 func update_chunks(scroll: float) -> void:
-	var a := floori((scroll - 40.0) / CHUNK)
+	var a := floori((scroll - 90.0) / CHUNK)
 	var b := floori((scroll + H + 140.0) / CHUNK)
 	for c in chunks.keys():
-		if c < a or c > b:
+		if c < a or c > b + 2:
 			chunks[c].queue_free()
 			chunks.erase(c)
+	for c in _building.keys():
+		if c < a:
+			_building.erase(c)
 	for c in range(a, b + 1):
 		if not chunks.has(c):
-			var n := build_chunk(c)
-			world.add_child(n)
-			chunks[c] = n
+			# needed now: finish it here (only on a jump, e.g. the first frame of a stage)
+			var bl: Terrain.Builder = _building.get(c)
+			_building.erase(c)
+			if bl == null:
+				bl = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+			while not bl.step():
+				pass
+			_add_chunk(c, bl.node)
+	# the next strips are built a slice per frame ahead of time, so new ground never hitches
+	for c in [b + 1, b + 2]:
+		if not chunks.has(c) and not _building.has(c):
+			_building[c] = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+	if not _building.is_empty():
+		var c: int = _building.keys().min()
+		var bl: Terrain.Builder = _building[c]
+		if bl.step():
+			_building.erase(c)
+			_add_chunk(c, bl.node)
+	for c in chunks:
 		chunks[c].position = Vector3(0, c * CHUNK - scroll - H / 2.0, GROUND_Z - 50.0)
+
+
+func _add_chunk(c: int, g: Node3D) -> void:
+	var n := build_chunk(c, g)
+	world.add_child(n)
+	chunks[c] = n
 
 
 # ---------- render ----------
@@ -1774,6 +1797,8 @@ func _process(_delta: float) -> void:
 	for i in stars.size():
 		stars[i].position.y = -fmod(sc * (0.25 + 0.2 * i), 600.0) - 300.0
 	if G.is_empty():
+		# behind the menu the moon keeps drifting by
+		update_chunks(sc)
 		return
 	update_chunks(G.scroll)
 	for isl in G.islands:
@@ -1794,20 +1819,35 @@ func _process(_delta: float) -> void:
 	var mdl: Node3D = ship_m.get_meta("model")
 	(mdl.get_meta("body") as Node3D).rotation.x = clampf(P.vx * 0.35, -0.6, 0.6)
 	(mdl.get_meta("flame") as Node3D).scale = Vector3(0.8 + randf() * 0.5, 1, 1)
-	# Lance's charge: a white ball at the nose, ringed by the level's colours
+	# Lance's charge: a laser ball at the nose with the level's strands coiling round it
 	var lv := charge_lv(P.charge)
 	charge_fx.visible = P.alive and P.charge > 10 and G.ship == "lance"
+	var light_e := 0.0
+	var light_c := Color("dfe9ff")
 	if charge_fx.visible:
-		charge_fx.position = Vector3(X(P.x), Y(P.y + 11), 3)
-		var cols := ["4a5470", "dfe9ff", "ffffff"]
-		var base := 3.0 + lv * 2.2 + sin(tt * 0.3) * 0.6
-		for j in 3:
-			var gq: MeshInstance3D = charge_fx.get_child(j)
-			gq.scale = Vector3(base * (1.6 - j * 0.4), base * (1.6 - j * 0.4), 1)
-			var gc: String = cols[j]
-			if j == 0 and lv >= 3:
-				gc = "3ff0e0" if lv == 3 else "ff4fa3"
-			gq.material_override = Models.glow_mat(gc)
+		charge_fx.position = Vector3(X(P.x), Y(P.y + 13), 4)
+		if not paused:
+			charge_ph += 0.12 + float(P.charge) / CHARGE_MAX * 0.25
+		VFx.sync_charge(charge_fx, P.charge, CHARGE_MAX, lv, tt, charge_ph)
+		light_e = 0.6 + 1.6 * float(P.charge) / CHARGE_MAX
+		light_c = Color(VFx.CHARGE_COL[maxi(lv, 1)])
+		beam_light.position = charge_fx.position + Vector3(0, 0, 8)
+	for bm in G.beams:
+		if bm.ult:
+			continue
+		var f: float = clampf(float(bm.life) / 6.0, 0.0, 1.0)
+		if 3.0 * f + bm.lv >= light_e:
+			light_e = (2.0 + bm.lv * 0.8) * f
+			light_c = Color(VFx.CHARGE_COL[maxi(int(bm.lv), 2)])
+			beam_light.position = Vector3(X(bm.x), Y(bm.y0 + 30.0), 10)
+	beam_light.visible = light_e > 0.05 and not Diag.safe
+	beam_light.light_energy = light_e
+	beam_light.light_color = light_c
+	for bl in boom_lights:
+		if bl.t > 0:
+			bl.t -= 1
+			bl.l.light_energy = bl.e * float(bl.t) / 14.0
+		bl.l.visible = bl.t > 0 and not Diag.safe
 	shield_m.visible = P.alive and G.ult_t > 0 and G.ship == "warden"
 	if shield_m.visible:
 		shield_m.position = Vector3(X(P.x), Y(P.y), 4)
@@ -1888,14 +1928,12 @@ func _sync_bar(b: Dictionary) -> void:
 
 
 func _sync_beam(b: Dictionary) -> void:
-	var core: Node3D = b.m.get_meta("core")
-	var haze: Node3D = b.m.get_meta("haze")
 	var len: float = maxf(1.0, b.y1 - b.y0)
 	var fade: float = clampf(float(b.life) / 6.0, 0.0, 1.0)
-	var w: float = b.w * fade * (1.0 + 0.15 * sin(tt * 0.9))
-	b.m.position = Vector3(X(b.x), Y((b.y0 + b.y1) / 2.0), 3)
-	core.scale = Vector3(maxf(0.2, w * 0.55), len, maxf(0.2, w * 0.55))
-	haze.scale = Vector3(w * 3.2, len, 1)
+	var w: float = b.w * fade * (1.0 + 0.12 * sin(tt * 0.9))
+	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
+	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
+	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < H)
 
 
 func _sync_boss() -> void:
