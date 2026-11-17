@@ -17,12 +17,13 @@ Fling, catch, repeat. Perigee is a one-button arcade game about hopping from moo
 
 Release to fling off along your orbit. Hold while you cross a dotted ring to get caught by the next moon. Miss, and you drift off into the dark.
 
-• One finger, no tutorial screens: you learn it in three hops
-• Every flight follows your orbit, so every hop is your own
-• Grab the sparks between moons for bonus points
-• Moons drift and rings shrink the further you get
-• Short runs, endless sky: one more go is always two seconds away
-• Plays offline, no account needed
+• One finger: a short tutorial and you're flying
+• Catch deep for a Perigee and build your combo; fling past a moon to leap it
+• Voyage: hand-made sectors with three stars each, par times and shortcut lines
+• Drift: an endless sky where moons drift and rings shrink the further you get
+• Twin moons, retrograde moons and pulsars that change how you fly
+• Collect sparks to unlock ships, trails and moon palettes
+• Plays offline, no account, no ads
 
 How far can you get before the dark gets you?
 ```
@@ -41,26 +42,16 @@ How far can you get before the dark gets you?
 ## App content (Policy > App content)
 
 - **Privacy policy:** the URL above (`web/privacy.html`; fill in its contact email first).
-- **Ads:** Yes, the app contains ads.
+- **Ads:** No, the app contains no ads.
 - **App access:** All functionality is available without special access.
-- **Target audience:** 13 and over only (13-15, 16-17, 18+). Not under 13: it keeps the game out of the
-  Families policy, which restricts ads and analytics SDKs.
-- **Content rating (IARC questionnaire):** category "Game". No violence, fear, sex, language, drugs, gambling
-  or user interaction. Answer yes to "in-app purchases" and "ads". Expected rating: Everyone / PEGI 3.
+- **Target audience:** 13 and over (13-15, 16-17, 18+).
+- **Content rating (IARC questionnaire):** category "Game". No violence, fear, sex, language, drugs, gambling,
+  user interaction, in-app purchases or ads. Expected rating: Everyone / PEGI 3.
 - **Government app / financial features / health:** No.
-- **Data safety:**
+- **Data safety:** the app collects and shares no data. Answer "No" to "Does your app collect or share any of
+  the required user data types?". (Revisit this when purchases are added.)
 
-  | Data type | Collected | Shared | Why | Optional |
-  | --- | --- | --- | --- | --- |
-  | Device or other IDs (advertising ID, app instance ID) | Yes | Yes (Google AdMob) | Advertising, Analytics, Fraud prevention | No |
-  | Approximate location (from IP, by AdMob) | Yes | Yes (Google AdMob) | Advertising, Fraud prevention | No |
-  | App interactions (runs, scores, ad views) | Yes | No | Analytics | No |
-  | Purchase history (Remove ads) | Yes | No | App functionality, Analytics | No |
+## In-app products
 
-  Data is encrypted in transit: Yes. Users can request deletion: Yes (by email; there are no accounts).
-  Collected data is processed ephemerally: No.
-
-## In-app product (Monetize > Products > In-app products)
-
-- Product ID `remove_ads`, one-time, name "Remove ads", price $1.99 (let Play convert for other countries).
-  Description: "No more ads between runs, and continue a run without watching an ad."
+None yet. Business model (Guillaume, 2026-11-17): free to play, with purchases that fill the spark unlock track
+faster (spark packs, a double-sparks upgrade) and never change a score; no ads. The shop comes in a later phase.
