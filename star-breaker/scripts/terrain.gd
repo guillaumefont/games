@@ -95,38 +95,54 @@ static func height(x: float, wy: float) -> float:
 		if d < 1.0:
 			h -= float(cr[3]) * (1.0 - d * d)
 		h += float(cr[3]) * 0.55 * exp(-pow((d - 1.0) / 0.28, 2.0))
-	# the neon river cuts its bed through everything
-	var rd := x - river_x(wy)
-	if absf(rd) < 40.0:
+	# neon rivers cut their beds right across the floor
+	var rd := river_dy(x, wy)
+	if absf(rd.x) < 40.0:
 		# a flat bed between sloping banks
-		var carve := 1.0 - smoothstep(RIVER_BANK * 0.55, RIVER_BANK * 1.5, absf(rd))
+		var carve := 1.0 - smoothstep(RIVER_BANK * 0.55, RIVER_BANK * 1.5, absf(rd.x))
 		h = lerpf(h, RIVER_BED, carve)
 	return h
 
 
-## The neon river: it swings in from one side of the screen, meanders across the floor for a
-## while and leaves again; each visit alternates cyan and pink.
+## Neon rivers run across the screen, so the ship flies over them as the moon scrolls by:
+## one chance of a river per RIVER_CELL units, meandering a little from side to side, cyan or
+## pink.
 const RIVER_BED := -9.0
-const RIVER_BANK := 13.0
+const RIVER_BANK := 11.0
 const RIVER_W := 4.2
-const RIVER_FREQ := 0.0021
+const RIVER_CELL := 380.0
+static var _rivers := {}
 
 
-## How much the river is on screen around `wy` (0 gone, 1 fully in).
-static func river_on(wy: float) -> float:
-	return smoothstep(-0.2, 0.35, sin(wy * RIVER_FREQ + 0.4))
+## River `k` (by cell): [world y of its centre line, phase, kind (0 cyan, 1 pink)], or [].
+static func river(k: int) -> Array:
+	if _rivers.has(k):
+		return _rivers[k]
+	var out := []
+	if k >= 1 and h2(k, 11.3) < 0.8:
+		out = [(k + 0.25 + h2(k, 12.7) * 0.5) * RIVER_CELL, h2(k, 13.1) * TAU, int(h2(k, 14.9) * 2.0) % 2]
+	_rivers[k] = out
+	return out
 
 
-## The river's centre line at world distance `wy` (far off to a side while it is away).
-static func river_x(wy: float) -> float:
-	var meander := 34.0 * sin(wy * 0.0105 + 0.7) + 15.0 * sin(wy * 0.027 + 2.1)
-	var side := 1.0 if fposmod(floorf((wy * RIVER_FREQ + 0.4) / TAU), 2.0) < 1.0 else -1.0
-	return meander + side * (1.0 - river_on(wy)) * 280.0
+## Where river `r` crosses stage-wide x (its centre line's world y).
+static func river_y(r: Array, x: float) -> float:
+	var ph: float = r[1]
+	return float(r[0]) + 16.0 * sin(x * 0.028 + ph) + 6.0 * sin(x * 0.071 + ph * 2.3)
 
 
-## 0 for a cyan visit of the river, 1 for a pink one.
-static func river_kind(wy: float) -> int:
-	return int(fposmod(floorf((wy * RIVER_FREQ + 0.4 + PI) / TAU), 2.0))
+## Distance (world y) from the nearest river's centre line, and that river's kind.
+static func river_dy(x: float, wy: float) -> Vector2:
+	var k0 := floori(wy / RIVER_CELL)
+	var best := Vector2(1e9, 0)
+	for k in range(k0 - 1, k0 + 2):
+		var r := river(k)
+		if r.is_empty():
+			continue
+		var d := wy - river_y(r, x)
+		if absf(d) < absf(best.x):
+			best = Vector2(d, float(r[2]))
+	return best
 
 
 ## Colour of a ground face from its height and slope (sRGB). `pc` is `colors(pal)`.
@@ -225,9 +241,10 @@ class Builder:
 				# the river's light spills onto its banks
 				var cx := (p0.x + p1.x + p2.x) / 3.0
 				var cwy := y0 + (p0.y + p1.y + p2.y) / 3.0
-				var rd := absf(cx - Terrain.river_x(cwy))
+				var rv := Terrain.river_dy(cx, cwy)
+				var rd := absf(rv.x)
 				if rd < 30.0:
-					var rc: Color = pc.river[Terrain.river_kind(cwy)]
+					var rc: Color = pc.river[int(rv.y)]
 					col = col.lerp(rc, exp(-pow(rd / 15.0, 2.0)) * 0.55)
 				ground.tri(p0, p1, p2, col, Vector3.BACK)
 
@@ -283,38 +300,38 @@ static func _features(c: int, len: float, pal: Dictionary, mats: Dictionary, gro
 	return g
 
 
-## The river's ribbons in this chunk: a bright flowing core and a wide soft glow over it.
+## The rivers whose centre crosses this chunk: a bright flowing core and a wide soft glow,
+## running across the whole ground strip.
 static func _river(g: Node3D, len: float, y0: float, mats: Dictionary) -> void:
-	var steps := 24
-	var on := false
-	for k in [0, steps / 2, steps]:
-		on = on or absf(river_x(y0 + len * k / steps)) < 220.0
-	if not on:
-		return
 	var core := Acc.new()
 	var wide := Acc.new()
-	var prev := []
-	for k in steps + 1:
-		var ly := len * k / steps
-		var wy := y0 + ly
-		var x := river_x(wy)
-		var tx := river_x(wy + 0.5) - river_x(wy - 0.5)
-		var side := Vector3(1.0, -tx, 0).normalized()
-		var p := Vector3(x, ly, RIVER_BED + 1.2)
-		var row := [p, side, wy, river_kind(wy)]
-		if not prev.is_empty():
-			for spec in [[core, RIVER_W], [wide, RIVER_W * 3.4]]:
-				var acc: Acc = spec[0]
-				var w: float = spec[1]
-				var a0: Vector3 = prev[0] - prev[1] * w
-				var a1: Vector3 = prev[0] + prev[1] * w
-				var b0: Vector3 = p - side * w
-				var b1: Vector3 = p + side * w
-				var v0: float = prev[2] * 0.1
-				var v1: float = wy * 0.1
-				var c := Color(float(row[3]), 0, 0)
-				acc.quad_uv(a0, a1, b1, b0, Vector2(0, v0), Vector2(1, v0), Vector2(1, v1), Vector2(0, v1), c)
-		prev = row
+	var k0 := floori(y0 / RIVER_CELL)
+	for k in range(k0 - 1, k0 + 2):
+		var r := river(k)
+		if r.is_empty() or float(r[0]) < y0 or float(r[0]) >= y0 + len:
+			continue
+		var steps := 60
+		var prev := []
+		for i in steps + 1:
+			var x := lerpf(X0 - 130.0, X1 + 130.0, float(i) / steps)
+			var y := river_y(r, x) - y0
+			var ty := river_y(r, x + 0.5) - river_y(r, x - 0.5)
+			var side := Vector3(-ty, 1.0, 0).normalized()
+			var p := Vector3(x, y, RIVER_BED + 1.2)
+			if not prev.is_empty():
+				for spec in [[core, RIVER_W], [wide, RIVER_W * 3.4]]:
+					var acc: Acc = spec[0]
+					var w: float = spec[1]
+					var a0: Vector3 = prev[0] - prev[1] * w
+					var a1: Vector3 = prev[0] + prev[1] * w
+					var b0: Vector3 = p - side * w
+					var b1: Vector3 = p + side * w
+					var v0: float = prev[2] * 0.1
+					var v1: float = x * 0.1
+					acc.quad_uv(a0, a1, b1, b0, Vector2(0, v0), Vector2(1, v0), Vector2(1, v1), Vector2(0, v1), Color(float(r[2]), 0, 0))
+			prev = [p, side, x]
+	if core.count() == 0:
+		return
 	g.add_child(_mi(wide.mesh(), mats.river_glow, false))
 	g.add_child(_mi(core.mesh(), mats.river, false))
 
