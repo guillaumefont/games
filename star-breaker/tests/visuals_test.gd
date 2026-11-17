@@ -150,6 +150,24 @@ func _initialize() -> void:
 	check(alive > 10 and jolted == alive, "a living arc jolts about erratically, within bounds (%d of %d)" % [jolted, alive])
 	ub.free()
 
+	# --- things enter from off screen, even on a tall phone that shows past the stage ---
+	var keep_view: Rect2 = vg.view
+	vg.view = Rect2(-2.0, 112.0 - 141.0, 130.0, 282.0)  # a 9:19.5 phone
+	var first := {}
+	for e in vg.G.enemies:
+		first[e.id] = true
+	var on_screen := []
+	for f in 900:
+		tick(1)
+		for e in vg.G.enemies:
+			# carriers fly in from the side, and a boss's brood hatches out of it
+			if not first.has(e.id) and not e.get("boss", false) and e.type != "carrier" and e.get("score", 1) != 0:
+				first[e.id] = true
+				if e.y < vg.view.end.y:
+					on_screen.append("%s at %.0f" % [e.type, e.y])
+	check(first.size() > 5 and on_screen.is_empty(), "on a tall phone enemies appear above the screen's top edge, not on it (%d seen; on screen: %s)" % [first.size(), on_screen])
+	vg.view = keep_view
+
 	# --- explosions ---
 	var n0: int = vg.fx.size()
 	vg.boom(60.0, 120.0, 5.0, true)
