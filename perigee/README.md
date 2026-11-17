@@ -8,7 +8,8 @@ the dark.
 - **Sparks** between moons are worth a bonus point.
 
 Play the Godot build at https://guillaumefont.github.io/games/perigee/ or install its Android APK from
-https://guillaumefont.github.io/games/perigee/perigee.apk. The original web game stays playable at
+https://guillaumefont.github.io/games/perigee/perigee.apk. Once installed, the APK updates itself at launch
+(as Star Breaker does), and the start card says when a newer build is out. The original web game stays playable at
 https://guillaumefont.github.io/games/perigee/prototype/ (as an APK: `perigee-webview.apk`), the reference
 for how the hop should feel.
 
@@ -41,6 +42,7 @@ The folder is a Godot 4.7 project (2D, Compatibility renderer, portrait), next t
 godot --headless --path perigee --import
 godot --headless --path perigee --script tests/sim_test.gd   # rules, replay, difficulty
 godot --headless --path perigee --script tests/game_test.gd  # scene, HUD, save, pause
+godot --headless --path perigee --script tests/update_test.gd  # self-update
 xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
   --script tools/screenshots.gd -- /tmp/perigee-shots    # review screenshots
 node perigee/tests/prototype_play_test.cjs              # the web game (needs playwright)
