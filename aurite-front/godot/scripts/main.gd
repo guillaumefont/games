@@ -62,6 +62,7 @@ func _ready() -> void:
 	V.panel_px = U.panel_px()
 	U.mode_btn.visible = false  # box selection is a hold-and-drag (or a plain drag with PAN_FINGERS 2)
 	show_start()
+	if not headless and OS.get_environment("AF_SHOT") == "": _boot_splash()
 	if not headless: render_icons("vanguard")
 	get_viewport().size_changed.connect(_on_resize)
 	_on_resize()
@@ -312,6 +313,16 @@ func pick_campaign(id: String) -> void:
 
 func _camp_rows() -> Array:
 	return D.CAMPAIGNS.map(func(C): return {"C": C, "open": camp_open(C.id), "done": camp_prog(C.id)})
+
+## The splash after the engine's plain boot screen: the title art in the player's story stage, then the menu.
+func _boot_splash() -> void:
+	U.build_splash(); U.set_stage(menu_stage()); U.show_overlay("splash")
+	var o: Control = U.overlays.splash
+	await get_tree().create_timer(1.8).timeout
+	var tw := create_tween(); tw.tween_property(o, "modulate:a", 0.0, 0.35)
+	await tw.finished
+	o.modulate.a = 1.0
+	if U.overlays.splash.visible: U.show_overlay("start")
 
 ## Home-screen icon follows the menu stage (Android: launcher aliases switched by tools/android/IconSwap.java).
 var _icon_stage := -1
@@ -1341,7 +1352,7 @@ func _icon_shots() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://store/icons"))
 	for st in 3:
 		UI.stage = st
-		var full := await _icon_render(1024, true, true, 0.74)
+		var full := await _icon_render(1024, true, true, 0.76)
 		var fg := await _icon_render(432, false, true, 0.80 * 0.66)
 		var bg := await _icon_render(432, true, false, 0.0)
 		full.save_png("res://store/icons/stage-%d-1024.png" % (st + 1))
@@ -1358,7 +1369,7 @@ func _icon_render(n: int, bg: bool, fg: bool, k: float) -> Image:
 	if bg:
 		var w := UI.WarBG.new(); w.hero = true; w.icon = true; w.t = 3.0; w.size = Vector2(n, n); root.add_child(w)
 	if fg:
-		var ins := UI.Insignia.new(); var sz := n * k
+		var ins := UI.Insignia.new(); ins.chunky = true; var sz := n * k
 		ins.size = Vector2(sz, sz) * Vector2(0.86, 1.0); ins.position = Vector2(n, n) * 0.5 - ins.size * Vector2(0.5, 0.40 if UI.stage == 2 else 0.47)
 		if UI.stage == 2: ins.scale = Vector2.ONE * 0.92; ins.position += ins.size * 0.04
 		root.add_child(ins)

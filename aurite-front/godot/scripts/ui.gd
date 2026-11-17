@@ -1225,6 +1225,7 @@ class Hazard extends Control:
 ## Unit insignia: a riveted brass shield with three chevrons and a star.
 ## UI.stage ages it with the campaign: 0 polished, 1 tarnished and cracked with aurite glinting through, 2 split open by crystals.
 class Insignia extends Control:
+	var chunky := false   # app icon: thick rim, bigger star, no fine detail, so it reads at launcher size
 	var clip := PackedVector2Array()   # when set, every fill is cut to this shape (stage 2 draws each half on its own)
 	const SH := [Vector2(0.5, 0), Vector2(1, 0.14), Vector2(0.92, 0.66), Vector2(0.5, 1), Vector2(0.08, 0.66), Vector2(0, 0.14)]
 	const LIGHT := Vector2(-0.55, -0.83)
@@ -1297,12 +1298,12 @@ class Insignia extends Control:
 		_shield(s, st)
 	func _shield(s: Vector2, st: int, wear := 0.0) -> void:
 		var p := _pts(SH, s)
-		var bw := maxf(3.0, s.x * 0.075)
+		var bw := maxf(3.0, s.x * (0.11 if chunky else 0.075))
 		var brass: Color = [Color("d9a441"), Color("9c8a63"), Color("4d4842")][st]
 		var keyl := inset(p, -maxf(1.5, s.x * 0.022))
 		_fill(keyl, Color("0b0d08"))
 		var i1 := inset(p, bw); var i2 := inset(p, bw + maxf(1.5, s.x * 0.03))
-		_ring(p, i1, brass, 0.45)
+		_ring(p, i1, brass, 0.25 if chunky else 0.45)
 		_ring(i1, i2, brass.darkened(0.15), 0.5, true)
 		# field: olive drab, darker toward the point, with a heraldic split light/dark down the middle
 		var fld: Color = [Color("232a1b"), Color("1e221c"), Color("161816")][st]
@@ -1314,7 +1315,7 @@ class Insignia extends Control:
 		for q in Geometry2D.intersect_polygons(i2, PackedVector2Array([Vector2(-s.x, -s.y), Vector2(s.x * 0.5, -s.y), Vector2(s.x * 0.5, s.y * 2), Vector2(-s.x, s.y * 2)])):
 			_fill(q, Color(1, 1, 1, 0.035))
 		# rivets on the rim corners
-		if s.x >= 44:
+		if s.x >= 44 and not chunky:
 			for k in p.size():
 				var rc := (p[k] + i1[k]) * 0.5; var rr := maxf(1.2, s.x * 0.022)
 				_dot(rc + Vector2(rr * 0.35, rr * 0.45), rr, Color(0, 0, 0, 0.5))
@@ -1338,9 +1339,9 @@ class Insignia extends Control:
 		var gl := PackedVector2Array([Vector2(-s.x, -s.y), Vector2(s.x * 0.62, -s.y), Vector2(s.x * 0.05, s.y * 0.62), Vector2(-s.x, s.y * 0.62)])
 		for q in Geometry2D.intersect_polygons(p, gl): _fill(q, Color(1, 0.95, 0.8, 0.05 if st == 0 else 0.025))
 		if st == 1: _crack(s)
-		if st >= 1 and s.x >= 40: _scratches(s, i1)
+		if st >= 1 and s.x >= 40 and not chunky: _scratches(s, i1)
 	func _star(s: Vector2, st: int) -> void:
-		var cc := Vector2(s.x * 0.5, s.y * 0.27); var ro := s.x * 0.15; var ri := s.x * 0.062
+		var cc := Vector2(s.x * 0.5, s.y * 0.27); var ro := s.x * (0.19 if chunky else 0.15); var ri := s.x * (0.078 if chunky else 0.062)
 		var red: Color = [Color("e5483f"), Color("9c4038"), Color("5a2a26")][st]
 		var outer := PackedVector2Array()
 		for i in 10:
