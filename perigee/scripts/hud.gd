@@ -16,6 +16,8 @@ signal tutorial_requested
 signal hangar_opened
 signal cosmetic_picked(id: String)
 signal hangar_closed
+signal menu_requested ## back to the start card (the main menu) from game over, pause or Voyage
+signal refresh_pressed ## the build line was tapped: restart into the newest build
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
 ## Shown on the start and game over cards while the vertical slice is built; not for release.
@@ -40,6 +42,8 @@ var best_label: Label
 var sound_button: Button
 var hint_label: Label
 var start_card: Control
+var build_button: Button ## the build line on the start card ("Build b1050 · refresh")
+var _build_id := ""
 var over_card: Control
 var over_why: Label
 var over_score: Label
@@ -47,9 +51,8 @@ var over_best: Label
 var over_stats: Label
 var mode_label: Label
 var timer_label: Label
-var voyage_card: Control
-var voyage_system: Label
-var voyage_grid: GridContainer
+var voyage_card: Control ## the Voyage map (VoyageMap)
+var voyage_map: VoyageMap
 var clear_card: Control
 var clear_title: Label
 var clear_score: Label
@@ -58,9 +61,19 @@ var clear_lines: Array[Label] = []
 var clear_pill_label: Label
 var clear_big: Control ## the three big stars
 var clear_buttons: Control ## Replay and Map
+var clear_medals: Control ## the run's three medals
+var clear_medal_icons: Array[MedalIcon] = []
+var clear_medal_tiers: Array[Label] = []
+var clear_medal_next: Array[Label] = []
+var voyage_stars: Label ## "14 / 54": every star of the route, on the map's top bar
+var voyage_tally: Label ## medals won and the bonus sparks they paid
+var over_medal_row: Control ## Drift's points medal on the game over card
+var over_medal: MedalIcon
+var over_medal_label: Label
 var over_lab_row: Control
 var over_voyage_row: Control
 var pause_card: Control
+var pause_menu: Button ## "Main menu" on the pause card (hidden during the resume countdown)
 var pause_title: Label
 var pause_sub: Label
 var start_pill_label: Label
@@ -194,6 +207,18 @@ func _ready() -> void:
 	menu_row.add_child(settings_button)
 	_card(start_card).add_child(menu_row)
 	_card(start_card).add_child(_lab_row())
+	# Which build this is, and on test builds a newer one when it's out (see main.gd _check_update).
+	_build_id = str(ProjectSettings.get_setting("application/config/version", ""))
+	build_button = Button.new()
+	build_button.name = "Build"
+	build_button.flat = true
+	build_button.focus_mode = Control.FOCUS_NONE
+	build_button.add_theme_font_override("font", body_700)
+	build_button.add_theme_font_size_override("font_size", 11)
+	build_button.pressed.connect(func() -> void: refresh_pressed.emit())
+	build_button.visible = _build_id != ""
+	_card(start_card).add_child(_centered(build_button))
+	set_build_state("idle")
 
 	over_card = _overlay()
 	over_card.visible = false
@@ -215,6 +240,18 @@ func _ready() -> void:
 	over_unlock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	over_unlock.visible = false
 	_card(over_card).add_child(over_unlock)
+	var mrow := HBoxContainer.new()
+	mrow.alignment = BoxContainer.ALIGNMENT_CENTER
+	mrow.add_theme_constant_override("separation", 8)
+	mrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	over_medal = MedalIcon.new(22.0, "points")
+	over_medal.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mrow.add_child(over_medal)
+	over_medal_label = _label("", body_700, 13, INK)
+	mrow.add_child(over_medal_label)
+	mrow.visible = false
+	over_medal_row = mrow
+	_card(over_card).add_child(mrow)
 	_card(over_card).add_child(_pill("Tap to fly again"))
 	over_lab_row = _lab_row()
 	_card(over_card).add_child(over_lab_row)
@@ -233,6 +270,7 @@ func _ready() -> void:
 	over_voyage_row = vrow
 	over_voyage_row.visible = false
 	_card(over_card).add_child(over_voyage_row)
+	_card(over_card).add_child(_centered(_menu_button()))
 
 	_build_voyage_card()
 	_build_clear_card()
@@ -247,6 +285,8 @@ func _ready() -> void:
 	pause_sub = _label("Tap to resume", body_700, 15, SAND)
 	pause_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(pause_card).add_child(pause_sub)
+	pause_menu = _menu_button()
+	_card(pause_card).add_child(_centered(pause_menu))
 
 	get_viewport().size_changed.connect(apply_safe_area)
 	apply_safe_area()
@@ -276,6 +316,8 @@ func apply_safe_area() -> void:
 	top.add_theme_constant_override("margin_top", int(10 + top_inset))
 	top.add_theme_constant_override("margin_left", int(maxf(16, left_inset)))
 	top.add_theme_constant_override("margin_right", int(maxf(16, right_inset)))
+	if voyage_map != null:
+		voyage_map.top_bar.add_theme_constant_override("margin_top", int(12 + top_inset))
 	hint_label.offset_top = -(28 + bottom_inset + 22)
 	hint_label.offset_bottom = -(28 + bottom_inset)
 
@@ -308,28 +350,31 @@ func set_timer(run_t: float, par: float) -> void:
 	timer_label.add_theme_color_override("font_color", TEAL if run_t <= par else CORAL)
 
 
+## Drift's points medal on the game over card: this run's tier and what the next one needs.
+## A negative tier hides the row (other modes).
+func set_over_medal(tier: int, text: String) -> void:
+	over_medal_row.visible = tier >= 0
+	if tier < 0:
+		return
+	over_medal.tier = tier
+	over_medal_label.text = text
+	over_medal_label.add_theme_color_override("font_color", INK if tier > 0 else MUTED)
+
+
 ## The game over card's lower row: lab buttons, or Map and Drift in Voyage.
 func set_over_row(voyage: bool) -> void:
 	over_lab_row.visible = not voyage
 	over_voyage_row.visible = voyage
 
 
-func show_voyage(progress: Dictionary) -> void:
+## Opens the Voyage map. `claimed` is save.data.rewards; `focus` the level to scroll to (the furthest
+## open one when empty).
+func show_voyage(progress: Dictionary, drift_best := 0, claimed: Array = [], focus := "") -> void:
 	start_card.visible = false
 	over_card.visible = false
 	clear_card.visible = false
-	var sys: Dictionary = Voyage.SYSTEMS[0]
-	voyage_system.text = "System 1 · %s" % sys.name
-	for b in voyage_grid.get_children():
-		var id: String = b.get_meta("id")
-		var open := Voyage.unlocked(id, progress)
-		b.disabled = not open
-		b.modulate.a = 1.0 if open else 0.4
-		var got := int(progress.get(id, {}).get("stars", 0))
-		var stars_row: Control = b.get_child(0).get_child(1)
-		for i in 3:
-			(stars_row.get_child(i) as StarIcon).lit = i < got
 	voyage_card.visible = true
+	voyage_map.refresh(progress, drift_best, claimed, focus)
 
 
 func hide_voyage() -> void:
@@ -337,14 +382,31 @@ func hide_voyage() -> void:
 
 
 ## The sector clear card: stars earned, with what each one is for.
-func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bool) -> void:
-	clear_title.text = "Sector %s clear" % id
+## `medals` is this run's {"speed", "points", "stars"} tiers and `next` what each next tier needs
+## ("" once won at the top).
+## `won` is the bonus sparks each medal's new rewards paid this run.
+func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bool,
+		medals := {}, next := {}, won := {}) -> void:
+	clear_title.text = "Level %d clear" % Voyage.level_number(id)
 	clear_score.text = str(score)
 	for i in 3:
 		clear_stars[i].lit = stars[i]
 		clear_lines[i].text = lines[i]
 		clear_lines[i].add_theme_color_override("font_color", INK if stars[i] else MUTED)
 	clear_pill_label.text = "TAP FOR NEXT SECTOR" if has_next else "TAP FOR THE MAP"
+	for i in 3:
+		var kind := clear_medal_icons[i].kind
+		var tier := int(medals.get(kind, 0))
+		clear_medal_icons[i].tier = tier
+		if kind == "stars":
+			clear_medal_tiers[i].text = "Won" if tier > 0 else "Not yet"
+		else:
+			clear_medal_tiers[i].text = Medals.TIER_NAMES[tier] if tier > 0 else "Not yet"
+		clear_medal_tiers[i].add_theme_color_override("font_color", MedalIcon.COLORS[tier] if tier > 0 else MUTED)
+		var paid := int(won.get(kind, 0))
+		clear_medal_next[i].text = ("+%d sparks" % paid) if paid > 0 else str(next.get(kind, ""))
+		clear_medal_next[i].add_theme_color_override("font_color", SAND if paid > 0 else MUTED)
+	clear_medals.visible = not medals.is_empty()
 	clear_big.visible = true
 	clear_buttons.visible = true
 	clear_card.visible = true
@@ -355,58 +417,15 @@ func hide_clear() -> void:
 
 
 func _build_voyage_card() -> void:
-	voyage_card = _overlay()
-	voyage_card.visible = false
-	voyage_card.color = Color(SPACE, 0.92)
-	voyage_card.mouse_filter = Control.MOUSE_FILTER_STOP # taps here never start a run
-	var card := _card(voyage_card)
-	var title := _label("Voyage", display_800, 40, INK)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(title)
-	voyage_system = _label("", _spaced(body_700, 1.5), 12, SAND)
-	voyage_system.uppercase = true
-	voyage_system.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(voyage_system)
-	var intro := _label(Voyage.SYSTEMS[0].intro, body_500, 14, MUTED)
-	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(intro)
-	voyage_grid = GridContainer.new()
-	voyage_grid.columns = 3
-	voyage_grid.add_theme_constant_override("h_separation", 10)
-	voyage_grid.add_theme_constant_override("v_separation", 10)
-	for sec in Voyage.SYSTEMS[0].sectors:
-		var b := Button.new()
-		b.name = "Sector_" + sec.id
-		b.set_meta("id", sec.id)
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(96, 76)
-		_style_ghost(b, 14)
-		var col := VBoxContainer.new()
-		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_theme_constant_override("separation", 6)
-		b.add_child(col)
-		col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		var l := _label(sec.id, display_500, 16, INK)
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		col.add_child(l)
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", 3)
-		for i in 3:
-			row.add_child(StarIcon.new(13.0))
-		col.add_child(row)
-		var id: String = sec.id
-		b.pressed.connect(func() -> void: sector_picked.emit(id))
-		voyage_grid.add_child(b)
-	card.add_child(_centered(voyage_grid))
-	var back := _ghost_button("Back", 12, 32, 16)
-	back.name = "Back"
-	back.pressed.connect(func() -> void:
-		voyage_card.visible = false
-		start_card.visible = true)
-	card.add_child(_centered(back))
+	voyage_map = VoyageMap.new(self)
+	voyage_map.visible = false
+	root.add_child(voyage_map)
+	voyage_map.build()
+	voyage_map.level_picked.connect(func(id: String) -> void: sector_picked.emit(id))
+	voyage_map.back_pressed.connect(func() -> void: menu_requested.emit())
+	voyage_card = voyage_map
+	voyage_stars = voyage_map.stars_label
+	voyage_tally = voyage_map.tally_label
 
 
 func _build_clear_card() -> void:
@@ -444,6 +463,42 @@ func _build_clear_card() -> void:
 		list.add_child(l)
 		clear_lines.append(l)
 	card.add_child(_centered(list))
+	var medals := HBoxContainer.new()
+	medals.alignment = BoxContainer.ALIGNMENT_CENTER
+	medals.add_theme_constant_override("separation", 6)
+	medals.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for m in [["speed", "Speed"], ["points", "Points"], ["stars", "All stars"]]:
+		var col := VBoxContainer.new()
+		col.custom_minimum_size = Vector2(104, 0)
+		col.alignment = BoxContainer.ALIGNMENT_BEGIN
+		col.add_theme_constant_override("separation", 2)
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var icon := MedalIcon.new(32.0, m[0])
+		col.add_child(_centered(icon))
+		var name_l := _label(m[1], _spaced(body_700, 1.2), 10, MUTED)
+		name_l.uppercase = true
+		name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(name_l)
+		var tier_l := _label("", body_700, 13, INK)
+		tier_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(tier_l)
+		var next_l := _label("", body_500, 11, MUTED)
+		next_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(next_l)
+		medals.add_child(col)
+		clear_medal_icons.append(icon)
+		clear_medal_tiers.append(tier_l)
+		clear_medal_next.append(next_l)
+	var rewards_box := VBoxContainer.new()
+	rewards_box.add_theme_constant_override("separation", 6)
+	rewards_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var head := _label("Rewards", _spaced(body_700, 1.7), 11, SAND)
+	head.uppercase = true
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rewards_box.add_child(head)
+	rewards_box.add_child(medals)
+	card.add_child(rewards_box)
+	clear_medals = rewards_box
 	var pill := _pill("Tap for next sector")
 	clear_pill_label = pill.get_child(0).get_child(0)
 	card.add_child(pill)
@@ -467,6 +522,7 @@ func show_tutorial_done(score: int) -> void:
 	clear_score.text = str(score)
 	clear_big.visible = false
 	clear_buttons.visible = false
+	clear_medals.visible = false
 	var tips := ["Perigees score double and build your combo",
 		"Fling past a moon to leap it for big points",
 		"Voyage has hand-made sectors with stars to win"]
@@ -517,7 +573,7 @@ func _build_hangar_card() -> void:
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 8)
-	for it in Unlocks.TRACK:
+	for it in Unlocks.TRACK + Unlocks.REWARD_ITEMS:
 		var b := Button.new()
 		b.name = "Item_" + it.id
 		b.focus_mode = Control.FOCUS_NONE
@@ -544,7 +600,7 @@ func _build_hangar_card() -> void:
 		grid.add_child(b)
 		hangar_items[id] = b
 	card.add_child(_centered(grid))
-	var note := _label("Collect sparks in any mode to move along the track.", body_500, 12, MUTED)
+	var note := _label("Collect sparks and win medals to move along the track.", body_500, 12, MUTED)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(note)
 	var done := _ghost_button("Done", 13, 36, 18)
@@ -554,19 +610,20 @@ func _build_hangar_card() -> void:
 
 
 ## Opens (or refreshes) the hangar for `sparks` collected all-time and the `equipped` ids.
-func show_hangar(sparks: int, equipped: Dictionary) -> void:
+func show_hangar(sparks: int, equipped: Dictionary, claimed: Array = []) -> void:
 	hangar_sparks.text = "%d sparks collected" % sparks
 	hangar_bar.value = Unlocks.progress(sparks)
 	var nxt := Unlocks.next_item(sparks)
 	hangar_next.text = ("Next: %s at %d" % [Unlocks.label(nxt), nxt.at]) if not nxt.is_empty() else "Track complete"
-	for it in Unlocks.TRACK:
+	for it in Unlocks.TRACK + Unlocks.REWARD_ITEMS:
 		var b: Button = hangar_items[it.id]
-		var open := sparks >= int(it.at)
+		var open := Unlocks.is_unlocked(it.id, sparks, claimed)
 		var on: bool = equipped.get(it.kind, "") == it.id
 		b.disabled = not open
 		b.find_child("Icon", true, false).locked = not open
 		var sub: Label = b.find_child("Sub", true, false)
-		sub.text = ("Equipped" if on else it.kind.capitalize()) if open else "%d sparks" % it.at
+		var how: String = it.get("how", "%d sparks" % int(it.get("at", 0)))
+		sub.text = ("Equipped" if on else it.kind.capitalize()) if open else how
 		sub.add_theme_color_override("font_color", SAND if on else MUTED)
 		for st in ["normal", "hover", "pressed", "focus", "hover_pressed", "disabled"]:
 			var sb := StyleBoxFlat.new()
@@ -739,6 +796,28 @@ func _style_ghost(b: Button, font_size: int, radius := 16) -> void:
 		b.add_theme_color_override(c, INK)
 
 
+## What the build line says: "idle" (this build, tap to check), "checking", "latest" (no newer
+## build), "offline" (couldn't check), "new" (build `build` is out, tap to update) or "restarting".
+func set_build_state(state: String, build := 0) -> void:
+	var color := MUTED
+	match state:
+		"new":
+			build_button.text = "New build %d · tap to update" % build
+			color = SAND
+		"restarting":
+			build_button.text = "Restarting…"
+		"checking":
+			build_button.text = "Checking for a new build…"
+		"offline":
+			build_button.text = "Build %s · can't check (offline)" % _build_id
+		"latest":
+			build_button.text = "Build %s · up to date" % _build_id
+		_:
+			build_button.text = "Build %s  ⟳" % _build_id
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		build_button.add_theme_color_override(c, color)
+
+
 ## The small tag under the sound button: which lab is running, or nothing in the endless mode.
 func set_mode(text: String) -> void:
 	mode_label.text = text
@@ -776,6 +855,7 @@ func hide_over() -> void:
 ## Pause card: "Paused / Tap to resume", or a countdown number while resuming.
 func show_pause(on: bool, countdown := 0) -> void:
 	pause_card.visible = on
+	pause_menu.visible = countdown <= 0
 	if countdown > 0:
 		pause_title.text = str(countdown)
 		pause_sub.text = "Get ready"
@@ -785,6 +865,14 @@ func show_pause(on: bool, countdown := 0) -> void:
 
 
 # ---------- building blocks ----------
+
+## A "Main menu" button: back to the start card, where the build line and the menus are.
+func _menu_button() -> Button:
+	var b := _ghost_button("Main menu", 12, 32, 16)
+	b.name = "MainMenu"
+	b.pressed.connect(func() -> void: menu_requested.emit())
+	return b
+
 
 func _font(path: String) -> Font:
 	var f: Font = load(path)

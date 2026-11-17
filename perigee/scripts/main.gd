@@ -28,6 +28,7 @@ const TUTORIAL_SEED := 4242
 const TUTORIAL_RECIPE := {"moons": 6, "rescue": true}
 const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
 var sector: Dictionary = {} ## the Voyage sector being played
+var run_rewards: Array[Dictionary] = [] ## Medals rewards paid out at the end of the last run
 var clear_shown := false
 var paused := false
 var resume_left := 0.0 ## > 0 while counting down to resume
@@ -75,6 +76,8 @@ func _ready() -> void:
 	hud.hangar_opened.connect(open_hangar)
 	hud.cosmetic_picked.connect(equip)
 	hud.hangar_closed.connect(close_hangar)
+	hud.refresh_pressed.connect(refresh_game)
+	hud.menu_requested.connect(go_to_menu)
 	_apply_volumes()
 	if not save.data.tutorial_done:
 		hud.set_start_text("Tap to learn to fly")
@@ -91,6 +94,85 @@ func _ready() -> void:
 	sim.next_seed = _new_seed()
 	get_viewport().size_changed.connect(_on_resize)
 	_update_frame_cap()
+	_check_update()
+
+
+var new_build := 0 ## a newer build seen on the update server, or 0
+var _checking := false
+var _check_ok := false ## the last check reached the update server
+
+
+## Restarts the game so the launch-time updater (scripts/boot.gd) loads the newest build: the app
+## restarts on Android and desktop, the page reloads in the browser. Only when a newer build is out
+## (refresh_game). Tests swap `restart_fn` for a stub.
+var restart_fn := func() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("location.reload()")
+	else:
+		OS.set_restart_on_exit(true, OS.get_cmdline_args())
+		get_tree().quit()
+
+
+func refresh_game() -> void:
+	if sim.state != "start" or _checking:
+		return
+	if new_build == 0:
+		# nothing known yet: ask the server first, and restart only if a newer build is out
+		hud.set_build_state("checking")
+		await _check_update()
+		if new_build == 0:
+			hud.set_build_state("latest" if _check_ok else "offline")
+			await get_tree().create_timer(2.0).timeout
+			if new_build == 0:
+				hud.set_build_state("idle")
+			return
+	save.save_file()
+	hud.set_build_state("restarting")
+	await get_tree().create_timer(0.15).timeout # let the line show before the app goes away
+	restart_fn.call()
+
+
+## The build number from the running version ("b1050 pr12 abc1234" -> 1050), or 0.
+static func build_number(version: String) -> int:
+	var m := RegEx.create_from_string("^b(\\d+)").search(version)
+	return int(m.get_string(1)) if m else 0
+
+
+## Asks the update server (as the launch-time updater does) whether a newer build is out, and if so
+## says so on the start card's build line. Quiet when offline, and never on the Play build (no url).
+func _check_update() -> void:
+	var url := str(ProjectSettings.get_setting("perigee/update_url", ""))
+	if url == "" or OS.has_feature("web") or _checking:
+		return
+	_checking = true
+	var d = await fetch_update_json.call(url)
+	_checking = false
+	_check_ok = d is Dictionary
+	if d is Dictionary:
+		show_update(int(d.get("build", 0)))
+
+
+## update.json from the update server, or null when offline. Tests swap it for a stub.
+var fetch_update_json := func(url: String) -> Variant:
+	var http := HTTPRequest.new()
+	http.timeout = 6.0
+	add_child(http)
+	if http.request(url + "update.json?t=%d" % int(Time.get_unix_time_from_system())) != OK:
+		http.queue_free()
+		return null
+	var r: Array = await http.request_completed
+	http.queue_free()
+	if r[0] != HTTPRequest.RESULT_SUCCESS or r[1] != 200:
+		return null
+	return JSON.parse_string((r[3] as PackedByteArray).get_string_from_utf8())
+
+
+## Shows "new build" on the start card when `remote` is newer than the running build.
+func show_update(remote: int) -> void:
+	var have := build_number(str(ProjectSettings.get_setting("application/config/version", "")))
+	if have > 0 and remote > have:
+		new_build = remote
+		hud.set_build_state("new", remote)
 
 
 ## Starts a run in a mode right away (from the lab buttons on the start and game over cards).
@@ -124,7 +206,7 @@ func start_tutorial() -> void:
 
 
 func open_hangar() -> void:
-	hud.show_hangar(int(save.data.sparks), save.data.equipped)
+	hud.show_hangar(int(save.data.sparks), save.data.equipped, save.data.rewards)
 
 
 func close_hangar() -> void:
@@ -136,20 +218,30 @@ func close_hangar() -> void:
 ## Equips an unlocked cosmetic (locked ones are ignored).
 func equip(id: String) -> void:
 	var it := Unlocks.item(id)
-	if it.is_empty() or not Unlocks.is_unlocked(id, int(save.data.sparks)):
+	if it.is_empty() or not Unlocks.is_unlocked(id, int(save.data.sparks), save.data.rewards):
 		return
 	save.data.equipped[it.kind] = id
 	save.save_file()
 	sfx.play("toggle")
 	if hud.hangar_card.visible:
-		hud.show_hangar(int(save.data.sparks), save.data.equipped)
+		hud.show_hangar(int(save.data.sparks), save.data.equipped, save.data.rewards)
 
 
-## Adds a run's sparks to the all-time count (the unlock track) and says what that unlocked.
+## Adds a run's sparks, and the bonus sparks of any medal rewards it won (call it after the run's
+## records are saved), to the all-time count (the unlock track), and says what that unlocked.
 func _bank_sparks() -> void:
 	var before := int(save.data.sparks)
-	save.data.sparks = before + sim.sparks_got
-	var got := Unlocks.newly_unlocked(before, int(save.data.sparks))
+	var bonus := 0
+	var got: Array[Dictionary] = []
+	run_rewards = Medals.unclaimed(save.data.voyage, int(save.data.best), save.data.rewards)
+	for r in run_rewards:
+		save.data.rewards.append(r.id)
+		bonus += int(r.sparks)
+		var it := Unlocks.reward_item(r.id)
+		if not it.is_empty():
+			got.append(it)
+	save.data.sparks = before + sim.sparks_got + bonus
+	got.append_array(Unlocks.newly_unlocked(before, int(save.data.sparks)))
 	var names: Array[String] = []
 	for it in got:
 		names.append(Unlocks.label(it))
@@ -189,8 +281,9 @@ func _apply_volumes() -> void:
 		AudioServer.set_bus_mute(i, v <= 0.0)
 
 
-func open_voyage() -> void:
-	hud.show_voyage(save.data.voyage)
+## Opens the Voyage map, scrolled to `focus` (the furthest open level when empty).
+func open_voyage(focus := "") -> void:
+	hud.show_voyage(save.data.voyage, int(save.data.best), save.data.rewards, focus)
 
 
 ## Starts a Voyage sector: its fixed layout from the sector's seed and recipe.
@@ -204,7 +297,7 @@ func start_sector(id: String) -> void:
 	sim.new_run(sec.seed)
 	sim.events.append({"type": "start"})
 	hud.hide_voyage()
-	hud.set_mode("Sector %s · %s" % [sec.id, Voyage.system_of(id).name])
+	hud.set_mode("Level %d · %s" % [Voyage.level_number(id), Voyage.system_of(id).name])
 
 
 func _clear_action(action: String) -> void:
@@ -217,13 +310,45 @@ func _clear_action(action: String) -> void:
 		"next":
 			var nxt := Voyage.next_sector(sector.id)
 			if nxt.is_empty():
-				open_voyage()
+				open_voyage(sector.id)
 			else:
 				start_sector(nxt.id)
 		"replay":
 			start_sector(sector.id)
 		"map":
-			open_voyage()
+			open_voyage(sector.id)
+
+
+## Back to the start card (the main menu) from game over, pause, the Voyage map or a cleared
+## sector. A run left from pause is dropped: it doesn't count for the best score or sparks.
+func go_to_menu() -> void:
+	if paused:
+		paused = false
+		resume_left = 0.0
+		hud.show_pause(false)
+		music.ducked = false
+	mode = "endless"
+	sector = {}
+	sim.recipe = {}
+	sim.new_run(_new_seed())
+	sim.state = "start"
+	sim.events.clear()
+	button_down = false
+	over_shown = false
+	clear_shown = false
+	new_best = false
+	hud.hide_over()
+	hud.hide_clear()
+	hud.hide_voyage()
+	hud.set_mode("")
+	hud.set_timer(0.0, 0.0)
+	hud.set_score(0)
+	hud.set_over_unlock("")
+	hud.set_start_text("Tap to play Drift" if save.data.tutorial_done else "Tap to learn to fly")
+	hud.show_start(true)
+	_update_frame_cap()
+	if new_build == 0:
+		_check_update() # the build line says if a newer build came out meanwhile
 
 
 func _new_seed() -> int:
@@ -463,6 +588,16 @@ func _update_hud() -> void:
 	if sim.state == "over" and not over_shown and sim.t - sim.death_t >= Sim.RESTART_LOCK:
 		over_shown = true
 		hud.set_over_row(mode == "voyage")
+		if mode == "endless":
+			var tier := Medals.drift_tier(sim.score)
+			var nxt := Medals.next_points_text(Medals.DRIFT_POINTS, tier)
+			var txt := ("%s medal" % Medals.TIER_NAMES[tier]) if tier > 0 else "No medal yet"
+			var won := _reward_sparks("drift")
+			if won > 0:
+				txt += "  ·  +%d sparks" % won
+			hud.set_over_medal(tier, txt + ("  ·  " + nxt if nxt != "" else ""))
+		else:
+			hud.set_over_medal(-1, "")
 		var line := ("Moon %d of %d" % [mini(sim.hops, sector.moons), sector.moons]) if mode == "voyage" else ""
 		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats(), line)
 	if mode == "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
@@ -471,11 +606,20 @@ func _update_hud() -> void:
 	if mode != "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:
 		clear_shown = true
 		var st := Voyage.stars(sector, sim)
+		var medals := Medals.of_run(sector, st, sim.run_t, sim.score)
 		hud.show_clear(sector.id, sim.score, st, [
 			"Reach moon %d" % sector.moons,
 			"Under %d s (%.1f s)" % [int(sector.par), sim.run_t],
 			Voyage.goal_text(sector.goal),
-		], not Voyage.next_sector(sector.id).is_empty())
+		], not Voyage.next_sector(sector.id).is_empty(), medals, {
+			"speed": Medals.next_speed_text(sector, medals.speed),
+			"points": Medals.next_points_text(Medals.points_marks(sector), medals.points),
+			"stars": "" if medals.stars > 0 else "Win all 3 stars · +%d" % Medals.ALL_STARS_SPARKS,
+		}, {
+			"speed": _reward_sparks("speed", sector.id),
+			"points": _reward_sparks("points", sector.id),
+			"stars": _reward_sparks("stars", sector.id) + _reward_sparks("system"),
+		})
 		var lit := 0
 		for got in st:
 			if got:
@@ -510,6 +654,16 @@ func _tutorial_hint() -> String:
 	if sim.holding:
 		return "Keep holding…"
 	return "Hold when you reach the dotted ring"
+
+
+## Bonus sparks the last run's rewards of `kind` paid (for `sector_id` when given: rewards
+## left unpaid from older records are paid too, but not shown on this sector's card).
+func _reward_sparks(kind: String, sector_id := "") -> int:
+	var n := 0
+	for r in run_rewards:
+		if r.kind == kind and (sector_id == "" or r.sector == sector_id):
+			n += int(r.sparks)
+	return n
 
 
 func _run_stats() -> String:

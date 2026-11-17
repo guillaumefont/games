@@ -160,6 +160,37 @@ func _initialize() -> void:
 	tick(0.1)
 	check(main.mode == "endless" and main.sim.recipe.is_empty() and main.hud.mode_label.text == "", "Endless goes back to the normal mode")
 
+	# back to the main menu (the start card, with the build line) from game over, pause and Voyage
+	main.sim.die("test")
+	tick(0.6)
+	var menu_b: Button = main.hud.over_card.find_child("MainMenu", true, false)
+	check(menu_b != null and menu_b.is_visible_in_tree(), "the game over card has a Main menu button")
+	menu_b.pressed.emit()
+	check(main.sim.state == "start" and main.hud.start_card.visible and not main.hud.over_card.visible
+		and main.hud.build_button.get_parent() != null, "Main menu goes back to the start card")
+	button(true)
+	tick(0.1)
+	button(false)
+	check(main.sim.state == "play" and main.sim.player.planet != null, "and a tap there starts a run as usual")
+	var runs_before: int = main.save.data.runs
+	main.pause_game()
+	var pause_menu: Button = main.hud.pause_menu
+	check(main.paused and pause_menu.is_visible_in_tree(), "the pause card has a Main menu button")
+	pause_menu.pressed.emit()
+	tick(0.1)
+	check(not main.paused and not main.hud.pause_card.visible and main.sim.state == "start" and main.hud.start_card.visible,
+		"Main menu from pause leaves the run")
+	check(main.save.data.runs == runs_before, "a run left from pause isn't counted")
+	main.open_voyage()
+	main.start_sector("1-1")
+	tick(0.1)
+	main.sim.die("test")
+	tick(0.6)
+	main.hud.over_card.find_child("Map", true, false).pressed.emit()
+	main.hud.voyage_card.find_child("Back", true, false).pressed.emit()
+	check(main.sim.state == "start" and main.mode == "endless" and main.sector.is_empty() and main.hud.start_card.visible
+		and not main.hud.voyage_card.visible and main.hud.timer_label.text == "", "Back on the Voyage map goes to the main menu, out of Voyage")
+
 	# settings: sound toggles and is kept
 	main.hud.sound_button.pressed.emit()
 	check(main.sfx.enabled and main.hud.sound_button.text == "SOUND ON", "the sound button turns sound on")
@@ -180,6 +211,46 @@ func _initialize() -> void:
 	new_main()
 	await process_frame
 	check(main.sfx.enabled and main.hud.best_label.text == "Best %d" % final, "sound setting and best come back after a restart of the app")
+
+	# the build line on the start card (test builds; see scripts/boot.gd for the updater itself)
+	check(main.build_number("b1050 pr12 abc1234") == 1050 and main.build_number("") == 0, "reads the build number")
+	ProjectSettings.set_setting("application/config/version", "b1050 test")
+	main.queue_free()
+	await process_frame
+	new_main()
+	await process_frame
+	var bb: Button = main.hud.build_button
+	check(bb.visible and bb.text.begins_with("Build b1050"), "the start card shows which build this is: " + bb.text)
+	main.show_update(1049)
+	check(bb.text.begins_with("Build b1050"), "an older build on the server changes nothing")
+	var restarted := [false]
+	main.restart_fn = func() -> void: restarted[0] = true
+	ProjectSettings.set_setting("perigee/update_url", "http://updates.test/")
+	var server := [{"build": 1050}]
+	main.fetch_update_json = func(_url: String) -> Variant: return server[0]
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text == "Build b1050 test · up to date", "tapping with no newer build doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	check(bb.text.begins_with("Build b1050") and bb.text.ends_with("⟳"), "then the line goes back to the build")
+	server[0] = null
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text.ends_with("can't check (offline)"), "offline: tapping doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	server[0] = {"build": 1051}
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping when a newer build just came out restarts into it")
+	restarted[0] = false
+	ProjectSettings.set_setting("perigee/update_url", "")
+	main.show_update(1052)
+	check(bb.text == "New build 1052 · tap to update", "says when a newer build is out: " + bb.text)
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping it restarts into the new build")
+	check(main.sim.state == "start", "tapping the build line doesn't start a run")
+	ProjectSettings.set_setting("application/config/version", "")
 
 	# older or broken save files
 	var f := FileAccess.open(SAVE, FileAccess.WRITE)

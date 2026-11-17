@@ -24,6 +24,7 @@ const DEFAULTS := {
 	"equipped": {"ship": "ship_pebble", "trail": "trail_stardust", "palette": "palette_pastel"}, ## Unlocks ids by kind
 	"tutorial_done": false, ## the first-run tutorial was finished (or skipped)
 	"voyage": {}, ## sector id -> {stars, score, time}: best of each
+	"rewards": [], ## Medals reward ids already paid out (bonus sparks, reward cosmetics)
 }
 
 var path := "user://save.json"

@@ -142,8 +142,14 @@ static func mesh(m: Mesh, mat: Material, pos := Vector3.ZERO) -> MeshInstance3D:
 	mi.mesh = m
 	mi.set_surface_override_material(0, mat)
 	mi.position = pos
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# solid lit parts throw shadows on the ground; glowing (unshaded) and see-through ones don't
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if casts(mat) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
+
+
+static func casts(mat: Material) -> bool:
+	var b := mat as BaseMaterial3D
+	return b != null and b.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED and b.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
 
 
 static func geo(key: String, f: Callable) -> ArrayMesh:
@@ -600,7 +606,7 @@ static func _pillar_strips(xs: Array, w: float) -> ArrayMesh:
 
 # ---------- bosses of worlds 2 to 4 ----------
 ## Each returns a root node (added to `world`, kept at the origin) whose meta "u" maps part
-## keys to the nodes main.gd moves around in stage coordinates.
+## keys to the nodes the game moves around in stage coordinates.
 
 static func boss_prism(world: Node3D) -> Node3D:
 	var g := Node3D.new()

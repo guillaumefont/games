@@ -20,6 +20,14 @@ const TRACK: Array[Dictionary] = [
 	{"id": "trail_sparkle", "kind": "trail", "name": "Sparkle", "at": 420},
 ]
 
+## Cosmetics that are not on the track: each is the reward for a feat (see Medals.rewards), with
+## `reward` the id of that reward. Never sold.
+const REWARD_ITEMS: Array[Dictionary] = [
+	{"id": "ship_laurel", "kind": "ship", "name": "Laurel", "reward": "Cradle:stars", "how": "All Cradle stars"},
+	{"id": "trail_eddy", "kind": "trail", "name": "Eddy", "reward": "Backwash:stars", "how": "All Backwash stars"},
+	{"id": "ship_lantern", "kind": "ship", "name": "Lantern", "reward": "Lantern:stars", "how": "All Lantern stars"},
+]
+
 const KINDS := ["ship", "trail", "palette"]
 const DEFAULT_EQUIPPED := {"ship": "ship_pebble", "trail": "trail_stardust", "palette": "palette_pastel"}
 
@@ -32,15 +40,27 @@ const PALETTES := {
 
 
 static func item(id: String) -> Dictionary:
-	for it in TRACK:
+	for it in TRACK + REWARD_ITEMS:
 		if it.id == id:
 			return it
 	return {}
 
 
-static func is_unlocked(id: String, sparks: int) -> bool:
+## Unlocked at `sparks` all-time, or for a reward item, once its reward is in `claimed`
+## (save.data.rewards).
+static func is_unlocked(id: String, sparks: int, claimed: Array = []) -> bool:
 	var it := item(id)
+	if it.has("reward"):
+		return claimed.has(it.reward)
 	return not it.is_empty() and sparks >= int(it.at)
+
+
+## The reward item a reward id unlocks, or {}.
+static func reward_item(reward_id: String) -> Dictionary:
+	for it in REWARD_ITEMS:
+		if it.reward == reward_id:
+			return it
+	return {}
 
 
 ## Items unlocked by going from `before` to `after` sparks, in track order.

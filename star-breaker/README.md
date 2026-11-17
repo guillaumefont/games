@@ -4,9 +4,9 @@
 
 <sub>Latest build of `main`, updated on every merge.</sub>
 
-An original low poly 3D horizontal side-scrolling shooter, built with **Godot 4.7**.
-Fly through six worlds, each with its own enemies, tunnels, gates and boss, to the heart of a
-dying star.
+An original low poly 3D vertical shoot 'em up for phones (portrait, one thumb), built with
+**Godot 4.7**. Cut back the blooming moon: three stages of The Hollow Moon so far, ending with
+the Bloom Mother.
 
 Every model, sound and song is generated from code (no imported meshes or audio files), and all
 names, art and levels are original.
@@ -21,81 +21,58 @@ names, art and levels are original.
 
 ## Controls
 
-| Action | Keyboard | Gamepad | Touch |
-| --- | --- | --- | --- |
-| Move | Arrows / WASD | Left stick, D-pad | Left half: floating stick that appears under your thumb and follows it |
-| Fire (tap: heavy shot, hold: rapid fire) | Z | A | **Fire** zone (bottom right): tap, or hold for rapid fire |
-| Charge beam | X or C (hold, release) | B, X | Hold the **Charge** zone (middle right), release to fire |
-| Pod launch / recall | Space | Y, RB | Tap the **Pod** zone (top right) |
-| Pause | Esc / Enter | Start | Pause button, Android back |
-| Mute | M | | Speaker button |
-
-There are no visible touch buttons. The right side is one stack, bottom up: Fire, Charge, Pod. A faint map of the zones shows for the first 8 seconds of a run.
+| Action | Touch | Keyboard / gamepad |
+| --- | --- | --- |
+| Fly | Drag anywhere: the ship follows your thumb 1:1 | Arrows / WASD, left stick |
+| Fire | Automatic while your thumb is down | Automatic |
+| Release | Lift your thumb. **Lance:** fires its charge beam (hold longer for LV 2, 3 and the Nova). **Warden:** flings or recalls its pod | C / K (hold, release), B |
+| Ultimate | A second finger, or the ring at the top right, once kills have filled it. **Lance:** Starbreak. **Warden:** Shatter | X / Space, Y |
+| Pause | Pause button, Android back, or just lift your thumb for 3 s | Esc / P, Start |
 
 ## Game
 
-- **Weapons:** one Fire button (a tap shoots a heavy shot, holding it streams rapid fire) and a charge beam that pierces
-  everything in its path. Hold Charge to fill the meter through three levels; keep holding
-  for 4 seconds to reach the **Nova** stage, a much bigger pink beam that also burns away
-  enemy bullets.
-- **Pod:** collect a **P** carrier drop to get the pod. It docks to the front or back of the
-  ship (whichever side it touches), blocks bullets, rams enemies, and fires with you. Launch it
-  across the screen and recall it at will.
-- **Items:** **P** pod, **L** laser (twin, then spread), **S** speed.
-- **Campaign:** six worlds played in a row, each a level of about four minutes ending with a
-  boss, then the ending. Every level alternates open terrain (caves, winding tunnels) with
-  fortress sections (stepped metal corridors, towers with guns on top, locked gates, gun lines).
-  Item carriers drop P, L and S in every world.
-
-  | World | Terrain | Enemies | Boss |
-  | --- | --- | --- | --- |
-  | 1 · The Hollow Moon | crystal cave, then a winding tunnel with fixed and sliding gates | spore drifters, cave turrets, hoppers, shell beasts | **Bloom Mother:** break four petals and the tentacle, then shoot the eye while it is open |
-  | 2 · Frost Rift | low icy ceiling, two tunnels with sliding gates and ice walls to shoot through | crystal darts that stop, aim and lunge, falling icicles, spinning flakes, ice hulks | **Prism Warden:** two prisms fire aimed streams and shield the core; then the core spins spirals |
-  | 3 · Verdant Hive | overgrown caves, two tunnels | wasp swarms that zigzag then dive, wall pods that lob arcing blobs, nests that release wasps | **Hive Queen:** two wings fire spreads and shield the head; the egg sac keeps releasing wasps |
-  | 4 · Iron Foundry | long tunnels with wall pistons, furnace shutters that open and close, walls | drone squadrons, floor crawlers, gun emplacements | **Furnace Titan:** the furnace hatch opens on a cycle; destroy the two cannons to keep it open longer |
-  | 5 · Bastion Ring | almost all fortress, one narrow tunnel | lancers that line up with you and dash across, drones, armoured bulwarks | **Bastion Core:** four guns on its frame; rotating armour plates guard the core |
-  | 6 · Star Core | molten caves and the narrowest tunnels, every kind of gate | embers that arc up from below, homing seekers, gold sentinels, plus creatures from the earlier worlds | **Star Heart:** eight orbiting nodes shield it; then it chases you with spirals and seekers |
-
-- **Gates and walls:** gates are solid pillars with one opening (fixed, sliding up and down,
-  shutters that open and close, or locked by an energy field until you shoot the generator on its
-  lip); towers rise from the floor or hang from the ceiling with a gun on the tip; breakable walls
-  block the corridor until you shoot through. Rock, gates, towers and walls destroy the ship.
-- **Losing a ship:** the next one flies in where you were (on the corridor line), so a long level
-  never restarts from the beginning.
-- **Game over:** after world 1, *Continue* restarts the world you reached with the score reset.
-- Extra ship at 20,000 points, then every 30,000.
+- **Ships:** **Lance** (charge beam; Starbreak sweeps a giant beam across the screen) and
+  **Warden** (a pod that blocks bullets, rams and fires; Shatter breaks the pod into shards and
+  shields the ship).
+- **Stages:** Spore Fields, Crystal Gate and Bloom Heart, each with enemy waves, a fortress of
+  barriers (fixed, sliding, breakable, or locked until you destroy their generator), the
+  occasional rock canyon or island, and a boss: the Shell Matriarch, the Shell Twins and the
+  Bloom Mother.
+- **Damage:** three hull points a ship, three ships a stage. Rock costs a hull point; skimming
+  it without touching pays points.
+- Best score per stage is saved.
 
 ## Project layout
 
 | Path | What it holds |
 | --- | --- |
-| `scenes/main.tscn` | Root scene (everything else is built in code) |
-| `scripts/main.gd` | Game loop: fixed 60 Hz logic on a 224 x 126 playfield, enemies, gates, bosses, scoring, world flow |
-| `scripts/worlds.gd` | The six worlds: palettes, terrain (caves, tunnels, fortresses), level scripts and the generator for fortress rooms and enemy groups, boss and song per world |
+| `scenes/main.tscn` | The game scene (everything else is built in code); `scenes/boot.tscn` runs the self-update first |
+| `scripts/vgame.gd` | Game loop: fixed 60 Hz logic on a 126 x 224 playfield, enemies, barriers, rock, bosses, save, updates |
+| `scripts/vstage.gd` | The stages: seeded enemy waves, fortresses, canyons and islands |
+| `scripts/vships.gd` | Ship kits (release, ultimate) and the Lance model |
+| `scripts/vhud.gd` | HUD and menus |
 | `scripts/models.gd` | Materials and low poly models |
-| `scripts/geo.gd` | Flat-shaded mesh builders (polyhedra, prisms, cones, terrain) |
-| `scripts/hud.gd` | Glass HUD, banners, title / pause / game over menus |
-| `scripts/touch.gd` | Floating stick and invisible touch zones |
+| `scripts/geo.gd` | Flat-shaded mesh builders |
 | `scripts/audio.gd` | Chiptune synth: sound effects and songs rendered at start-up |
-| `shaders/` | Sky gradient, gradient text, rounded progress bars |
 | `tests/` | Headless tests run in CI |
-| `AGENTS.md` | Notes and rules for coding agents |
 | `tools/` | Icon generator, screenshot script |
+| `AGENTS.md` | Notes and rules for coding agents |
 
 ## Tests
 
 ```sh
 godot --headless --path . --import
-godot --headless --path . --script tests/play_test.gd    # full run: stage, pod, beam, boss, loop, game over
-godot --headless --path . --script tests/touch_test.gd   # floating stick and touch zones
+godot --headless --path . --script tests/vertical_test.gd # the game
+godot --headless --path . --script tests/screen_test.gd  # crash report, safe graphics, menu, screen shapes
 godot --headless --path . --script tests/audio_test.gd   # songs build on the main thread, all sound effects exist
-godot --headless --path . --script tests/screen_test.gd  # crash report, safe graphics, wide and narrow screens
+godot --headless --path . --script tests/update_test.gd  # self-update
+godot --headless --path . --script tests/icon_test.gd    # app icons
 ```
 
 Screenshots (needs a display, e.g. `xvfb-run`):
 
 ```sh
-godot --path . --rendering-method gl_compatibility --script tools/screenshots.gd -- /tmp/shots
+godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/shots
 ```
 
 ## CI and builds
