@@ -122,14 +122,22 @@ func _initialize() -> void:
 	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
 		"Starbreak has no haze and no ball at its base")
 	check((ps[0].n as Node3D).get_child_count() == 1, "an arc is a thin strand with no haze of its own")
-	check(jumped >= ps.size() - 2, "each arc is short lived and jumps elsewhere within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
-	var pl0: Dictionary = ps[0]
-	var b0: Basis = (pl0.n as Node3D).basis
-	var p0: Vector3 = (pl0.n as Node3D).position
-	if pl0.t < pl0.life:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
-		check((pl0.n as Node3D).basis.is_equal_approx(b0) and (pl0.n as Node3D).position.is_equal_approx(p0),
-			"an arc holds still while it lives (no travel, no wobble)")
+	check(jumped >= ps.size() - 2, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
+	var slid := 0
+	var held := 0
+	var prev := []
+	for pl in ps:
+		prev.append([pl.y, pl.t, (pl.n as Node3D).basis])
+	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
+	for i in ps.size():
+		if ps[i].t != prev[i][1] + 1:
+			continue
+		var dy: float = absf(ps[i].y - prev[i][0])
+		if dy >= VFx.ARC_SPEED.x - 0.01 and dy <= VFx.ARC_SPEED.y + 0.01:
+			slid += 1
+		if (ps[i].n as Node3D).basis.is_equal_approx(prev[i][2]):
+			held += 1
+	check(slid > 10 and held == slid, "a living arc slides a little along the beam, keeping its shape (%d)" % slid)
 	ub.free()
 
 	# --- explosions ---

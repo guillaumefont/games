@@ -31,10 +31,12 @@ const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 ## Starbreak's strands: no twister, but many short-lived thin jagged arcs of pink, cyan and
 ## white crackling round the laser like static electricity, with no glow of their own
-## (Guillaume's calls: no wobble, short lived, many of them, no haze, no travel). Each arc
-## holds still for ARC_LIFE ticks, then jumps somewhere else.
-const ULT_PULSES := 42
-const ARC_LIFE := Vector2i(2, 6)
+## (Guillaume's calls: no wobble, short lived, many of them, no haze). Each arc slides a
+## little up or down the beam at ARC_SPEED per tick for ARC_LIFE ticks (halfway between
+## crackling in place and shooting along), then jumps somewhere else.
+const ULT_PULSES := 36
+const ARC_LIFE := Vector2i(4, 10)
+const ARC_SPEED := Vector2(1.5, 3.5)
 const ARC_SHAPES := 12
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
@@ -259,6 +261,7 @@ static func _respawn(pl: Dictionary, len: float) -> void:
 	pl.ang = randf() * TAU
 	pl.r = randf_range(0.6, 1.15)
 	pl.flip = randf() < 0.5
+	pl.v = randf_range(ARC_SPEED.x, ARC_SPEED.y) * (1.0 if randf() < 0.5 else -1.0)
 	pl.life = randi_range(ARC_LIFE.x, ARC_LIFE.y)
 	pl.t = 0
 	var v := randi() % ARC_SHAPES
@@ -337,8 +340,8 @@ static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
 		return Geo.build_wound(tris))
 
 
-## Starbreak's static: each arc flickers on the beam for a few ticks at its own place and angle
-## (no travel, no turning), then jumps elsewhere with a new shape.
+## Starbreak's static: each arc slides a little along the beam for a few ticks, keeping its
+## shape and angle (no turning, no wobble), then jumps elsewhere with a new shape.
 static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
 	var R := w / maxf(fade, 0.05) * 0.8
 	for pl in pulses:
@@ -347,7 +350,8 @@ static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) 
 			# stagger so the arcs don't all jump on the same tick
 			pl.t = randi() % int(pl.life)
 		pl.t += 1
-		if pl.t > pl.life:
+		pl.y += pl.v
+		if pl.t > pl.life or pl.y < 0.0 or pl.y + pl.len > len:
 			_respawn(pl, len)
 		var g: Node3D = pl.n
 		g.visible = fade > 0.05 and pl.y + pl.len <= len
