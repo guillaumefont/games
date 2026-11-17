@@ -1,5 +1,5 @@
 extends SceneTree
-## The portrait game (vertical slice): the main menu opens it, drag moves the ship 1:1,
+## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
 ## Nova) or flings and recalls Warden's pod, a second finger fires the ultimate, barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
@@ -34,29 +34,14 @@ func settle() -> void:
 
 
 func _initialize() -> void:
-	print("Vertical slice test")
-	# the main menu has a button that opens the portrait game
-	var main: Node3D = load("res://scenes/main.tscn").instantiate()
-	root.add_child(main)
-	main.set_physics_process(false)
-	main.set_process(false)
-	await process_frame
-	var opened := [false]
-	main.vertical_fn = func(): opened[0] = true
-	check(main.hud.btn_vertical != null and main.hud.btn_vertical.is_visible_in_tree(), "the main menu shows a Vertical preview button")
-	main.hud.btn_vertical.pressed.emit()
-	main.update()
-	check(opened[0], "the button opens the portrait game")
-	main.queue_free()
-	await process_frame
-
-	vg = load("res://scenes/vertical.tscn").instantiate()
+	print("Star Breaker play test")
+	vg = load("res://scenes/main.tscn").instantiate()
 	root.add_child(vg)
 	vg.set_physics_process(false)
 	vg.driven = true
 	vg.set_process(false)
 	await process_frame
-	check(vg.mode == "menu" and vg.hud.menu_scr.visible, "the portrait game starts on its stage menu")
+	check(vg.mode == "menu" and vg.hud.menu_scr.visible, "the game starts on its stage menu")
 
 	# --- Lance ---
 	vg.hud.stage_chosen.emit(0, "lance")
