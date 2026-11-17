@@ -37,6 +37,37 @@ const ULT_PULSES := 16
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
 
 static var _ring_mats: Array = []
+static var _band_mats := {}
+static var _band_tex: Texture2D
+
+
+## Additive glow that fades across X and stays even along Y (a beam's haze).
+static func band_mat(c: String) -> StandardMaterial3D:
+	if _band_mats.has(c):
+		return _band_mats[c]
+	if _band_tex == null:
+		var g := Gradient.new()
+		g.set_offset(0, 0.0)
+		g.set_color(0, Color(1, 1, 1, 0))
+		g.set_offset(1, 1.0)
+		g.set_color(1, Color(1, 1, 1, 0))
+		g.add_point(0.5, Color(1, 1, 1, 1))
+		g.add_point(0.3, Color(1, 1, 1, 0.35))
+		g.add_point(0.7, Color(1, 1, 1, 0.35))
+		var gt := GradientTexture2D.new()
+		gt.gradient = g
+		gt.width = 64
+		gt.height = 4
+		gt.fill = GradientTexture2D.FILL_LINEAR
+		gt.fill_from = Vector2(0, 0.5)
+		gt.fill_to = Vector2(1, 0.5)
+		_band_tex = gt
+	var m := Models.add_mat(c)
+	m.albedo_texture = _band_tex
+	m.albedo_color = Color(c) * Color(1.6, 1.6, 1.6, 1.0)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_band_mats[c] = m
+	return m
 static var _debris_mats: Array = []
 
 
@@ -57,6 +88,8 @@ static func init() -> void:
 static func warm_list() -> Array:
 	init()
 	var list := []
+	for c in ["dfe9ff", "3ff0e0", "ff4fa3"]:
+		list.append(Models.mesh(Models.quad(), band_mat(c)))
 	for m in _ring_mats + _debris_mats:
 		list.append(Models.mesh(ring_mesh(), m))
 	for st in 6:
@@ -173,7 +206,10 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 	var core := Models.mesh(rod, Models.M.beam)
 	var sheath := Models.mesh(rod, Models.M.laser_glow)
 	var col: String = CHARGE_COL[lv] if lv >= 3 else "dfe9ff"
+	# the haze is a band, soft across but even along its whole length (a radial glow
+	# stretched up the screen would bulge in the middle and taper at the ends)
 	var haze := Models.glow(col, 1.0)
+	haze.material_override = band_mat(col)
 	var flare := Models.glow("ffffff", 1.0)
 	var tip := Models.glow(col, 1.0)
 	for c in [haze, sheath, core, flare, tip]:
@@ -232,7 +268,7 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 	(p.sheath as Node3D).scale = Vector3(cw * 2.1, len, cw * 2.1)
 	var haze: Node3D = p.haze
 	haze.position = Vector3(0, len / 2.0, -0.5)
-	haze.scale = Vector3(w * 2.3 * open, len * 1.05, 1)
+	haze.scale = Vector3(w * 2.3 * open, len, 1)
 	var fs := w * (2.6 + 0.6 * sin(tt * 1.7)) * fade + 0.01
 	(p.flare as Node3D).scale = Vector3(fs * 1.3, fs, 1)
 	(p.flare as Node3D).position = Vector3(0, 0, 1)
