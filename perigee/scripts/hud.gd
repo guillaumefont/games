@@ -16,6 +16,7 @@ signal tutorial_requested
 signal hangar_opened
 signal cosmetic_picked(id: String)
 signal hangar_closed
+signal menu_requested ## back to the start card (the main menu) from game over, pause or Voyage
 signal refresh_pressed ## the build line was tapped: restart into the newest build
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
@@ -64,6 +65,7 @@ var clear_buttons: Control ## Replay and Map
 var over_lab_row: Control
 var over_voyage_row: Control
 var pause_card: Control
+var pause_menu: Button ## "Main menu" on the pause card (hidden during the resume countdown)
 var pause_title: Label
 var pause_sub: Label
 var start_pill_label: Label
@@ -248,6 +250,7 @@ func _ready() -> void:
 	over_voyage_row = vrow
 	over_voyage_row.visible = false
 	_card(over_card).add_child(over_voyage_row)
+	_card(over_card).add_child(_centered(_menu_button()))
 
 	_build_voyage_card()
 	_build_clear_card()
@@ -262,6 +265,8 @@ func _ready() -> void:
 	pause_sub = _label("Tap to resume", body_700, 15, SAND)
 	pause_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(pause_card).add_child(pause_sub)
+	pause_menu = _menu_button()
+	_card(pause_card).add_child(_centered(pause_menu))
 
 	get_viewport().size_changed.connect(apply_safe_area)
 	apply_safe_area()
@@ -418,9 +423,7 @@ func _build_voyage_card() -> void:
 	card.add_child(_centered(voyage_grid))
 	var back := _ghost_button("Back", 12, 32, 16)
 	back.name = "Back"
-	back.pressed.connect(func() -> void:
-		voyage_card.visible = false
-		start_card.visible = true)
+	back.pressed.connect(func() -> void: menu_requested.emit())
 	card.add_child(_centered(back))
 
 
@@ -813,6 +816,7 @@ func hide_over() -> void:
 ## Pause card: "Paused / Tap to resume", or a countdown number while resuming.
 func show_pause(on: bool, countdown := 0) -> void:
 	pause_card.visible = on
+	pause_menu.visible = countdown <= 0
 	if countdown > 0:
 		pause_title.text = str(countdown)
 		pause_sub.text = "Get ready"
@@ -822,6 +826,14 @@ func show_pause(on: bool, countdown := 0) -> void:
 
 
 # ---------- building blocks ----------
+
+## A "Main menu" button: back to the start card, where the build line and the menus are.
+func _menu_button() -> Button:
+	var b := _ghost_button("Main menu", 12, 32, 16)
+	b.name = "MainMenu"
+	b.pressed.connect(func() -> void: menu_requested.emit())
+	return b
+
 
 func _font(path: String) -> Font:
 	var f: Font = load(path)

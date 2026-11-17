@@ -160,6 +160,37 @@ func _initialize() -> void:
 	tick(0.1)
 	check(main.mode == "endless" and main.sim.recipe.is_empty() and main.hud.mode_label.text == "", "Endless goes back to the normal mode")
 
+	# back to the main menu (the start card, with the build line) from game over, pause and Voyage
+	main.sim.die("test")
+	tick(0.6)
+	var menu_b: Button = main.hud.over_card.find_child("MainMenu", true, false)
+	check(menu_b != null and menu_b.is_visible_in_tree(), "the game over card has a Main menu button")
+	menu_b.pressed.emit()
+	check(main.sim.state == "start" and main.hud.start_card.visible and not main.hud.over_card.visible
+		and main.hud.build_button.get_parent() != null, "Main menu goes back to the start card")
+	button(true)
+	tick(0.1)
+	button(false)
+	check(main.sim.state == "play" and main.sim.player.planet != null, "and a tap there starts a run as usual")
+	var runs_before: int = main.save.data.runs
+	main.pause_game()
+	var pause_menu: Button = main.hud.pause_menu
+	check(main.paused and pause_menu.is_visible_in_tree(), "the pause card has a Main menu button")
+	pause_menu.pressed.emit()
+	tick(0.1)
+	check(not main.paused and not main.hud.pause_card.visible and main.sim.state == "start" and main.hud.start_card.visible,
+		"Main menu from pause leaves the run")
+	check(main.save.data.runs == runs_before, "a run left from pause isn't counted")
+	main.open_voyage()
+	main.start_sector("1-1")
+	tick(0.1)
+	main.sim.die("test")
+	tick(0.6)
+	main.hud.over_card.find_child("Map", true, false).pressed.emit()
+	main.hud.voyage_card.find_child("Back", true, false).pressed.emit()
+	check(main.sim.state == "start" and main.mode == "endless" and main.sector.is_empty() and main.hud.start_card.visible
+		and not main.hud.voyage_card.visible and main.hud.timer_label.text == "", "Back on the Voyage map goes to the main menu, out of Voyage")
+
 	# settings: sound toggles and is kept
 	main.hud.sound_button.pressed.emit()
 	check(main.sfx.enabled and main.hud.sound_button.text == "SOUND ON", "the sound button turns sound on")
