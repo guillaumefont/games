@@ -181,6 +181,27 @@ func _initialize() -> void:
 	await process_frame
 	check(main.sfx.enabled and main.hud.best_label.text == "Best %d" % final, "sound setting and best come back after a restart of the app")
 
+	# the build line on the start card (test builds; see scripts/boot.gd for the updater itself)
+	check(main.build_number("b1050 pr12 abc1234") == 1050 and main.build_number("") == 0, "reads the build number")
+	ProjectSettings.set_setting("application/config/version", "b1050 test")
+	main.queue_free()
+	await process_frame
+	new_main()
+	await process_frame
+	var bb: Button = main.hud.build_button
+	check(bb.visible and bb.text.begins_with("Build b1050"), "the start card shows which build this is: " + bb.text)
+	main.show_update(1049)
+	check(bb.text.begins_with("Build b1050"), "an older build on the server changes nothing")
+	main.show_update(1052)
+	check(bb.text == "New build 1052 · tap to update", "says when a newer build is out: " + bb.text)
+	var restarted := [false]
+	main.restart_fn = func() -> void: restarted[0] = true
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping it restarts into the new build")
+	check(main.sim.state == "start", "tapping the build line doesn't start a run")
+	ProjectSettings.set_setting("application/config/version", "")
+
 	# older or broken save files
 	var f := FileAccess.open(SAVE, FileAccess.WRITE)
 	f.store_string("{\"best\": 12}")
