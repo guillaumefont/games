@@ -822,7 +822,7 @@ func ultimate() -> void:
 		# Starbreak: a full-height beam sweeps across the screen
 		G.ult_t = 120
 		var b := {lv = 4, life = 120, x = 6.0, y0 = view.position.y, y1 = view.end.y, w = 12.0, hit = {}, nova = true, ult = true}
-		b.m = _beam_node(4)
+		b.m = VFx.beam_node(4, true)
 		world.add_child(b.m)
 		G.beams.append(b)
 		audio.play("beam", 4)
@@ -1943,7 +1943,7 @@ func _sync_bar(b: Dictionary) -> void:
 func _sync_beam(b: Dictionary) -> void:
 	var len: float = maxf(1.0, b.y1 - b.y0)
 	var fade: float = clampf(float(b.life) / 6.0, 0.0, 1.0)
-	var w: float = b.w * fade * (1.0 + 0.12 * sin(tt * 0.9))
+	var w: float = b.w * fade
 	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
 	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
 	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y)

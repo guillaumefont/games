@@ -104,6 +104,52 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
+	# --- Starbreak's strands: many short-lived thin arcs of static round the laser ---
+	var ub := VFx.beam_node(4, true)
+	var ps: Array = ub.get_meta("parts").pulses
+	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 1, 1, false)
+	var spots := []
+	for pl in ps:
+		spots.append(pl.y)
+	for f in VFx.ARC_LIFE.y + 1:
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 2 + f, 2 + f, false)
+	var jumped := 0
+	for i in ps.size():
+		if ps[i].y != spots[i]:
+			jumped += 1
+	check(ps.size() >= 30, "Starbreak crackles with many arcs (%d)" % ps.size())
+	var parts: Dictionary = ub.get_meta("parts")
+	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
+		"Starbreak has no haze and no ball at its base")
+	var thin := 0
+	var wide := 0
+	var single := true
+	for pl in ps:
+		single = single and (pl.n as Node3D).get_child_count() == 1
+		if pl.has("hard"):
+			thin += 1
+		else:
+			wide += 1
+	check(single, "each arc is one strand, thin or haze, never both")
+	check(thin >= 24 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
+	check(jumped >= ps.size() - 2, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
+	var jolted := 0
+	var alive := 0
+	var prev := []
+	for pl in ps:
+		prev.append([pl.y, pl.t, pl.ang])
+	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
+	for i in ps.size():
+		if ps[i].t != prev[i][1] + 1:
+			continue
+		alive += 1
+		var dy: float = absf(ps[i].y - prev[i][0])
+		var da: float = absf(ps[i].ang - prev[i][2])
+		if (dy > 0.0 or da > 0.0) and dy <= VFx.ARC_JOLT.x + 0.01 and da <= VFx.ARC_JOLT.y + 0.01:
+			jolted += 1
+	check(alive > 10 and jolted == alive, "a living arc jolts about erratically, within bounds (%d of %d)" % [jolted, alive])
+	ub.free()
+
 	# --- explosions ---
 	var n0: int = vg.fx.size()
 	vg.boom(60.0, 120.0, 5.0, true)
