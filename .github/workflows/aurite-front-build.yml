@@ -119,7 +119,7 @@ jobs:
       # Gradle build (export preset: use_gradle_build) so the APK can carry the per-chapter launcher
       # icons: install Godot's Android build template, then add the stage aliases and IconSwap.java.
       - name: Android build template with the chapter icons
-        timeout-minutes: 10
+        timeout-minutes: 5
         run: |
           # what the editor's "Install Android Build Template" does (the CLI flag never exits headless)
           tpl="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
@@ -129,12 +129,6 @@ jobs:
           printf '%s' "${GODOT_VERSION}.stable" > android/.build_version
           python3 -m pip install --quiet pillow
           python3 tools/android/patch_build.py android/build
-          # Gradle strips the engine's debug symbols only when the template's NDK is installed;
-          # without it the APK is about 150 MB (over GitHub's file limit) instead of about 40.
-          ndk=$(sed -n "s/.*ndkVersion *: *'\([0-9.]*\)'.*/\1/p" android/build/config.gradle)
-          echo "NDK $ndk"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
-          ls -d "$ANDROID_HOME/ndk/$ndk"
 
       # Release template (about half the size of the debug one), signed with the fixed test
       # keystore above. Outputs go outside the project folder, so Godot never imports them.
