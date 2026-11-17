@@ -162,6 +162,10 @@ jobs:
           "$aapt2" dump xmltree --file AndroidManifest.xml "$OUT/android/$APK_NAME" | grep -E 'E: activity|android:name\(|android:enabled|android:icon' | grep -iE 'activity|GodotApp|Stage|enabled|icon' || true
           unzip -l "$OUT/android/$APK_NAME" | grep -iE 'icon|\.so$' || true
           unzip -p "$OUT/android/$APK_NAME" 'classes*.dex' | grep -ac 'com/godot/game/IconSwap'
+          # the launcher icon images exactly as packed (base64, so they can be checked from the log)
+          "$aapt2" dump resources "$OUT/android/$APK_NAME" | awk '/resource .* mipmap\//{n=$3} /\(file\) res\/.*\.png/{print n, $3}' | while read -r n f; do
+            printf '@@ICON %s %s ' "$n" "$f"; unzip -p "$OUT/android/$APK_NAME" "$f" | base64 -w0; echo
+          done
           size=$(stat -c %s "$OUT/android/$APK_NAME")
           test "$size" -lt 95000000 || { echo "APK is $size bytes: too big for gh-pages"; exit 1; }
           $RUNNER_TEMP/godot --headless --path . --export-pack Android "$OUT/android/$PCK_NAME"
