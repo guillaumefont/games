@@ -281,8 +281,9 @@ func _apply_volumes() -> void:
 		AudioServer.set_bus_mute(i, v <= 0.0)
 
 
-func open_voyage() -> void:
-	hud.show_voyage(save.data.voyage, int(save.data.best))
+## Opens the Voyage map, scrolled to `focus` (the furthest open level when empty).
+func open_voyage(focus := "") -> void:
+	hud.show_voyage(save.data.voyage, int(save.data.best), save.data.rewards, focus)
 
 
 ## Starts a Voyage sector: its fixed layout from the sector's seed and recipe.
@@ -296,7 +297,7 @@ func start_sector(id: String) -> void:
 	sim.new_run(sec.seed)
 	sim.events.append({"type": "start"})
 	hud.hide_voyage()
-	hud.set_mode("Sector %s · %s" % [sec.id, Voyage.system_of(id).name])
+	hud.set_mode("Level %d · %s" % [Voyage.level_number(id), Voyage.system_of(id).name])
 
 
 func _clear_action(action: String) -> void:
@@ -309,13 +310,13 @@ func _clear_action(action: String) -> void:
 		"next":
 			var nxt := Voyage.next_sector(sector.id)
 			if nxt.is_empty():
-				open_voyage()
+				open_voyage(sector.id)
 			else:
 				start_sector(nxt.id)
 		"replay":
 			start_sector(sector.id)
 		"map":
-			open_voyage()
+			open_voyage(sector.id)
 
 
 ## Back to the start card (the main menu) from game over, pause, the Voyage map or a cleared
