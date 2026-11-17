@@ -84,14 +84,23 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   k, a shortcut line to leap), `mix`. Stars: clear, under `par`, the sector's goal. Pars come from
   `tools/par_times.gd` (bot best + 35%); rerun it after changing a sector or the rules, and keep `voyage_test.gd`
   green (the bot must clear every sector). Progress is `save.data.voyage[id] = {stars, score, time}`.
+- The route (Guillaume, 2026-11-17: "a map that shows levels", at least a dozen): 18 levels in 3 systems of 6, Cradle
+  (twins), Backwash (retro moons), Lantern (pulsars), numbered 1-18 along the route (`Voyage.level_number`; the HUD and
+  clear card say "Level N", sector ids like `2-3` stay the save keys). The map is `scripts/voyage_map.gd` (VoyageMap,
+  built by Hud): one scrolling, winding path of stops showing stars and medals, a padlock on locked ones, a pulse on
+  the furthest open one (`Voyage.current_id`), and a reward stop after each system with its all-stars cosmetic. Tapping
+  a stop opens its level card (goals, each medal's next tier and sparks, best run, Play). The test bot waits for a
+  pulsar's ring to be lit; sector seeds were picked so both bots clear every sector, then `tools/par_times.gd` set the
+  pars and points marks.
 - Medals (`scripts/medals.gd`, drawn by `scripts/medal_icon.gd`), Guillaume's ask of 2026-11-17: each sector has a
   speed medal (bronze at par, silver at 88%, gold at 76% of par), a points medal (the sector's `points` marks,
   suggested by `tools/par_times.gd`: 40/75/110% of the bot's all-perigee score) and an all-stars medal (3 of 3 stars);
   each system has an all-stars medal, and Drift has points medals by one run (`Medals.DRIFT_POINTS`). They are read
   from the best records the save already keeps (`voyage[id]`, `best`). Medals are rewards (Guillaume, 2026-11-17):
-  the first time a tier is won it pays bonus sparks onto the unlock track (`Medals.REWARD_SPARKS` 2/3/5 per tier,
-  5 for a sector's stars, 25 for a system's), and a system's all-stars medal also unlocks a cosmetic that is never on
-  the track or for sale (`Unlocks.REWARD_ITEMS`, Cradle: the Laurel ship). Paid reward ids go in `save.data.rewards`
+  the first time a tier is won it pays bonus sparks onto the unlock track (`Medals.REWARD_SPARKS` 1/2/3 per tier,
+  3 for a sector's stars, 20 for a system's; rebalanced from 2/3/5, 5, 25 when the route grew to 18 levels, so every
+  medal pays 330 of the track's 420 sparks), and a system's all-stars medal also unlocks a cosmetic that is never on
+  the track or for sale (`Unlocks.REWARD_ITEMS`: Laurel ship, Eddy trail, Lantern ship). Paid reward ids go in `save.data.rewards`
   so each pays once; `main._bank_sparks()` pays them after a run's records are saved. Keep them earned only by
   play: purchases must never earn, upgrade or skip a medal or reward, and a future double-sparks purchase must not
   double reward sparks. `voyage_test.gd` checks the bot wins

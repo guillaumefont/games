@@ -24,6 +24,8 @@ const TRACK: Array[Dictionary] = [
 ## `reward` the id of that reward. Never sold.
 const REWARD_ITEMS: Array[Dictionary] = [
 	{"id": "ship_laurel", "kind": "ship", "name": "Laurel", "reward": "Cradle:stars", "how": "All Cradle stars"},
+	{"id": "trail_eddy", "kind": "trail", "name": "Eddy", "reward": "Backwash:stars", "how": "All Backwash stars"},
+	{"id": "ship_lantern", "kind": "ship", "name": "Lantern", "reward": "Lantern:stars", "how": "All Lantern stars"},
 ]
 
 const KINDS := ["ship", "trail", "palette"]
