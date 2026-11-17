@@ -1265,6 +1265,8 @@ func _autotest(dir: String) -> void:
 		await _menu_shots(dir); get_tree().quit(); return
 	if mode == "camp":
 		await _camp_shots(dir); get_tree().quit(); return
+	if mode == "icon":
+		await _icon_shots(); get_tree().quit(); return
 	if mode == "radio":
 		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "cine":
@@ -1320,6 +1322,41 @@ func _autotest(dir: String) -> void:
 	await _shot(dir + "/06_fight.png")
 	print("AUTOTEST time=", S.time, " over=", S.over, " ents=", S.ents.size())
 	get_tree().quit()
+
+## AF_MODE=icon: app icons drawn by the menu's own code (UI.Insignia over UI.WarBG), one set per story stage.
+## Stage I is the shipped icon (icon.png, Android adaptive icon_fg/icon_bg); every stage also goes to store/icons/
+## (stage-N-*.png: 1024 iOS/store icon and the adaptive layers) for the optional icon swap.
+func _icon_shots() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://store/icons"))
+	for st in 3:
+		UI.stage = st
+		var full := await _icon_render(1024, true, true, 0.62)
+		var fg := await _icon_render(432, false, true, 0.62 * 0.66)
+		var bg := await _icon_render(432, true, false, 0.0)
+		full.save_png("res://store/icons/stage-%d-1024.png" % (st + 1))
+		fg.save_png("res://store/icons/stage-%d-fg.png" % (st + 1)); bg.save_png("res://store/icons/stage-%d-bg.png" % (st + 1))
+		if st == 0:
+			fg.save_png("res://icon_fg.png"); bg.save_png("res://icon_bg.png")
+			var small := full.duplicate(); small.resize(192, 192, Image.INTERPOLATE_LANCZOS); small.save_png("res://icon.png")
+
+## One icon layer: the battlefield (bg), the shield (fg, sized as a share of the square), or both, on a transparent canvas.
+func _icon_render(n: int, bg: bool, fg: bool, k: float) -> Image:
+	var vp := SubViewport.new(); vp.size = Vector2i(n, n); vp.transparent_bg = true; vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	var root := Control.new(); root.size = Vector2(n, n); vp.add_child(root)
+	if bg:
+		var w := UI.WarBG.new(); w.hero = true; w.t = 3.0; w.size = Vector2(n, n); root.add_child(w)
+		# the square crop is tall: pull the horizon glow up behind the shield
+		var veil := ColorRect.new(); veil.color = Color(0, 0, 0, 0.12); veil.size = Vector2(n, n); root.add_child(veil)
+	if fg:
+		var ins := UI.Insignia.new(); var sz := n * k
+		ins.size = Vector2(sz, sz) * Vector2(0.86, 1.0); ins.position = Vector2(n, n) * 0.5 - ins.size * Vector2(0.5, 0.47)
+		root.add_child(ins)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	return img
 
 ## AF_MODE=radio: every speaker's portrait, the radio panel in a mission, then a debrief (sample lines from the
 ## campaign I script).
