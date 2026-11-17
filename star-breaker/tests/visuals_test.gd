@@ -145,9 +145,11 @@ func _initialize() -> void:
 		alive += 1
 		var dy: float = absf(ps[i].y - prev[i][0])
 		var da: float = absf(ps[i].ang - prev[i][2])
-		if (dy > 0.0 or da > 0.0) and dy <= VFx.ARC_JOLT.x + 0.01 and da <= VFx.ARC_JOLT.y + 0.01:
+		if dy > VFx.ARC_JOLT.x + 0.01 or da > VFx.ARC_JOLT.y + 0.01:
+			jolted = -1000
+		elif dy > 0.0 or da > 0.0:
 			jolted += 1
-	check(alive > 10 and jolted == alive, "a living arc jolts about erratically, within bounds (%d of %d)" % [jolted, alive])
+	check(alive > 10 and jolted > 0 and jolted < alive, "a living arc jolts about erratically now and then, within bounds (%d of %d)" % [jolted, alive])
 	ub.free()
 
 	# --- explosions ---
