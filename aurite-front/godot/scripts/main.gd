@@ -313,6 +313,16 @@ func pick_campaign(id: String) -> void:
 func _camp_rows() -> Array:
 	return D.CAMPAIGNS.map(func(C): return {"C": C, "open": camp_open(C.id), "done": camp_prog(C.id)})
 
+## Home-screen icon follows the menu stage (Android: launcher aliases switched by tools/android/IconSwap.java).
+var _icon_stage := -1
+func set_app_icon(st: int) -> void:
+	if st == _icon_stage or OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"): return
+	_icon_stage = st
+	var sw = JavaClassWrapper.wrap("com.godot.game.IconSwap")
+	if sw == null: return
+	var ok = sw.apply(Engine.get_singleton("AndroidRuntime").getActivity(), st + 1)
+	print("app icon stage ", st + 1, " ", ok)
+
 ## Menu art stage from the furthest point of the story the player has reached: grim once campaign III is open,
 ## cracked once campaign II reaches mission 5, pulpy before.
 func menu_stage() -> int:
@@ -321,6 +331,7 @@ func menu_stage() -> int:
 
 func show_start() -> void:
 	U.set_stage(menu_stage())
+	set_app_icon(menu_stage())
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
 	# continue where the player is: the furthest open campaign that is not finished
 	var cur: Dictionary = D.CAMPAIGNS[0]
@@ -1330,8 +1341,8 @@ func _icon_shots() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://store/icons"))
 	for st in 3:
 		UI.stage = st
-		var full := await _icon_render(1024, true, true, 0.62)
-		var fg := await _icon_render(432, false, true, 0.62 * 0.66)
+		var full := await _icon_render(1024, true, true, 0.74)
+		var fg := await _icon_render(432, false, true, 0.80 * 0.66)
 		var bg := await _icon_render(432, true, false, 0.0)
 		full.save_png("res://store/icons/stage-%d-1024.png" % (st + 1))
 		fg.save_png("res://store/icons/stage-%d-fg.png" % (st + 1)); bg.save_png("res://store/icons/stage-%d-bg.png" % (st + 1))
@@ -1345,12 +1356,11 @@ func _icon_render(n: int, bg: bool, fg: bool, k: float) -> Image:
 	add_child(vp)
 	var root := Control.new(); root.size = Vector2(n, n); vp.add_child(root)
 	if bg:
-		var w := UI.WarBG.new(); w.hero = true; w.t = 3.0; w.size = Vector2(n, n); root.add_child(w)
-		# the square crop is tall: pull the horizon glow up behind the shield
-		var veil := ColorRect.new(); veil.color = Color(0, 0, 0, 0.12); veil.size = Vector2(n, n); root.add_child(veil)
+		var w := UI.WarBG.new(); w.hero = true; w.icon = true; w.t = 3.0; w.size = Vector2(n, n); root.add_child(w)
 	if fg:
 		var ins := UI.Insignia.new(); var sz := n * k
-		ins.size = Vector2(sz, sz) * Vector2(0.86, 1.0); ins.position = Vector2(n, n) * 0.5 - ins.size * Vector2(0.5, 0.47)
+		ins.size = Vector2(sz, sz) * Vector2(0.86, 1.0); ins.position = Vector2(n, n) * 0.5 - ins.size * Vector2(0.5, 0.40 if UI.stage == 2 else 0.47)
+		if UI.stage == 2: ins.scale = Vector2.ONE * 0.92; ins.position += ins.size * 0.04
 		root.add_child(ins)
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw

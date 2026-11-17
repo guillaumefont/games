@@ -896,6 +896,7 @@ func tick(dt: float) -> void:
 class WarBG extends Control:
 	var full := true
 	var hero := false   # splash art: crossed searchlights, big tanks in the foreground, frozen frame
+	var icon := false   # app icon backdrop: sky, glow, searchlights and ridges only (small sizes read cleanly)
 	var t := 0.0
 	# per UI.stage: sky top, sky mid, horizon, ground, far ridge, mid ridge, near earth, glow colour
 	const PAL := [
@@ -962,6 +963,7 @@ class WarBG extends Control:
 		draw_rect(Rect2(0, hz, s.x, s.y - hz), Color(P[3]))
 		# a broad smooth glow sitting on the horizon
 		UI.glow(self, Vector2(s.x * 0.5, hz), Vector2(s.x * 0.75, s.y * (0.22 if st < 2 else 0.32)), Color(gc, [0.30, 0.12, 0.24][st]))
+		if icon: UI.glow(self, Vector2(s.x * 0.5, s.y * 0.6), Vector2(s.x * 0.6, s.y * 0.45), Color(gc, [0.45, 0.2, 0.4][st]))
 		# cloud banks lit from below
 		for i in 9:
 			var cx := fposmod(s.x * _h(i + 80) + t * (3 + 2 * _h(i + 81)) * u, s.x + 600 * u) - 300 * u
@@ -1036,7 +1038,8 @@ class WarBG extends Control:
 		_band(far, fc, 8)
 		_rim(far, Color(gc, [0.25, 0.10, 0.35][st]), 8, 1.5 * u)
 		var mx := s.x * 0.7; var my: float = far.call(mx)
-		if st == 0:
+		if icon: pass
+		elif st == 0:
 			draw_line(Vector2(mx, my), Vector2(mx, my - 54 * u), fc, 2.0 * u)
 			draw_line(Vector2(mx - 10 * u, my), Vector2(mx, my - 54 * u), fc, 1.0 * u)
 			draw_line(Vector2(mx + 10 * u, my), Vector2(mx, my - 54 * u), fc, 1.0 * u)
@@ -1070,6 +1073,7 @@ class WarBG extends Control:
 			var tx := fposmod(s.x * [0.03, 0.13, 0.80, 0.91][i] + (t * 4 * u if st == 0 else 0.0), s.x + 80 * u) - 40 * u
 			var ty: float = mid.call(tx)
 			var slope := atan2(float(mid.call(tx + 10)) - ty, 10.0)
+			if icon: continue
 			if st == 0 or (st == 1 and i != 2):
 				_tank(Vector2(tx, ty + 2 * u), u * (1.0 - 0.1 * (i % 2)), mc, false, slope)
 			else:
@@ -1091,7 +1095,7 @@ class WarBG extends Control:
 		_band(near, nc, 8)
 		_rim(near, Color(gc, [0.10, 0.05, 0.14][st]), 8, 1.0 * u)
 		var px := 30.0 * u; var prev := Vector2(-1, -1); var idx := 0
-		while px < s.x + 80 * u:
+		while px < s.x + 80 * u and not icon:
 			var py: float = near.call(px)
 			var lean := 0.0 if st == 0 else (_h(px + 7) - 0.5) * (0.35 if st == 1 else 0.7)
 			var top := Vector2(px, py) + Vector2(sin(lean), -cos(lean)) * 30 * u
@@ -1121,7 +1125,7 @@ class WarBG extends Control:
 				_spire(Vector2(cx, cy), (40 + 50 * _h(px + 9)) * u, 9 * u, (_h(px + 11) - 0.5) * 0.8, nc, Color(gc, 0.8))
 				_spire(Vector2(cx + 12 * u, cy), (20 + 20 * _h(px + 13)) * u, 6 * u, 0.5, nc, Color(gc, 0.6))
 			px += 120 * u; idx += 1
-		if hero:
+		if hero and not icon:
 			for tk in [[0.84, 3.4, true, 0.06], [0.15, 2.4, false, -0.04]]:
 				var tp := Vector2(s.x * tk[0], float(near.call(s.x * tk[0])) + 6 * u)
 				if st == 0:
@@ -1336,7 +1340,7 @@ class Insignia extends Control:
 		if st == 1: _crack(s)
 		if st >= 1 and s.x >= 40: _scratches(s, i1)
 	func _star(s: Vector2, st: int) -> void:
-		var cc := Vector2(s.x * 0.5, s.y * 0.27); var ro := s.x * 0.135; var ri := s.x * 0.056
+		var cc := Vector2(s.x * 0.5, s.y * 0.27); var ro := s.x * 0.15; var ri := s.x * 0.062
 		var red: Color = [Color("e5483f"), Color("9c4038"), Color("5a2a26")][st]
 		var outer := PackedVector2Array()
 		for i in 10:
@@ -1348,8 +1352,8 @@ class Insignia extends Control:
 			var l := cc + Vector2(cos(a - PI / 5), sin(a - PI / 5)) * ri; var r := cc + Vector2(cos(a + PI / 5), sin(a + PI / 5)) * ri
 			var nl := ((tip + l) * 0.5 - cc).normalized(); var nr := ((tip + r) * 0.5 - cc).normalized()
 			var L := LIGHT.normalized()
-			_fill(PackedVector2Array([cc, l, tip]), red.lightened(0.3) if nl.dot(L) > 0.0 else red.darkened(0.25))
-			_fill(PackedVector2Array([cc, tip, r]), red.lightened(0.3) if nr.dot(L) > 0.0 else red.darkened(0.25))
+			_fill(PackedVector2Array([cc, l, tip]), red.lightened(0.12) if nl.dot(L) > 0.0 else red.darkened(0.18))
+			_fill(PackedVector2Array([cc, tip, r]), red.lightened(0.12) if nr.dot(L) > 0.0 else red.darkened(0.18))
 	func _crack(s: Vector2) -> void:
 		var c := _pts(CRACK, s); var n := c.size()
 		var a := PackedVector2Array(); var b := PackedVector2Array()
