@@ -1336,7 +1336,7 @@ func _icon_shots() -> void:
 		full.save_png("res://store/icons/stage-%d-1024.png" % (st + 1))
 		fg.save_png("res://store/icons/stage-%d-fg.png" % (st + 1)); bg.save_png("res://store/icons/stage-%d-bg.png" % (st + 1))
 		if st == 0:
-			fg.save_png("res://icon_fg.png"); bg.save_png("res://icon_bg.png")
+			fg.save_png("res://icon_fg.png"); bg.save_png("res://icon_bg.png"); full.save_png("res://icon_1024.png")
 			var small := full.duplicate(); small.resize(192, 192, Image.INTERPOLATE_LANCZOS); small.save_png("res://icon.png")
 
 ## One icon layer: the battlefield (bg), the shield (fg, sized as a share of the square), or both, on a transparent canvas.
