@@ -104,6 +104,18 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
+	# --- Starbreak's strands move slower than the Nova's ---
+	check(VFx.ULT_PACE < 0.5, "Starbreak's strands turn and climb slower than the Nova's")
+	var nb := VFx.beam_node(4)
+	var ub := VFx.beam_node(4)
+	VFx.sync_beam(nb, 4, 400.0, 7.0, 1.0, 10, 10, false)
+	VFx.sync_beam(ub, 4, 400.0, 7.0, 1.0, 10, 10, false, VFx.ULT_PACE)
+	var p0: Node3D = (nb.get_meta("parts").pulses as Array)[0]
+	var p1: Node3D = (ub.get_meta("parts").pulses as Array)[0]
+	check(p1.position.y < p0.position.y, "a Starbreak pulse has climbed less after the same ticks")
+	nb.free()
+	ub.free()
+
 	# --- explosions ---
 	var n0: int = vg.fx.size()
 	vg.boom(60.0, 120.0, 5.0, true)

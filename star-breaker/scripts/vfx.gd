@@ -29,6 +29,9 @@ const PULSE_LEN := 18.0
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 ## How wide the twister opens at each charge level.
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
+## How fast Starbreak's strands move compared with the Nova's (Guillaume: the ultimate's
+## strands were "too much"; it lasts 2 s, so they can take their time).
+const ULT_PACE := 0.3
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -191,13 +194,14 @@ static func beam_node(lv: int) -> Node3D:
 
 
 ## Where pulse `i` of a strand lagging `lag` ticks sits along the beam at tick `t`.
-static func pulse_y(i: int, lag: int, t: int) -> float:
+static func pulse_y(i: int, lag: int, t: float) -> float:
 	var gap := PULSE_GAP * PULSE_SPEED
 	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
-static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool) -> void:
+## `pace` slows the strands (Starbreak's twister turns and climbs at ULT_PACE).
+static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool, pace := 1.0) -> void:
 	var p: Dictionary = n.get_meta("parts")
 	var open := 1.0 + maxf(0.0, 3.0 - t) * 0.2
 	var cw := maxf(0.15, w * 0.3 * open)
@@ -213,11 +217,11 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 	tip.visible = hit_end
 	tip.position = Vector3(0, len, 1)
 	tip.scale = Vector3(1, 1, 0) * (w * 3.0 * fade * (1.0 + 0.25 * sin(tt * 2.3)) + 0.01) + Vector3.BACK
-	var spin := t * 0.35
+	var spin := t * 0.35 * pace
 	# wider beams (Starbreak) open the twister wider
 	var wide := maxf(1.0, w / maxf(fade, 0.05) / 7.0)
 	for pl in p.pulses:
-		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t)
+		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t * pace)
 		pl.visible = y + PULSE_LEN < len
 		if not pl.visible:
 			continue

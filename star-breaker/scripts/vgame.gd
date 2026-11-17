@@ -1946,7 +1946,7 @@ func _sync_beam(b: Dictionary) -> void:
 	var w: float = b.w * fade * (1.0 + 0.12 * sin(tt * 0.9))
 	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
 	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
-	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y)
+	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y, VFx.ULT_PACE if b.ult else 1.0)
 
 
 func _sync_boss() -> void:
