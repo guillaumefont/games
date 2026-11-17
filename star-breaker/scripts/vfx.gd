@@ -329,7 +329,7 @@ static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
 			var a := u * span + (rng.randf_range(-0.25, 0.25) if i > 0 and i < n else 0.0)
 			var x := u + (rng.randf_range(-0.06, 0.06) if i > 0 and i < n else 0.0)
 			pts.append(Vector3(x, cos(a) * rr, sin(a) * rr))
-		var tube := 0.035 if hard else 0.13
+		var tube := 0.018 if hard else 0.07
 		var sides := 3 if hard else 4
 		var tris := []
 		for i in n:
