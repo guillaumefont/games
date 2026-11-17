@@ -131,7 +131,7 @@ func _initialize() -> void:
 		else:
 			wide += 1
 	check(single, "each arc is one strand, thin or haze, never both")
-	check(thin >= 8 and wide >= 3, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
+	check(thin >= 8 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
 	check(jumped >= ps.size() - 1, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
 	var jolted := 0
 	var alive := 0
