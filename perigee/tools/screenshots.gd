@@ -1,7 +1,7 @@
 extends SceneTree
 ## Screenshots of the real game for reviews: start card, first hop with guide dots, a catch,
-## late game (moon 30+), game over, the lab's twin, retro and pulsar moons, and Voyage (sector list,
-## a sector, the clear card). Needs a display:
+## late game (moon 30+), game over, the lab's twin, retro and pulsar moons, and Voyage (the level
+## map, a level's card, a sector, the clear card). Needs a display:
 ##   xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
 ##     --script tools/screenshots.gd -- /tmp/perigee-shots
 
@@ -65,12 +65,34 @@ func _initialize() -> void:
 		main.start_mode(kind)
 		await run(1.2)
 		await shot("6-lab-" + kind)
-	# Voyage: the sector list, a sector in play, the clear card
+	# Voyage: the level map (its top, further down the route, a level's card), a sector in play, the clear card
 	main.save.data.voyage = {"1-1": {"stars": 3, "score": 95, "time": 15.0}, "1-2": {"stars": 2, "score": 70, "time": 20.5},
 		"1-3": {"stars": 1, "score": 40, "time": 30.0}}
 	main.open_voyage()
+	main.hud.voyage_map.scroll.scroll_vertical = 0
 	await run(0.3)
 	await shot("7-voyage-map")
+	var later := {}
+	for sec in Voyage.SYSTEMS[0].sectors:
+		later[sec.id] = {"stars": 3, "score": sec.points[2], "time": sec.par * 0.7}
+	later["2-1"] = {"stars": 3, "score": 90, "time": 20.0}
+	later["2-2"] = {"stars": 2, "score": 60, "time": 24.0}
+	main.save.data.voyage = later
+	main.save.data.rewards = ["Cradle:stars"]
+	main.open_voyage()
+	await run(0.3)
+	await shot("7b-voyage-map-later")
+	main.hud.voyage_map.scroll_to("1-6")
+	main.hud.voyage_map.scroll.scroll_vertical += 160
+	await run(0.3)
+	await shot("7d-voyage-map-reward")
+	main.hud.voyage_map.open_level("2-2")
+	await run(0.3)
+	await shot("7c-voyage-level-card")
+	main.hud.voyage_map.close_level()
+	main.save.data.rewards = []
+	main.save.data.voyage = {"1-1": {"stars": 3, "score": 95, "time": 15.0}, "1-2": {"stars": 2, "score": 70, "time": 20.5},
+		"1-3": {"stars": 1, "score": 40, "time": 30.0}}
 	main.start_sector("1-4")
 	var vbot := preload("res://tests/sim_test.gd").Bot.new()
 	vbot.deep = true
