@@ -3,8 +3,8 @@
 Perigee is an original one-button orbit-hopping game for iOS and Android. It started as a single HTML canvas
 file (`web/index.html`), wrapped as an Android WebView app (`android/`). On 2026-11-16 Guillaume decided to
 build the full game in Godot 4.7: the folder is now also a Godot project (`project.godot`, `scripts/`), a port
-of the web game. Until the port is confirmed to feel the same on a phone, both are built: the Godot game is the
-main preview, and the WebView app is still the Google Play build.
+of the web game. On 2026-11-17 Guillaume made the Godot game the Google Play build too. The web game and its
+WebView APK stay as the reference for how the hop should feel.
 
 The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8by. Check its
 "Decisions and open questions" before assuming platform, business model or online features.
@@ -94,13 +94,17 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 
 ## Android and Google Play
 
-- `android/` is a Gradle project (AGP 8.11, compileSdk/targetSdk 36, which Google Play requires). Cloud sessions
-  can't reach Google's Maven repository, so the Android build is only checked by the **Perigee builds** workflow.
-- Release builds are signed with the Play upload key when `PERIGEE_UPLOAD_KEYSTORE` is set (CI, on `main`),
-  otherwise with `debug.keystore`. Never commit the upload key.
-- `web/privacy.html` must describe what the app really collects; update it with any new SDK or data. CI also
-  publishes it at the site root (`/perigee/privacy.html`), the URL the Play listing uses.
-  The Play listing text and Data safety answers are in `store/listing.md`; launch steps in `store/README.md`.
+- The Play bundle is the Godot game: export preset "Android Play" (Gradle build, AAB, target SDK 36), built by the
+  **Perigee builds** workflow, which installs Godot's build template into `android/build/` (gitignored) right
+  after the WebView APK is built there. On `main` it is signed with the upload key (secrets
+  `PERIGEE_UPLOAD_*`; Godot uses one password for keystore and key), on PRs with the test key.
+- `android/` is also the WebView app's Gradle project (AGP 8.11), now only for the reference APK. Cloud sessions
+  can't reach Google's Maven repository, so Android builds are only checked by the workflow.
+- Never commit the upload key.
+- `web/privacy.html` must describe what the app really collects (today: nothing, everything stays on the device);
+  update it, and the Data safety answers in `store/listing.md`, before adding any SDK, purchase or data. CI
+  publishes it at the site root (`/perigee/privacy.html`), the URL the Play listing uses. Launch steps are in
+  `store/README.md`.
 
 ## Tests
 

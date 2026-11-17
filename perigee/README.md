@@ -27,9 +27,8 @@ The folder is a Godot 4.7 project (2D, Compatibility renderer, portrait), next t
   `web/icon.png` and the WebView app's launcher icons).
 - `tests/`: headless tests (see below).
 - `web/index.html`: the original web game (HTML5 canvas, no libraries), with its fonts in `web/fonts/`.
-- `android/`: the WebView app around a copy of `web/` (package `io.github.guillaumefont.perigee`, targets
-  Android 16 / API 36 as Google Play requires). A Gradle project (`./gradlew assembleRelease` for the APK,
-  `bundleRelease` for the Play bundle).
+- `android/`: the WebView app around a copy of `web/`, the reference APK (a Gradle project,
+  `./gradlew assembleRelease`). The Google Play bundle is the Godot game (export preset "Android Play", built in CI).
 - `web/privacy.html`: the privacy policy, published at https://guillaumefont.github.io/games/perigee/privacy.html.
 - `store/`: the Google Play listing text, Play Console answers, store graphics and the launch steps
   ([store/README.md](store/README.md)).
