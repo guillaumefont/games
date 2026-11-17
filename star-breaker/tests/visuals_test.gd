@@ -104,31 +104,37 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
-	# --- Starbreak's strands: many short-lived arcs of static round the laser ---
+	# --- Starbreak's strands: arcs shooting up and down the laser ---
 	var ub := VFx.beam_node(4, true)
 	var ps: Array = ub.get_meta("parts").pulses
 	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 1, 1, false)
-	var spots := []
-	for pl in ps:
-		spots.append(pl.y)
-	for f in VFx.ARC_LIFE.y + 1:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 2 + f, 2 + f, false)
-	var jumped := 0
-	for i in ps.size():
-		if ps[i].y != spots[i]:
-			jumped += 1
-	check(ps.size() >= 30, "Starbreak crackles with many arcs (%d)" % ps.size())
+	check(ps.size() >= 24, "Starbreak has many arcs (%d)" % ps.size())
 	var parts: Dictionary = ub.get_meta("parts")
 	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
 		"Starbreak has no haze and no ball at its base")
-	check(jumped >= ps.size() - 2, "each arc is short lived and jumps elsewhere within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
-	var pl0: Dictionary = ps[0]
-	var b0: Basis = (pl0.n as Node3D).basis
-	var p0: Vector3 = (pl0.n as Node3D).position
-	if pl0.t < pl0.life:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
-		check((pl0.n as Node3D).basis.is_equal_approx(b0) and (pl0.n as Node3D).position.is_equal_approx(p0),
-			"an arc holds still while it lives (no wobble)")
+	var up := 0
+	var down := 0
+	var held := 0
+	for f in 3:
+		var prev := []
+		for pl in ps:
+			prev.append([pl.y, pl.t, (pl.n as Node3D).basis])
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 2 + f, 2 + f, false)
+		for i in ps.size():
+			if ps[i].t != prev[i][1] + 1:
+				continue  # restarted elsewhere
+			var dy: float = ps[i].y - prev[i][0]
+			if dy >= VFx.ARC_SPEED.x - 0.01:
+				up += 1
+			elif dy <= -VFx.ARC_SPEED.x + 0.01:
+				down += 1
+			if (ps[i].n as Node3D).basis.is_equal_approx(prev[i][2]):
+				held += 1
+	check(up > 10 and down > 10, "arcs shoot both up and down the laser (%d up, %d down)" % [up, down])
+	check(held == up + down, "an arc keeps its shape and angle while it travels (no wobble)")
+	for pl in ps:
+		check(pl.n.get_child_count() == 1, "an arc has no haze of its own")
+		break
 	ub.free()
 
 	# --- explosions ---

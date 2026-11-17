@@ -29,11 +29,13 @@ const PULSE_LEN := 18.0
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 ## How wide the twister opens at each charge level.
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
-## Starbreak's strands: no twister, but many short-lived jagged arcs of pink, cyan and white
-## crackling round the laser like static electricity (Guillaume's call: no wobble, short lived,
-## many of them). Each arc lives ARC_LIFE ticks, then jumps somewhere else.
-const ULT_PULSES := 42
-const ARC_LIFE := Vector2i(2, 6)
+## Starbreak's strands: no twister, but jagged arcs of pink, cyan and white with no glow of
+## their own, each shooting up or down the laser at ARC_SPEED per tick (Guillaume's call:
+## no wobble, no flicker in place, no haze). An arc lives up to ARC_LIFE ticks or until it
+## runs off the beam, then starts again elsewhere.
+const ULT_PULSES := 30
+const ARC_LIFE := Vector2i(10, 26)
+const ARC_SPEED := Vector2(5.0, 11.0)
 const ARC_SHAPES := 12
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
@@ -222,12 +224,10 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 		for i in ULT_PULSES:
 			var st := i % 3
 			var hard := Models.mesh(arc_mesh(0, true), pulse_mat(st))
-			var soft := Models.mesh(arc_mesh(0, false), pulse_mat(st + 3))
 			var g := Node3D.new()
-			g.add_child(soft)
 			g.add_child(hard)
 			n.add_child(g)
-			var pl := {n = g, hard = hard, soft = soft}
+			var pl := {n = g, hard = hard}
 			parts.pulses.append(pl)
 		# no haze and no ball at the bottom: the static arcs alone light the beam
 		haze.visible = false
@@ -253,10 +253,11 @@ static func pulse_y(i: int, lag: int, t: float) -> float:
 	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
-## A Starbreak arc jumps somewhere new on the beam: shape, angle, size and a short life.
+## A Starbreak arc starts somewhere new on the beam: shape, angle, size, direction, speed, life.
 static func _respawn(pl: Dictionary, len: float) -> void:
-	pl.len = randf_range(7.0, 22.0)
+	pl.len = randf_range(8.0, 20.0)
 	pl.y = randf() * maxf(1.0, len - pl.len)
+	pl.v = randf_range(ARC_SPEED.x, ARC_SPEED.y) * (1.0 if randf() < 0.5 else -1.0)
 	pl.ang = randf() * TAU
 	pl.r = randf_range(0.6, 1.15)
 	pl.flip = randf() < 0.5
@@ -264,7 +265,6 @@ static func _respawn(pl: Dictionary, len: float) -> void:
 	pl.t = 0
 	var v := randi() % ARC_SHAPES
 	(pl.hard as MeshInstance3D).mesh = arc_mesh(v, true)
-	(pl.soft as MeshInstance3D).mesh = arc_mesh(v, false)
 
 
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
@@ -339,8 +339,8 @@ static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
 		return Geo.build_wound(tris))
 
 
-## Starbreak's static: each arc flickers on the beam for a few ticks at its own place and angle
-## (no travel, no turning), then jumps elsewhere with a new shape.
+## Starbreak's strands: each arc shoots up or down the beam at its own speed, holding its
+## angle and shape (no turning, no wobble), then starts again elsewhere.
 static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
 	var R := w / maxf(fade, 0.05) * 0.8
 	for pl in pulses:
@@ -349,7 +349,8 @@ static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) 
 			# stagger so the arcs don't all jump on the same tick
 			pl.t = randi() % int(pl.life)
 		pl.t += 1
-		if pl.t > pl.life:
+		pl.y += pl.v
+		if pl.t > pl.life or pl.y < 0.0 or pl.y + pl.len > len:
 			_respawn(pl, len)
 		var g: Node3D = pl.n
 		g.visible = fade > 0.05 and pl.y + pl.len <= len
