@@ -329,7 +329,7 @@ func rock_checks() -> void:
 	var walls_drawn := false
 	for c in vg.chunks.values():
 		for ch in c.get_children():
-			if ch.get_child_count() == 4:
+			if ch.name == "Walls" and ch.get_child_count() > 0:
 				walls_drawn = true
 	check(walls_drawn, "the canyon walls are drawn")
 	# island: in the middle of the screen, hitting it costs a hull point and pushes the ship

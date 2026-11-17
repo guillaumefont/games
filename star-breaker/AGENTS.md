@@ -50,6 +50,7 @@ godot --headless --path . --script tests/screen_test.gd  # crash report, safe gr
 godot --headless --path . --script tests/audio_test.gd   # songs build on the main thread, sound effects exist
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
+godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
 ```
 
 Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
@@ -119,6 +120,24 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   keeps the old (zero) size.
 - Simulated touches in headless tests must go through `root.push_input(event, true)`.
 - GDScript can't infer types from Dictionary fields: write `var k: float = d.x * 2`, not `:=`.
+
+## The look (2026-11-17 visual upgrade)
+
+- A low sun (`sun` in `vgame.gd`) casts real shadows (one 2048 orthogonal map); safe graphics turn
+  them off. `Models.mesh()` makes lit opaque parts cast and glows/see-through parts not: keep
+  glows unshaded so they never throw shadows. Depth fog sinks the floor into violet; the camera
+  sits closer (`CAM_D`) for parallax between the play plane and the ground 68 units below.
+- The ground is `scripts/terrain.gd`: a pure function of world position (craters, mesas, ridges,
+  crystals, boulders, fissures), vertex coloured, one draw call per material per chunk. Chunks are
+  built a slice per frame ahead of time (`Terrain.Builder`, `_building` in `vgame.gd`); building
+  one in a single frame cost ~3 ms on desktop, so keep new terrain work inside the builder.
+  Canyon walls and islands use `Terrain.cliff()` (faceted top, banded face) plus the glowing lip.
+- Weapon effects are `scripts/vfx.gd`: the laser-strand charge and Nova twister come from the
+  landscape game's beam (git history before 2026-11-17, `main.gd` `sync_charge_fx`/`fire_beam`),
+  turned to fly up the screen. Lights are few on purpose (Compatibility renders each omni light as
+  an extra pass): one for the charge/beam, two pooled for explosions, all off in safe graphics.
+- Clear `user://diag.log` / `settings.cfg` before taking screenshots: a killed run counts as a
+  crash and the next launch turns safe graphics on (no glow, no shadows).
 
 ## The game
 

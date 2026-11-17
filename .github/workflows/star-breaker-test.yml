@@ -37,3 +37,5 @@ jobs:
         run: ./godot --headless --path . --script tests/icon_test.gd
       - name: The game (drag, charge beam, pod, ultimates, barriers, rock, bosses)
         run: ./godot --headless --path . --script tests/vertical_test.gd
+      - name: Look and effects (shadows, ground, laser strands, explosions)
+        run: ./godot --headless --path . --script tests/visuals_test.gd
