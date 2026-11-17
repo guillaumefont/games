@@ -1,7 +1,7 @@
 extends SceneTree
 ## Screenshots of the portrait game (vertical slice) for reviews: the stage menu, Lance in
 ## open ground charging, the Nova, Warden with its pod flung out, a fortress barrier, Starbreak,
-## Shatter and the Bloom Mother.
+## Shatter and the Bloom Mother, plus a canyon in edge mode and the same moment without walls.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- OUT_DIR
 
 var vg: Node3D
@@ -37,6 +37,18 @@ func _initialize() -> void:
 	for i in 20:
 		await process_frame
 	await snap("v_menu")
+	# edge vs soft: the same moment in stage 2's first canyon, with and without the rock walls
+	for on in [true, false]:
+		vg.edge = on
+		vg.start_stage(1, "lance")
+		await play(120, true, 0.3)
+		vg.G.scroll = VStage.CANYONS[1][0][0] + 40.0
+		vg.G.si = 0
+		while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll + 150:
+			vg.G.si += 1
+		await play(200, true, 0.8)
+		await snap("v_canyon" if on else "v_canyon_soft")
+	vg.edge = true
 	vg.start_stage(0, "lance")
 	await play(420, true, 0.6)
 	await snap("v_lance")

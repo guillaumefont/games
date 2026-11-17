@@ -59,6 +59,9 @@ func _initialize() -> void:
 	check(vg.mode == "menu" and vg.hud.menu_scr.visible, "the portrait game starts on its stage menu")
 
 	# --- Lance ---
+	check(vg.hud.edge, "the menu starts on Edge")
+	# the first part checks the softer game (no rock walls); edge mode is checked at the end
+	vg.hud.select_edge(false)
 	vg.hud.stage_chosen.emit(0, "lance")
 	check(vg.mode == "play" and vg.G.ship == "lance", "picking stage 1 with Lance starts it")
 	settle()
@@ -246,5 +249,123 @@ func _initialize() -> void:
 	vg.hud.menu_pressed.emit()
 	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
 
+	await edge_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
 	quit(1 if fails else 0)
+
+
+## Edge mode: rock walls along the stage, Lance's guns quiet while it charges, a shorter
+## safety window after a hit and no slow-motion after a lift.
+func edge_checks() -> void:
+	print("Edge mode")
+	vg.hud.select_edge(true)
+	vg.hud.select_ship("lance")
+	vg.hud.stage_chosen.emit(0, "lance")
+	check(vg.edge and vg.mode == "play", "Edge on the menu starts the stage in edge mode")
+	# the stage layout: canyons narrow the screen, the fortress keeps its barrier gaps clear,
+	# the boss gets the whole width, and the passage is never too tight
+	for i in VStage.STAGES.size():
+		var st: Dictionary = VStage.STAGES[i]
+		var narrowest := 999.0
+		var d := 0.0
+		while d < st.length + 224:
+			var w := VStage.walls(i, d)
+			narrowest = minf(narrowest, w.y - w.x)
+			d += 3.0
+		check(narrowest >= 50.0, "stage %d: the passage is never narrower than 50 (%.1f)" % [i + 1, narrowest])
+		var c: Array = VStage.CANYONS[i][0]
+		var cw := VStage.walls(i, (c[0] + c[1]) / 2.0)
+		var ow := VStage.walls(i, 120.0)
+		check(cw.y - cw.x < 80.0 and ow.y - ow.x > 105.0, "stage %d: canyons are much narrower than open ground" % [i + 1])
+		var bw := VStage.walls(i, st.length - 120)
+		check(bw.y - bw.x > 118.0, "stage %d: the walls open up for the boss" % [i + 1])
+		var clear := true
+		for ev in VStage.build(i):
+			if ev.type == "barrier":
+				var w2 := VStage.walls(i, ev.d)
+				if ev.gx - ev.gw / 2.0 < w2.x + 4 or ev.gx + ev.gw / 2.0 > w2.y - 4:
+					clear = false
+		check(clear, "stage %d: every barrier gap is inside the passage" % [i + 1])
+	# rock: touching it costs a hull point, and the ship never ends up inside it
+	settle()
+	var c0: Array = VStage.CANYONS[0][0]
+	vg.G.scroll = c0[0] + 60.0
+	vg.G.si = 0
+	while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll + 224:
+		vg.G.si += 1
+	for e in vg.G.enemies:
+		e.dead = true
+	for b in vg.G.eb:
+		b.dead = true
+	tick(2)
+	var w0: Vector2 = vg.walls_at(vg.P.y)
+	vg.P.inv = 0
+	var hull0: int = vg.P.hull
+	tick(1, true, -200.0, 0.0, false, false)
+	check(vg.P.hull == hull0 - 1 and vg.P.inv == vg.EDGE_INV, "flying into the rock costs a hull point, with a short safety window")
+	w0 = vg.walls_at(vg.P.y)
+	check(vg.P.x >= w0.x + vg.ROCK_PAD, "the ship is pushed out of the rock")
+	# scraping: close to the rock but not touching pays points
+	vg.P.inv = 0
+	vg.P.hull = 3
+	vg.P.x = w0.x + vg.ROCK_PAD + 1.5
+	var sc: int = vg.G.score
+	tick(12, false, 0.0, 0.0, false, false)
+	check(vg.G.score > sc and vg.P.hull == 3, "skimming the rock pays points without damage")
+	# shots and bullets break on the rock
+	vg.P.x = (w0.x + w0.y) / 2.0
+	vg.shot(w0.x + 3.0, vg.P.y + 20, -3.0, 0.0, Models.M.shot, 1)
+	var sh: Dictionary = vg.G.pb.back()
+	tick(3)
+	check(not vg.G.pb.has(sh), "shots break on the rock")
+	vg.bullet(w0.x - 6.0, vg.P.y + 30, 0.0, 0.0)
+	var bl: Dictionary = vg.G.eb.back()
+	tick(1)
+	check(not vg.G.eb.has(bl), "enemy bullets break on the rock")
+	# enemies are placed inside the passage
+	vg.spawn({type = "drifter", x = 2.0, d = vg.G.scroll + 230, move = "dive", stop = 170.0})
+	var dr: Dictionary = vg.G.enemies.back()
+	var dw := VStage.walls(0, vg.G.scroll + 230)
+	check(dr.x > dw.x and dr.x < dw.y, "a drifter spawned over the rock moves into the passage")
+	dr.dead = true
+	# Lance: short holds keep the guns firing, a long hold silences them; no slow-mo on a lift
+	tick(5, false)
+	for b in vg.G.pb:
+		b.dead = true
+	tick(1, false)
+	var fired := 0
+	for i in 40:
+		var n0: int = vg.G.pb.size()
+		tick(1, true)
+		fired += maxi(0, vg.G.pb.size() - n0)
+	check(fired > 0, "the guns fire during a short hold")
+	tick(20, true)
+	var quiet := 0
+	for i in 60:
+		var n1: int = vg.G.pb.size()
+		tick(1, true)
+		quiet += maxi(0, vg.G.pb.size() - n1)
+	check(quiet == 0 and vg.P.charge >= vg.CHARGE_AT[1], "past LV 1 the charge silences Lance's guns")
+	tick(1, false)
+	check(vg.G.get("slow", 0) == 0 and vg.G.beams.size() >= 1, "lifting fires the beam with no slow-motion")
+	# the walls are drawn: chunks carry a rock-wall node
+	var walls_drawn := false
+	for c in vg.chunks.values():
+		if c.get_child_count() > 0 and c.get_child(c.get_child_count() - 1).get_child_count() == 4:
+			walls_drawn = true
+	check(walls_drawn, "the rock walls are drawn")
+	# a whole stage in edge mode: the ship (kept alive) follows a weaving thumb and is never
+	# inside the rock, and the stage still ends with its boss
+	vg.start_stage(0, "lance")
+	settle()
+	var inside := 0
+	var t := 0
+	while not vg.G.ended and t < 6000:
+		t += 1
+		vg.inp = {hold = true, fire = true, dx = sin(t * 0.03) * 2.5, dy = 0.0, ult = false, pause = false}
+		vg.P.inv = maxi(vg.P.inv, 2)
+		vg.update()
+		if vg.P.alive and not vg.P.entering and vg.in_rock(vg.P.x, vg.P.y, vg.ROCK_PAD):
+			inside += 1
+	check(vg.G.ended and inside == 0, "a whole edge stage plays through without the ship inside rock (%d ticks)" % t)
+	vg.to_menu()

@@ -28,6 +28,12 @@ const AUTO_PAUSE := 180
 const HULL := 3
 const SHIPS := 3
 const HITBOX := 2.0
+## Edge mode: invulnerable ticks after a hit (90 without), how close to rock counts as a
+## touch, and the scrape zone just outside it that pays points for flying close.
+const EDGE_INV := 45
+const SOFT_INV := 90
+const ROCK_PAD := 3.0
+const SCRAPE := 7.0
 ## [half width, half height, hit points, score]
 const DEF := {drifter = [3, 3, 1, 100], shell = [10, 7, 26, 1500], turret = [4, 4, 3, 300], carrier = [5, 4, 5, 500],
 	generator = [3.6, 3.6, 6, 500], block = [3.8, 3.8, 3, 50], matriarch = [14, 10, 90, 6000]}
@@ -62,6 +68,10 @@ var _kb_ult_was := false
 var pause_on_focus_out := true
 ## Tests and tools set this to run the ticks themselves (with their own `inp`).
 var driven := false
+## Edge mode (the default): rock walls you can crash into, Lance's guns go quiet while it
+## charges, a shorter safety window after a hit and no slow-motion after a lift. Off is the
+## first preview's softer game, kept for comparison from the menu.
+var edge := true
 
 var world: Node3D
 var camera: Camera3D
@@ -74,6 +84,8 @@ var shield_m: Node3D
 var stars: Array = []
 ## Floor tones (two) and the crater colour, from the world's palette.
 var _ground_mats: Array = []
+var _ground_base: Array = []
+var _lip_mat: Material = Models.std("b9a8ff", "8f6bff", 1.1)
 
 
 # ---------- helpers ----------
@@ -108,6 +120,20 @@ static func charge_lv(c: int) -> int:
 	return lv
 
 
+## The rock walls' inner faces (x of left face, x of right face) at screen height `y`. Without
+## edge mode there is no rock.
+func walls_at(y: float) -> Vector2:
+	if not edge or G.is_empty():
+		return Vector2(-1000.0, W + 1000.0)
+	return VStage.walls(G.stage, G.scroll + y)
+
+
+## True when a point (padded by `pad`) is inside the rock.
+func in_rock(x: float, y: float, pad: float) -> bool:
+	var w := walls_at(y)
+	return x - pad < w.x or x + pad > w.y
+
+
 # ---------- setup ----------
 
 func _ready() -> void:
@@ -122,7 +148,9 @@ func _ready() -> void:
 	add_child(layer)
 	hud = VHud.new()
 	layer.add_child(hud)
-	hud.stage_chosen.connect(start_stage)
+	hud.stage_chosen.connect(func(i: int, k: String):
+		edge = hud.edge
+		start_stage(i, k))
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship))
 	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship))
@@ -173,6 +201,7 @@ func _setup_world() -> void:
 	_ground_mats = [Models.std(pal.plate2), Models.std(pal.far), Models.std(pal.bg)]
 	for m in _ground_mats:
 		(m as BaseMaterial3D).albedo_color = (m as BaseMaterial3D).albedo_color.darkened(0.25)
+	_ground_base = _ground_mats.map(func(m): return (m as BaseMaterial3D).albedo_color)
 	stars = [_star_layer(160, -200, -150, 1.6, Color(pal.star_a)), _star_layer(90, -150, -110, 2.0, Color(pal.star_b))]
 	charge_fx = Node3D.new()
 	for c in ["4a5470", "dfe9ff", "ffffff"]:
@@ -318,9 +347,12 @@ func start_stage(i: int, kind: String) -> void:
 	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
 		boss = {}, bparts = [], score = 0, lives = SHIPS, clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
-		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0}
+		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
 	script_list = VStage.build(i)
+	# edge: a darker floor so the passage reads against the cliff tops
+	for j in _ground_mats.size():
+		(_ground_mats[j] as BaseMaterial3D).albedo_color = _ground_base[j].darkened(0.3 if edge else 0.0)
 	ship_m = VShips.upright(VShips.model(kind))
 	ship_m.add_child(Models.glow("ff9a40", 8))
 	world.add_child(ship_m)
@@ -476,7 +508,8 @@ func _update_player() -> void:
 	if not P.alive:
 		P.respawn -= 1
 		if P.respawn <= 0 and G.fail_t == 0:
-			P.merge({alive = true, entering = true, x = W / 2.0, y = -12.0, inv = 150, hull = HULL, charge = 0, ready_lv = 0, held = inp.hold}, true)
+			var rw := walls_at(40.0)
+			P.merge({alive = true, entering = true, x = clampf(W / 2.0, rw.x + 8, rw.y - 8), y = -12.0, inv = 150, hull = HULL, charge = 0, ready_lv = 0, held = inp.hold}, true)
 			if not pod.is_empty():
 				pod.state = "dock"
 		return
@@ -501,7 +534,10 @@ func _update_player() -> void:
 	# main weapon: fires on its own while the thumb is down
 	if P.fire_cd > 0:
 		P.fire_cd -= 1
-	if inp.fire and P.fire_cd <= 0:
+	# Edge: once Lance's charge reaches LV 1 its guns go quiet until the thumb lifts, so a
+	# big beam costs firepower (short holds keep the guns going)
+	var silent: bool = edge and G.ship == "lance" and P.charge >= CHARGE_AT[1]
+	if inp.fire and P.fire_cd <= 0 and not silent:
 		fire_main()
 		P.fire_cd = VShips.KITS[G.ship].fire_every
 	# the release: holding builds Lance's charge; lifting triggers the ship's move
@@ -520,6 +556,19 @@ func _update_player() -> void:
 	P.held = inp.hold
 	if inp.ult and P.ult >= 1.0 and G.ult_t == 0:
 		ultimate()
+	# Edge: rock walls. Touching one costs a hull point; the ship never goes inside the rock.
+	# Flying just outside it (the scrape zone) pays points.
+	if edge:
+		var w := walls_at(P.y)
+		if P.inv <= 0 and in_rock(P.x, P.y, ROCK_PAD):
+			hurt()
+			Diag.once("rock hit")
+		P.x = clampf(P.x, w.x + ROCK_PAD + 0.2, w.y - ROCK_PAD - 0.2)
+		var near := minf(P.x - w.x, w.y - P.x)
+		P.scrape = near < SCRAPE and P.inv <= 0
+		if P.scrape and G.t % 6 == 0:
+			add_score(10)
+			spark(P.x + (-4.0 if P.x - w.x < w.y - P.x else 4.0), P.y - 2)
 	# touching an enemy or a barrier costs a hull point
 	if P.inv <= 0:
 		for e in G.enemies:
@@ -538,7 +587,7 @@ func _update_player() -> void:
 
 func release() -> void:
 	var kit: Dictionary = VShips.KITS[G.ship]
-	G.slow = SLOW_TICKS
+	G.slow = 0 if edge else SLOW_TICKS
 	_slow_acc = 0.0
 	if kit.release == "beam":
 		var lv := charge_lv(P.charge)
@@ -692,7 +741,7 @@ func _damage_target(t: Dictionary, d: int) -> void:
 
 func hurt() -> void:
 	P.hull -= 1
-	P.inv = 90
+	P.inv = EDGE_INV if edge else SOFT_INV
 	P.hit_t = 20
 	shake = maxf(shake, 6.0)
 	audio.play("hit")
@@ -727,7 +776,8 @@ func _update_pod() -> void:
 			pod.x = P.x
 			pod.y = P.y + 10
 		"out":
-			pod.x = lerpf(pod.x, clampf(pod.x, 6, W - 6), 0.2)
+			var pw := walls_at(pod.y)
+			pod.x = lerpf(pod.x, clampf(pod.x, maxf(6, pw.x + 5), minf(W - 6, pw.y - 5)), 0.2)
 			pod.y = minf(pod.ty, pod.y + 3.2)
 		"back":
 			var d := Vector2(P.x - pod.x, P.y + 10 - pod.y)
@@ -797,6 +847,10 @@ func _update_shots() -> void:
 				else:
 					boss_damage(p, b.d)
 				break
+		# shots break on the rock walls (after hitting what sits on the cliff edge)
+		if not b.get("dead", false) and in_rock(b.x, b.y, 0.0):
+			b.dead = true
+			spark(b.x, b.y)
 	_sweep(G.pb)
 
 
@@ -875,7 +929,7 @@ func _update_eb() -> void:
 	for b in G.eb:
 		b.x += b.vx
 		b.y += b.vy
-		if b.x < -8 or b.x > W + 8 or b.y < -8 or b.y > H + 8:
+		if b.x < -8 or b.x > W + 8 or b.y < -8 or b.y > H + 8 or in_rock(b.x, b.y, -1.0):
 			b.dead = true
 			continue
 		if P.alive and P.inv <= 0 and Vector2(b.x - P.x, b.y - P.y).length() < HITBOX + 0.8:
@@ -916,13 +970,33 @@ func spawn(s: Dictionary) -> void:
 				hud.boss_name = "Shell Matriarch"
 				_boss_warn()
 		"turret", "generator":
-			E(s.type, s.x, H + 10, {wy = s.d, key = s.get("key", "")})
+			var tx: float = s.x
+			if edge:
+				# a gun in the rock sits on the cliff edge, where shots can reach it
+				var w := VStage.walls(G.stage, s.d)
+				if tx < w.x:
+					tx = w.x + 1.0
+				elif tx > w.y:
+					tx = w.y - 1.0
+			E(s.type, tx, H + 10, {wy = s.d, key = s.get("key", "")})
 		"carrier":
 			E("carrier", -8.0 if s.dir > 0 else W + 8.0, H - 34, {dir = s.dir, item = s.item})
 		"drifter":
-			E("drifter", s.x, H + 8, {move = s.move, amp = s.get("amp", 0.0), ph = s.get("ph", 0.0), x0 = s.x, stop = s.get("stop", 170.0)})
+			var a: float = s.get("amp", 0.0)
+			var dx := _fit(s.x, s.d, a + 6.0)
+			E("drifter", dx, H + 8, {move = s.move, amp = a, ph = s.get("ph", 0.0), x0 = dx, stop = s.get("stop", 170.0)})
 		"shell":
-			E("shell", s.x, H + 14, {hold = 170.0})
+			E("shell", _fit(s.x, s.d + 40, 12.0), H + 14, {hold = 170.0})
+
+
+## Edge: moves a spawn x inside the passage at distance `d`, `pad` clear of the rock.
+func _fit(x: float, d: float, pad: float) -> float:
+	if not edge:
+		return x
+	var w := VStage.walls(G.stage, d)
+	if w.y - w.x < pad * 2.0:
+		return (w.x + w.y) / 2.0
+	return clampf(x, w.x + pad, w.y - pad)
 
 
 func _boss_warn() -> void:
@@ -1426,7 +1500,66 @@ func build_chunk(c: int) -> Node3D:
 		var r := rng.randf_range(4, 9)
 		cr.scale = Vector3(r * 1.3, r, 1)
 		g.add_child(cr)
+	if edge and not G.is_empty():
+		g.add_child(_walls_node(c))
 	return g
+
+
+## Edge: the rock walls of chunk `c`, built in the chunk's frame but raised to just under the
+## ship's plane: a flat cliff top, a glowing lip on the exact edge the ship collides with, and
+## a face dropping to the floor.
+func _walls_node(c: int) -> Node3D:
+	var n := Node3D.new()
+	n.position.z = -GROUND_Z + 50.0 - 7.0
+	var rows := 16
+	var top_l := []
+	var top_r := []
+	var face_l := []
+	var face_r := []
+	var lip_l := []
+	var lip_r := []
+	var prev: Array = []
+	for j in rows + 1:
+		var ly := CHUNK * j / rows
+		var d := c * CHUNK + ly
+		var w := VStage.walls(G.stage, d)
+		# jitter the drawn rock a little, but never past the collision edge
+		var jl := VStage.hash(Vector2(d, 3.0)) * 1.4
+		var jr := VStage.hash(Vector2(d, 7.0)) * 1.4
+		var row := [X(w.x) - jl, X(w.y) + jr, VStage.hash(Vector2(d, 11.0)) * 2.0]
+		if not prev.is_empty():
+			var y0: float = ly - CHUNK / rows
+			var a0: float = prev[0]
+			var a1: float = row[0]
+			var b0: float = prev[1]
+			var b1: float = row[1]
+			var z0: float = prev[2]
+			var z1: float = row[2]
+			# cliff tops, with a step back from the lip
+			top_l.append([Vector3(-120, y0, z0 - 2), Vector3(a0 - 10, y0, z0), Vector3(a1 - 10, ly, z1)])
+			top_l.append([Vector3(-120, y0, z0 - 2), Vector3(a1 - 10, ly, z1), Vector3(-120, ly, z1 - 2)])
+			top_l.append([Vector3(a0 - 10, y0, z0), Vector3(a0 - 1, y0, 0), Vector3(a1 - 1, ly, 0)])
+			top_l.append([Vector3(a0 - 10, y0, z0), Vector3(a1 - 1, ly, 0), Vector3(a1 - 10, ly, z1)])
+			top_r.append([Vector3(120, y0, z0 - 2), Vector3(b1 + 10, ly, z1), Vector3(b0 + 10, y0, z0)])
+			top_r.append([Vector3(120, y0, z0 - 2), Vector3(120, ly, z1 - 2), Vector3(b1 + 10, ly, z1)])
+			top_r.append([Vector3(b0 + 10, y0, z0), Vector3(b1 + 1, ly, 0), Vector3(b0 + 1, y0, 0)])
+			top_r.append([Vector3(b0 + 10, y0, z0), Vector3(b1 + 10, ly, z1), Vector3(b1 + 1, ly, 0)])
+			# the lip: the line the ship must not cross
+			lip_l.append([Vector3(a0 - 1, y0, 0.3), Vector3(a0, y0, 0.3), Vector3(a1, ly, 0.3)])
+			lip_l.append([Vector3(a0 - 1, y0, 0.3), Vector3(a1, ly, 0.3), Vector3(a1 - 1, ly, 0.3)])
+			lip_r.append([Vector3(b0, y0, 0.3), Vector3(b0 + 1, y0, 0.3), Vector3(b1 + 1, ly, 0.3)])
+			lip_r.append([Vector3(b0, y0, 0.3), Vector3(b1 + 1, ly, 0.3), Vector3(b1, ly, 0.3)])
+			# faces down to the floor, sloping out a little
+			face_l.append([Vector3(a0, y0, 0), Vector3(a0 + 7, y0, -60), Vector3(a1 + 7, ly, -60)])
+			face_l.append([Vector3(a0, y0, 0), Vector3(a1 + 7, ly, -60), Vector3(a1, ly, 0)])
+			face_r.append([Vector3(b0, y0, 0), Vector3(b1, ly, 0), Vector3(b1 - 7, ly, -60)])
+			face_r.append([Vector3(b0, y0, 0), Vector3(b1 - 7, ly, -60), Vector3(b0 - 7, y0, -60)])
+		prev = row
+	n.add_child(Models.mesh(Geo.build_facing(top_l + top_r, Vector3.BACK), Models.M.rock))
+	n.add_child(Models.mesh(Geo.build_facing(face_l, Vector3(1, 0, 0.4).normalized()), Models.M.rock2))
+	n.add_child(Models.mesh(Geo.build_facing(face_r, Vector3(-1, 0, 0.4).normalized()), Models.M.rock2))
+	n.add_child(Models.mesh(Geo.build_facing(lip_l + lip_r, Vector3.BACK), _lip_mat))
+	return n
 
 
 func update_chunks(scroll: float) -> void:

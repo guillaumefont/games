@@ -40,6 +40,9 @@ var menu_scr: Control
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
+## Edge mode (rock walls, Lance's guns quiet while charging) or the softer first preview.
+var edge := true
+var _edge_btns := {}
 var _result_title: Label
 var _result_sub: Label
 var _result_next: Button
@@ -170,6 +173,21 @@ func _build_menu() -> Control:
 		row.add_child(b)
 		_ship_btns[k] = b
 	v.add_child(row)
+	var fl := _label("FEEL", 16, 700, C_MUTED, 3.0)
+	fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(fl)
+	var row2 := HBoxContainer.new()
+	row2.alignment = BoxContainer.ALIGNMENT_CENTER
+	row2.add_theme_constant_override("separation", 16)
+	for on in [true, false]:
+		var b := Button.new()
+		b.text = "EDGE" if on else "SOFT"
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 16) / 2.0, 60)
+		b.pressed.connect(func(): select_edge(on))
+		row2.add_child(b)
+		_edge_btns[on] = b
+	v.add_child(row2)
 	var how := _label("", 16, 500, C_MUTED)
 	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -189,6 +207,7 @@ func _build_menu() -> Control:
 	ex.pressed.connect(func(): exit_pressed.emit())
 	v.add_child(_center(ex))
 	select_ship(ship)
+	select_edge(edge)
 	return v.get_parent()
 
 
@@ -196,9 +215,27 @@ func select_ship(k: String) -> void:
 	ship = k
 	for key in _ship_btns:
 		_style_button(_ship_btns[key], key == k)
-	var how: Label = menu_scr.find_child("how", true, false) if menu_scr else null
-	if how:
-		how.text = "%s: %s. Drag to fly, it fires on its own. Second finger: %s." % [VShips.KITS[k].name, VShips.KITS[k].sub, VShips.KITS[k].ult_name]
+	_update_how()
+
+
+func select_edge(on: bool) -> void:
+	edge = on
+	for key in _edge_btns:
+		_style_button(_edge_btns[key], key == on)
+	_update_how()
+
+
+func _update_how() -> void:
+	var how: Label = menu_scr.find_child("how", true, false) if menu_scr else (find_child("how", true, false) as Label)
+	if not how:
+		return
+	var k := ship
+	var t := "%s: %s. Drag to fly, it fires on its own. Second finger: %s." % [VShips.KITS[k].name, VShips.KITS[k].sub, VShips.KITS[k].ult_name]
+	if edge:
+		t += " Rock walls hurt; skim them for points."
+		if k == "lance":
+			t += " Charging silences your guns."
+	how.text = t
 
 
 func _build_pause() -> Control:
