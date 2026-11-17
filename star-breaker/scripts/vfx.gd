@@ -29,9 +29,12 @@ const PULSE_LEN := 18.0
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 ## How wide the twister opens at each charge level.
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
-## Starbreak's strands: no twister, but straight pulses of pink, cyan and white light running
-## up and down the laser at random (Guillaume found the twister's wobble too much there).
-const ULT_PULSES := 16
+## Starbreak's strands: no twister, but many short-lived jagged arcs of pink, cyan and white
+## crackling round the laser like static electricity (Guillaume's call: no wobble, short lived,
+## many of them). Each arc lives ARC_LIFE ticks, then jumps somewhere else.
+const ULT_PULSES := 42
+const ARC_LIFE := Vector2i(2, 6)
+const ARC_SHAPES := 12
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -218,14 +221,13 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 	if ult:
 		for i in ULT_PULSES:
 			var st := i % 3
-			var hard := Models.mesh(ult_coil(true), pulse_mat(st))
-			var soft := Models.mesh(ult_coil(false), pulse_mat(st + 3))
+			var hard := Models.mesh(arc_mesh(0, true), pulse_mat(st))
+			var soft := Models.mesh(arc_mesh(0, false), pulse_mat(st + 3))
 			var g := Node3D.new()
 			g.add_child(soft)
 			g.add_child(hard)
 			n.add_child(g)
 			var pl := {n = g, hard = hard, soft = soft}
-			_respawn(pl, 0.0, 1.0, true)
 			parts.pulses.append(pl)
 		parts.ult = true
 	elif lv >= 2:
@@ -248,15 +250,18 @@ static func pulse_y(i: int, lag: int, t: float) -> float:
 	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
-## A Starbreak pulse starts again: a random strand position round the beam, length, speed and
-## direction; it enters from the end it travels away from (or anywhere on the first frame).
-static func _respawn(pl: Dictionary, len: float, w: float, anywhere: bool) -> void:
-	pl.up = randf() < 0.5
-	pl.v = randf_range(2.0, 7.0)
-	pl.len = randf_range(10.0, 34.0)
+## A Starbreak arc jumps somewhere new on the beam: shape, angle, size and a short life.
+static func _respawn(pl: Dictionary, len: float) -> void:
+	pl.len = randf_range(7.0, 22.0)
+	pl.y = randf() * maxf(1.0, len - pl.len)
 	pl.ang = randf() * TAU
-	pl.r = randf_range(0.55, 1.0)
-	pl.y = randf() * len if anywhere else (-pl.len if pl.up else len)
+	pl.r = randf_range(0.6, 1.15)
+	pl.flip = randf() < 0.5
+	pl.life = randi_range(ARC_LIFE.x, ARC_LIFE.y)
+	pl.t = 0
+	var v := randi() % ARC_SHAPES
+	(pl.hard as MeshInstance3D).mesh = arc_mesh(v, true)
+	(pl.soft as MeshInstance3D).mesh = arc_mesh(v, false)
 
 
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
@@ -291,33 +296,62 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 		pl.basis = Basis(Vector3.BACK, PI / 2) * Basis(Vector3.RIGHT, -spin) * Basis().scaled(Vector3(1, grow, grow))
 
 
-## Starbreak's pulses: each runs straight up or down the laser at its own speed, beside the core,
-## and starts again at random once it has left the beam.
-## One turn of a strand curling round the beam, along +X, ULT_COIL long and of radius 1
-## (scaled to the beam): a hard strand or its haze.
-const ULT_COIL := 24.0
+## A jagged arc of static jumping out of the beam, curling part of the way round it and back
+## in: shape `v`, along +X over a length of 1 and round a radius of 1, a hard strand or its haze.
+static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
+	return Geo.cached("uarc%s%d" % ["h" if hard else "z", v], func():
+		var rng := RandomNumberGenerator.new()
+		rng.seed = v * 977 + 5
+		var span := rng.randf_range(0.5, 1.2) * TAU
+		var n := 9
+		var pts := []
+		for i in n + 1:
+			var u := float(i) / n
+			# leaves the core, kinks its way round at about the beam's radius, dives back in
+			var rr := lerpf(0.35, 1.0, sin(u * PI)) * (1.0 + (rng.randf_range(-0.28, 0.28) if i > 0 and i < n else 0.0))
+			var a := u * span + (rng.randf_range(-0.25, 0.25) if i > 0 and i < n else 0.0)
+			var x := u + (rng.randf_range(-0.06, 0.06) if i > 0 and i < n else 0.0)
+			pts.append(Vector3(x, cos(a) * rr, sin(a) * rr))
+		var tube := 0.07 if hard else 0.24
+		var sides := 3 if hard else 4
+		var tris := []
+		for i in n:
+			var p0: Vector3 = pts[i]
+			var p1: Vector3 = pts[i + 1]
+			var d := (p1 - p0).normalized()
+			var side := d.cross(Vector3.RIGHT if absf(d.x) < 0.9 else Vector3.UP).normalized()
+			var up := d.cross(side).normalized()
+			var r0 := []
+			var r1 := []
+			for k in sides:
+				var a := TAU * k / sides
+				var o := (side * cos(a) + up * sin(a)) * tube
+				r0.append(p0 + o)
+				r1.append(p1 + o)
+			var m := (p0 + p1) / 2.0
+			for k in sides:
+				var k2 := (k + 1) % sides
+				tris.append(Geo.orient([r0[k], r1[k], r1[k2]], m))
+				tris.append(Geo.orient([r0[k], r1[k2], r0[k2]], m))
+		return Geo.build_wound(tris))
 
 
-static func ult_coil(hard: bool) -> ArrayMesh:
-	return Geo.cached("ucoil%s" % ("h" if hard else "z"), func(): return Geo.build_wound(Geo.helix(ULT_COIL, 1.0, ULT_COIL,
-			0.11 if hard else 0.36, 4 if hard else 6)))
-
-
+## Starbreak's static: each arc flickers on the beam for a few ticks at its own place and angle
+## (no travel, no turning), then jumps elsewhere with a new shape.
 static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
 	var R := w / maxf(fade, 0.05) * 0.8
 	for pl in pulses:
-		if pl.get("fresh", true):
-			# spread along the whole beam on its first frame
-			pl.fresh = false
-			_respawn(pl, len, w, true)
-		pl.y += pl.v if pl.up else -pl.v
-		if pl.y > len or pl.y < -pl.len:
-			_respawn(pl, len, w, false)
-		# a pulse curls once round the beam, set at its own angle; it slides along without turning
+		if not pl.has("life"):
+			_respawn(pl, len)
+			# stagger so the arcs don't all jump on the same tick
+			pl.t = randi() % int(pl.life)
+		pl.t += 1
+		if pl.t > pl.life:
+			_respawn(pl, len)
 		var g: Node3D = pl.n
-		g.visible = pl.y >= 0.0 and pl.y + pl.len <= len and fade > 0.05
+		g.visible = fade > 0.05 and pl.y + pl.len <= len
 		if not g.visible:
 			continue
 		var r: float = R * pl.r * (0.6 + 0.4 * fade)
 		g.position = Vector3(0, pl.y, 0)
-		g.basis = Basis(Vector3.UP, pl.ang) * Basis(Vector3.BACK, PI / 2) * Basis().scaled(Vector3(pl.len / ULT_COIL, r, r))
+		g.basis = Basis(Vector3.UP, pl.ang) * Basis(Vector3.BACK, PI / 2) * Basis().scaled(Vector3(pl.len * (-1.0 if pl.flip else 1.0), r, r))

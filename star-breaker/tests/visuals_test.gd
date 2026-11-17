@@ -104,30 +104,28 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
-	# --- Starbreak's strands: straight pulses running up and down at random ---
+	# --- Starbreak's strands: many short-lived arcs of static round the laser ---
 	var ub := VFx.beam_node(4, true)
-	var ups := 0
-	var downs := 0
-	for f in 40:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, f, f, false)
 	var ps: Array = ub.get_meta("parts").pulses
+	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 1, 1, false)
+	var spots := []
 	for pl in ps:
-		if pl.up:
-			ups += 1
-		else:
-			downs += 1
-	check(ps.size() == VFx.ULT_PULSES and ups > 0 and downs > 0, "Starbreak's pulses run both up and down the laser (%d up, %d down)" % [ups, downs])
-	# no wobble: a pulse keeps its angle and shape as it travels
+		spots.append(pl.y)
+	for f in VFx.ARC_LIFE.y + 1:
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 2 + f, 2 + f, false)
+	var jumped := 0
+	for i in ps.size():
+		if ps[i].y != spots[i]:
+			jumped += 1
+	check(ps.size() >= 30, "Starbreak crackles with many arcs (%d)" % ps.size())
+	check(jumped >= ps.size() - 2, "each arc is short lived and jumps elsewhere within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
 	var pl0: Dictionary = ps[0]
-	for f in 3:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 40 + f, 40 + f, false)
-		if not (pl0.n as Node3D).visible:
-			pl0.y = 100.0
 	var b0: Basis = (pl0.n as Node3D).basis
-	var y0: float = (pl0.n as Node3D).position.y
-	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 44, 44, false)
-	check((pl0.n as Node3D).basis.is_equal_approx(b0) and absf((pl0.n as Node3D).position.y - y0) > 1.0,
-		"a Starbreak pulse curls round the beam and slides along it without turning or wobbling")
+	var p0: Vector3 = (pl0.n as Node3D).position
+	if pl0.t < pl0.life:
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
+		check((pl0.n as Node3D).basis.is_equal_approx(b0) and (pl0.n as Node3D).position.is_equal_approx(p0),
+			"an arc holds still while it lives (no wobble)")
 	ub.free()
 
 	# --- explosions ---
