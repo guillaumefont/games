@@ -163,7 +163,7 @@ jobs:
           unzip -l "$OUT/android/$APK_NAME" | grep -iE 'icon|\.so$' || true
           unzip -p "$OUT/android/$APK_NAME" 'classes*.dex' | grep -ac 'com/godot/game/IconSwap'
           # the launcher icon images exactly as packed (base64, so they can be checked from the log)
-          "$aapt2" dump resources "$OUT/android/$APK_NAME" | awk '/resource .* mipmap\//{n=$3} /\(file\) res\/.*\.png/{print n, $3}' | while read -r n f; do
+          "$aapt2" dump resources "$OUT/android/$APK_NAME" | awk '/^ *resource /{n=($3 ~ /^mipmap\//) ? $3 : ""} n != "" && /\(file\) res\/.*\.png/{for (i = 1; i <= NF; i++) if ($i ~ /^res\/.*\.png$/) print n, $i}' | while read -r n f; do
             printf '@@ICON %s %s ' "$n" "$f"; unzip -p "$OUT/android/$APK_NAME" "$f" | base64 -w0; echo
           done
           size=$(stat -c %s "$OUT/android/$APK_NAME")
