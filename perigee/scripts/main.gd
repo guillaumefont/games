@@ -76,6 +76,7 @@ func _ready() -> void:
 	hud.cosmetic_picked.connect(equip)
 	hud.hangar_closed.connect(close_hangar)
 	hud.refresh_pressed.connect(refresh_game)
+	hud.menu_requested.connect(go_to_menu)
 	_apply_volumes()
 	if not save.data.tutorial_done:
 		hud.set_start_text("Tap to learn to fly")
@@ -304,6 +305,38 @@ func _clear_action(action: String) -> void:
 			start_sector(sector.id)
 		"map":
 			open_voyage()
+
+
+## Back to the start card (the main menu) from game over, pause, the Voyage map or a cleared
+## sector. A run left from pause is dropped: it doesn't count for the best score or sparks.
+func go_to_menu() -> void:
+	if paused:
+		paused = false
+		resume_left = 0.0
+		hud.show_pause(false)
+		music.ducked = false
+	mode = "endless"
+	sector = {}
+	sim.recipe = {}
+	sim.new_run(_new_seed())
+	sim.state = "start"
+	sim.events.clear()
+	button_down = false
+	over_shown = false
+	clear_shown = false
+	new_best = false
+	hud.hide_over()
+	hud.hide_clear()
+	hud.hide_voyage()
+	hud.set_mode("")
+	hud.set_timer(0.0, 0.0)
+	hud.set_score(0)
+	hud.set_over_unlock("")
+	hud.set_start_text("Tap to play Drift" if save.data.tutorial_done else "Tap to learn to fly")
+	hud.show_start(true)
+	_update_frame_cap()
+	if new_build == 0:
+		_check_update() # the build line says if a newer build came out meanwhile
 
 
 func _new_seed() -> int:
