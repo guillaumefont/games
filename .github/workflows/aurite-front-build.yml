@@ -119,8 +119,14 @@ jobs:
       # Gradle build (export preset: use_gradle_build) so the APK can carry the per-chapter launcher
       # icons: install Godot's Android build template, then add the stage aliases and IconSwap.java.
       - name: Android build template with the chapter icons
+        timeout-minutes: 5
         run: |
-          $RUNNER_TEMP/godot --headless --path . --install-android-build-template
+          # what the editor's "Install Android Build Template" does (the CLI flag never exits headless)
+          tpl="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          rm -rf android && mkdir -p android/build
+          unzip -q "$tpl/android_source.zip" -d android/build
+          touch android/build/.gdignore
+          printf '%s' "${GODOT_VERSION}.stable" > android/.build_version
           python3 -m pip install --quiet pillow
           python3 tools/android/patch_build.py android/build
 
