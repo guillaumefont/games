@@ -134,9 +134,7 @@ func in_rock(x: float, y: float, pad: float) -> bool:
 
 func _ready() -> void:
 	Diag.start()
-	Diag.note("VERTICAL")
 	Models.init()
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT)
 	_setup_world()
 	audio = Sfx.new()
 	add_child(audio)
@@ -149,10 +147,140 @@ func _ready() -> void:
 	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship))
 	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship))
 	hud.menu_pressed.connect(to_menu)
-	hud.exit_pressed.connect(exit_to_main)
 	hud.pause_pressed.connect(func(): _pause_latch = true)
+	hud.mute_pressed.connect(func():
+		muted = not muted
+		audio.set_muted(muted)
+		hud.set_muted(muted)
+		_save())
+	hud.safe_toggled.connect(apply_safe)
+	hud.refresh_pressed.connect(refresh_game)
+	_load()
+	if Diag.crashed:
+		hud.show_crash_notice(Diag.summary(), Diag.report())
 	get_viewport().size_changed.connect(_on_resize)
 	_on_resize()
+	apply_safe()
+	_warm_up()
+	_check_update()
+
+
+# ---------- save, graphics, updates ----------
+
+const SAVE_PATH := "user://save.cfg"
+var muted := false
+var bests: Array = [0, 0, 0]
+var _env: Environment
+
+
+func _load() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) == OK:
+		muted = bool(cfg.get_value("game", "muted", false))
+		var b = cfg.get_value("portrait", "bests", [])
+		if b is Array:
+			for i in mini(b.size(), bests.size()):
+				bests[i] = int(b[i])
+	audio.set_muted(muted)
+	hud.set_muted(muted)
+	hud.set_bests(bests)
+
+
+func _save() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SAVE_PATH)
+	cfg.set_value("game", "muted", muted)
+	cfg.set_value("portrait", "bests", bests)
+	cfg.save(SAVE_PATH)
+
+
+## Safe graphics (on after a crash, or from the menu): no glow and no MSAA.
+func apply_safe() -> void:
+	_env.glow_enabled = not Diag.safe
+	get_viewport().msaa_3d = Viewport.MSAA_DISABLED if Diag.safe else Viewport.MSAA_2X
+
+
+## Restarts the app so the launch-time update check loads the newest build (the page
+## reloads in the browser). Tests swap `restart_fn` for a stub.
+var restart_fn := func():
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("location.reload()")
+	else:
+		OS.set_restart_on_exit(true, OS.get_cmdline_args())
+		get_tree().quit()
+
+
+func refresh_game() -> void:
+	if mode != "menu":
+		return
+	Diag.note("REFRESH")
+	_save()
+	hud.set_build_state("restarting")
+	await get_tree().create_timer(0.15).timeout
+	restart_fn.call()
+
+
+## The build number from the running version ("b73 abc1234" -> 73), or 0.
+static func build_number(version: String) -> int:
+	var m := RegEx.create_from_string("^b(\\d+)").search(version)
+	return int(m.get_string(1)) if m else 0
+
+
+## Asks the update server whether a newer build is out and says so on the menu's build
+## line. Quiet when offline or without an update url.
+func _check_update() -> void:
+	var url := str(ProjectSettings.get_setting("star_breaker/update_url", ""))
+	if url == "":
+		return
+	var http := HTTPRequest.new()
+	http.timeout = 6.0
+	add_child(http)
+	if http.request(url + "update.json?t=%d" % int(Time.get_unix_time_from_system())) != OK:
+		http.queue_free()
+		return
+	var r: Array = await http.request_completed
+	http.queue_free()
+	if r[0] != HTTPRequest.RESULT_SUCCESS or r[1] != 200:
+		return
+	var d = JSON.parse_string((r[3] as PackedByteArray).get_string_from_utf8())
+	if d is Dictionary:
+		show_update(int(d.get("build", 0)))
+
+
+func show_update(remote: int) -> void:
+	var have := build_number(str(ProjectSettings.get_setting("application/config/version", "")))
+	if have > 0 and remote > have:
+		hud.set_build_state("new", remote)
+
+
+## Draws every model and material once behind the menu, so a first appearance in a stage
+## doesn't hitch (shader compiles on Android).
+func _warm_up() -> void:
+	var w := Node3D.new()
+	w.position = Vector3(0, 0, 200)
+	w.scale = Vector3.ONE * 0.02
+	add_child(w)
+	var flashed := Models.drifter()
+	var list: Array = [VShips.lance(), Models.ship(), Models.pod(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
+		Models.generator(1), Models.block(Models.M.rock), Models.carrier("L"), Models.item("L")]
+	for k in Models.M:
+		var mat = Models.M[k]
+		if mat is Material:
+			list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
+	for mat in [_lip_mat] + _ground_mats:
+		list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
+	for c in ["ffb547", "3ff0e0", "fff1d0", "ff4fa3", "ff9a40", "4a5470", "dfe9ff", "ffffff", "ff9a3d"]:
+		list.append(Models.glow(c, 5))
+	for n in list:
+		w.add_child(n)
+	Models.set_flash(flashed, true)
+	var bw := Node3D.new()
+	w.add_child(bw)
+	Models.set_flash(Models.boss(bw), true)
+	for i in 4:
+		await get_tree().process_frame
+	w.queue_free()
+	Diag.note("WARM", "%d objects" % (list.size() + 1))
 
 
 func _setup_world() -> void:
@@ -171,6 +299,7 @@ func _setup_world() -> void:
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	for i in range(1, 8):
 		env.set("glow_levels/%d" % i, 1.0 if i in [2, 3, 4, 5] else 0.0)
+	_env = env
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -290,8 +419,12 @@ func _notification(what: int) -> void:
 			_pause_latch = true
 		elif mode == "pause":
 			set_paused(false)
+		elif mode == "result":
+			to_menu()
 		else:
-			exit_to_main()
+			# back on the menu leaves the app
+			Diag.note("QUIT")
+			get_tree().quit()
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
 		Diag.note("SUSPEND")
 		_touch_id = -1
@@ -399,13 +532,6 @@ func to_menu() -> void:
 	hud.show_screen("menu")
 
 
-func exit_to_main() -> void:
-	Diag.note("VERTICAL_EXIT")
-	teardown()
-	DisplayServer.screen_set_orientation(DisplayServer.SCREEN_SENSOR_LANDSCAPE)
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
-
-
 func set_paused(v: bool) -> void:
 	if mode != "play" and mode != "pause":
 		return
@@ -419,6 +545,10 @@ func set_paused(v: bool) -> void:
 func finish(cleared: bool) -> void:
 	mode = "result"
 	audio.music("")
+	if G.score > int(bests[G.stage]):
+		bests[G.stage] = G.score
+		hud.set_bests(bests)
+		_save()
 	hud.set_result(cleared, fmt(G.score), G.stage + 1 < VStage.STAGES.size())
 	hud.show_screen("result")
 	Diag.note("VSTAGE_END", "cleared=%s score=%d" % [cleared, G.score])

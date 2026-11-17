@@ -600,7 +600,7 @@ static func _pillar_strips(xs: Array, w: float) -> ArrayMesh:
 
 # ---------- bosses of worlds 2 to 4 ----------
 ## Each returns a root node (added to `world`, kept at the origin) whose meta "u" maps part
-## keys to the nodes main.gd moves around in stage coordinates.
+## keys to the nodes the game moves around in stage coordinates.
 
 static func boss_prism(world: Node3D) -> Node3D:
 	var g := Node3D.new()

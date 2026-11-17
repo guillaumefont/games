@@ -29,7 +29,7 @@ func _initialize() -> void:
 	if args.size() > 0:
 		out = args[0]
 	DirAccess.make_dir_recursive_absolute(out)
-	vg = load("res://scenes/vertical.tscn").instantiate()
+	vg = load("res://scenes/main.tscn").instantiate()
 	root.add_child(vg)
 	vg.set_physics_process(false)
 	vg.driven = true
