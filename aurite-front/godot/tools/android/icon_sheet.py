@@ -1,4 +1,4 @@
-"""Print a contact sheet of the launcher icons packed in an APK, as one base64 PNG line (@@SHEET).
+"""Print a contact sheet of the launcher icons packed in an APK, as a base64 PNG in @@SHEET chunks.
 
 CI cannot share files with reviewers who only see logs, so this proves which images the built APK
 really carries for each chapter: adaptive foreground over background, cropped to a circle, plus
@@ -37,4 +37,7 @@ for r, (full, fg, bg) in enumerate(rows):
     if l: sheet.paste(l.resize((S, S), Image.LANCZOS), (S + 20, y))
     print(full, files.get(full), fg, files.get(fg), bg, files.get(bg))
 buf = io.BytesIO(); sheet.convert("RGB").save(buf, "PNG", optimize=True)
-print("@@SHEET " + base64.b64encode(buf.getvalue()).decode())
+b64 = base64.b64encode(buf.getvalue()).decode()
+# GitHub drops very long log lines: print it in numbered chunks
+for i in range(0, len(b64), 8000):
+    print("@@SHEET %03d %s" % (i // 8000, b64[i:i + 8000]))
