@@ -49,7 +49,8 @@ class Bot:
 			return ""
 		var in_ring := false
 		for q in s.planets:
-			if not q.visited and Vector2(q.x - p.x, q.y - p.y).length() < (q.perigee_radius() if deep else q.ring):
+			# a pulsar's ring only catches while lit, so the bot waits for it
+			if not q.visited and q.lit(s.t) and Vector2(q.x - p.x, q.y - p.y).length() < (q.perigee_radius() if deep else q.ring):
 				in_ring = true
 		if in_ring and not down:
 			down = true

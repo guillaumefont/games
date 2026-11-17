@@ -32,9 +32,12 @@ const SPEED_FACTORS: Array[float] = [1.0, 0.88, 0.76]
 const DRIFT_POINTS: Array[int] = [100, 300, 750]
 
 ## Bonus sparks the first time each tier is won (index = tier): winning gold straight away pays all three.
-const REWARD_SPARKS: Array[int] = [0, 2, 3, 5]
-const ALL_STARS_SPARKS := 5 ## a sector's three stars
-const SYSTEM_STARS_SPARKS := 25 ## every star of a system, with its cosmetic
+## Balanced against the unlock track (Unlocks.TRACK ends at 420): with 18 levels, every medal of the
+## route pays 18 x (6 + 6 + 3) + 3 x 20 = 330 sparks, so medals carry most of the track and the sparks
+## collected in runs finish it. (Until 2026-11-17, with 6 levels: 2/3/5, 5 and 25.)
+const REWARD_SPARKS: Array[int] = [0, 1, 2, 3]
+const ALL_STARS_SPARKS := 3 ## a sector's three stars
+const SYSTEM_STARS_SPARKS := 20 ## every star of a system, with its cosmetic
 
 
 ## The three speed marks of a sector in seconds, rounded down to a tenth: [bronze, silver, gold].

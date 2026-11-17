@@ -51,9 +51,8 @@ var over_best: Label
 var over_stats: Label
 var mode_label: Label
 var timer_label: Label
-var voyage_card: Control
-var voyage_system: Label
-var voyage_grid: GridContainer
+var voyage_card: Control ## the Voyage map (VoyageMap)
+var voyage_map: VoyageMap
 var clear_card: Control
 var clear_title: Label
 var clear_score: Label
@@ -66,9 +65,8 @@ var clear_medals: Control ## the run's three medals
 var clear_medal_icons: Array[MedalIcon] = []
 var clear_medal_tiers: Array[Label] = []
 var clear_medal_next: Array[Label] = []
-var voyage_stars: Label ## "14 / 18 stars" next to the system's all-stars medal
-var voyage_stars_medal: MedalIcon
-var voyage_tally: Label
+var voyage_stars: Label ## "14 / 54": every star of the route, on the map's top bar
+var voyage_tally: Label ## medals won and the bonus sparks they paid
 var over_medal_row: Control ## Drift's points medal on the game over card
 var over_medal: MedalIcon
 var over_medal_label: Label
@@ -318,6 +316,8 @@ func apply_safe_area() -> void:
 	top.add_theme_constant_override("margin_top", int(10 + top_inset))
 	top.add_theme_constant_override("margin_left", int(maxf(16, left_inset)))
 	top.add_theme_constant_override("margin_right", int(maxf(16, right_inset)))
+	if voyage_map != null:
+		voyage_map.top_bar.add_theme_constant_override("margin_top", int(12 + top_inset))
 	hint_label.offset_top = -(28 + bottom_inset + 22)
 	hint_label.offset_bottom = -(28 + bottom_inset)
 
@@ -367,35 +367,14 @@ func set_over_row(voyage: bool) -> void:
 	over_voyage_row.visible = voyage
 
 
-func show_voyage(progress: Dictionary, drift_best := 0) -> void:
+## Opens the Voyage map. `claimed` is save.data.rewards; `focus` the level to scroll to (the furthest
+## open one when empty).
+func show_voyage(progress: Dictionary, drift_best := 0, claimed: Array = [], focus := "") -> void:
 	start_card.visible = false
 	over_card.visible = false
 	clear_card.visible = false
-	var sys: Dictionary = Voyage.SYSTEMS[0]
-	voyage_system.text = "System 1 · %s" % sys.name
-	for b in voyage_grid.get_children():
-		var id: String = b.get_meta("id")
-		var open := Voyage.unlocked(id, progress)
-		b.disabled = not open
-		b.modulate.a = 1.0 if open else 0.4
-		var got := int(progress.get(id, {}).get("stars", 0))
-		var stars_row: Control = b.get_child(0).get_child(1)
-		for i in 3:
-			(stars_row.get_child(i) as StarIcon).lit = i < got
-		var m := Medals.of_sector(Voyage.sector(id), progress.get(id, {}))
-		var medal_row: Control = b.get_child(0).get_child(2)
-		for i in 3:
-			var icon := medal_row.get_child(i) as MedalIcon
-			icon.tier = m[icon.kind]
-	var ss := Medals.system_stars(sys, progress)
-	voyage_stars.text = "%d / %d stars" % ss
-	voyage_stars_medal.tier = Medals.GOLD if ss[0] >= ss[1] else Medals.NONE
-	var t := Medals.tally(progress, drift_best)
-	var bonus := 0
-	for r in Medals.rewards(progress, drift_best):
-		bonus += int(r.sparks)
-	voyage_tally.text = "Rewards  %d gold · %d silver · %d bronze · +%d sparks" % [t[Medals.GOLD], t[Medals.SILVER], t[Medals.BRONZE], bonus]
 	voyage_card.visible = true
+	voyage_map.refresh(progress, drift_best, claimed, focus)
 
 
 func hide_voyage() -> void:
@@ -408,7 +387,7 @@ func hide_voyage() -> void:
 ## `won` is the bonus sparks each medal's new rewards paid this run.
 func show_clear(id: String, score: int, stars: Array, lines: Array, has_next: bool,
 		medals := {}, next := {}, won := {}) -> void:
-	clear_title.text = "Sector %s clear" % id
+	clear_title.text = "Level %d clear" % Voyage.level_number(id)
 	clear_score.text = str(score)
 	for i in 3:
 		clear_stars[i].lit = stars[i]
@@ -438,76 +417,15 @@ func hide_clear() -> void:
 
 
 func _build_voyage_card() -> void:
-	voyage_card = _overlay()
-	voyage_card.visible = false
-	voyage_card.color = Color(SPACE, 0.92)
-	voyage_card.mouse_filter = Control.MOUSE_FILTER_STOP # taps here never start a run
-	var card := _card(voyage_card)
-	var title := _label("Voyage", display_800, 40, INK)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(title)
-	voyage_system = _label("", _spaced(body_700, 1.5), 12, SAND)
-	voyage_system.uppercase = true
-	voyage_system.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(voyage_system)
-	var intro := _label(Voyage.SYSTEMS[0].intro, body_500, 14, MUTED)
-	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(intro)
-	var srow := HBoxContainer.new()
-	srow.alignment = BoxContainer.ALIGNMENT_CENTER
-	srow.add_theme_constant_override("separation", 6)
-	srow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	voyage_stars_medal = MedalIcon.new(18.0, "stars")
-	voyage_stars_medal.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	srow.add_child(voyage_stars_medal)
-	voyage_stars = _label("", body_700, 13, INK)
-	srow.add_child(voyage_stars)
-	card.add_child(srow)
-	voyage_grid = GridContainer.new()
-	voyage_grid.columns = 3
-	voyage_grid.add_theme_constant_override("h_separation", 10)
-	voyage_grid.add_theme_constant_override("v_separation", 10)
-	for sec in Voyage.SYSTEMS[0].sectors:
-		var b := Button.new()
-		b.name = "Sector_" + sec.id
-		b.set_meta("id", sec.id)
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(96, 94)
-		_style_ghost(b, 14)
-		var col := VBoxContainer.new()
-		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_theme_constant_override("separation", 6)
-		b.add_child(col)
-		col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		var l := _label(sec.id, display_500, 16, INK)
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		col.add_child(l)
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", 3)
-		for i in 3:
-			row.add_child(StarIcon.new(13.0))
-		col.add_child(row)
-		var mrow := HBoxContainer.new()
-		mrow.alignment = BoxContainer.ALIGNMENT_CENTER
-		mrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		mrow.add_theme_constant_override("separation", 4)
-		for kind in ["speed", "points", "stars"]:
-			mrow.add_child(MedalIcon.new(14.0, kind))
-		col.add_child(mrow)
-		var id: String = sec.id
-		b.pressed.connect(func() -> void: sector_picked.emit(id))
-		voyage_grid.add_child(b)
-	card.add_child(_centered(voyage_grid))
-	voyage_tally = _label("", body_500, 12, MUTED)
-	voyage_tally.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	card.add_child(voyage_tally)
-	var back := _ghost_button("Back", 12, 32, 16)
-	back.name = "Back"
-	back.pressed.connect(func() -> void: menu_requested.emit())
-	card.add_child(_centered(back))
+	voyage_map = VoyageMap.new(self)
+	voyage_map.visible = false
+	root.add_child(voyage_map)
+	voyage_map.build()
+	voyage_map.level_picked.connect(func(id: String) -> void: sector_picked.emit(id))
+	voyage_map.back_pressed.connect(func() -> void: menu_requested.emit())
+	voyage_card = voyage_map
+	voyage_stars = voyage_map.stars_label
+	voyage_tally = voyage_map.tally_label
 
 
 func _build_clear_card() -> void:
