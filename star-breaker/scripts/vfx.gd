@@ -35,9 +35,9 @@ const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 ## now and then (ARC_JOLT_CHANCE a tick), up to ARC_JOLT.x along the beam and ARC_JOLT.y
 ## radians round it, for
 ## ARC_LIFE ticks, then jumps somewhere else.
-const ULT_PULSES := 36
+const ULT_PULSES := 18
 ## Wider, soft haze strands mixed in among the thin ones, moving the same way.
-const ULT_HAZE := 14
+const ULT_HAZE := 7
 const ARC_LIFE := Vector2i(10, 22)
 const ARC_JOLT := Vector2(3.0, 0.5)
 ## Chance an arc jolts on a given tick: it twitches now and then rather than every frame.
