@@ -181,6 +181,46 @@ func _initialize() -> void:
 	await process_frame
 	check(main.sfx.enabled and main.hud.best_label.text == "Best %d" % final, "sound setting and best come back after a restart of the app")
 
+	# the build line on the start card (test builds; see scripts/boot.gd for the updater itself)
+	check(main.build_number("b1050 pr12 abc1234") == 1050 and main.build_number("") == 0, "reads the build number")
+	ProjectSettings.set_setting("application/config/version", "b1050 test")
+	main.queue_free()
+	await process_frame
+	new_main()
+	await process_frame
+	var bb: Button = main.hud.build_button
+	check(bb.visible and bb.text.begins_with("Build b1050"), "the start card shows which build this is: " + bb.text)
+	main.show_update(1049)
+	check(bb.text.begins_with("Build b1050"), "an older build on the server changes nothing")
+	var restarted := [false]
+	main.restart_fn = func() -> void: restarted[0] = true
+	ProjectSettings.set_setting("perigee/update_url", "http://updates.test/")
+	var server := [{"build": 1050}]
+	main.fetch_update_json = func(_url: String) -> Variant: return server[0]
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text == "Build b1050 test · up to date", "tapping with no newer build doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	check(bb.text.begins_with("Build b1050") and bb.text.ends_with("⟳"), "then the line goes back to the build")
+	server[0] = null
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(not restarted[0] and bb.text.ends_with("can't check (offline)"), "offline: tapping doesn't restart: " + bb.text)
+	await create_timer(2.0).timeout
+	server[0] = {"build": 1051}
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping when a newer build just came out restarts into it")
+	restarted[0] = false
+	ProjectSettings.set_setting("perigee/update_url", "")
+	main.show_update(1052)
+	check(bb.text == "New build 1052 · tap to update", "says when a newer build is out: " + bb.text)
+	bb.pressed.emit()
+	await create_timer(0.3).timeout
+	check(restarted[0] and bb.text == "Restarting…", "tapping it restarts into the new build")
+	check(main.sim.state == "start", "tapping the build line doesn't start a run")
+	ProjectSettings.set_setting("application/config/version", "")
+
 	# older or broken save files
 	var f := FileAccess.open(SAVE, FileAccess.WRITE)
 	f.store_string("{\"best\": 12}")

@@ -16,6 +16,7 @@ signal tutorial_requested
 signal hangar_opened
 signal cosmetic_picked(id: String)
 signal hangar_closed
+signal refresh_pressed ## the build line was tapped: restart into the newest build
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
 ## Shown on the start and game over cards while the vertical slice is built; not for release.
@@ -40,6 +41,8 @@ var best_label: Label
 var sound_button: Button
 var hint_label: Label
 var start_card: Control
+var build_button: Button ## the build line on the start card ("Build b1050 · refresh")
+var _build_id := ""
 var over_card: Control
 var over_why: Label
 var over_score: Label
@@ -194,6 +197,18 @@ func _ready() -> void:
 	menu_row.add_child(settings_button)
 	_card(start_card).add_child(menu_row)
 	_card(start_card).add_child(_lab_row())
+	# Which build this is, and on test builds a newer one when it's out (see main.gd _check_update).
+	_build_id = str(ProjectSettings.get_setting("application/config/version", ""))
+	build_button = Button.new()
+	build_button.name = "Build"
+	build_button.flat = true
+	build_button.focus_mode = Control.FOCUS_NONE
+	build_button.add_theme_font_override("font", body_700)
+	build_button.add_theme_font_size_override("font_size", 11)
+	build_button.pressed.connect(func() -> void: refresh_pressed.emit())
+	build_button.visible = _build_id != ""
+	_card(start_card).add_child(_centered(build_button))
+	set_build_state("idle")
 
 	over_card = _overlay()
 	over_card.visible = false
@@ -737,6 +752,28 @@ func _style_ghost(b: Button, font_size: int, radius := 16) -> void:
 		b.add_theme_stylebox_override(st, sb)
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color", "font_disabled_color"]:
 		b.add_theme_color_override(c, INK)
+
+
+## What the build line says: "idle" (this build, tap to check), "checking", "latest" (no newer
+## build), "offline" (couldn't check), "new" (build `build` is out, tap to update) or "restarting".
+func set_build_state(state: String, build := 0) -> void:
+	var color := MUTED
+	match state:
+		"new":
+			build_button.text = "New build %d · tap to update" % build
+			color = SAND
+		"restarting":
+			build_button.text = "Restarting…"
+		"checking":
+			build_button.text = "Checking for a new build…"
+		"offline":
+			build_button.text = "Build %s · can't check (offline)" % _build_id
+		"latest":
+			build_button.text = "Build %s · up to date" % _build_id
+		_:
+			build_button.text = "Build %s  ⟳" % _build_id
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		build_button.add_theme_color_override(c, color)
 
 
 ## The small tag under the sound button: which lab is running, or nothing in the endless mode.
