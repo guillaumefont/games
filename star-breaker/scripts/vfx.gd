@@ -264,7 +264,7 @@ static func pulse_y(i: int, lag: int, t: float) -> float:
 
 ## A Starbreak arc jumps somewhere new on the beam: shape, angle, size and a short life.
 static func _respawn(pl: Dictionary, len: float) -> void:
-	pl.len = randf_range(8.0, 20.0)
+	pl.len = randf_range(13.0, 32.0)
 	pl.y = randf() * maxf(1.0, len - pl.len)
 	pl.ang = randf() * TAU
 	pl.r = randf_range(0.6, 1.15)
