@@ -46,6 +46,7 @@ jobs:
           add_game star-breaker "Star Breaker builds" "Star Breaker headless test"
           add_game aurite-front "Aurite Front builds" "Aurite Front headless sim"
           add_game perigee "Perigee builds" "Perigee headless test"
+          add_game mer-des-brumes "Mer des Brumes builds" "Mer des Brumes headless test"
 
           if [ ${#expected[@]} -eq 0 ]; then
             echo "This PR touches no game, nothing to wait for."
