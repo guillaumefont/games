@@ -2,7 +2,7 @@ extends Node3D
 ## Star Breaker in portrait: the vertical slice. One thumb drags the ship (1:1 with the
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
 ## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
-## and a second finger fires the ultimate once its gauge is full. World 1 is three stages.
+## and a quick double tap fires the ultimate once its gauge is full (one finger plays it all). World 1 is three stages.
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -20,6 +20,8 @@ const CHARGE_MAX := 240
 const BEAM_LIFE := [0, 14, 18, 24, 44]
 const BEAM_DMG := [0, 4, 8, 14, 30]
 const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
+## How far Starbreak swings either side of straight up as it sweeps (radians).
+const ULT_SWEEP := 1.2
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
 const SLOW := 0.4
 const SLOW_TICKS := 24
@@ -60,6 +62,16 @@ var _mouse_down := false
 var _no_thumb := 0
 var _pending := Vector2.ZERO
 var _ult_latch := false
+## Double tap for the ultimate: a quick tap (short, barely moved) then a touch near it soon after.
+## A drag that ends, or a flick to dodge, is never a tap, so dodging can't fire it by mistake.
+const TAP_MS := 200
+const DOUBLE_TAP_MS := 300
+var _down_ms := -100000
+var _down_pos := Vector2.ZERO
+var _moved := 0.0
+var _tap_ms := -100000
+var _tap_pos := Vector2.ZERO
+var _tap_fired := false
 var _pause_latch := false
 var _kb_pause_was := false
 var _kb_ult_was := false
@@ -467,14 +479,17 @@ func _input(event: InputEvent) -> void:
 				return
 			if _touch_id == -1:
 				_touch_id = t.index
+				_press(t.position)
 			elif t.index != _touch_id:
 				_ult_latch = true
 		elif t.index == _touch_id:
 			_touch_id = -1
+			_release(t.position)
 	elif event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
 		if d.index == _touch_id:
 			_pending += d.relative
+			_moved += d.relative.length()
 	elif event is InputEventMouseButton and not _touch_seen:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -482,11 +497,44 @@ func _input(event: InputEvent) -> void:
 				if hud.ult_rect.grow(12).has_point(mb.position):
 					_ult_latch = true
 				return
+			if mb.pressed and not _mouse_down:
+				_press(mb.position)
+			elif not mb.pressed and _mouse_down:
+				_release(mb.position)
 			_mouse_down = mb.pressed
 		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 			_ult_latch = true
 	elif event is InputEventMouseMotion and not _touch_seen and _mouse_down:
 		_pending += (event as InputEventMouseMotion).relative
+		_moved += (event as InputEventMouseMotion).relative.length()
+
+
+## The steering finger goes down: the second touch of a double tap fires the ultimate.
+func _press(pos: Vector2, now := -1) -> void:
+	if now < 0:
+		now = Time.get_ticks_msec()
+	var near := px_per_unit() * 14.0
+	if mode == "play" and now - _tap_ms < DOUBLE_TAP_MS and pos.distance_to(_tap_pos) < near:
+		_ult_latch = true
+		_tap_ms = -100000
+		_tap_fired = true
+	else:
+		_tap_fired = false
+	_down_ms = now
+	_down_pos = pos
+	_moved = 0.0
+
+
+## The steering finger lifts: a short touch that barely moved counts as a tap.
+func _release(pos: Vector2, now := -1) -> void:
+	if now < 0:
+		now = Time.get_ticks_msec()
+	# the touch that fired the ultimate doesn't start another double tap
+	if not _tap_fired and now - _down_ms < TAP_MS and _moved < px_per_unit() * 3.0:
+		_tap_ms = now
+		_tap_pos = pos
+	else:
+		_tap_ms = -100000
 
 
 func _notification(what: int) -> void:
@@ -832,22 +880,26 @@ func ultimate() -> void:
 	shake = maxf(shake, 6.0)
 	Diag.once("ult " + G.ship)
 	if G.ship == "lance":
-		# Starbreak: a full-height beam sweeps across the screen
+		# Starbreak: a beam from the ship's nose sweeps across the screen like a wiper, from
+		# up-left to up-right, burning all it crosses
 		G.ult_t = 120
-		var b := {lv = 4, life = 120, x = 6.0, y0 = view.position.y, y1 = view.end.y, w = 12.0, hit = {}, nova = true, ult = true}
+		var b := {lv = 4, life = 120, x = P.x, y0 = P.y + 6, y1 = view.end.y, w = 12.0, hit = {}, nova = true, ult = true,
+			ang = -ULT_SWEEP}
+		b.len = _ray_len(b.x, b.y0, b.ang)
 		b.m = VFx.beam_node(4, true)
 		world.add_child(b.m)
 		G.beams.append(b)
 		audio.play("beam", 4)
 	else:
-		# Shatter: the pod bursts into eight homing shards; the ship is shielded until it reforms
+		# Shatter: the pod bursts into eight homing shards that fly out of the ship; the ship is
+		# shielded until the pod reforms
 		G.ult_t = 180
 		pod.state = "shatter"
 		for j in 8:
 			var a := TAU * j / 8.0
 			var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_m)
 			world.add_child(m)
-			G.shards.append({x = pod.x, y = pod.y, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
+			G.shards.append({x = P.x, y = P.y, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
 
 
 func _update_ult() -> void:
@@ -880,10 +932,10 @@ func _update_ult() -> void:
 		if s.x < -10 or s.x > W + 10 or s.y < -10 or s.y > H + 10:
 			s.x = P.x
 			s.y = P.y
-	# burn bullets inside the Starbreak beam
+	# Starbreak rides on the ship's nose and sweeps from up-left to up-right
 	for b in G.beams:
 		if b.ult:
-			b.x = 6.0 + (W - 12.0) * (1.0 - float(b.life) / 120.0)
+			b.ang = lerpf(-ULT_SWEEP, ULT_SWEEP, 1.0 - float(b.life) / 120.0)
 
 
 ## The closest thing a homing shard can hit: an enemy or a boss part.
@@ -1032,7 +1084,7 @@ func _update_shots() -> void:
 func _update_beams() -> void:
 	for b in G.beams:
 		b.life -= 1
-		if not b.ult and P.alive:
+		if P.alive:
 			b.x = P.x
 			b.y0 = P.y + 6
 		# the beam stops at the first barrier above the ship
@@ -1041,9 +1093,10 @@ func _update_beams() -> void:
 			for bar in G.bars:
 				if bar.y > b.y0 and bar.y < b.y1 and bar_solid(bar, b.x, bar.y, 0.0):
 					b.y1 = bar.y
+		b.len = b.y1 - b.y0 if not b.ult else _ray_len(b.x, b.y0, b.ang)
 		var hw: float = b.w / 2.0
 		for e in G.enemies:
-			if absf(e.x - b.x) < e.hw + hw and e.y > b.y0 - e.hh and e.y < b.y1 + e.hh:
+			if _in_beam(b, e.x, e.y, e.hw, e.hh, hw):
 				var key := "e%d" % e.id
 				var every := 8 if b.ult else 1000000
 				if not b.hit.has(key) or (b.ult and G.t - int(b.hit[key]) >= every):
@@ -1052,7 +1105,7 @@ func _update_beams() -> void:
 		for p in G.bparts:
 			if p.kind == "shield" or p.kind == "seg":
 				continue
-			if absf(p.x - b.x) < p.r + hw and p.y > b.y0 - p.r and p.y < b.y1 + p.r:
+			if _in_beam(b, p.x, p.y, p.r, p.r, hw):
 				var key := "p%d" % p.o.id
 				var every2 := 8 if b.ult else 1000000
 				if not b.hit.has(key) or (b.ult and G.t - int(b.hit[key]) >= every2):
@@ -1060,11 +1113,39 @@ func _update_beams() -> void:
 					boss_damage(p, 3 if b.ult else BEAM_DMG[b.lv])
 		if b.nova:
 			for eb in G.eb:
-				if absf(eb.x - b.x) < hw + 2 and eb.y > b.y0 and eb.y < b.y1:
+				if _in_beam(b, eb.x, eb.y, 2.0, 0.0, hw):
 					eb.dead = true
 		if b.life <= 0:
 			b.dead = true
 	_sweep(G.beams)
+
+
+## Whether something at (x, y), `rx` by `ry` half size, touches beam `b` (`hw` half wide). A beam
+## runs from (b.x, b.y0) for b.len, straight up or, for Starbreak, tilted by b.ang (towards +x).
+func _in_beam(b: Dictionary, x: float, y: float, rx: float, ry: float, hw: float) -> bool:
+	var a: float = b.get("ang", 0.0)
+	var dx := x - float(b.x)
+	var dy := y - float(b.y0)
+	var along := dx * sin(a) + dy * cos(a)
+	var across := dx * cos(a) - dy * sin(a)
+	# tilted, the target's box turns too: use its larger half size both ways
+	var r := maxf(rx, ry) if a != 0.0 else rx
+	var r2 := maxf(rx, ry) if a != 0.0 else ry
+	return absf(across) < r + hw and along > -r2 and along < float(b.len) + r2
+
+
+## How far a ray from (x, y) tilted by `a` from straight up runs before it leaves the screen.
+func _ray_len(x: float, y: float, a: float) -> float:
+	var d := Vector2(sin(a), cos(a))
+	var r := view.grow(4.0)
+	var t := 1e6
+	if d.x > 0.001:
+		t = minf(t, (r.end.x - x) / d.x)
+	elif d.x < -0.001:
+		t = minf(t, (r.position.x - x) / d.x)
+	if d.y > 0.001:
+		t = minf(t, (r.end.y - y) / d.y)
+	return maxf(1.0, t)
 
 
 func bullet(x: float, y: float, vx: float, vy: float) -> void:
@@ -1954,12 +2035,13 @@ func _sync_bar(b: Dictionary) -> void:
 
 
 func _sync_beam(b: Dictionary) -> void:
-	var len: float = maxf(1.0, b.y1 - b.y0)
+	var len: float = maxf(1.0, b.get("len", b.y1 - b.y0))
 	var fade: float = clampf(float(b.life) / 6.0, 0.0, 1.0)
 	var w: float = b.w * fade
 	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
+	b.m.rotation.z = -float(b.get("ang", 0.0))
 	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
-	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y)
+	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, not b.ult and b.y1 < view.end.y)
 
 
 func _sync_boss() -> void:
