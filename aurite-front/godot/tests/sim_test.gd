@@ -3,6 +3,7 @@ const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an in
 class Host:
 	var log := []
 	func toast(m, k = ""): log.append(m)
+	func radio(who, m, warn = false): log.append(who + ": " + m)
 	func sfx(n, x = null, y = null): pass
 	func on_world_changed(): pass
 	func on_sel_changed(): pass

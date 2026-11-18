@@ -3310,12 +3310,16 @@ func update_camera(race: Race, phase: String, dt: float, snap := false) -> void:
 const CINE_SHOTS := {
 	# pitch (deg) from..to, distance (m) from..to, yaw (deg, 0 = in front of the nose,
 	# 180 = behind) at the start, yaw speed (deg/s), ease in / out (s), look height (m)
-	"intro":  { "pitch": [22.0, 34.0], "dist": [3.4, 4.4], "yaw": 155.0, "spin": 5.0, "in": 0.01, "out": 0.6, "lift": 0.18 },
-	"finish": { "pitch": [17.0, 17.0], "dist": [3.6, 3.6], "yaw": 180.0, "spin": 0.0, "chase": 18.0, "in": 1.0, "out": 0.6, "lift": 0.2 },
-	"win":    { "pitch": [13.0, 13.0], "dist": [3.1, 3.1], "yaw": 180.0, "spin": 0.0, "chase": 24.0, "in": 0.9, "out": 0.6, "lift": 0.18 },
-	"card":   { "pitch": [13.0, 13.0], "dist": [2.6, 2.6], "yaw": 50.0, "spin": 10.0, "in": 1.0, "out": 0.7, "lift": 0.18 },
-	"freeze": { "pitch": [20.0, 20.0], "dist": [4.2, 4.2], "yaw": 160.0, "spin": 0.0, "in": 0.55, "out": 0.45, "lift": 0.0 },
+	"intro":  { "pitch": [24.0, 34.0], "dist": [6.2, 7.2], "yaw": 155.0, "spin": 5.0, "in": 0.01, "out": 0.6, "lift": 0.18 },
+	"finish": { "pitch": [19.0, 19.0], "dist": [6.4, 6.4], "yaw": 180.0, "spin": 0.0, "chase": 18.0, "in": 1.0, "out": 0.6, "lift": 0.2 },
+	"win":    { "pitch": [16.0, 16.0], "dist": [5.8, 5.8], "yaw": 180.0, "spin": 0.0, "chase": 24.0, "in": 0.9, "out": 0.6, "lift": 0.18 },
+	"card":   { "pitch": [16.0, 16.0], "dist": [5.6, 5.6], "yaw": 50.0, "spin": 10.0, "in": 1.0, "out": 0.7, "lift": 0.18 },
+	"freeze": { "pitch": [22.0, 22.0], "dist": [6.2, 6.2], "yaw": 160.0, "spin": 0.0, "in": 0.55, "out": 0.45, "lift": 0.0 },
 }
+# No shot frames a car closer than this (m, eye to look point): closer in, the low-poly
+# models stop reading as toys and the facets show (Guillaume, 2026-11-16). camera_test
+# checks every shot against it.
+const CINE_MIN_DIST := 5.5
 const INTRO_HOLD := 1.0   # s the intro stays fully low before rising
 const INTRO_RISE := 1.8   # s to blend into the gameplay view (GO comes 3.0 s in)
 
