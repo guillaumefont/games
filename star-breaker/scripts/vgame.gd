@@ -2335,8 +2335,18 @@ func start_run() -> void:
 		n.add_child(m)
 		motes.append({u = mo[0], x = mo[1], z = mo[2], m = m, got = false})
 	# the canyon's mouth starts out of sight past the top, its shadows too
-	G.run = {d = VRun.SHIP_Y - maxf(top() + 10.0, _above_y(_box(n), 0.0)), prev = 0.0, k = 0.0, node = n, motes = motes, hits = 0, got = 0, scrape = 0, abort = 0, cx = P.x}
+	# the mouth starts just above the screen. Not from the node's bounding box: the canyon's mesh
+	# starts 300 units before its mouth (walls far off to the sides, floor under the moon), so its
+	# box put the mouth ~600 units away and the stage stood still and empty for ~10 s
+	G.run = {d = VRun.SHIP_Y - top() - 10.0, prev = 0.0, k = 0.0, node = n, motes = motes, hits = 0, got = 0, scrape = 0, abort = 0, cx = P.x}
 	G.run.prev = G.run.d
+	# the canyon's rock throws shadows only once the camera is half way round: its walls stand far
+	# above the moon, and their shadows would otherwise drop onto the screen the instant it starts
+	G.run.casters = []
+	for ch in n.get_children():
+		var gi := ch as GeometryInstance3D
+		if gi and gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			G.run.casters.append(gi)
 	G.slow = 0
 	P.z = 0.0
 	P.vz = 0.0
@@ -2462,6 +2472,8 @@ func _sync_run() -> void:
 		return
 	var R: Dictionary = G.run
 	R.node.position = Vector3(0, Y(VRun.SHIP_Y) - R.d, 0)
+	for gi in R.casters:
+		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if R.k > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for mo in R.motes:
 		if not mo.got:
 			mo.m.rotation = Vector3(tt * 0.04, tt * 0.06, 0)

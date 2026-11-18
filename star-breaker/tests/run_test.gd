@@ -76,6 +76,17 @@ func _initialize() -> void:
 	to_run()
 	check(vg.G.has("run"), "the canyon's mouth arrives in stage 1")
 	check(vg.G.enemies.is_empty() and vg.G.eb.is_empty(), "the sky is cleared for it")
+	# regression: the mouth once started ~600 units out and the empty stage stood still ~10 s
+	var wait := 0
+	var d_probe: float = vg.G.run.d
+	while d_probe < 0.0:
+		d_probe += VRun.speed(d_probe)
+		wait += 1
+	check(wait < 240, "the canyon's mouth reaches the ship within 4 s of the run starting (%.1f s)" % (wait / 60.0))
+	var dark := 0
+	for gi in vg.G.run.casters:
+		dark += int(gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	check(vg.G.run.casters.size() > 0 and dark == 0, "the canyon throws no shadow on the screen as it starts")
 	var scroll0: float = vg.G.scroll
 	tick()
 	check(vg.G.scroll == scroll0, "the stage holds still during the run")
