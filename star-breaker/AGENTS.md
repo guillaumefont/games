@@ -51,6 +51,7 @@ godot --headless --path . --script tests/audio_test.gd   # songs build on the ma
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
 godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
+godot --headless --path . --script tests/run_test.gd     # canyon run: course is fair, racing line earns gold, camera swings back
 ```
 
 Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
@@ -160,3 +161,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   through `_fit()` so nothing starts inside a canyon wall; keep rock away from barriers and
   the boss (the test checks every stage). Charging stays free (Edge's silent guns read as
   broken).
+- The canyon run (`scripts/vrun.gd`, prototype 2026-11-18) is a ~15 s set piece in stage 1
+  (`run` in `VStage.STAGES`): the stage's scroll stops, a separate course streams past the ship
+  and the camera swings behind it (`_camera()` in `vgame.gd`); the thumb steers x and height
+  (`P.z`). The course is a pure function of `u` (`VRun.passage`, `VRun.OBS`), shared by the
+  collision, the mesh and `VRun.line()` (the racing line the motes follow and the test flies).
+  Glows are flat quads facing the top-down camera: stand new ones up by `G.run.k` during a run.
+  The moon floor keeps the run's distance in `G.foff`. GIF frames: `tools/run_shots.gd`.

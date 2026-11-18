@@ -92,6 +92,11 @@ const LOOK := {sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640",
 	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560", river_a = "3ff0e0", river_b = "ff4fa3"}
 var look: Dictionary = {}
 var _lip_mat: Material = Models.std("b9a8ff", "8f6bff", 1.1)
+## The canyon run of the current stage (see VRun): built a slice per frame from the stage's start.
+var run_b: VRun.Builder = null
+var _run_built := false
+## The top-down camera's field of view (set by `_on_resize`); the run swings away from it.
+var _fov_td := 60.0
 
 
 # ---------- helpers ----------
@@ -282,7 +287,7 @@ func _warm_up() -> void:
 		var mat = Models.M[k]
 		if mat is Material:
 			list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
-	for mat in [_lip_mat, _terrain_mats.river, _terrain_mats.river_glow] + _ground_mats:
+	for mat in [_lip_mat, _terrain_mats.river, _terrain_mats.river_glow, _terrain_mats.fissure_b, Models.M.crystal_c] + _ground_mats:
 		list.append(Models.mesh(Models.geo("pt", func(): return Geo.tetra(1)), mat))
 	for c in ["ffb547", "3ff0e0", "fff1d0", "ff4fa3", "ff9a40", "4a5470", "dfe9ff", "ffffff", "ff9a3d"]:
 		list.append(Models.glow(c, 5))
@@ -433,6 +438,7 @@ func _on_resize() -> void:
 	# what the screen shows of the play plane, in stage units: shots and bullets fly on to the
 	# real screen edge (a tall phone shows more than the 224-unit stage)
 	view = Rect2(W / 2.0 - hw, H / 2.0 - hh, hw * 2.0, hh * 2.0)
+	_fov_td = camera.fov
 
 
 ## The top edge of what the screen shows, in stage units: a tall phone shows past the 224-unit
@@ -546,6 +552,11 @@ func start_stage(i: int, kind: String) -> void:
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
 	script_list = VStage.build(i)
 	_build_islands()
+	if sd.has("run"):
+		run_b = VRun.Builder.new(look, {ground = _terrain_mats.ground, lip = _lip_mat, glow = _terrain_mats.fissure_b})
+		run_b.node.visible = false
+		world.add_child(run_b.node)
+		_run_built = false
 	ship_m = VShips.upright(VShips.model(kind))
 	ship_m.add_child(Models.glow("ff9a40", 8))
 	world.add_child(ship_m)
@@ -586,6 +597,10 @@ func teardown() -> void:
 			n.queue_free()
 	ship_m = null
 	pod_m = null
+	if run_b != null:
+		run_b.node.queue_free()
+		run_b = null
+	_camera_reset()
 	charge_fx.visible = false
 	shield_m.visible = false
 	G = {}
@@ -655,7 +670,8 @@ func step() -> void:
 	G.t += 1
 	if G.t % 60 == 0:
 		Diag.note("TICK", "t=%d scroll=%d fps=%d enemies=%d eb=%d fx=%d" % [G.t, G.scroll, Engine.get_frames_per_second(), G.enemies.size(), G.eb.size(), fx.size()])
-	if not G.ended:
+	# the stage holds still while the canyon run streams past
+	if not G.ended and not G.has("run"):
 		G.scroll += SCROLL
 	while G.si < script_list.size() and script_list[G.si].d <= G.scroll + top() + 10:
 		spawn(script_list[G.si])
@@ -667,6 +683,8 @@ func step() -> void:
 			return
 	else:
 		_no_thumb = 0
+	if G.has("run"):
+		_update_run()
 	_update_player()
 	_update_pod()
 	_update_shots()
@@ -720,6 +738,9 @@ func _update_player() -> void:
 	if G.clear_t > 0:
 		P.y += minf(4.0, 0.4 + G.clear_t * 0.03)
 		P.inv = maxi(P.inv, 2)
+		return
+	if G.has("run"):
+		_run_player()
 		return
 	_move_player()
 	# main weapon: fires on its own while the thumb is down
@@ -932,6 +953,8 @@ func kill_player() -> void:
 		pod.state = "dock"
 	if G.lives <= 0:
 		G.fail_t = 1
+	if G.has("run") and G.run.abort == 0:
+		G.run.abort = 1
 
 
 # ---------- pod (Warden) ----------
@@ -1121,6 +1144,10 @@ func spawn(s: Dictionary) -> void:
 	match s.type:
 		"barrier":
 			add_bar(s)
+		"run":
+			# skipped when the stage jumped past it (tests and tools set the scroll directly)
+			if G.scroll < s.d - top() + 40.0:
+				start_run()
 		"end":
 			G.ended = true
 			if s.kind == "bloom":
@@ -1576,6 +1603,9 @@ func _stage_clear() -> void:
 func glow_fx(color: String, x: float, y: float, z: float, s: float, life: int, vx := 0.0, vy := 0.0) -> void:
 	var m := Models.glow(color, s)
 	m.position = Vector3(X(x), Y(y), z)
+	if G.has("run"):
+		# glows are flat quads facing the top-down camera: stand them up for the chase view
+		m.rotation.x = G.run.k * PI / 2.0
 	world.add_child(m)
 	fx.append({m = m, life = life, t = 0, s = s, vx = vx, vy = vy})
 
@@ -1729,7 +1759,7 @@ func _walls_node(c: int) -> Node3D:
 	var rows := 16
 	var seen := false
 	for j in rows + 1:
-		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows)
+		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows - G.get("foff", 0.0))
 		# wide screens show well past the stage's sides
 		seen = seen or wj.x > view.position.x - 4.0 or wj.y < view.end.x + 4.0
 	if not seen:
@@ -1739,7 +1769,7 @@ func _walls_node(c: int) -> Node3D:
 	var right := []
 	for j in rows + 1:
 		var ly := CHUNK * j / rows
-		var d := c * CHUNK + ly
+		var d: float = c * CHUNK + ly - G.get("foff", 0.0)
 		var w := VStage.walls(G.stage, d)
 		# jitter the drawn rock a little, but never past the collision edge
 		left.append([Vector3(X(w.x) - VStage.hash(Vector2(d, 3.0)) * 1.4, ly, 0), 200.0])
@@ -1802,6 +1832,191 @@ func _add_chunk(c: int, g: Node3D) -> void:
 	chunks[c] = n
 
 
+# ---------- canyon run ----------
+
+## The canyon's mouth has reached the top of the screen: clear the sky, then let it stream in.
+func start_run() -> void:
+	if run_b == null:
+		return
+	while not _run_built:
+		_run_built = run_b.step()
+	for e in G.enemies:
+		if not e.get("boss", false):
+			e.dead = true
+			glow_fx("fff1d0", e.x, e.y, 4, 6, 10)
+	for b in G.eb:
+		b.dead = true
+	_sweep(G.enemies)
+	_sweep(G.eb)
+	var n: Node3D = run_b.node
+	n.visible = true
+	var motes := []
+	for mo in VRun.motes():
+		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_c)
+		m.position = Vector3(VRun.sx(mo[1]), mo[0], mo[2])
+		n.add_child(m)
+		motes.append({u = mo[0], x = mo[1], z = mo[2], m = m, got = false})
+	G.run = {d = VRun.SHIP_Y - top() - 10.0, prev = 0.0, k = 0.0, node = n, motes = motes, hits = 0, got = 0, scrape = 0, abort = 0, cx = P.x}
+	G.run.prev = G.run.d
+	G.slow = 0
+	P.z = 0.0
+	P.vz = 0.0
+	P.charge = 0
+	P.ready_lv = 0
+	if pod.get("state", "") == "out":
+		pod.state = "back"
+	hud.banner("Canyon run", "Steer through · drag up and down too", 170)
+	audio.play("alarm")
+	Diag.note("RUN", "start")
+
+
+## Moves the canyon past the ship and swings the camera behind it; ends the run at the exit.
+func _update_run() -> void:
+	var R: Dictionary = G.run
+	var sp := VRun.speed(R.d)
+	R.prev = R.d
+	R.d += sp
+	R.k = VRun.swing(R.d)
+	if R.abort > 0:
+		# the ship blew up: swing straight back to the top-down view
+		R.abort += 1
+		R.k = minf(R.k, 1.0 - float(R.abort) / 45.0)
+		if R.abort >= 45:
+			end_run(false)
+			return
+	# the moon floor scrolls with the canyon while it shows (before the swing and after it)
+	if R.k < 0.6:
+		G.foff = G.get("foff", 0.0) + sp
+	if R.d >= VRun.LEN:
+		end_run(true)
+
+
+## Steering in the canyon: the thumb moves the ship sideways and, once the camera is behind it,
+## up and down. Rock costs a hull point; skimming it pays; motes pay and show the way.
+func _run_player() -> void:
+	var R: Dictionary = G.run
+	var k: float = R.k
+	var g := lerpf(1.0, VRun.GAIN, k)
+	P.x = clampf(P.x + inp.dx * g, 5, W - 5)
+	P.vx = lerpf(P.vx, inp.dx * g, 0.3)
+	P.y = lerpf(P.y, VRun.SHIP_Y, 0.06)
+	if R.d < VRun.LEN - 260.0 and R.abort == 0:
+		var dz: float = inp.dy * VRun.GAIN * smoothstep(0.3, 0.8, k)
+		P.z = clampf(P.z + dz, VRun.ZMIN, VRun.ZMAX)
+		P.vz = lerpf(P.vz, dz, 0.3)
+	else:
+		# the exit: the ship glides back up to the play plane
+		P.z = lerpf(P.z, 0.0, 0.08)
+		P.vz = lerpf(P.vz, 0.0, 0.3)
+	var what := VRun.hit(P.x, P.z, R.prev, R.d, VRun.PAD)
+	if what != "" and P.inv <= 0:
+		R.hits += 1
+		hurt()
+		_run_spark(P.x, P.z, 6.0)
+		Diag.once("run hit " + what)
+	# never inside the walls
+	var p := VRun.passage(R.d)
+	P.x = clampf(P.x, p.x - p.y + VRun.PAD + 0.2, p.x + p.y - VRun.PAD - 0.2)
+	P.scrape = k > 0.5 and P.inv <= 0 and VRun.clearance(P.x, P.z, R.d) < VRun.SCRAPE
+	if P.scrape and G.t % 6 == 0:
+		add_score(10)
+		R.scrape += 10
+		_run_spark(P.x + randf_range(-3, 3), P.z - 1.5, 2.5)
+	for mo in R.motes:
+		if mo.got or mo.u > R.d or mo.u < R.prev - 1.0:
+			continue
+		if Vector2(mo.x - P.x, mo.z - P.z).length() < 5.0:
+			mo.got = true
+			mo.m.visible = false
+			R.got += 1
+			add_score(50)
+			audio.play("pick")
+			_run_spark(mo.x, mo.z, 4.0)
+
+
+func _run_spark(x: float, z: float, s: float) -> void:
+	glow_fx("fff1d0", x, VRun.SHIP_Y + 4.0, z, s, 9)
+
+
+## Out of the canyon (or blown up in it): back to the stage, medal and reward for a finished run.
+## Gold (no touch) also fills the ultimate, silver half fills it.
+func end_run(done: bool) -> void:
+	var R: Dictionary = G.run
+	R.node.queue_free()
+	run_b = null
+	G.erase("run")
+	P.z = 0.0
+	P.vz = 0.0
+	if not done:
+		G.run_medal = -1
+		Diag.note("RUN", "failed")
+		return
+	var m := mini(R.hits, 2)
+	G.run_medal = m
+	add_score(VRun.MEDALS[m][1])
+	if m == 0:
+		P.ult = 1.0
+	elif m == 1:
+		P.ult = minf(1.0, P.ult + 0.5)
+	var sub := "%d/%d motes · +%s" % [R.got, R.motes.size(), fmt(VRun.MEDALS[m][1] + R.got * 50 + R.scrape)]
+	if m == 0:
+		sub += " · ultimate charged"
+	hud.banner("%s run" % VRun.MEDALS[m][0], sub, 200)
+	audio.play("oneup")
+	Diag.note("RUN", "done hits=%d motes=%d" % [R.hits, R.got])
+
+
+## Places the canyon, builds it ahead of time, and hides what the chase view shouldn't see.
+func _sync_run() -> void:
+	if run_b != null and not _run_built:
+		_run_built = run_b.step()
+	var k: float = G.run.k if G.has("run") else 0.0
+	for c in chunks.values():
+		c.visible = k < 0.6
+	for ch in ship_m.get_children():
+		if ch.has_meta("nf"):
+			ch.rotation.x = k * PI / 2.0
+	# climbing tips the nose up, diving tips it down
+	ship_m.rotation.x = clampf(P.get("vz", 0.0) * 0.12, -0.5, 0.5) * k
+	if not G.has("run"):
+		return
+	var R: Dictionary = G.run
+	R.node.position = Vector3(0, Y(VRun.SHIP_Y) - R.d, 0)
+	for mo in R.motes:
+		if not mo.got:
+			mo.m.rotation = Vector3(tt * 0.04, tt * 0.06, 0)
+
+
+func _camera_reset() -> void:
+	camera.transform = Transform3D(Basis(), Vector3(0, 0, CAM_D))
+	camera.fov = _fov_td
+	camera.near = 10.0
+	_env.fog_depth_begin = CAM_D + 30.0
+	_env.fog_depth_end = CAM_D + 210.0
+
+
+## Top-down, or swung down behind the ship during the canyon run (`k` of the way).
+func _camera(j: Vector3) -> void:
+	var k: float = G.run.k if G.has("run") else 0.0
+	if k <= 0.0:
+		_camera_reset()
+		camera.position += j
+		return
+	var R: Dictionary = G.run
+	# the camera trails the ship sideways, a little towards the passage's middle
+	R.cx = lerpf(R.cx, lerpf(VRun.passage(R.d).x, P.x, 0.7), 0.15)
+	var t := Vector3(X(R.cx), Y(VRun.SHIP_Y), P.get("z", 0.0) * 0.85)
+	var chase := Transform3D(Basis(), t + Vector3(0, -40, 17)).looking_at(t + Vector3(0, 60, -6), Vector3.BACK)
+	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
+	var q := Quaternion(td.basis).slerp(Quaternion(chase.basis), k)
+	camera.transform = Transform3D(Basis(q), td.origin.lerp(chase.origin, k) + j * 0.5)
+	var wide := 80.0 if camera.keep_aspect == Camera3D.KEEP_WIDTH else 62.0
+	camera.fov = lerpf(_fov_td, wide, k)
+	camera.near = lerpf(10.0, 1.5, k)
+	_env.fog_depth_begin = lerpf(CAM_D + 30.0, 140.0, k)
+	_env.fog_depth_end = lerpf(CAM_D + 210.0, 520.0, k)
+
+
 # ---------- render ----------
 
 func _physics_process(_delta: float) -> void:
@@ -1819,10 +2034,12 @@ func _process(_delta: float) -> void:
 		# behind the menu the moon keeps drifting by
 		update_chunks(sc)
 		return
-	update_chunks(G.scroll)
+	# the floor keeps the distance the canyon run added (`foff`), so it never jumps back
+	update_chunks(G.scroll + G.get("foff", 0.0))
+	_sync_run()
 	for isl in G.islands:
 		isl.m.position = Vector3(0, isl.d - G.scroll - H / 2.0, -7.0)
-		isl.m.visible = isl.d - G.scroll < top() + 80 and isl.d - G.scroll > -400
+		isl.m.visible = isl.d - G.scroll < top() + 80 and isl.d - G.scroll > -400 and not G.has("run")
 	var kit_ult: float = P.get("ult", 0.0)
 	hud.score = fmt(G.score)
 	hud.hull = P.hull if P.alive else 0
@@ -1834,7 +2051,7 @@ func _process(_delta: float) -> void:
 	hud.queue_redraw()
 	# the ship banks as it slides sideways and blinks while invincible
 	ship_m.visible = P.alive and not (P.inv > 2 and (tt >> 2) % 2 and G.ult_t == 0)
-	ship_m.position = Vector3(X(P.x), Y(P.y), 0)
+	ship_m.position = Vector3(X(P.x), Y(P.y), P.get("z", 0.0))
 	var mdl: Node3D = ship_m.get_meta("model")
 	(mdl.get_meta("body") as Node3D).rotation.x = clampf(P.vx * 0.35, -0.6, 0.6)
 	(mdl.get_meta("flame") as Node3D).scale = Vector3(0.8 + randf() * 0.5, 1, 1)
@@ -1872,7 +2089,7 @@ func _process(_delta: float) -> void:
 		shield_m.position = Vector3(X(P.x), Y(P.y), 4)
 	if pod_m:
 		pod_m.visible = not pod.is_empty() and pod.state != "shatter" and P.alive
-		pod_m.position = Vector3(X(pod.x), Y(pod.y), 1)
+		pod_m.position = Vector3(X(pod.x), Y(pod.y), 1 + P.get("z", 0.0))
 		var pmdl: Node3D = pod_m.get_meta("model")
 		(pmdl.get_meta("spin") as Node3D).rotation.x += 0.08 if pod.state == "dock" else 0.25
 	for e in G.enemies:
@@ -1905,7 +2122,7 @@ func _process(_delta: float) -> void:
 	if shake > 0.3:
 		j = Vector3(randf_range(-shake, shake), randf_range(-shake, shake), 0) * 0.2
 		shake *= 0.86
-	camera.position = Vector3(0, 0, CAM_D) + j
+	_camera(j)
 
 
 func _sync_e(e: Dictionary) -> void:
