@@ -2328,6 +2328,11 @@ func start_run() -> void:
 	_sweep(G.eb)
 	var n: Node3D = run_b.node
 	n.visible = true
+	# the canyon emerges from the moon: its floor rises out of the ground and its walls slide in
+	# from far off the sides. Its bounding box (2,500 units of canyon) covers the screen from the
+	# first frame, so the pop-in test can't judge it by its box; tests/run_test.gd checks the
+	# mouth's timing and that it throws no shadow as it starts, and the stills are checked by eye
+	n.set_meta("emerges", true)
 	var motes := []
 	for mo in VRun.motes():
 		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_c)
