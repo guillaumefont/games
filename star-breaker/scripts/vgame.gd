@@ -38,13 +38,13 @@ const SCRAPE := 7.0
 ## [half width, half height, hit points, score]
 const DEF := {drifter = [3, 3, 1, 100], shell = [10, 7, 26, 1500], turret = [4, 4, 3, 300], carrier = [5, 4, 5, 500],
 	generator = [3.6, 3.6, 6, 500], block = [3.8, 3.8, 3, 50], matriarch = [14, 10, 90, 6000],
-	shard = [2, 4, 2, 150], flake = [4, 4, 4, 250], hulk = [10, 7, 30, 1600], drone = [2.5, 3.5, 2, 120], seeker = [2, 3, 3, 200],
+	wallgun = [3.4, 2.6, 6, 400], shard = [2, 4, 2, 150], flake = [4, 4, 4, 250], hulk = [10, 7, 30, 1600], drone = [2.5, 3.5, 2, 120], seeker = [2, 3, 3, 200],
 	sentinel = [10, 7, 34, 1800], wasp = [2.2, 3, 1, 120], nest = [8, 9, 30, 1600], lancer = [2.4, 5, 3, 200], bulwark = [9, 7, 34, 1800]}
 ## Big flyers: they come down, hold a while firing, then leave (and make the mid-bosses).
 const BIG := ["shell", "hulk", "sentinel", "nest", "bulwark"]
 ## Flyers that turn to face where they are going.
 const HEADING := ["shard", "drone", "seeker", "wasp", "lancer"]
-const GROUND := ["turret", "generator", "block"]
+const GROUND := ["turret", "generator", "block", "wallgun"]
 
 var mode := "menu"      ## menu, play, pause, result
 var paused := false
@@ -675,7 +675,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	var td: Dictionary = Progress.tier(tr)
 	Diag.note("VSTAGE", "%d %s tier %d" % [i, kind, tr])
 	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
-		boss = {}, bparts = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
+		boss = {}, bparts = [], props = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
 		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
@@ -709,7 +709,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 
 
 func teardown() -> void:
-	for k in ["enemies", "eb", "pb", "items", "beams", "shards", "islands"]:
+	for k in ["enemies", "eb", "pb", "items", "beams", "shards", "islands", "props"]:
 		for o in G.get(k, []):
 			if is_instance_valid(o.get("m")):
 				o.m.queue_free()
@@ -1342,6 +1342,14 @@ func spawn(s: Dictionary) -> void:
 			G.boss_t0 = G.t
 			G.end_kind = s.kind
 			_spawn_end(s.kind)
+		"prop":
+			var pm := Models.prop(s.kind)
+			pm.rotation.z = s.get("rot", 0.0)
+			pm.scale = Vector3.ONE * 1.6
+			world.add_child(pm)
+			G.props.append({m = pm, x = s.x, wy = s.d, t = 0})
+		"wallgun":
+			E("wallgun", s.x, top() + 10, {wy = s.d})
 		"turret", "generator":
 			var tx: float = s.x
 			# a gun in a canyon wall sits on the cliff edge, where shots can reach it
@@ -1453,6 +1461,8 @@ func E(type: String, x: float, y: float, o := {}) -> Dictionary:
 			tm.rotation.x = -PI / 2
 			m.add_child(tm)
 			m.set_meta("aim", tm)
+		"wallgun":
+			m = Models.wall_gun()
 		"generator":
 			m = Node3D.new()
 			var gm := Models.generator(1)
@@ -1596,12 +1606,12 @@ func _update_enemies() -> void:
 					_:
 						e.vy = maxf(-4.2, e.vy - 0.3)
 						e.y += e.vy
-			"turret":
+			"turret", "wallgun":
 				if e.y < H - 4 and e.y > 20:
 					e.cd -= tier_mul("fire")
 					if e.cd <= 0:
 						aim(e.x, e.y, 1.15)
-						e.cd = 110
+						e.cd = 110 if e.type == "turret" else 90
 			"carrier":
 				e.y = minf(e.y, H - 34)
 				e.x += 0.7 * e.dir
@@ -1729,22 +1739,20 @@ func _update_items() -> void:
 ## A barrier spans the screen at one height with one opening (`gx`, `gw` wide): fixed,
 ## sliding, locked by a field until its generator dies, or filled by a wall of blocks.
 func add_bar(s: Dictionary) -> void:
-	var b := {wy = s.d, y = s.d - G.scroll, mode = s.mode, gx = s.gx, gx0 = s.gx, gw = s.gw, th = 8.0, key = s.key, locked = s.mode == "locked", nodes = []}
+	var b := {wy = s.d, y = s.d - G.scroll, mode = s.mode, gx = s.gx, gx0 = s.gx, gw = s.gw, gw0 = s.gw, th = 8.0, key = s.key,
+		locked = s.mode == "locked", nodes = [], ph = s.get("ph", 0.0)}
 	var mat: Material = Models.M[Worlds.LIST[G.world].gate]
+	# a full wall on each side of the opening, standing on the ground (the right one mirrored)
 	for k in 2:
-		var p := Models.mesh(Models.geo("vbar", func(): return Geo.box(1, 1, 1)), Models.M.fort_a)
-		world.add_child(p)
-		var lip := Models.mesh(Models.geo("vbarL", func(): return Geo.box(2, 1, 1)), mat)
-		world.add_child(lip)
-		b.nodes.append_array([p, lip])
+		var half := Models.fort_wall(b.th, mat)
+		if k == 1:
+			half.scale.x = -1.0
+		world.add_child(half)
+		b.nodes.append(half)
 	var f := Models.mesh(Models.geo("vbar", func(): return Geo.box(1, 1, 1)), Models.M.field)
 	f.set_meta("nf", true)
 	world.add_child(f)
 	b.nodes.append(f)
-	for k in 2:
-		var st := Models.mesh(Models.geo("vbar", func(): return Geo.box(1, 1, 1)), Models.M.fort_light)
-		world.add_child(st)
-		b.nodes.append(st)
 	G.bars.append(b)
 	if s.mode == "wall":
 		# a row of breakable blocks fills the opening
@@ -1759,11 +1767,21 @@ func _update_bars() -> void:
 		b.y = b.wy - G.scroll
 		if b.mode == "slide":
 			b.gx = clampf(b.gx0 + sin(G.t * 0.02) * 26.0, b.gw / 2 + 4, W - b.gw / 2 - 4)
+		elif b.mode == "shutter":
+			# the opening closes and opens again on a cycle
+			b.gw = b.gw0 * clampf(0.5 + sin(G.t * 0.022 + b.ph) * 1.4, 0.0, 1.0)
 		if b.y < -20:
 			b.dead = true
 			for n in b.nodes:
 				n.queue_free()
 	_sweep_bars()
+	# outpost pieces on the ground scroll with it and go once they're off the bottom
+	for pr in G.props:
+		pr.t += 1
+		if pr.wy - G.scroll < -60.0:
+			pr.dead = true
+			pr.m.queue_free()
+	G.props = G.props.filter(func(pr): return not pr.get("dead", false))
 
 
 func _sweep_bars() -> void:
@@ -2481,6 +2499,8 @@ func _process(_delta: float) -> void:
 		_sync_e(e)
 	for b in G.bars:
 		_sync_bar(b)
+	for pr in G.get("props", []):
+		_sync_prop(pr)
 	for b in G.pb:
 		b.m.position = Vector3(X(b.x), Y(b.y), 0)
 	for b in G.eb:
@@ -2520,7 +2540,7 @@ func _shown(x: float, y: float, r: float) -> bool:
 
 func _sync_e(e: Dictionary) -> void:
 	var m: Node3D = e.m
-	m.position = Vector3(X(e.x), Y(e.y), -4.0 if e.ground else 0.0)
+	m.position = Vector3(X(e.x), Y(e.y), 5.0 if e.type == "wallgun" else (-4.0 if e.ground else 0.0))
 	m.visible = _shown(e.x, e.y, maxf(e.hw, e.hh) + 2.0)
 	Models.set_flash(m, e.flash > 0)
 	match e.type:
@@ -2529,6 +2549,9 @@ func _sync_e(e: Dictionary) -> void:
 		"turret":
 			if P.alive:
 				m.rotation.z = atan2(P.y - e.y, P.x - e.x)
+		"wallgun":
+			if P.alive:
+				(m.get_meta("piv") as Node3D).rotation.z = atan2(P.y - e.y, P.x - e.x) - PI / 2
 		"carrier":
 			for w in m.get_meta("w"):
 				w.rotation.x = sin(e.t * 0.3) * 0.5
@@ -2563,30 +2586,27 @@ func _sync_e(e: Dictionary) -> void:
 			((m.get_meta("in") as Node3D).get_meta("ring") as Node3D).rotation.z = e.t * 0.03
 
 
+func _sync_prop(pr: Dictionary) -> void:
+	var m: Node3D = pr.m
+	m.position = Vector3(X(pr.x), Y(pr.wy - G.scroll), GROUND_Z - 50.0 + Terrain.height(X(pr.x), pr.wy))
+	if m.has_meta("spin"):
+		(m.get_meta("spin") as Node3D).rotation.z = pr.t * 0.02
+	if m.has_meta("blink"):
+		(m.get_meta("blink") as Node3D).visible = pr.t % 60 < 30
+
+
 func _sync_bar(b: Dictionary) -> void:
 	var n: Array = b.nodes
 	var left: float = b.gx - b.gw / 2.0
 	var right: float = b.gx + b.gw / 2.0
-	var lw := left + 40.0
-	var rw := W + 40.0 - right
-	n[0].position = Vector3(X(left - lw / 2.0), Y(b.y), 0)
-	n[0].scale = Vector3(lw, b.th, 10)
-	n[1].position = Vector3(X(left - 1.0), Y(b.y), 1)
-	n[1].scale = Vector3(1, b.th + 2, 12)
-	n[2].position = Vector3(X(right + rw / 2.0), Y(b.y), 0)
-	n[2].scale = Vector3(rw, b.th, 10)
-	n[3].position = Vector3(X(right + 1.0), Y(b.y), 1)
-	n[3].scale = Vector3(1, b.th + 2, 12)
-	var shown: bool = b.y - b.th < view.end.y and b.y + b.th > view.position.y
-	for k in [0, 1, 2, 3, 5, 6]:
-		n[k].visible = shown
-	n[4].visible = b.locked and shown
-	n[4].position = Vector3(X(b.gx), Y(b.y), 0)
-	n[4].scale = Vector3(b.gw, b.th * 0.6, 4)
-	n[5].position = Vector3(X(left - lw / 2.0), Y(b.y - b.th / 2.0 + 1.0), 5.2)
-	n[5].scale = Vector3(lw, 0.8, 0.4)
-	n[6].position = Vector3(X(right + rw / 2.0), Y(b.y - b.th / 2.0 + 1.0), 5.2)
-	n[6].scale = Vector3(rw, 0.8, 0.4)
+	var shown: bool = b.y - b.th < view.end.y + 30.0 and b.y + b.th > view.position.y - 10.0
+	n[0].position = Vector3(X(left), Y(b.y), 0)
+	n[1].position = Vector3(X(right), Y(b.y), 0)
+	n[0].visible = shown
+	n[1].visible = shown
+	n[2].visible = b.locked and shown
+	n[2].position = Vector3(X(b.gx), Y(b.y), 0)
+	n[2].scale = Vector3(maxf(0.1, b.gw), b.th * 0.6, 4)
 
 
 func _sync_beam(b: Dictionary) -> void:

@@ -54,11 +54,13 @@ func _initialize() -> void:
 		jump(st.fort[1] + 160.0)
 		await play(330)
 		await snap("w%d_open" % (w + 1))
-	vg.start_stage(20, "warden")
-	await play(60)
-	jump(VStage.STAGES[20].fort[0] + 120.0)
-	await play(300)
-	await snap("w3_fortress")
+	# fortresses: full walls, wall guns, shutters, and the outpost on the ground round them
+	for i in [5, 20, 38]:
+		vg.start_stage(i, "warden" if i == 20 else "lance")
+		await play(60)
+		jump(VStage.STAGES[i].fort[0] - 60.0)
+		await play(240)
+		await snap("fort_%d" % (i + 1))
 	vg.start_stage(9, "lance")
 	await play(60)
 	jump(VStage.STAGES[9].length - 160.0)
