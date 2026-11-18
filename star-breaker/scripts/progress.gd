@@ -26,7 +26,10 @@ const SWEEP_SHARE := 0.9
 ## Par time in seconds for each kind of stage end on Normal in world 1 (the part of the stage's
 ## `end` before ":"), about twice what a perfect bot takes (2026-11-18 measurement); scaled with
 ## the boss's hit points (world and tier). A stage end that isn't listed uses DEFAULT_PAR.
-const PAR := {big = 12.0, twins = 15.0, giant = 24.0, bloom = 36.0}
+## A named world boss (an end with no ":", such as "prism") that isn't listed gets BOSS_PAR.
+const PAR := {big = 12.0, twins = 15.0, giant = 24.0, bloom = 36.0,
+	prism = 36.0, queen = 36.0, titan = 36.0, bastion = 36.0, heart = 36.0}
+const BOSS_PAR := 36.0
 const DEFAULT_PAR := 30.0
 
 ## Ship colour schemes: hull, dark trim, glow (canopy and lance) and engine flame. The first
@@ -148,7 +151,7 @@ static func judge(s: Dictionary) -> Array:
 
 ## Par time of a stage end on tier `t`, in ticks: tougher bosses get a bit more time.
 static func par_ticks(end: String, t: int, boss_scale := 1.0) -> int:
-	var sec: float = PAR.get(end.get_slice(":", 0), DEFAULT_PAR)
+	var sec: float = PAR.get(end.get_slice(":", 0), DEFAULT_PAR if end.contains(":") else BOSS_PAR)
 	return int(sec * 60.0 * boss_scale * (1.0 + 0.8 * (float(tier(t).hp) - 1.0)))
 
 

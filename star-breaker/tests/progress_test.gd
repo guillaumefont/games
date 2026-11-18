@@ -32,6 +32,7 @@ func _initialize() -> void:
 	var par := Progress.par_ticks("big:shell", 0)
 	check(not Progress.judge(run({boss_ticks = par + 1})).has("swift"), "slower than par loses Swift")
 	check(Progress.par_ticks("big:shell", 2) > par, "tougher tiers give the boss more par time")
+	check(Progress.par_ticks("someboss", 0) == Progress.par_ticks("bloom", 0), "a world boss not listed gets a world boss's par")
 
 	# --- unlocks and the track ---
 	var p := Progress.new()
