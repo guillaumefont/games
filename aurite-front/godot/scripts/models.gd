@@ -7,6 +7,11 @@ static var material: ShaderMaterial
 static var ghost_ok: StandardMaterial3D
 static var ghost_bad: StandardMaterial3D
 static var cache := {}
+## Faction hull materials for units (see Builder.hull). Parts thinner than ACCENT_MAX keep the full team colour.
+static var HULL := {"ashen": lit("3e3836"), "vanguard": lit("7d8a94"), "choir": lit("4f4b40")}
+const ACCENT_MAX := 0.07
+const PAINT_TOP := 0.45
+const PAINT_SIDE := 0.15
 
 const LIT_SHADER := """
 shader_type spatial;
@@ -168,6 +173,10 @@ class Builder:
 	var tm: Dictionary
 	var P: Dictionary
 	var nshadow := {}  # nodes that should not cast shadows
+	## Units only: large team-coloured parts take the faction's hull material, tinted by the team colour
+	## (roofs more than sides), so team colour reads as paint and markings rather than the whole body.
+	var unit := false
+	var hull: Color
 
 	func _init(t: int, fac: String) -> void:
 		team = t
@@ -177,6 +186,7 @@ class Builder:
 		if fac == "ashen": P = {"metal": M.ashM, "metal2": M.ashM2, "conc": M.ashC, "gear": M.ashM2}
 		elif fac == "choir": P = {"metal": M.stone, "metal2": M.stone2, "conc": M.earthC, "gear": M.moss}
 		else: P = {"metal": M.metal, "metal2": M.metal2, "conc": M.conc, "gear": M.olive2}
+		hull = Models.HULL.get(fac, Models.HULL.vanguard)
 
 	func grp(par: Node3D, nm: String, pos := Vector3.ZERO, rot := Vector3.ZERO, scl := Vector3.ONE) -> Node3D:
 		var g := Node3D.new(); g.name = nm
@@ -188,6 +198,7 @@ class Builder:
 		if not bufs.has(par): bufs[par] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray()]
 		var b: Array = bufs[par]
 		var ctr: Vector3 = xf * Models.prim_center(kind)
+		var painted: bool = unit and col == tm.col and min(xf.basis.get_scale().x, min(xf.basis.get_scale().y, xf.basis.get_scale().z)) > Models.ACCENT_MAX
 		for tri in Models.prim_tris(kind, prm):
 			var a: Vector3 = xf * tri[0]; var bb: Vector3 = xf * tri[1]; var c: Vector3 = xf * tri[2]
 			var n := (bb - a).cross(c - a)
@@ -197,7 +208,9 @@ class Builder:
 				n = -n; var tmp := bb; bb = c; c = tmp
 			# Godot front faces are clockwise
 			b[0].append(a); b[0].append(c); b[0].append(bb)
-			for k in 3: b[1].append(n); b[2].append(col)
+			var fc := col
+			if painted: fc = hull.lerp(tm.col, Models.PAINT_TOP if n.y > .6 else Models.PAINT_SIDE)
+			for k in 3: b[1].append(n); b[2].append(fc)
 
 	static func xf(sx: float, sy: float, sz: float, x: float, y: float, z: float, rot := Vector3.ZERO) -> Transform3D:
 		return Transform3D(Basis.from_euler(rot) * Basis.from_scale(Vector3(sx, sy, sz)), Vector3(x, y, z))
@@ -385,6 +398,7 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 
 static func unit_model(type: String, team: int, fac: String) -> Node3D:
 	var B := Builder.new(team, fac); var M := MAT; var tm := B.tm; var P := B.P
+	B.unit = true
 	var g := B.root
 	var body := B.grp(g, "body", Vector3.ZERO, Vector3.ZERO, Vector3.ONE * 1.25)
 	var tracks := func(L: float, z: float, h: float) -> void:

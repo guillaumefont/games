@@ -1,0 +1,90 @@
+name: Aurite Front iOS build
+
+# Exports the Godot game as an Xcode project on a macOS runner and builds it for iPhone
+# WITHOUT code signing, so iOS problems (export settings, plugins, Xcode versions) show up
+# early. No Apple Developer account is needed for this; signing, TestFlight and the App Store
+# come later (needs an Apple Developer account). Not part of the CI gate yet: a red run
+# here is a warning, not a blocker.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "aurite-front/godot/**"
+      - ".github/workflows/aurite-front-ios.yml"
+  pull_request:
+    paths:
+      - "aurite-front/godot/**"
+      - ".github/workflows/aurite-front-ios.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-aurite-front-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: aurite-front/godot
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache export templates
+        id: tpl
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Application Support/Godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-templates-${{ env.GODOT_VERSION }}-ios
+
+      - name: Download Godot
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q godot.zip -d "$RUNNER_TEMP" && rm godot.zip
+          echo "GODOT=$RUNNER_TEMP/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+
+      - name: Download export templates
+        if: steps.tpl.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL -o tpl.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q tpl.tpz 'templates/ios.zip' 'templates/version.txt'
+          dest="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest" && mv templates/* "$dest/" && rm -rf tpl.tpz templates
+
+      - name: Import project
+        run: $GODOT --headless --path . --import
+
+      # Godot refuses to export for iOS without a Team ID. A placeholder one is enough to get the
+      # Xcode project, since nothing is signed here; the real one comes with the Apple account.
+      - name: Export Xcode project
+        run: |
+          sed -i '' 's/^application\/app_store_team_id=""/application\/app_store_team_id="UNSIGNED00"/' export_presets.cfg
+          mkdir -p "$RUNNER_TEMP/ios"
+          $GODOT --headless --path . --export-release iOS "$RUNNER_TEMP/ios/AuriteFront.ipa"
+          ls "$RUNNER_TEMP/ios"
+
+      - name: Build for iPhone (unsigned)
+        working-directory: ${{ runner.temp }}/ios
+        run: |
+          xcodebuild -version
+          xcodebuild -project AuriteFront.xcodeproj -scheme AuriteFront -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            build | tail -40
+          app=$(find "$RUNNER_TEMP/dd" -name 'AuriteFront.app' -type d | head -1)
+          test -n "$app" && du -sh "$app"
+          echo "APP=$app" >> "$GITHUB_ENV"
+
+      - name: Package the unsigned app
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkg/Payload" && cp -R "$APP" "$RUNNER_TEMP/pkg/Payload/"
+          (cd "$RUNNER_TEMP/pkg" && zip -qr AuriteFront-unsigned.ipa Payload)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurite-front-ios-unsigned
+          path: ${{ runner.temp }}/pkg/AuriteFront-unsigned.ipa

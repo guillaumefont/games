@@ -1,8 +1,10 @@
 class_name Campaign
 extends RefCounted
 ## The three campaigns. Campaign I is played as the Ashen Pact (red), campaign II, a year later, as the Vanguard (blue).
-## Campaign III is the Hollow Choir (green) during the Iron Tide war. It is a side story, open from the start ("free"),
+## Campaign III is the Hollow Choir (green) during the Iron Tide war. It opens once campaign II is won,
 ## and its missions name their enemy army ("efac": the Vanguard or the Pact).
+## Mood (the story's descent; a mission can set "mood" itself): 0 pulpy for campaign I, 1 cracked for campaign II
+## from mission 5 (CRACK), 2 grim for campaign III. Menu, logo and later music and grading follow it.
 ##
 ## Map coordinates are tiles on the 64×64 grid: x grows east, y grows south. A mission's map is drawn by MapGen
 ## from the primitives in "map" (rivers, lakes, ridges, mesas, gaps, roads, ore fields, sea) on top of noise.
@@ -22,9 +24,17 @@ static func all() -> Array:
 		 "tag": "Play the Ashen Pact. The Vanguard lands in the Sable valley and the foundry towns rise.", "missions": ashen()},
 		{"id": "vanguard", "fac": "vanguard", "num": "II", "name": "Iron Tide",
 		 "tag": "The sequel. A year after Embers, the Directorate returns to break the Pact and its new Rift Engines. Play the Vanguard.", "missions": vanguard()},
-		{"id": "choir", "fac": "choir", "num": "III", "name": "The Hollow Song", "free": true,
+		{"id": "choir", "fac": "choir", "num": "III", "name": "The Hollow Song",
 		 "tag": "Play the Hollow Choir. While the Iron Tide breaks over the valley, the miners who stayed below wake up and sing.", "missions": choir()},
 	]
+
+const CRACK := 4   # index of campaign II's mission 5, where the tone cracks
+
+static func mood(camp_id: String, idx: int) -> int:
+	match camp_id:
+		"vanguard": return 1 if idx >= CRACK else 0
+		"choir": return 2
+	return 0
 
 static func _plus(a: Array, b: Array) -> Array:
 	var r := a.duplicate()
