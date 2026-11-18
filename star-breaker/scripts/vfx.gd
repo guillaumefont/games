@@ -32,13 +32,16 @@ const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 ## Starbreak's strands: no twister, but many short-lived thin jagged arcs of pink, cyan and
 ## white crackling round the laser like static electricity, with no glow of their own
 ## (Guillaume's calls: short lived, many of them, erratic). Each arc jolts about at random
-## every tick, up to ARC_JOLT.x along the beam and ARC_JOLT.y radians round it, for
+## now and then (ARC_JOLT_CHANCE a tick), up to ARC_JOLT.x along the beam and ARC_JOLT.y
+## radians round it, for
 ## ARC_LIFE ticks, then jumps somewhere else.
-const ULT_PULSES := 36
+const ULT_PULSES := 12
 ## Wider, soft haze strands mixed in among the thin ones, moving the same way.
-const ULT_HAZE := 14
-const ARC_LIFE := Vector2i(4, 10)
-const ARC_JOLT := Vector2(3.5, 0.6)
+const ULT_HAZE := 12
+const ARC_LIFE := Vector2i(10, 22)
+const ARC_JOLT := Vector2(3.0, 0.5)
+## Chance an arc jolts on a given tick: it twitches now and then rather than every frame.
+const ARC_JOLT_CHANCE := 0.3
 const ARC_SHAPES := 12
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
@@ -326,7 +329,7 @@ static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
 			var a := u * span + (rng.randf_range(-0.25, 0.25) if i > 0 and i < n else 0.0)
 			var x := u + (rng.randf_range(-0.06, 0.06) if i > 0 and i < n else 0.0)
 			pts.append(Vector3(x, cos(a) * rr, sin(a) * rr))
-		var tube := 0.07 if hard else 0.24
+		var tube := 0.018 if hard else 0.07
 		var sides := 3 if hard else 4
 		var tris := []
 		for i in n:
@@ -360,8 +363,9 @@ static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) 
 			# stagger so the arcs don't all jump on the same tick
 			pl.t = randi() % int(pl.life)
 		pl.t += 1
-		pl.y += randf_range(-ARC_JOLT.x, ARC_JOLT.x)
-		pl.ang += randf_range(-ARC_JOLT.y, ARC_JOLT.y)
+		if randf() < ARC_JOLT_CHANCE:
+			pl.y += randf_range(-ARC_JOLT.x, ARC_JOLT.x)
+			pl.ang += randf_range(-ARC_JOLT.y, ARC_JOLT.y)
 		if pl.t > pl.life or pl.y < 0.0 or pl.y + pl.len > len:
 			_respawn(pl, len)
 		var g: Node3D = pl.n

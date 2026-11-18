@@ -195,6 +195,28 @@ const AI_ORDER := ["power", "refinery", "barracks", "power", "factory", "TUN", "
 
 var CAMPAIGNS: Array = []
 
+## Who talks on the radio and in debriefs (mission lines name them with "who"). Portraits are drawn by UI.Portrait
+## from these: skin, hair, uniform, gear (cap · helmet · goggles · hood), beard (full · moustache), long hair, age,
+## brow (frown), smile, scar, patch, glow (Choir eyes), jaw width, flash (shoulder and frame colour), tint (screen).
+const SPEAKERS := {
+	"vey": {"name": "Kestrel Vey", "role": "Pact cell leader", "skin": Color("c98f6c"), "hair": Color("7a2e1c"), "long": true, "uniform": Color("5a2c22"),
+		"gear": "goggles", "scar": true, "brow": 0.6, "smile": 0.4, "jaw": 0.11, "age": 0.25, "flash": Color("e5483f"), "tint": Color("4a2a20")},
+	"brann": {"name": "Old Brann", "role": "Foundry master", "skin": Color("b97a58"), "hair": Color("b9b2a6"), "uniform": Color("4a3a2a"),
+		"beard": "full", "hair_top": false, "age": 0.9, "brow": 0.3, "smile": 0.6, "jaw": 0.15, "flash": Color("d9a441"), "tint": Color("4a3020")},
+	"foreman": {"name": "The Foreman", "role": "Pact adviser", "skin": Color("d39a78"), "hair": Color("3a2620"), "uniform": Color("3f2a24"),
+		"gear": "cap", "cap": Color("2a1d19"), "band": Color("e5483f"), "beard": "moustache", "brow": 0.8, "smile": -0.3, "jaw": 0.16, "age": 0.6, "flash": Color("e5483f"), "tint": Color("40261e")},
+	"dace": {"name": "Marshal Corwin Dace", "role": "Vanguard commander", "skin": Color("e0b294"), "hair": Color("2c2a28"), "uniform": Color("2f3e4c"),
+		"gear": "cap", "cap": Color("26323e"), "band": Color("3fb4e8"), "patch": true, "brow": 0.9, "smile": 0.5, "jaw": 0.14, "age": 0.6, "flash": Color("3fb4e8"), "tint": Color("1f2e3a")},
+	"harrow": {"name": "Captain Ilse Harrow", "role": "Vanguard officer", "skin": Color("eac3a3"), "hair": Color("c9a86a"), "uniform": Color("34495a"),
+		"gear": "helmet", "cap": Color("4a5a66"), "brow": 0.4, "jaw": 0.11, "age": 0.3, "flash": Color("3fb4e8"), "tint": Color("22323e")},
+	"pact_hq": {"name": "Pact radio", "role": "Signals", "skin": Color("c48e6e"), "hair": Color("2a1c16"), "uniform": Color("4a2a22"), "gear": "helmet", "cap": Color("4a3a30"),
+		"jaw": 0.13, "flash": Color("e5483f"), "tint": Color("3a241c")},
+	"van_hq": {"name": "Vanguard command", "role": "Signals", "skin": Color("d8ae90"), "hair": Color("3a3024"), "uniform": Color("2f3e4c"), "gear": "helmet", "cap": Color("46555f"),
+		"jaw": 0.13, "flash": Color("3fb4e8"), "tint": Color("1f2e3a")},
+	"choir_hq": {"name": "The Choir", "role": "Many voices", "skin": Color("9fa898"), "hair": Color("2a2e2a"), "uniform": Color("1e2a24"), "gear": "hood", "glow": true,
+		"jaw": 0.12, "flash": Color("3fbf7a"), "tint": Color("102018")},
+}
+
 func _init() -> void:
 	for k in BLD:
 		var d: Dictionary = BLD[k]
@@ -224,6 +246,7 @@ func _init() -> void:
 		for i in c.missions.size():
 			var m: Dictionary = c.missions[i]
 			m.idx = i; m.camp = c.id; m.fac = c.fac
+			if not m.has("mood"): m.mood = Campaign.mood(c.id, i)
 			for kv in [["aiBuild", true], ["aiProd", true], ["aiFirst", -1], ["waves", null], ["swCh", 0.0], ["tech", null], ["aiTech", null], ["phq", true],
 					["pbase", []], ["punits", []], ["pheroes", []], ["ehq", "hq"], ["ebase", []], ["eunits", []], ["eheroes", []], ["posts", []], ["captives", []],
 					["events", []], ["efac", ""], ["keep", []], ["limit", 0.0], ["credits", [3000, 3000]], ["diff", "normal"], ["heroes", []], ["theatre", ""], ["pvip", []]]:

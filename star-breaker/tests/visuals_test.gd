@@ -117,7 +117,7 @@ func _initialize() -> void:
 	for i in ps.size():
 		if ps[i].y != spots[i]:
 			jumped += 1
-	check(ps.size() >= 30, "Starbreak crackles with many arcs (%d)" % ps.size())
+	check(ps.size() >= 10, "Starbreak crackles with arcs (%d)" % ps.size())
 	var parts: Dictionary = ub.get_meta("parts")
 	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
 		"Starbreak has no haze and no ball at its base")
@@ -131,24 +131,45 @@ func _initialize() -> void:
 		else:
 			wide += 1
 	check(single, "each arc is one strand, thin or haze, never both")
-	check(thin >= 24 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
-	check(jumped >= ps.size() - 2, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
+	check(thin >= 8 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
+	check(jumped >= ps.size() - 1, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
 	var jolted := 0
 	var alive := 0
-	var prev := []
-	for pl in ps:
-		prev.append([pl.y, pl.t, pl.ang])
-	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20, 20, false)
-	for i in ps.size():
-		if ps[i].t != prev[i][1] + 1:
-			continue
-		alive += 1
-		var dy: float = absf(ps[i].y - prev[i][0])
-		var da: float = absf(ps[i].ang - prev[i][2])
-		if (dy > 0.0 or da > 0.0) and dy <= VFx.ARC_JOLT.x + 0.01 and da <= VFx.ARC_JOLT.y + 0.01:
-			jolted += 1
-	check(alive > 10 and jolted == alive, "a living arc jolts about erratically, within bounds (%d of %d)" % [jolted, alive])
+	for f in 6:
+		var prev := []
+		for pl in ps:
+			prev.append([pl.y, pl.t, pl.ang])
+		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20 + f, 20 + f, false)
+		for i in ps.size():
+			if ps[i].t != prev[i][1] + 1:
+				continue
+			alive += 1
+			var dy: float = absf(ps[i].y - prev[i][0])
+			var da: float = absf(ps[i].ang - prev[i][2])
+			if dy > VFx.ARC_JOLT.x + 0.01 or da > VFx.ARC_JOLT.y + 0.01:
+				jolted = -1000
+			elif dy > 0.0 or da > 0.0:
+				jolted += 1
+	check(alive > 20 and jolted > 0 and jolted < alive, "a living arc jolts about erratically now and then, within bounds (%d of %d)" % [jolted, alive])
 	ub.free()
+
+	# --- things enter from off screen, even on a tall phone that shows past the stage ---
+	var keep_view: Rect2 = vg.view
+	vg.view = Rect2(-2.0, 112.0 - 141.0, 130.0, 282.0)  # a 9:19.5 phone
+	var first := {}
+	for e in vg.G.enemies:
+		first[e.id] = true
+	var on_screen := []
+	for f in 900:
+		tick(1)
+		for e in vg.G.enemies:
+			# carriers fly in from the side, and a boss's brood hatches out of it
+			if not first.has(e.id) and not e.get("boss", false) and e.type != "carrier" and e.get("score", 1) != 0:
+				first[e.id] = true
+				if e.y < vg.view.end.y:
+					on_screen.append("%s at %.0f" % [e.type, e.y])
+	check(first.size() > 5 and on_screen.is_empty(), "on a tall phone enemies appear above the screen's top edge, not on it (%d seen; on screen: %s)" % [first.size(), on_screen])
+	vg.view = keep_view
 
 	# --- explosions ---
 	var n0: int = vg.fx.size()

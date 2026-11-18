@@ -447,6 +447,12 @@ func _on_resize() -> void:
 	view = Rect2(W / 2.0 - hw, H / 2.0 - hh, hw * 2.0, hh * 2.0)
 
 
+## The top edge of what the screen shows, in stage units: a tall phone shows past the 224-unit
+## stage, so things enter from here (off screen), never from the stage's own top.
+func top() -> float:
+	return maxf(H, view.end.y)
+
+
 ## Screen pixels per stage unit (canvas coordinates), for 1:1 dragging.
 func px_per_unit() -> float:
 	var vp := get_viewport().get_visible_rect().size
@@ -456,7 +462,14 @@ func px_per_unit() -> float:
 # ---------- input ----------
 
 func _input(event: InputEvent) -> void:
+	# on a phone each touch also arrives as a made-up mouse click (the menu's buttons need it),
+	# ahead of the touch itself: steering ignores those, or the first one would leave the
+	# mouse "held" for good and lifting the finger would never trigger the release
+	if (event is InputEventMouseButton or event is InputEventMouseMotion) and event.device == InputEvent.DEVICE_ID_EMULATION:
+		return
 	if event is InputEventScreenTouch:
+		if not _touch_seen:
+			_mouse_down = false
 		_touch_seen = true
 		var t := event as InputEventScreenTouch
 		if t.pressed:
@@ -699,7 +712,7 @@ func step() -> void:
 		Diag.note("TICK", "t=%d scroll=%d fps=%d enemies=%d eb=%d fx=%d" % [G.t, G.scroll, Engine.get_frames_per_second(), G.enemies.size(), G.eb.size(), fx.size()])
 	if not G.ended:
 		G.scroll += SCROLL
-	while G.si < script_list.size() and script_list[G.si].d <= G.scroll + H + 10:
+	while G.si < script_list.size() and script_list[G.si].d <= G.scroll + top() + 10:
 		spawn(script_list[G.si])
 		G.si += 1
 	if _touch_seen and not inp.hold:
@@ -1201,12 +1214,12 @@ func spawn(s: Dictionary) -> void:
 			if s.kind == "bloom":
 				spawn_boss()
 			elif s.kind == "twins":
-				E("shell", 36, H + 20, {boss = true, hp = 60.0, hold = 160.0})
-				E("shell", W - 36, H + 30, {boss = true, hp = 60.0, hold = 175.0})
+				E("shell", 36, top() + 20, {boss = true, hp = 60.0, hold = 160.0})
+				E("shell", W - 36, top() + 30, {boss = true, hp = 60.0, hold = 175.0})
 				hud.boss_name = "Shell Twins"
 				_boss_warn()
 			else:
-				var e := E("shell", W / 2, H + 24, {boss = true, hp = 110.0, hold = 165.0})
+				var e := E("shell", W / 2, top() + 24, {boss = true, hp = 110.0, hold = 165.0})
 				e.m.scale = Vector3.ONE * 1.5
 				e.hw *= 1.5
 				e.hh *= 1.5
@@ -1220,15 +1233,15 @@ func spawn(s: Dictionary) -> void:
 				tx = w.x + 1.0
 			elif tx > w.y:
 				tx = w.y - 1.0
-			E(s.type, tx, H + 10, {wy = s.d, key = s.get("key", "")})
+			E(s.type, tx, top() + 10, {wy = s.d, key = s.get("key", "")})
 		"carrier":
 			E("carrier", -8.0 if s.dir > 0 else W + 8.0, H - 34, {dir = s.dir, item = s.item})
 		"drifter":
 			var a: float = s.get("amp", 0.0)
 			var dx := _fit(s.x, s.d, a + 6.0)
-			E("drifter", dx, H + 8, {move = s.move, amp = a, ph = s.get("ph", 0.0), x0 = dx, stop = s.get("stop", 170.0)})
+			E("drifter", dx, top() + 8, {move = s.move, amp = a, ph = s.get("ph", 0.0), x0 = dx, stop = s.get("stop", 170.0)})
 		"shell":
-			E("shell", _fit(s.x, s.d + 40, 12.0), H + 14, {hold = 170.0})
+			E("shell", _fit(s.x, s.d + 40, 12.0), top() + 14, {hold = 170.0})
 
 
 ## Moves a spawn x inside a canyon's passage at distance `d`, `pad` clear of the rock.
@@ -1430,7 +1443,7 @@ func add_bar(s: Dictionary) -> void:
 		# a row of breakable blocks fills the opening
 		var n := int(ceil(s.gw / 7.6))
 		for j in n:
-			E("block", s.gx - s.gw / 2 + 3.8 + j * (s.gw - 7.6) / maxf(1, n - 1), H + 6, {wy = b.wy})
+			E("block", s.gx - s.gw / 2 + 3.8 + j * (s.gw - 7.6) / maxf(1, n - 1), top() + 6, {wy = b.wy})
 	Diag.once("vbar " + s.mode)
 
 
@@ -1897,7 +1910,7 @@ func _process(_delta: float) -> void:
 	update_chunks(G.scroll)
 	for isl in G.islands:
 		isl.m.position = Vector3(0, isl.d - G.scroll - H / 2.0, -7.0)
-		isl.m.visible = isl.d - G.scroll < H + 20 and isl.d - G.scroll > -400
+		isl.m.visible = isl.d - G.scroll < top() + 80 and isl.d - G.scroll > -400
 	var kit_ult: float = P.get("ult", 0.0)
 	hud.score = fmt(G.score)
 	hud.hull = P.hull if P.alive else 0
