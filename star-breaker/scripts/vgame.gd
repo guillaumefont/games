@@ -2771,7 +2771,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guards += 1
 				if B.enter:
 					continue
-				p.cd -= 1
+				p.cd -= tier_mul("fire")
 				if p.cd <= 0 and p.burst == 0:
 					p.burst = 5
 					p.cd = 150
@@ -2812,7 +2812,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guns += 1
 				if B.enter:
 					continue
-				p.cd -= 1
+				p.cd -= tier_mul("fire")
 				if p.cd <= 0:
 					fan(p.x, p.y - 6, 1.1, 3, 0.24)
 					p.cd = 110
@@ -2849,7 +2849,7 @@ func _update_gboss(B: Dictionary) -> void:
 				wings += 1
 				if B.enter:
 					continue
-				p.cd -= 1
+				p.cd -= tier_mul("fire")
 				if p.cd <= 0:
 					fan(p.x, p.y - 4, 1.0, 5, 0.22)
 					p.cd = 130
@@ -2857,7 +2857,7 @@ func _update_gboss(B: Dictionary) -> void:
 			sac.y = B.y + 16.0
 			sac.x = B.x
 			if sac.alive and not B.enter:
-				sac.cd -= 1
+				sac.cd -= tier_mul("fire")
 				if sac.cd <= 0 and G.enemies.size() < 30:
 					for j in 3:
 						var wx: float = sac.x + (j - 1) * 10.0
@@ -2892,7 +2892,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guns += 1
 				if B.enter:
 					continue
-				p.cd -= 1
+				p.cd -= tier_mul("fire")
 				if p.cd <= 0:
 					aim(p.x, p.y - 5, 1.2)
 					p.cd = 120
@@ -2929,7 +2929,7 @@ func _update_gboss(B: Dictionary) -> void:
 				nodes += 1
 				if B.enter:
 					continue
-				p.cd -= 1
+				p.cd -= tier_mul("fire")
 				if p.cd <= 0:
 					aim(p.x, p.y, 1.1)
 					p.cd = 150
