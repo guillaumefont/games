@@ -68,6 +68,9 @@ func _initialize() -> void:
 		ticks += 1
 	check(ticks > 720 and ticks < 1000, "the run lasts about 15 s (%.1f s)" % (ticks / 60.0))
 	check(VStage.build(0).any(func(e): return e.type == "run"), "stage 1 has a canyon run")
+	# seamless: it picks up from the stage's scroll speed and hands back to it
+	check(VRun.STAGE_SPEED == vg.SCROLL and absf(VRun.speed(VRun.SHIP_Y - 300.0) - vg.SCROLL) < 0.01 and absf(VRun.speed(VRun.LEN) - vg.SCROLL) < 0.01, "the run starts and ends at the stage's own scroll speed")
+	check(VRun.floor_z(-60.0) < -68.0 and VRun.floor_z(VRun.LEN - 60.0) < -68.0 and VRun.floor_z(600.0) == VRun.FLOOR, "the canyon's floor starts and ends under the moon's ground")
 
 	print("Run")
 	to_run()
@@ -81,13 +84,23 @@ func _initialize() -> void:
 	var looked := false
 	var climbed := false
 	var guns: int = vg.G.pb.size()
+	# the ground under the ship (the moon while it shows, then the canyon) never jumps in speed
+	var last_v := -1.0
+	var jolt := 0.0
+	var last_f: float = vg.G.scroll + vg.G.foff
 	while vg.G.has("run"):
 		var R: Dictionary = vg.G.run
 		var tgt := VRun.line(R.d + 6.0)
 		var g := lerpf(1.0, VRun.GAIN, R.k)
 		var dx := clampf((tgt.x - vg.P.x) / g, -4.0, 4.0)
 		var dy := clampf((tgt.y - vg.P.z) / VRun.GAIN, -4.0, 4.0)
+		var rd0: float = R.d
 		tick(dx, dy)
+		var v: float = (vg.G.run.d - rd0) if vg.G.has("run") else (vg.G.scroll + vg.G.foff - last_f)
+		last_f = vg.G.scroll + vg.G.foff
+		if last_v >= 0.0:
+			jolt = maxf(jolt, absf(v - last_v))
+		last_v = v
 		if vg.G.has("run") and vg.G.run.k > 0.99:
 			swung = true
 			# the camera looks along the canyon (its forward axis is +Y), not down at it
@@ -101,7 +114,10 @@ func _initialize() -> void:
 	check(vg.P.hull == vg.HULL, "no hull point lost")
 	check(absf((-vg.camera.global_transform.basis.z).dot(Vector3.FORWARD)) > 0.99 and vg.camera.position.z > 200.0, "the camera is back top-down after the run")
 	check(vg.P.z == 0.0, "the ship is back on the play plane")
+	var f0: float = vg.G.scroll + vg.G.foff
 	tick()
+	jolt = maxf(jolt, absf(vg.G.scroll + vg.G.foff - f0 - last_v))
+	check(jolt < 0.1, "the ground's speed changes smoothly in, through and out of the run (biggest step %.3f a tick)" % jolt)
 	check(vg.G.scroll > scroll0 and vg.G.foff > 0.0, "the stage carries on and the floor keeps its distance")
 	var lefts := 0
 	for c in vg.chunks.values():

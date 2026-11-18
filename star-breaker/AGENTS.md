@@ -198,4 +198,7 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   (`P.z`). The course is a pure function of `u` (`VRun.passage`, `VRun.OBS`), shared by the
   collision, the mesh and `VRun.line()` (the racing line the motes follow and the test flies).
   Glows are flat quads facing the top-down camera: stand new ones up by `G.run.k` during a run.
-  The moon floor keeps the run's distance in `G.foff`. GIF frames: `tools/run_shots.gd`.
+  The moon floor keeps the run's distance in `G.foff`.
+  Guillaume wants the way in and out seamless (2026-11-18): the canyon's speed starts and ends
+  at the stage's scroll (`VRun.STAGE_SPEED`) and its floor dips under the moon's ground at both
+  ends (`VRun.floor_z`), so the moon shows through the mouth and exit; the test checks both. GIF frames: `tools/run_shots.gd`.
