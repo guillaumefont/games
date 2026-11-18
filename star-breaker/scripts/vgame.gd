@@ -102,6 +102,8 @@ var _terrain_mats: Dictionary = {}
 var view := Rect2(-2.0, -2.0, W + 4.0, H + 4.0)
 var _building: Dictionary = {}  ## chunk index -> Terrain.Builder being built ahead of time
 var sun: DirectionalLight3D
+## The way the sun's light travels: shadows fall along it (down and right on screen).
+var sun_dir := Vector3(0.376, -0.457, -0.806)
 var beam_light: OmniLight3D
 var boom_lights: Array = []
 var charge_ph := 0.0
@@ -420,6 +422,7 @@ func _setup_world() -> void:
 	sun.shadow_opacity = 0.78
 	add_child(sun)
 	sun.look_at_from_position(Vector3(-70, 85, 150), Vector3.ZERO)
+	sun_dir = -sun.global_transform.basis.z
 	var rim := DirectionalLight3D.new()
 	_rim = rim
 	rim.light_color = Color(pal.rim)
@@ -679,7 +682,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	var tr := prog.best_open(Progress.stage_id(i), hud.tier if tier < 0 else tier)
 	var td: Dictionary = Progress.tier(tr)
 	Diag.note("VSTAGE", "%d %s tier %d" % [i, kind, tr])
-	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
+	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, bi = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
 		boss = {}, bparts = [], props = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
 		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
@@ -703,6 +706,9 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 		pod_m = VShips.upright(Models.pod())
 		pod_m.add_child(Models.glow("3ff0e0", 9))
 		world.add_child(pod_m)
+	P.y = _ship_entry_y()
+	if not pod.is_empty():
+		pod.y = P.y + 10
 	hud.ship = kind
 	hud.stage_name = sd.name if tr == 0 else "%s · %s" % [sd.name, td.name]
 	hud.boss = -1.0
@@ -825,8 +831,19 @@ func step() -> void:
 	# the stage holds still while the canyon run streams past
 	if not G.ended and not G.has("run"):
 		G.scroll += SCROLL
-	while G.si < script_list.size() and script_list[G.si].d <= G.scroll + top() + 10:
-		spawn(script_list[G.si])
+	# what stands on the ground is built well ahead, out of sight (it scrolls in with the
+	# ground); the rest is sent when its turn comes (`si`, which tools and tests may move on)
+	G.bi = maxi(G.bi, G.si)
+	while G.bi < script_list.size() and script_list[G.bi].d <= G.scroll + top() + BUILD_AHEAD:
+		if script_list[G.bi].type in GROUND_PIECES:
+			spawn(script_list[G.bi])
+		G.bi += 1
+	while G.si < script_list.size() and not G.has("run") and \
+			script_list[G.si].d <= G.scroll + top() + 10 + (0.0 if script_list[G.si].type in ["run", "end"] else WAVE_LEAD):
+		if not script_list[G.si].type in GROUND_PIECES:
+			_due = script_list[G.si].d
+			spawn(script_list[G.si])
+			_due = -INF
 		G.si += 1
 	if _touch_seen and not inp.hold:
 		_no_thumb += 1
@@ -870,7 +887,7 @@ func _update_player() -> void:
 		P.respawn -= 1
 		if P.respawn <= 0 and G.fail_t == 0:
 			var rw := walls_at(40.0)
-			P.merge({alive = true, entering = true, x = clampf(W / 2.0, rw.x + 8, rw.y - 8), y = -12.0, inv = 150, hull = HULL, charge = 0, ready_lv = 0, held = inp.hold}, true)
+			P.merge({alive = true, entering = true, x = clampf(W / 2.0, rw.x + 8, rw.y - 8), y = _ship_entry_y(), inv = 150, hull = HULL, charge = 0, ready_lv = 0, held = inp.hold}, true)
 			if not pod.is_empty():
 				pod.state = "dock"
 		return
@@ -1424,10 +1441,7 @@ func _spawn_end(kind: String) -> void:
 	else:
 		var giant := parts[0] == "giant"
 		var sc := 1.9 if giant else 1.5
-		var e := E(k, W / 2, top() + 24, {boss = true, hp = (220.0 if giant else 110.0) * hk, hold = 160.0})
-		e.m.scale = Vector3.ONE * sc
-		e.hw *= sc
-		e.hh *= sc
+		E(k, W / 2, top() + 24, {boss = true, hp = (220.0 if giant else 110.0) * hk, hold = 160.0, sc = sc})
 		hud.boss_name = Worlds.LIST[G.world].boss_name if giant else VStage.BIG_NAMES[k][0]
 	_boss_warn()
 
@@ -1494,13 +1508,50 @@ func E(type: String, x: float, y: float, o := {}) -> Dictionary:
 			m.set_meta("in", hm)
 	world.add_child(m)
 	e.m = m
+	if e.has("sc"):
+		m.scale = Vector3.ONE * float(e.sc)
+		e.hw *= e.sc
+		e.hh *= e.sc
+	# out of sight to start with, shadow and all: a flyer from above the screen (a group keeps
+	# its spacing), a carrier from beside it; what the ground carries (`wy`) is built far ahead
+	m.position = Vector3(X(e.x), Y(e.y), _ez(e))
+	var box := _box(m, true)
+	# it glides from there to where it used to appear, getting there when it used to (`due`),
+	# and only then starts its moves: the waves keep their timing, the shadows lead the way in
+	var at := Vector2(e.x, e.y)
+	if type == "carrier":
+		e.x = minf(e.x, _beside_x(box, _ez(e), -1.0)) if e.dir > 0 else maxf(e.x, _beside_x(box, _ez(e), 1.0))
+	elif not e.has("wy") and e.y >= top():
+		e.y += maxf(0.0, _above_y(box, _ez(e)) - top())
+	if Vector2(e.x, e.y) != at:
+		e.glide = at
+		e.due = _due
 	G.enemies.append(e)
 	Diag.once("venemy " + type)
 	return e
 
 
+## Brings a wave's enemy in from out of sight to where its moves start, on time.
+func _glide(e: Dictionary) -> void:
+	var to: Vector2 = e.glide
+	var d := Vector2(e.x, e.y).distance_to(to)
+	var ticks := maxf(1.0, (float(e.due) - G.scroll - top() - 10.0) / SCROLL)
+	var step := clampf(d / ticks, 0.5, GLIDE_MAX)
+	if d <= step:
+		e.x = to.x
+		e.y = to.y
+		e.erase("glide")
+	else:
+		var v := (to - Vector2(e.x, e.y)) / d * step
+		e.x += v.x
+		e.y += v.y
+
+
 func _update_enemies() -> void:
 	for e in G.enemies:
+		if e.has("glide"):
+			_glide(e)
+			continue
 		e.t += 1
 		if e.flash > 0:
 			e.flash -= 1
@@ -1623,7 +1674,10 @@ func _update_enemies() -> void:
 				e.y = minf(e.y, H - 34)
 				e.x += 0.7 * e.dir
 				e.y -= 0.15
-		if e.y < -20 or e.x < -30 or e.x > W + 30 or e.y > top() + 80:
+		# gone once out of sight, shadow and all, after it has been seen (or never will be)
+		if _on_screen(_box(e.m), e.x, e.y, _ez(e)):
+			e.seen = true
+		elif e.get("seen", false) or e.t > 1500:
 			e.dead = true
 	for e in G.enemies:
 		if e.get("dead", false) and not e.get("killed", false) and e.get("boss", false):
@@ -1731,7 +1785,7 @@ func drop_item(x: float, y: float, k: String) -> void:
 func _update_items() -> void:
 	for it in G.items:
 		it.y -= 0.5
-		if it.y < -10:
+		if it.y < view.position.y and not _on_screen(_box(it.m), it.x, it.y, 0.0):
 			it.dead = true
 		elif P.alive and Vector2(it.x - P.x, it.y - P.y).length() < 8:
 			it.dead = true
@@ -1777,7 +1831,7 @@ func _update_bars() -> void:
 		elif b.mode == "shutter":
 			# the opening closes and opens again on a cycle
 			b.gw = b.gw0 * clampf(0.5 + sin(G.t * 0.022 + b.ph) * 1.4, 0.0, 1.0)
-		if b.y < -20:
+		if b.y < view.position.y and not _bar_shows(b):
 			b.dead = true
 			for n in b.nodes:
 				n.queue_free()
@@ -1785,10 +1839,19 @@ func _update_bars() -> void:
 	# outpost pieces on the ground scroll with it and go once they're off the bottom
 	for pr in G.props:
 		pr.t += 1
-		if pr.wy - G.scroll < -60.0:
+		if pr.wy - G.scroll < view.position.y and not _on_screen(_box(pr.m), pr.x, pr.wy - G.scroll, pr.m.position.z):
 			pr.dead = true
 			pr.m.queue_free()
 	G.props = G.props.filter(func(pr): return not pr.get("dead", false))
+
+
+## True when any of a barrier's walls (or their shadows) is on screen.
+func _bar_shows(b: Dictionary) -> bool:
+	for k in 2:
+		var n: Node3D = b.nodes[k]
+		if _on_screen(_box(n), W / 2.0 + n.position.x, b.y, 0.0):
+			return true
+	return false
 
 
 func _sweep_bars() -> void:
@@ -1825,8 +1888,10 @@ func spawn_boss() -> void:
 	for part in petals + [G.boss.core, G.boss.tent]:
 		part.hp *= hm
 		part.max = part.hp
+	var n0 := world.get_child_count()
 	G.boss.m = Models.boss(world)
 	G.boss.m.rotation.z = PI / 2
+	_place_boss(n0)
 
 
 ## Damage to a boss part; the ship's level scales it here, once, for every boss.
@@ -1897,7 +1962,8 @@ func update_boss() -> void:
 		_update_gboss(B)
 		return
 	if B.enter:
-		B.y -= 0.5
+		# out of sight it hurries down; it comes into view at its slow pace
+		B.y -= 0.5 if B.y < H + 60.0 else 2.0
 		if B.y <= H - 50:
 			B.y = H - 50
 			B.enter = false
@@ -2268,7 +2334,8 @@ func start_run() -> void:
 		m.position = Vector3(VRun.sx(mo[1]), mo[0], mo[2])
 		n.add_child(m)
 		motes.append({u = mo[0], x = mo[1], z = mo[2], m = m, got = false})
-	G.run = {d = VRun.SHIP_Y - top() - 10.0, prev = 0.0, k = 0.0, node = n, motes = motes, hits = 0, got = 0, scrape = 0, abort = 0, cx = P.x}
+	# the canyon's mouth starts out of sight past the top, its shadows too
+	G.run = {d = VRun.SHIP_Y - maxf(top() + 10.0, _above_y(_box(n), 0.0)), prev = 0.0, k = 0.0, node = n, motes = motes, hits = 0, got = 0, scrape = 0, abort = 0, cx = P.x}
 	G.run.prev = G.run.d
 	G.slow = 0
 	P.z = 0.0
@@ -2456,7 +2523,7 @@ func _process(_delta: float) -> void:
 	_sync_run()
 	for isl in G.islands:
 		isl.m.position = Vector3(0, isl.d - G.scroll - H / 2.0, -7.0)
-		isl.m.visible = isl.d - G.scroll < top() + 80 and isl.d - G.scroll > -400 and not G.has("run")
+		isl.m.visible = not G.has("run") and _on_screen(_box(isl.m), W / 2.0, isl.d - G.scroll, -7.0)
 	var kit_ult: float = P.get("ult", 0.0)
 	hud.score = fmt(G.score)
 	hud.hull = P.hull if P.alive else 0
@@ -2521,7 +2588,6 @@ func _process(_delta: float) -> void:
 		b.m.position = Vector3(X(b.x), Y(b.y), 2)
 	for it in G.items:
 		it.m.position = Vector3(X(it.x), Y(it.y), 0)
-		it.m.visible = _shown(it.x, it.y, 6.0)
 		(it.m.get_meta("core") as Node3D).rotation.y += 0.05
 	for s in G.shards:
 		s.m.position = Vector3(X(s.x), Y(s.y), 3)
@@ -2545,17 +2611,144 @@ func _process(_delta: float) -> void:
 	_camera(j)
 
 
-## Whether something at (x, y), `r` in size, reaches into the screen. Things wait hidden until
-## then: the low sun throws shadows far across the ground, so a model above the top edge would
-## otherwise show its shadow on screen before itself.
-func _shown(x: float, y: float, r: float) -> bool:
-	return y - r < view.end.y and y + r > view.position.y and x + r > view.position.x and x - r < view.end.x
+# ---------- nothing pops in ----------
+# Everything enters the screen across an edge, shadow included. The low sun throws shadows far
+# down the screen, the ground sits deeper than the play plane (so it shows more of the stage
+# than the play plane does), and models are bigger than their hit boxes: so where a model may
+# appear is worked out from its meshes, its height and the sun, never from a fixed margin.
+
+## Shadows land no lower than this: the bottom of the rolling floor.
+const FLOOR_Z := GROUND_Z - 50.0 - 8.0
+## How far ahead of the screen's top the stage builds what sits on the ground (it has to be in
+## place, out of sight, before the screen reaches it).
+const BUILD_AHEAD := 220.0
+## How much sooner than before a wave is sent: it starts out of sight, shadow and all, and
+## glides in to where it used to appear (see `_glide`).
+const WAVE_LEAD := 70.0
+## The fastest an enemy glides in (when it's late, after the canyon run or at a stage's end).
+const GLIDE_MAX := 3.0
+## The script distance of what's being sent now (-INF: sent by the game itself).
+var _due := -INF
+## What the ground carries, built ahead.
+const GROUND_PIECES := ["barrier", "prop", "wallgun", "turret", "generator"]
+
+
+## The boxes `nodes` fill around world point `at`: [everything, what casts a shadow]. `turns`
+## widens them to the ball the model sweeps, for models that spin or tumble.
+func _boxes(nodes: Array, at: Vector3, turns := false) -> Array:
+	var all := AABB(Vector3.ZERO, Vector3.ZERO)
+	var cast := AABB(Vector3.ZERO, Vector3.ZERO)
+	var stack := nodes.duplicate()
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		var gi := n as GeometryInstance3D
+		if gi == null or not gi.is_inside_tree():
+			continue
+		var a := gi.get_aabb()
+		if a.size == Vector3.ZERO:
+			continue
+		var g := gi.global_transform * a
+		g.position -= at
+		all = all.merge(g)
+		if gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			cast = cast.merge(g)
+	if turns:
+		for k in 2:
+			var b: AABB = [all, cast][k]
+			var r := 0.0
+			for i in 8:
+				r = maxf(r, b.get_endpoint(i).length())
+			b = AABB(Vector3.ONE * -r, Vector3.ONE * 2.0 * r) if b.size != Vector3.ZERO else b
+			if k == 0:
+				all = b
+			else:
+				cast = b
+	return [all, cast]
+
+
+## The model's boxes, worked out once (kept on the node).
+func _box(m: Node3D, turns := false) -> Array:
+	if not m.has_meta("box"):
+		m.set_meta("box", _boxes([m], m.global_position, turns))
+	return m.get_meta("box")
+
+
+## Where a model's corners and their shadows show: each point (dx, dy, k) shows at stage
+## (W/2 + (X + dx) * k, H/2 + (Y + dy) * k) for a model at world (X, Y) and height `z`.
+func _reach(box: Array, z: float) -> Array:
+	var out := []
+	for i in 8:
+		var c: Vector3 = box[0].get_endpoint(i)
+		out.append(Vector3(c.x, c.y, CAM_D / (CAM_D - z - c.z)))
+	if box[1].size != Vector3.ZERO:
+		for i in 8:
+			var c: Vector3 = box[1].get_endpoint(i)
+			if z + c.z > FLOOR_Z:
+				var t := (FLOOR_Z - z - c.z) / sun_dir.z
+				out.append(Vector3(c.x + sun_dir.x * t, c.y + sun_dir.y * t, CAM_D / (CAM_D - FLOOR_Z)))
+	return out
+
+
+## The part of the stage a model at stage (x, y), height `z`, covers on screen, shadow and all.
+func _foot(box: Array, x: float, y: float, z: float) -> Rect2:
+	var r := Rect2()
+	var first := true
+	for p in _reach(box, z):
+		var q := Vector2(W / 2.0 + (X(x) + p.x) * p.z, H / 2.0 + (Y(y) + p.y) * p.z)
+		r = Rect2(q, Vector2.ZERO) if first else r.expand(q)
+		first = false
+	return r
+
+
+## True when any of a model or its shadow is on screen.
+func _on_screen(box: Array, x: float, y: float, z: float) -> bool:
+	return _foot(box, x, y, z).intersects(view.grow(1.0))
+
+
+## The lowest stage y where a model at height `z` is wholly above the screen, shadow and all.
+func _above_y(box: Array, z: float) -> float:
+	var y := -INF
+	for p in _reach(box, z):
+		y = maxf(y, H / 2.0 + (view.end.y - H / 2.0) / p.z - p.y)
+	return y + 2.0
+
+
+## The highest stage y where a model at height `z` is wholly below the screen.
+func _below_y(box: Array, z: float) -> float:
+	var y := INF
+	for p in _reach(box, z):
+		y = minf(y, H / 2.0 + (view.position.y - H / 2.0) / p.z - p.y)
+	return y - 2.0
+
+
+## The stage x just past the screen's left (`side` -1) or right (+1) edge for a model at height
+## `z`, shadow and all.
+func _beside_x(box: Array, z: float, side: float) -> float:
+	var x := INF * side * -1.0
+	for p in _reach(box, z):
+		if side < 0:
+			x = minf(x, W / 2.0 + (view.position.x - W / 2.0) / p.z - p.x)
+		else:
+			x = maxf(x, W / 2.0 + (view.end.x - W / 2.0) / p.z - p.x)
+	return x + 2.0 * side
+
+
+## Where the ship comes in from: below the screen, with its pod.
+func _ship_entry_y() -> float:
+	var y := _below_y(_box(ship_m, true), 0.0)
+	if pod_m != null and is_instance_valid(pod_m) and pod_m.is_inside_tree():
+		y = minf(y, _below_y(_box(pod_m, true), 0.0) - 10.0)
+	return minf(-12.0, y)
+
+
+func _ez(e: Dictionary) -> float:
+	return 5.0 if e.type == "wallgun" else (-4.0 if e.ground else 0.0)
 
 
 func _sync_e(e: Dictionary) -> void:
 	var m: Node3D = e.m
-	m.position = Vector3(X(e.x), Y(e.y), 5.0 if e.type == "wallgun" else (-4.0 if e.ground else 0.0))
-	m.visible = _shown(e.x, e.y, maxf(e.hw, e.hh) + 2.0)
+	m.position = Vector3(X(e.x), Y(e.y), _ez(e))
 	Models.set_flash(m, e.flash > 0)
 	match e.type:
 		"drifter":
@@ -2613,12 +2806,9 @@ func _sync_bar(b: Dictionary) -> void:
 	var n: Array = b.nodes
 	var left: float = b.gx - b.gw / 2.0
 	var right: float = b.gx + b.gw / 2.0
-	var shown: bool = b.y - b.th < view.end.y + 30.0 and b.y + b.th > view.position.y - 10.0
 	n[0].position = Vector3(X(left), Y(b.y), 0)
 	n[1].position = Vector3(X(right), Y(b.y), 0)
-	n[0].visible = shown
-	n[1].visible = shown
-	n[2].visible = b.locked and shown
+	n[2].visible = b.locked
 	n[2].position = Vector3(X(b.gx), Y(b.y), 0)
 	n[2].scale = Vector3(maxf(0.1, b.gw), b.th * 0.6, 4)
 
@@ -2640,7 +2830,6 @@ func _sync_boss() -> void:
 		return
 	var u: Dictionary = B.m.get_meta("u")
 	B.m.position = Vector3(X(B.x), Y(B.y), 0)
-	B.m.visible = _shown(B.x, B.y, 40.0)
 	u.core.rotation.z = B.t * 0.004
 	var op: float = B.core.lid
 	u.lidT.rotation.x = -op * 1.3
@@ -2670,7 +2859,8 @@ func _sync_boss() -> void:
 	var T: Dictionary = B.tent
 	for i in u.segs.size():
 		var m: Node3D = u.segs[i]
-		m.visible = i < T.n and not (T.alive and i == T.n - 1)
+		# the last segment sits inside the tip: it stays shown, so it can't pop up when the tip goes
+		m.visible = i < T.n
 		if i < T.segs.size():
 			var s: Dictionary = T.segs[i]
 			m.position = Vector3(X(s.x), Y(s.y), 0)
@@ -2707,6 +2897,7 @@ func spawn_gboss(kind: String) -> void:
 	var B := {kind = kind, x = W / 2.0, y = top() + 60.0, t = 0, bt = 0, enter = true, phase2 = false, phase3 = false, dying = 0, lid = 0.0,
 		open = false, parts = {}, rot = 0.0}
 	var list: Array = []
+	var n0 := world.get_child_count()
 	match kind:
 		"prism":
 			B.home = H - 48.0
@@ -2749,7 +2940,28 @@ func spawn_gboss(kind: String) -> void:
 	hud.boss_name = Worlds.LIST[G.world].boss_name
 	hud.banner("Warning", hud.boss_name + " approaching", 150)
 	Diag.once("vboss " + kind)
-	_update_gboss(B)
+	_place_boss(n0)
+
+
+## Lays a boss's parts out round it and starts it high enough to come down into view whole,
+## shadows and all. `n0`: the world's child count before its models were added.
+func _place_boss(n0: int) -> void:
+	var B: Dictionary = G.boss
+	var nodes := world.get_children().slice(n0)
+	for k in 2:
+		# coming in, a boss only moves and lays its parts out: nothing fires yet
+		var y0: float = B.y
+		var t0: int = B.t
+		if B.kind == "bloom":
+			update_boss()
+		else:
+			_update_gboss(B)
+		B.y = y0
+		B.t = t0
+		_sync_boss()
+		if k == 0:
+			var box := _boxes(nodes, Vector3(X(B.x), Y(B.y), 0.0))
+			B.y = maxf(B.y, _above_y(box, 0.0))
 
 
 func _gboss_damage(p: Dictionary, d: float) -> void:
@@ -2779,7 +2991,7 @@ func _gboss_damage(p: Dictionary, d: float) -> void:
 
 func _update_gboss(B: Dictionary) -> void:
 	if B.enter:
-		B.y -= 0.5
+		B.y -= 0.5 if B.y < top() + 60.0 else 2.0
 		if B.y <= B.home:
 			B.y = B.home
 			B.enter = false
@@ -3015,7 +3227,6 @@ func _bl(x: float, y: float, z: float) -> Vector3:
 func _sync_gboss(B: Dictionary) -> void:
 	var u: Dictionary = B.m.get_meta("u")
 	B.m.position = Vector3.ZERO
-	B.m.visible = _shown(B.x, B.y, 60.0)
 	var P2: Dictionary = B.parts
 	var c: Dictionary = P2.core
 	var hp := 0.0
