@@ -67,11 +67,11 @@ static func speed(u: float) -> float:
 	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 200.0, LEN, u))
 
 
-## Height of the drawn canyon floor at `u`: it starts and ends just under the moon's own ground
+## Height of the drawn canyon floor at `u`: it starts and ends well under the moon's own ground (below its rivers and craters)
 ## (so the moon shows through the open mouth and exit) and rises to FLOOR inside.
 static func floor_z(u: float) -> float:
 	var k := smoothstep(-40.0, 200.0, u) * (1.0 - smoothstep(LEN - 330.0, LEN - 120.0, u))
-	return lerpf(-74.0, FLOOR, k)
+	return lerpf(-100.0, FLOOR, k)
 
 
 ## Passage centre (x) and half width (y) at `u`.
@@ -225,7 +225,7 @@ class Builder:
 
 
 ## Heights of the wall's bands, floor to rim, and how far each juts back into the rock.
-const BANDS := [-84.0, -26.0, -12.0, 2.0, 18.0, RIM]
+const BANDS := [-104.0, -26.0, -12.0, 2.0, 18.0, RIM]
 
 
 ## One row of canyon (walls, rim tops, floor) between u0 and u1.
