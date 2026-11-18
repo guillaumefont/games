@@ -41,3 +41,5 @@ jobs:
         run: ./godot --headless --path . --script tests/visuals_test.gd
       - name: Canyon run (course, racing line, camera swing)
         run: ./godot --headless --path . --script tests/run_test.gd
+      - name: Replay tiers, medals and ship colours
+        run: ./godot --headless --path . --script tests/progress_test.gd
