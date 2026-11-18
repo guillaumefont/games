@@ -2404,6 +2404,7 @@ func _camera_reset() -> void:
 	camera.transform = Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	camera.fov = _fov_td
 	camera.near = 10.0
+	_env.fog_light_color = Color(look.fog)
 	_env.fog_depth_begin = CAM_D + 30.0
 	_env.fog_depth_end = CAM_D + 210.0
 
@@ -2419,7 +2420,7 @@ func _camera(j: Vector3) -> void:
 	# the camera trails the ship sideways, a little towards the passage's middle
 	R.cx = lerpf(R.cx, lerpf(VRun.passage(R.d).x, P.x, 0.7), 0.15)
 	var t := Vector3(X(R.cx), Y(VRun.SHIP_Y), P.get("z", 0.0) * 0.85)
-	var chase := Transform3D(Basis(), t + Vector3(0, -40, 17)).looking_at(t + Vector3(0, 60, -6), Vector3.BACK)
+	var chase := Transform3D(Basis(), t + Vector3(0, -38, 19)).looking_at(t + Vector3(0, 70, 9), Vector3.BACK)
 	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	var q := Quaternion(td.basis).slerp(Quaternion(chase.basis), k)
 	camera.transform = Transform3D(Basis(q), td.origin.lerp(chase.origin, k) + j * 0.5)
@@ -2427,6 +2428,9 @@ func _camera(j: Vector3) -> void:
 	camera.fov = lerpf(_fov_td, wide, k)
 	camera.near = lerpf(10.0, 1.5, k)
 	_env.fog_depth_begin = lerpf(CAM_D + 30.0, 140.0, k)
+	# the depth of the canyon glows, so near rock stands dark against it and every way through
+	# shows as the bright part ahead
+	_env.fog_light_color = Color(look.fog).lerp(Color("4a3590"), k)
 	_env.fog_depth_end = lerpf(CAM_D + 210.0, 520.0, k)
 
 

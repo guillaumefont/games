@@ -11,7 +11,7 @@ extends RefCounted
 ## The course is a pure function of `u`, so the same numbers drive the collision, the mesh and
 ## the tests.
 
-const LEN := 2100.0
+const LEN := 1850.0
 const FLOOR := -40.0
 const RIM := 34.0
 ## The ship's height range inside the canyon (it scrapes the floor, never digs in).
@@ -29,26 +29,24 @@ const DEPTH := 8.0
 const MEDALS := [["Gold", 5000], ["Silver", 2000], ["Bronze", 500]]
 
 ## The passage: [u, centre x, half width], eased between keys. Wide (off screen) at both ends.
-const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [300.0, 52.0, 30.0], [460.0, 76.0, 30.0],
-	[600.0, 63.0, 30.0], [1040.0, 63.0, 30.0], [1130.0, 50.0, 21.0], [1220.0, 84.0, 20.0], [1310.0, 44.0, 20.0],
-	[1420.0, 80.0, 22.0], [1520.0, 63.0, 30.0], [1880.0, 63.0, 32.0], [2030.0, 63.0, 100.0], [2800.0, 63.0, 100.0]]
+const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
+	[540.0, 63.0, 30.0], [1060.0, 63.0, 30.0], [1140.0, 52.0, 23.0], [1220.0, 78.0, 22.0], [1300.0, 50.0, 23.0],
+	[1380.0, 63.0, 30.0], [1590.0, 63.0, 32.0], [1730.0, 63.0, 100.0], [2600.0, 63.0, 100.0]]
 
-## Obstacles: pillars (dodge sideways), arches (dive under: rock above z), spines (climb over:
-## rock below z) and windows (a wall with one hole to thread). dx is from the passage centre.
+## Obstacles: concretion columns (dodge sideways), rock bridges (dive under: rock above z),
+## ridges (climb over: rock below z) and walls with one hole to thread. dx is from the passage
+## centre. Up/down moves come in pairs the same way, and a change of direction gets ~1 s.
 const OBS := [
-	{u = 250.0, k = "pillar", dx = -11.0, r = 7.0},
-	{u = 340.0, k = "pillar", dx = 12.0, r = 7.0},
+	{u = 230.0, k = "pillar", dx = -11.0, r = 7.0},
+	{u = 330.0, k = "pillar", dx = 12.0, r = 7.0},
 	{u = 430.0, k = "pillar", dx = -10.0, r = 7.0},
-	{u = 560.0, k = "arch", z = -12.0},
-	{u = 650.0, k = "arch", z = -18.0},
-	{u = 750.0, k = "spine", z = -8.0},
-	{u = 840.0, k = "spine", z = 2.0},
-	{u = 930.0, k = "arch", z = -6.0},
-	{u = 1010.0, k = "spine", z = -4.0},
-	{u = 1265.0, k = "arch", z = -10.0},
-	{u = 1360.0, k = "spine", z = -14.0},
-	{u = 1630.0, k = "window", dx = 10.0, z = -12.0, hw = 9.0, hh = 8.0},
-	{u = 1770.0, k = "window", dx = -11.0, z = 8.0, hw = 9.0, hh = 8.0},
+	{u = 590.0, k = "arch", z = -10.0},
+	{u = 710.0, k = "arch", z = -16.0},
+	{u = 880.0, k = "spine", z = -6.0},
+	{u = 1000.0, k = "spine", z = 0.0},
+	{u = 1220.0, k = "arch", z = -6.0},
+	{u = 1430.0, k = "window", dx = 10.0, z = -10.0, hw = 10.0, hh = 9.0},
+	{u = 1550.0, k = "window", dx = -10.0, z = 4.0, hw = 10.0, hh = 9.0},
 ]
 
 
@@ -65,7 +63,7 @@ const STAGE_SPEED := 0.6
 ## Canyon speed (course units per tick) at `u`: picks up from the stage's scroll as the mouth
 ## comes down the screen, builds through the run, and eases back to the stage's scroll at the exit.
 static func speed(u: float) -> float:
-	var up := lerpf(STAGE_SPEED, 3.5, smoothstep(-240.0, 350.0, u))
+	var up := lerpf(STAGE_SPEED, 3.0, smoothstep(-240.0, 250.0, u))
 	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 200.0, LEN, u))
 
 
@@ -213,6 +211,9 @@ class Builder:
 		for o in VRun.OBS:
 			if o.u >= _u and o.u < _u + SLICE:
 				VRun._obstacle(rock, lip, o, _pal)
+				var gl := VRun.gap_light(o)
+				if gl.size.x > 0.0:
+					node.add_child(gl.node)
 		if rock.count() > 0:
 			node.add_child(Terrain._mi(rock.mesh(), _mats.ground, true))
 		if lip.count() > 0:
@@ -309,43 +310,122 @@ static func _box(acc: Terrain.Acc, a: Vector3, b: Vector3, col: Color) -> void:
 		acc.convex(p.call(f[0]), p.call(f[2]), p.call(f[3]), k, c)
 
 
-## A thin glowing bar (the edges that read as "danger here") on an obstacle's near face.
+## A thin glowing seam (the edge of the way through) on an obstacle's near face.
 static func _bar(lip: Terrain.Acc, a: Vector3, b: Vector3) -> void:
 	_box(lip, a, b, Color.WHITE)
 
 
+static var _sphere_tris: Array = []
+
+
+## A unit sphere as 32 flat facets (an octahedron split once).
+static func _sphere() -> Array:
+	if not _sphere_tris.is_empty():
+		return _sphere_tris
+	var v := [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK, Vector3.UP, Vector3.DOWN]
+	var oct := []
+	for a in [0, 1]:
+		for b in [2, 3]:
+			for c in [4, 5]:
+				oct.append([v[a], v[b], v[c]])
+	for t in oct:
+		var ab: Vector3 = (t[0] + t[1]).normalized()
+		var bc: Vector3 = (t[1] + t[2]).normalized()
+		var ca: Vector3 = (t[2] + t[0]).normalized()
+		_sphere_tris.append_array([[t[0], ab, ca], [ab, t[1], bc], [ca, bc, t[2]], [ab, bc, ca]])
+	return _sphere_tris
+
+
+## A rock concretion: a lumpy, flat-shaded ellipsoid centred on `c` with radii `r`. The lumps only
+## dent it inwards, so it never pokes past its radii (what you see is never bigger than the rock
+## you can hit).
+static func _blob(acc: Terrain.Acc, c: Vector3, r: Vector3, col: Color, seed: float) -> void:
+	for t in _sphere():
+		var q := []
+		for v in t:
+			var j := 0.8 + 0.2 * VStage.hash(Vector2(v.x * 7.1 + v.z * 3.3 + seed, v.y * 5.7 - v.z + seed * 0.37))
+			q.append(c + Vector3(v.x * r.x, v.y * r.y, v.z * r.z) * j)
+		var tone := col.darkened(VStage.hash(Vector2(seed, (t[0] + t[1]).x * 3.0 + t[2].z)) * 0.12)
+		acc.convex(q[0], q[1], q[2], tone, c)
+
+
+## A colour for concretion `i` of an obstacle: the canyon's face with a little drift.
+static func _tone(pal: Dictionary, seed: float) -> Color:
+	return Color(pal.c_face).lerp(Color(pal.c_top), 0.4 + VStage.hash(Vector2(seed, 1.3)) * 0.4).lightened(0.12)
+
+
+## Soft light shining through an obstacle's way through, seen from behind the ship: the brightest
+## thing ahead is always the gap, so you know early whether to climb, dive or slide. Returns
+## {node, size} (size 0 for obstacles you dodge sideways).
+static func gap_light(o: Dictionary) -> Dictionary:
+	var p := passage(o.u)
+	var at := Vector3.ZERO
+	var size := Vector2.ZERO
+	match o.k:
+		"arch":
+			at = Vector3(sx(p.x), o.u + DEPTH, (FLOOR + o.z) / 2.0)
+			size = Vector2(p.y * 2.2, (o.z - FLOOR) * 1.5)
+		"spine":
+			at = Vector3(sx(p.x), o.u + DEPTH, (o.z + RIM) / 2.0)
+			size = Vector2(p.y * 2.2, (RIM - o.z) * 1.5)
+		"window":
+			var h := hole(o)
+			at = Vector3(sx(h.x), o.u + DEPTH, h.y)
+			size = Vector2(o.hw * 3.4, o.hh * 3.4)
+	if size.x <= 0.0:
+		return {node = null, size = size}
+	var g := Models.glow("b89a74", 1.0)
+	g.scale = Vector3(size.x, size.y, 1.0)
+	g.rotation.x = PI / 2.0
+	g.position = at
+	return {node = g, size = size}
+
+
 static func _obstacle(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, pal: Dictionary) -> void:
 	var p := passage(o.u)
-	var col := Color(pal.c_face).lightened(0.05)
+	var col := Color(pal.c_face).darkened(0.1)
 	var y0: float = o.u - DEPTH / 2.0
 	var y1: float = o.u + DEPTH / 2.0
 	var xl := sx(p.x - p.y - 10.0)
 	var xr := sx(p.x + p.y + 10.0)
-	var f := y0 - 0.4
+	# the seams sit in front of the lumps, on the exact edge of the way through
+	var f := y0 - 2.6
+	var sd: float = o.u * 0.173
 	match o.k:
 		"pillar":
+			# a column of concretions stacked floor to rim, like a hoodoo: lumps and necks, never
+			# wider than the rock you can hit
 			var cx := sx(p.x + o.dx)
 			var r: float = o.r
-			# a hexagonal column, rim to floor
-			var pts := []
-			for j in 6:
-				var a := TAU * (j + 0.5) / 6.0
-				pts.append(Vector2(cx + cos(a) * r, o.u + sin(a) * r))
-			var ctr := Vector3(cx, o.u, (FLOOR + RIM) / 2.0)
-			for j in 6:
-				var q0: Vector2 = pts[j]
-				var q1: Vector2 = pts[(j + 1) % 6]
-				var shade := col.darkened(0.1 * absf(sin(TAU * j / 6.0)))
-				rock.convex(Vector3(q0.x, q0.y, FLOOR - 4), Vector3(q1.x, q1.y, FLOOR - 4), Vector3(q1.x, q1.y, RIM + 6), shade, ctr)
-				rock.convex(Vector3(q0.x, q0.y, FLOOR - 4), Vector3(q1.x, q1.y, RIM + 6), Vector3(q0.x, q0.y, RIM + 6), shade, ctr)
-			for s in [-1.0, 1.0]:
-				_bar(lip, Vector3(cx + s * r * 0.87 - 0.5, o.u - r * 0.5 - 0.6, FLOOR), Vector3(cx + s * r * 0.87 + 0.5, o.u - r * 0.5, RIM))
+			var z := FLOOR - 4.0
+			var i := 0
+			while z < RIM + 4.0:
+				var ry := 4.0 + VStage.hash(Vector2(sd, i)) * 3.5
+				var rr := r * (0.68 + VStage.hash(Vector2(sd, i + 9.0)) * 0.32)
+				var off := Vector2(VStage.hash(Vector2(sd, i + 3.0)) - 0.5, VStage.hash(Vector2(sd, i + 5.0)) - 0.5) * (r - rr)
+				_blob(rock, Vector3(cx + off.x, o.u + off.y, z + ry), Vector3(rr, rr, ry), _tone(pal, sd + i), sd + i)
+				z += ry * 1.55
+				i += 1
 		"arch":
+			# a natural bridge: a slab of rock lumped with concretions, its underside on the edge
 			_box(rock, Vector3(xl, y0, o.z), Vector3(xr, y1, RIM + 4.0), col)
-			_bar(lip, Vector3(xl, f, o.z), Vector3(xr, y0, o.z + 1.0))
+			var za: float = o.z
+			var n := 0
+			while za < RIM:
+				_lumps(rock, pal, xl, xr, y0, za, 1.0, sd + n * 50.0)
+				za += 10.0
+				n += 1
+			_bar(lip, Vector3(xl, f, o.z), Vector3(xr, f + 0.6, o.z + 0.7))
 		"spine":
+			# a ridge rising from the floor, its crest of concretions on the edge
 			_box(rock, Vector3(xl, y0, FLOOR - 4.0), Vector3(xr, y1, o.z), col)
-			_bar(lip, Vector3(xl, f, o.z - 1.0), Vector3(xr, y0, o.z))
+			var zb: float = o.z
+			var n := 0
+			while zb > FLOOR:
+				_lumps(rock, pal, xl, xr, y0, zb, -1.0, sd + n * 50.0)
+				zb -= 10.0
+				n += 1
+			_bar(lip, Vector3(xl, f, o.z - 0.7), Vector3(xr, f + 0.6, o.z))
 		"window":
 			var h := hole(o)
 			var hx0 := sx(h.x - o.hw)
@@ -356,8 +436,42 @@ static func _obstacle(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, pal: D
 			_box(rock, Vector3(hx1, y0, FLOOR - 4.0), Vector3(xr, y1, RIM + 4.0), col)
 			_box(rock, Vector3(hx0, y0, FLOOR - 4.0), Vector3(hx1, y1, hz0), col)
 			_box(rock, Vector3(hx0, y0, hz1), Vector3(hx1, y1, RIM + 4.0), col)
-			# a glowing frame round the hole
-			_bar(lip, Vector3(hx0 - 1.0, f, hz0 - 1.0), Vector3(hx1 + 1.0, y0, hz0))
-			_bar(lip, Vector3(hx0 - 1.0, f, hz1), Vector3(hx1 + 1.0, y0, hz1 + 1.0))
-			_bar(lip, Vector3(hx0 - 1.0, f, hz0), Vector3(hx0, y0, hz1))
-			_bar(lip, Vector3(hx1, f, hz0), Vector3(hx1 + 1.0, y0, hz1))
+			# concretions crowd round the hole (outside it) and stud the wall
+			_lumps(rock, pal, hx0 - 6.0, hx1 + 6.0, y0, hz0, -1.0, sd)
+			_lumps(rock, pal, hx0 - 6.0, hx1 + 6.0, y0, hz1, 1.0, sd + 20.0)
+			for s in [[-1.0, hx0], [1.0, hx1]]:
+				var z := hz0
+				var i := 0
+				while z < hz1:
+					var rz := 3.5 + VStage.hash(Vector2(sd + s[0], i)) * 2.0
+					var rx := 3.5 + VStage.hash(Vector2(sd - s[0], i)) * 2.5
+					_blob(rock, Vector3(s[1] + s[0] * rx, y0, z + rz * 0.8), Vector3(rx, 3.2, rz), _tone(pal, sd + i + s[0]), sd + i * 3.0 + s[0])
+					z += rz * 1.3
+					i += 1
+			for i in 14:
+				var bx := lerpf(xl, xr, VStage.hash(Vector2(sd, i * 1.7)))
+				var bz := lerpf(FLOOR, RIM, VStage.hash(Vector2(sd * 1.3, i)))
+				var br := 3.0 + VStage.hash(Vector2(i, sd)) * 3.0
+				if bx + br > hx0 - 0.5 and bx - br < hx1 + 0.5 and bz + br > hz0 - 0.5 and bz - br < hz1 + 0.5:
+					continue
+				_blob(rock, Vector3(bx, y0, bz), Vector3(br, 2.6, br), _tone(pal, sd + i * 2.0), sd + i * 2.0)
+			# a glowing seam round the hole
+			_bar(lip, Vector3(hx0, f, hz0 - 0.7), Vector3(hx1, f + 0.6, hz0))
+			_bar(lip, Vector3(hx0, f, hz1), Vector3(hx1, f + 0.6, hz1 + 0.7))
+			_bar(lip, Vector3(hx0 - 0.7, f, hz0), Vector3(hx0, f + 0.6, hz1))
+			_bar(lip, Vector3(hx1, f, hz0), Vector3(hx1 + 0.7, f + 0.6, hz1))
+
+
+## A row of concretions along an edge at height `z`, from x0 to x1, on the near face (y0). `s` is
+## the side the rock is on (1: above the edge, an underside; -1: below it, a crest): the lumps sit
+## on that side and touch the edge at most.
+static func _lumps(acc: Terrain.Acc, pal: Dictionary, x0: float, x1: float, y0: float, z: float, s: float, sd: float) -> void:
+	var x := x0
+	var i := 0
+	while x < x1:
+		var rx := 4.0 + VStage.hash(Vector2(sd, i)) * 3.5
+		var rz := 3.0 + VStage.hash(Vector2(sd, i + 7.0)) * 2.5
+		var lift := VStage.hash(Vector2(sd, i + 13.0)) * 2.0
+		_blob(acc, Vector3(x + rx, y0 - 0.2, z + s * (rz + lift)), Vector3(rx, 2.6, rz), _tone(pal, sd + i), sd + i * 1.9)
+		x += rx * 1.6
+		i += 1
