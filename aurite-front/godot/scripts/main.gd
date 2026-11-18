@@ -62,6 +62,7 @@ func _ready() -> void:
 	V.panel_px = U.panel_px()
 	U.mode_btn.visible = false  # box selection is a hold-and-drag (or a plain drag with PAN_FINGERS 2)
 	show_start()
+	if not headless and OS.get_environment("AF_SHOT") == "": _boot_splash()
 	if not headless: render_icons("vanguard")
 	get_viewport().size_changed.connect(_on_resize)
 	_on_resize()
@@ -220,6 +221,9 @@ func _panel_alert() -> void:
 func toast(msg: String, kind := "") -> void:
 	U.toast(msg, kind)
 
+func radio(who: String, line: String, warn := false) -> void:
+	U.radio(who, line, warn)
+
 func sfx(n: String, x = null, y = null) -> void:
 	if S == null or paused and n != "click": return
 	var big := n == "bigboom" or n == "siren" or n == "alert" or n == "ready"
@@ -256,6 +260,8 @@ func end_game(win: bool) -> void:
 	U.set_end_result(win)
 	U.btn.end_why.text = S.end_why if (M and not win) else ""
 	U.btn.end_why.visible = U.btn.end_why.text != ""
+	U.set_debrief(M.get("debrief", {}).get("win" if win else "loss", []) if M else [])
+	U.radio_q.clear()
 	if M and win: camp_save(M.camp, M.idx)
 	var last: bool = M != null and M.idx == D.camp(M.camp).missions.size() - 1
 	var sequel := _sequel(M.camp) if M else ""
@@ -308,7 +314,35 @@ func pick_campaign(id: String) -> void:
 func _camp_rows() -> Array:
 	return D.CAMPAIGNS.map(func(C): return {"C": C, "open": camp_open(C.id), "done": camp_prog(C.id)})
 
+## The splash after the engine's plain boot screen: the title art in the player's story stage, then the menu.
+func _boot_splash() -> void:
+	U.build_splash(); U.set_stage(menu_stage()); U.show_overlay("splash")
+	var o: Control = U.overlays.splash
+	await get_tree().create_timer(1.8).timeout
+	var tw := create_tween(); tw.tween_property(o, "modulate:a", 0.0, 0.35)
+	await tw.finished
+	o.modulate.a = 1.0
+	if U.overlays.splash.visible: U.show_overlay("start")
+
+## Home-screen icon follows the menu stage (Android: launcher aliases switched by tools/android/IconSwap.java).
+var _icon_stage := -1
+func set_app_icon(st: int) -> void:
+	if st == _icon_stage or OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"): return
+	_icon_stage = st
+	var sw = JavaClassWrapper.wrap("com.godot.game.IconSwap")
+	if sw == null: return
+	var ok = sw.apply(Engine.get_singleton("AndroidRuntime").getActivity(), st + 1)
+	print("app icon stage ", st + 1, " ", ok)
+
+## Menu art stage from the furthest point of the story the player has reached: grim once campaign III is open,
+## cracked once campaign II reaches mission 5, pulpy before.
+func menu_stage() -> int:
+	if camp_open("choir"): return 2
+	return 1 if camp_prog("vanguard") >= Campaign.CRACK else 0
+
 func show_start() -> void:
+	U.set_stage(menu_stage())
+	set_app_icon(menu_stage())
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
 	# continue where the player is: the furthest open campaign that is not finished
 	var cur: Dictionary = D.CAMPAIGNS[0]
@@ -318,9 +352,21 @@ func show_start() -> void:
 	var dn := mini(camp_prog(cur.id), cur.missions.size())
 	var nxt: String = ("Next: " + cur.missions[dn].title) if dn < cur.missions.size() else "All won: replay any mission"
 	U.set_camp_tile(nxt, "%s · %s  ·  %d of %d secured" % [cur.num, cur.name, dn, cur.missions.size()])
+	U.set_camp_progress(cur.num, dn, cur.missions.size())
 	U.show_overlay("start")
 	paused = true
 	A.music_stop()
+
+## Wipes campaign progress and watched cutscenes (the difficulty stays), back to the start of chapter I:
+## the menu, the splash and the home screen icon follow on the next start screen.
+func reset_progress() -> void:
+	var d := {"_level": camp_level()}
+	var f := FileAccess.open("user://campaigns.json", FileAccess.WRITE)
+	if f: f.store_string(JSON.stringify(d)); f.close()
+	camp_id = D.CAMPAIGNS[0].id
+	U.set_stage(menu_stage())
+	show_campaigns()
+	U.toast("Progress reset")
 
 func show_campaigns() -> void:
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
@@ -403,6 +449,7 @@ func next_mission() -> void:
 
 func play(opt: Dictionary) -> void:
 	last_opt = opt
+	A.mood = int(opt.mission.mood) if opt.has("mission") else 0
 	U.show_overlay("")
 	new_game(opt.get("diff", diff), opt)
 	paused = false
@@ -1242,15 +1289,21 @@ func _autotest(dir: String) -> void:
 	await _shot(dir + "/00_start.png")
 	var mode := OS.get_environment("AF_MODE")
 	if mode == "splash":
-		U.build_splash(); U.show_overlay("splash")
+		U.build_splash(); U.set_stage(menu_stage()); U.show_overlay("splash")
 		await get_tree().create_timer(0.5).timeout
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png("res://splash.png")
 		await _shot(dir + "/splash.png"); get_tree().quit(); return
 	if mode == "menus":
 		await _menu_shots(dir); get_tree().quit(); return
+	if mode == "reset":
+		await _reset_shots(dir); get_tree().quit(); return
 	if mode == "camp":
 		await _camp_shots(dir); get_tree().quit(); return
+	if mode == "icon":
+		await _icon_shots(); get_tree().quit(); return
+	if mode == "radio":
+		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "cine":
 		await _cine_shots(dir); get_tree().quit(); return
 	if OS.get_environment("AF_CAMP") != "": camp_id = OS.get_environment("AF_CAMP")
@@ -1304,6 +1357,69 @@ func _autotest(dir: String) -> void:
 	await _shot(dir + "/06_fight.png")
 	print("AUTOTEST time=", S.time, " over=", S.over, " ents=", S.ents.size())
 	get_tree().quit()
+
+## AF_MODE=icon: app icons drawn by the menu's own code (UI.Insignia over UI.WarBG), one set per story stage.
+## Stage I is the shipped icon (icon.png, Android adaptive icon_fg/icon_bg); every stage also goes to store/icons/
+## (stage-N-*.png: 1024 iOS/store icon and the adaptive layers) for the optional icon swap.
+func _icon_shots() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://store/icons"))
+	for st in 3:
+		UI.stage = st
+		var full := await _icon_render(1024, true, true, 0.76)
+		var fg := await _icon_render(432, false, true, 0.80 * 0.66)
+		var bg := await _icon_render(432, true, false, 0.0)
+		full.save_png("res://store/icons/stage-%d-1024.png" % (st + 1))
+		fg.save_png("res://store/icons/stage-%d-fg.png" % (st + 1)); bg.save_png("res://store/icons/stage-%d-bg.png" % (st + 1))
+		if st == 0:
+			fg.save_png("res://icon_fg.png"); bg.save_png("res://icon_bg.png"); full.save_png("res://icon_1024.png")
+			var small := full.duplicate(); small.resize(192, 192, Image.INTERPOLATE_LANCZOS); small.save_png("res://icon.png")
+
+## One icon layer: the battlefield (bg), the shield (fg, sized as a share of the square), or both, on a transparent canvas.
+func _icon_render(n: int, bg: bool, fg: bool, k: float) -> Image:
+	var vp := SubViewport.new(); vp.size = Vector2i(n, n); vp.transparent_bg = true; vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	var root := Control.new(); root.size = Vector2(n, n); vp.add_child(root)
+	if bg:
+		var w := UI.WarBG.new(); w.hero = true; w.icon = true; w.t = 3.0; w.size = Vector2(n, n); root.add_child(w)
+	if fg:
+		var ins := UI.Insignia.new(); ins.chunky = true; var sz := n * k
+		ins.size = Vector2(sz, sz) * Vector2(0.86, 1.0); ins.position = Vector2(n, n) * 0.5 - ins.size * Vector2(0.5, 0.40 if UI.stage == 2 else 0.47)
+		if UI.stage == 2: ins.scale = Vector2.ONE * 0.92; ins.position += ins.size * 0.04
+		root.add_child(ins)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	return img
+
+## AF_MODE=radio: every speaker's portrait, the radio panel in a mission, then a debrief (sample lines from the
+## campaign I script).
+func _radio_shots(dir: String) -> void:
+	var g := GridContainer.new(); g.columns = 4; g.add_theme_constant_override("h_separation", 24); g.add_theme_constant_override("v_separation", 12)
+	g.position = Vector2(40, 30); U.overlays.start.add_child(g)
+	for k in D.SPEAKERS:
+		var v := VBoxContainer.new(); g.add_child(v)
+		var p := UI.Portrait.new(); p.sp = D.SPEAKERS[k]; p.custom_minimum_size = Vector2(150, 150); v.add_child(p)
+		v.add_child(U.lbl(D.SPEAKERS[k].name.to_upper(), U.f_wide, 12, D.SPEAKERS[k].flash))
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/01_portraits.png")
+	g.queue_free()
+	camp_id = "ashen"; brief_i = 0
+	play({"mission": D.camp("ashen").missions[0], "level": "normal"})
+	await get_tree().create_timer(1.0).timeout
+	radio("foreman", "Morning, Vey! Lovely day for a rebellion.")
+	await get_tree().create_timer(1.0).timeout
+	await _shot(dir + "/02_radio_typing.png")
+	await get_tree().create_timer(2.5).timeout
+	await _shot(dir + "/03_radio.png")
+	U.radio_q.clear(); U._radio_next()
+	radio("dace", "A bonfire? How quaint. Take that hill.", true)
+	await get_tree().create_timer(3.0).timeout
+	await _shot(dir + "/04_radio_enemy.png")
+	S.mission = S.mission.duplicate(); S.mission.debrief = {"win": [{"who": "vey", "say": "Hear that? Bells in every town."}, {"who": "brann", "say": "Kettleford's foundry is yours, girl. Come and use it."}]}
+	S.over = true; end_game(true)
+	await get_tree().create_timer(1.6).timeout
+	await _shot(dir + "/05_debrief.png")
 
 ## AF_MODE=menus: one screenshot per menu screen.
 func _menu_shots(dir: String) -> void:
@@ -1366,6 +1482,18 @@ func _cine_shots(dir: String) -> void:
 	await get_tree().create_timer(1.0).timeout
 	await _shot(dir + "/after_skip.png")
 	print("CINE game running=", not paused, " mission=", S.mission.title if S.mission else "")
+
+## AF_MODE=reset: a save with chapter III open, then the reset button (armed, then done) and the start screen after it.
+func _reset_shots(dir: String) -> void:
+	var d := {"_level": "hard"}
+	for C in D.CAMPAIGNS: d[C.id] = C.missions.size()
+	var f := FileAccess.open("user://campaigns.json", FileAccess.WRITE); f.store_string(JSON.stringify(d)); f = null
+	show_start(); await get_tree().create_timer(0.5).timeout; await _shot(dir + "/1_start_before.png")
+	show_campaigns(); await get_tree().create_timer(0.3).timeout
+	U.btn.reset.pressed.emit(); await get_tree().create_timer(0.2).timeout; await _shot(dir + "/2_armed.png")
+	U.btn.reset.pressed.emit(); await get_tree().create_timer(0.3).timeout; await _shot(dir + "/3_reset.png")
+	print("after reset: stage ", menu_stage(), " level ", camp_level(), " file ", _camp_file())
+	show_start(); await get_tree().create_timer(0.5).timeout; await _shot(dir + "/4_start_after.png")
 
 ## AF_MODE=camp: the campaign menu, then every mission's briefing and its opening view, zoomed out. AF_CAMP picks one campaign.
 func _camp_shots(dir: String) -> void:

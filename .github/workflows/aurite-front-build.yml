@@ -116,6 +116,20 @@ jobs:
       - name: Import project
         run: $RUNNER_TEMP/godot --headless --path . --import
 
+      # Gradle build (export preset: use_gradle_build) so the APK can carry the per-chapter launcher
+      # icons: install Godot's Android build template, then add the stage aliases and IconSwap.java.
+      - name: Android build template with the chapter icons
+        timeout-minutes: 5
+        run: |
+          # what the editor's "Install Android Build Template" does (the CLI flag never exits headless)
+          tpl="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          rm -rf android && mkdir -p android/build
+          unzip -q "$tpl/android_source.zip" -d android/build
+          touch android/build/.gdignore
+          printf '%s' "${GODOT_VERSION}.stable" > android/.build_version
+          python3 -m pip install --quiet pillow
+          python3 tools/android/patch_build.py android/build
+
       # Release template (about half the size of the debug one), signed with the fixed test
       # keystore above. Outputs go outside the project folder, so Godot never imports them.
       # versionCode must never go down between builds, or Android refuses the update:
@@ -133,7 +147,7 @@ jobs:
           # the game pack (aurite-front.pck) of a newer build. A pack only fits the "shell" it was built
           # for: the engine, the project settings, the export preset, the updater and the launcher art.
           # Change any of them and installed games ask for the new APK instead.
-          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png; } | sha256sum | cut -c1-16)
+          shell=$( { echo "$GODOT_VERSION"; echo games-monorepo; cat project.godot export_presets.cfg scripts/updater.gd icon.png icon_fg.png icon_bg.png splash.png store/icons/*.png tools/android/*; } | sha256sum | cut -c1-16)
           site="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}/aurite-front/"
           printf '{"build": %d, "name": "%s", "shell": "%s", "url": "%s", "main_url": "%s"}\n' "$BUILD" "$name" "$shell" "$site${PR:+pr/$PR/}" "$site" > build.json
           cat build.json
@@ -143,6 +157,15 @@ jobs:
           $RUNNER_TEMP/godot --headless --path . --export-release Android "$OUT/android/$APK_NAME"
           test -s "$OUT/android/$APK_NAME"
           ls -lh "$OUT/android/$APK_NAME"
+          # proof the chapter icons made it in: launcher aliases, icon files, the swap class
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          "$aapt2" dump xmltree --file AndroidManifest.xml "$OUT/android/$APK_NAME" | grep -E 'E: activity|android:name\(|android:enabled|android:icon' | grep -iE 'activity|GodotApp|Stage|enabled|icon' || true
+          unzip -l "$OUT/android/$APK_NAME" | grep -iE 'icon|\.so$' || true
+          unzip -p "$OUT/android/$APK_NAME" 'classes*.dex' | grep -ac 'com/godot/game/IconSwap'
+          # the launcher icon images exactly as packed (base64, so they can be checked from the log)
+          python3 tools/android/icon_sheet.py "$OUT/android/$APK_NAME" "$aapt2"
+          size=$(stat -c %s "$OUT/android/$APK_NAME")
+          test "$size" -lt 95000000 || { echo "APK is $size bytes: too big for gh-pages"; exit 1; }
           $RUNNER_TEMP/godot --headless --path . --export-pack Android "$OUT/android/$PCK_NAME"
           test -s "$OUT/android/$PCK_NAME"
           ls -lh "$OUT/android/$PCK_NAME"

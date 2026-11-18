@@ -28,6 +28,7 @@ var last_alert := -99.0
 var ping = null  # {x,y,t}
 var seed := 0
 var stats := {"built": 0, "lost": 0, "killed": 0, "mined": 0}
+var radio_done := {}   # radio cues already said this mission (radio_cue)
 var mission = null
 var strikes: Array = []
 var fields: Array = []        # crystal shard fields on the ground: {x, y, r, life, max, team, dps, tick, seed}
@@ -248,7 +249,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 		ef = others[randi() % others.size()]
 	if ef == "" or ef == pf or not D.FACS.has(ef): ef = "ashen" if pf == "vanguard" else "vanguard"
 	time = 0.0; ents = []; nid = 1; proj = []; parts = []; sel = []; over = false; vis_t = 0.0; ai_t = 2.0; fields = []; aura_tick = 0.0
-	last_alert = -99.0; ping = null; stats = {"built": 0, "lost": 0, "killed": 0, "mined": 0}; strikes = []; combat = 0.0; delayed = []; by_id = {}
+	last_alert = -99.0; ping = null; stats = {"built": 0, "lost": 0, "killed": 0, "mined": 0}; radio_done = {}; strikes = []; combat = 0.0; delayed = []; by_id = {}
 	terr = PackedByteArray(); terr.resize(MW * MH)
 	ore = PackedInt32Array(); ore.resize(MW * MH)
 	bmap = PackedInt32Array(); bmap.resize(MW * MH)
@@ -958,6 +959,7 @@ func damage(t: Ent, dmg: float, w: String, src) -> void:
 	if t.team == 0 and time - last_alert > 20:
 		last_alert = time; ping = {"x": t.x, "y": t.y, "t": time}
 		host.toast("Base under attack" if t.kind == "b" else ("Harvester under attack" if t.d.harv else "Units under attack"), "warn"); host.sfx("alert")
+	if t.team == 0 and t.kind == "u" and t.d.hero and t.hp > 0 and t.hp < t.max_hp * 0.35: radio_cue("hero_hurt")
 	if t.hp <= 0: kill(t)
 
 func kill(e: Ent) -> void:
@@ -967,6 +969,7 @@ func kill(e: Ent) -> void:
 	elif e.tag == "vip" and e.team == 0:
 		host.toast(e.d.name + " lost", "warn")
 	if e.team == 0: stats.lost += 1
+	if e.team == 0 and e.kind == "b": radio_cue("bld_lost")
 	else: stats.killed += 1
 	if e.kind == "b":
 		for y in range(e.ty, e.ty + e.h):
@@ -1843,9 +1846,23 @@ func spawn_group(sp: Dictionary) -> Array:
 	if tm == 1: send_group(us, sp.get("go", "base"))
 	return us
 
+## A line of mission talk: on the radio panel with the speaker's portrait when it names one ("who", see
+## Data.SPEAKERS), else as a toast like before.
+func say(line: Dictionary, warn: bool) -> void:
+	if line.get("who", "") != "": host.radio(line.who, line.say, warn)
+	else: host.toast(line.say, "warn" if warn else "gold")
+	host.sfx("alert" if warn else "ready")
+
+## Radio lines a mission ties to moments rather than times: mission.radio = [{"on", "who", "say"}], each said once.
+## on: start · hero_hurt (own hero under 35% health) · bld_lost (first own building lost) · ehero_seen (enemy hero in sight)
+func radio_cue(on: String) -> void:
+	if mission == null or cine or radio_done.has(on): return
+	radio_done[on] = true
+	for r in mission.get("radio", []):
+		if r.on == on: say(r, on == "hero_hurt" or on == "bld_lost")
+
 func run_event(ev: Dictionary, warn := true) -> void:
-	if ev.has("say"):
-		host.toast(ev.say, "warn" if warn else "gold"); host.sfx("alert" if warn else "ready")
+	if ev.has("say"): say(ev, warn)
 	for sp in ev.get("spawn", []): spawn_group(sp)
 	if ev.get("attack", "") == "hero":
 		var hs := ents.filter(func(e): return e.alive and e.team == 1 and e.kind == "u" and e.d.hero)
@@ -1869,7 +1886,7 @@ func goal_done(g: Dictionary) -> void:
 			for t in dn.tech:
 				if not mission.tech.has(t): mission.tech.append(t)
 		for sp in dn.get("spawn", []): spawn_group(sp)
-		if dn.has("say"): host.toast(dn.say, "gold"); host.sfx("ready")
+		if dn.has("say"): say(dn, false)
 	gi += 1; g_t0 = time; gst = {}; wst = {}
 	var nx = goal()
 	if nx == null:
@@ -1915,6 +1932,10 @@ func _in_zone(e: Ent, at: Array, r: float) -> bool:
 func mission_tick() -> void:
 	var M = mission
 	if not M or over: return
+	radio_cue("start")
+	if not radio_done.has("ehero_seen"):
+		for e in ents:
+			if e.alive and e.team == 1 and e.kind == "u" and e.d.hero and visible_to_player(e): radio_cue("ehero_seen"); break
 	for i in M.events.size():
 		var ev: Dictionary = M.events[i]
 		if not ev_done.has(i) and time >= ev.t:
