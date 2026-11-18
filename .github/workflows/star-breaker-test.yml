@@ -39,3 +39,5 @@ jobs:
         run: ./godot --headless --path . --script tests/vertical_test.gd
       - name: Look and effects (shadows, ground, laser strands, explosions)
         run: ./godot --headless --path . --script tests/visuals_test.gd
+      - name: Canyon run (course, racing line, camera swing)
+        run: ./godot --headless --path . --script tests/run_test.gd
