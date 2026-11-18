@@ -16,6 +16,7 @@ signal pause_pressed
 signal ult_pressed
 signal tier_pressed(tier: int)
 signal paint_chosen(ship: String, id: String)
+signal level_pressed(ship: String)
 
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
@@ -74,6 +75,9 @@ var _btn_medals: Button
 var medals_scr: Control
 var _medals_total: Label
 var _paint_btns := {}
+var _flux_lbl: Label
+var _level_lbls := {}
+var _level_btns := {}
 var _result_pips: Pips
 var _result_lines: Label
 var _result_tier: Button
@@ -404,8 +408,21 @@ func refresh_progress() -> void:
 			_stage_pips[j].set_medals(prog.medals(id, tier) if prog else 0)
 			_stage_pips[j].visible = open
 	if prog and _btn_medals:
-		_btn_medals.text = "MEDALS %d / %d  ·  SHIP COLOURS" % [prog.total(), Progress.max_total()]
-		_medals_total.text = "%d / %d" % [prog.total(), Progress.max_total()]
+		_btn_medals.text = "HANGAR  ·  %s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
+		_medals_total.text = "MEDALS %d / %d" % [prog.total(), Progress.max_total()]
+		_flux_lbl.text = "%s FLUX" % _fmt(prog.flux)
+		for k in _level_btns:
+			var lv := prog.level(k)
+			_level_lbls[k].text = "%s  ·  LV %d  ·  +%d%% DAMAGE" % [String(VShips.KITS[k].name).to_upper(), lv, int(round((Progress.power(lv) - 1.0) * 100.0))]
+			var b: Button = _level_btns[k]
+			if lv >= Progress.MAX_LEVEL:
+				b.text = "MAX LEVEL"
+				b.disabled = true
+			else:
+				var cost := Progress.level_cost(lv)
+				b.text = "LEVEL UP  ·  %s FLUX" % _fmt(cost)
+				b.disabled = prog.flux < cost
+			b.modulate.a = 0.5 if b.disabled else 1.0
 		for k in _paint_btns:
 			for sw in _paint_btns[k]:
 				_style_swatch(sw, k)
@@ -633,6 +650,8 @@ func set_report(r: Dictionary) -> void:
 		lines.append("Clear the stage to earn medals")
 	if int(r.get("unlocked_tier", -1)) > 0:
 		lines.append("%s unlocked for this stage" % Progress.tier(r.unlocked_tier).name)
+	if int(r.get("flux", 0)) > 0:
+		lines.append("+%s flux" % _fmt(int(r.flux)))
 	for rw in r.get("rewards", []):
 		lines.append("New ship colour: %s" % Progress.reward_name(rw))
 	_result_lines.text = "\n".join(lines).to_upper()
@@ -650,14 +669,18 @@ func set_report(r: Dictionary) -> void:
 			sb.shadow_color = Color(col, 0.35)
 
 
-## The medals screen: the four medals explained, the total, and each ship's colours (locked
-## ones say how many medals they need).
+## The hangar: flux in the bank, the four medals explained and the medal count, then each
+## ship's level (with a level-up button) and colours (locked ones say how many medals they need).
 func _build_medals() -> Control:
 	var v := _screen()
-	var t := _label("MEDALS", 44, 800, C_TEXT, 6.0)
+	v.add_theme_constant_override("separation", 12)
+	var t := _label("HANGAR", 44, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	_medals_total = _label("", 22, 700, C_AMBER, 2.0)
+	_flux_lbl = _label("", 26, 800, C_AMBER, 2.0)
+	_flux_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_flux_lbl)
+	_medals_total = _label("", 16, 700, C_MUTED, 2.0)
 	_medals_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_medals_total)
 	var legend := VBoxContainer.new()
@@ -680,9 +703,13 @@ func _build_medals() -> Control:
 	legend.add_child(note)
 	v.add_child(_center(legend))
 	for k in VShips.ORDER:
-		var sl := _label(String(VShips.KITS[k].name).to_upper() + " COLOURS", 16, 700, C_MUTED, 3.0)
+		var gap := Control.new()
+		gap.custom_minimum_size.y = 6
+		v.add_child(gap)
+		var sl := _label("", 17, 800, C_LANCE, 2.0)
 		sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(sl)
+		_level_lbls[k] = sl
 		var row := HBoxContainer.new()
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		row.add_theme_constant_override("separation", 10)
@@ -690,13 +717,19 @@ func _build_medals() -> Control:
 		for s in Progress.SCHEMES[k]:
 			var b := Button.new()
 			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size = Vector2(92, 92)
+			b.custom_minimum_size = Vector2(80, 64)
 			b.set_meta("scheme", s.id)
 			var sid: String = s.id
 			b.pressed.connect(func(): paint_chosen.emit(k, sid))
 			row.add_child(b)
 			_paint_btns[k].append(b)
 		v.add_child(row)
+		var up := _button("", true, 60)
+		up.pressed.connect(func(): level_pressed.emit(k))
+		up.add_theme_stylebox_override("disabled", up.get_theme_stylebox("normal"))
+		up.add_theme_color_override("font_disabled_color", C_INK)
+		v.add_child(_center(up))
+		_level_btns[k] = up
 	var back := _button("Back", false)
 	back.pressed.connect(func(): show_screen("menu"))
 	v.add_child(_center(back))

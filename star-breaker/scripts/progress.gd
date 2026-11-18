@@ -67,6 +67,49 @@ const TRACK := [
 var stages: Dictionary = {}
 ## ship -> chosen scheme id
 var paint: Dictionary = {lance = "stock", warden = "stock"}
+## Flux (soft currency) in the bank, and each ship's level (1 to MAX_LEVEL).
+var flux := 0
+var levels: Dictionary = {lance = 1, warden = 1}
+
+## Ship levels: each one adds the same share of damage, up to double at MAX_LEVEL, so a
+## levelled ship clears faster but Supernova still needs skill.
+const MAX_LEVEL := 50
+## Flux per 100 points scored (score already carries the tier's multiplier) and per new medal on
+## each tier. A Normal stage pays about 150 to 300 flux.
+const FLUX_PER_SCORE := 0.01
+const MEDAL_FLUX := [25, 40, 60]
+
+
+## What going from level `lv` to `lv + 1` costs: about 5 Normal stages buys level 10, and
+## level 50 takes more than clearing everything once (the long tail the plan asks for).
+static func level_cost(lv: int) -> int:
+	return int(round(12.0 * pow(float(lv), 1.6) / 5.0)) * 5
+
+
+## Damage multiplier of a ship at level `lv`: 1.0 at level 1, 2.0 at MAX_LEVEL.
+static func power(lv: int) -> float:
+	return 1.0 + float(clampi(lv, 1, MAX_LEVEL) - 1) / float(MAX_LEVEL - 1)
+
+
+func level(ship: String) -> int:
+	return clampi(int(levels.get(ship, 1)), 1, MAX_LEVEL)
+
+
+## Spends flux on the next level of `ship`; false when maxed or short of flux.
+func buy_level(ship: String) -> bool:
+	var lv := level(ship)
+	if lv >= MAX_LEVEL or flux < level_cost(lv):
+		return false
+	flux -= level_cost(lv)
+	levels[ship] = lv + 1
+	return true
+
+
+## Banks a run's flux: its score's share plus a bonus for each new medal. Returns the amount.
+func bank_run(score: int, t: int, new_medals: int) -> int:
+	var f := int(floor(score * FLUX_PER_SCORE)) + new_medals * int(MEDAL_FLUX[clampi(t, 0, 2)])
+	flux += f
+	return f
 
 
 static func stage_id(i: int) -> String:
@@ -256,6 +299,12 @@ func load_from(cfg: ConfigFile) -> void:
 				for t in mini(3, e.m.size()):
 					m[t] = int(e.m[t])
 				stages[String(id)] = {m = m, c = int(e.get("c", 0))}
+	flux = maxi(0, int(cfg.get_value("progress", "flux", 0)))
+	var lv = cfg.get_value("progress", "levels", {})
+	if lv is Dictionary:
+		for k in levels:
+			if lv.has(k):
+				levels[k] = clampi(int(lv[k]), 1, MAX_LEVEL)
 	var p = cfg.get_value("progress", "paint", {})
 	if p is Dictionary:
 		for k in paint:
@@ -266,3 +315,5 @@ func load_from(cfg: ConfigFile) -> void:
 func save_to(cfg: ConfigFile) -> void:
 	cfg.set_value("progress", "stages", stages)
 	cfg.set_value("progress", "paint", paint)
+	cfg.set_value("progress", "flux", flux)
+	cfg.set_value("progress", "levels", levels)
