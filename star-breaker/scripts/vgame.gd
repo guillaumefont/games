@@ -205,6 +205,11 @@ func _ready() -> void:
 	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship))
 	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship))
 	hud.tier_pressed.connect(func(t: int): start_stage(G.stage, G.ship, t))
+	hud.level_pressed.connect(func(ship: String):
+		if prog.buy_level(ship):
+			audio.play("oneup")
+			_save()
+			hud.refresh_progress())
 	hud.paint_chosen.connect(func(ship: String, id: String):
 		if prog.set_paint(ship, id):
 			_save()
@@ -676,6 +681,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	Diag.note("VSTAGE", "%d %s tier %d" % [i, kind, tr])
 	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
 		boss = {}, bparts = [], props = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
+		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
 		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
@@ -775,6 +781,7 @@ func finish(cleared: bool) -> void:
 		broken = G.broken, hits = G.hits, boss_ticks = G.boss_ticks, end = G.end_kind, tier = G.tier,
 		boss_scale = 1.0 if G.end_kind == "bloom" else 1.0 + 0.2 * G.world + 0.03 * G.j})
 	var rep := prog.record(id, G.tier, cleared, got)
+	rep.flux = prog.bank_run(G.score, G.tier, rep.new_medals.size())
 	rep.merge({cleared = cleared, tier = G.tier, got = got, held = prog.medals(id, G.tier)})
 	G.report = rep
 	_save()
@@ -1070,7 +1077,7 @@ func _nearest_enemy(x: float, y: float) -> Dictionary:
 	return best
 
 
-func _damage_target(t: Dictionary, d: int) -> void:
+func _damage_target(t: Dictionary, d: float) -> void:
 	if t.has("e"):
 		dmg_e(t.e, d)
 	elif t.has("part"):
@@ -1675,10 +1682,10 @@ func _update_big(e: Dictionary) -> void:
 		e.y -= 1.2
 
 
-func dmg_e(e: Dictionary, d: int) -> void:
+func dmg_e(e: Dictionary, d: float) -> void:
 	if e.get("dead", false):
 		return
-	e.hp -= d
+	e.hp -= d * G.get("power", 1.0)
 	e.flash = 3
 	if e.hp <= 0:
 		kill_e(e)
@@ -1822,7 +1829,9 @@ func spawn_boss() -> void:
 	G.boss.m.rotation.z = PI / 2
 
 
-func boss_damage(part: Dictionary, d: int) -> void:
+## Damage to a boss part; the ship's level scales it here, once, for every boss.
+func boss_damage(part: Dictionary, d: float) -> void:
+	d *= G.get("power", 1.0)
 	var B: Dictionary = G.boss
 	if B.is_empty() or B.dying:
 		return
@@ -2739,7 +2748,7 @@ func spawn_gboss(kind: String) -> void:
 	_update_gboss(B)
 
 
-func _gboss_damage(p: Dictionary, d: int) -> void:
+func _gboss_damage(p: Dictionary, d: float) -> void:
 	var B: Dictionary = G.boss
 	if B.dying or p.armour or not p.alive:
 		return

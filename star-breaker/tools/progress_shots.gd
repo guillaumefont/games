@@ -41,6 +41,8 @@ func _initialize() -> void:
 	vg.prog = Progress.new()
 	vg.prog.stages = {w1s1 = {m = [15, 5, 0], c = 3}, w1s2 = {m = [11, 0, 0], c = 1}}
 	vg.prog.paint = {lance = "violet", warden = "moss"}
+	vg.prog.flux = 1840
+	vg.prog.levels = {lance = 7, warden = 3}
 	vg.hud.prog = vg.prog
 	var bs: Array = []
 	bs.resize(VStage.STAGES.size())
