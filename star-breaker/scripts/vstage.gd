@@ -26,9 +26,8 @@ const WORLDS := [
 	{pool = ["seekers", "shards", "turrets", "drones", "sentinel", "wasps", "lancers"], late = "nest", big = "sentinel",
 		names = ["Corona Fields", "Ember Sea", "Solar Wind", "Flare Gate", "Magma Shelf", "Fusion Deep", "Last Light", "Star Heart"]},
 ]
-## World bosses, by world (the final stage of each world). Worlds without a ported boss yet
-## end with a giant of their big flyer.
-const BOSSES := ["bloom", "giant", "giant", "giant", "giant", "giant"]
+## World bosses, by world (the final stage of each world).
+const BOSSES := ["bloom", "prism", "queen", "titan", "bastion", "heart"]
 ## Mid-boss names: [one big flyer, a pair of them].
 const BIG_NAMES := {shell = ["Shell Matriarch", "Shell Twins"], hulk = ["Rime Hulk", "Hulk Pair"], nest = ["Brood Nest", "Twin Nests"],
 	sentinel = ["Gold Sentinel", "Sentinel Pair"], bulwark = ["Bulwark", "Bulwark Pair"]}

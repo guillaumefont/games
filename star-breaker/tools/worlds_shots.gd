@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshots of the six worlds for reviews: the stage map on two worlds, a busy stretch of
-## each world with its own flyers and colours, a fortress, and a mid-boss.
+## each world with its own flyers and colours, a fortress, a mid-boss and the world bosses.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/worlds_shots.gd -- OUT_DIR
 
 var vg: Node3D
@@ -64,4 +64,12 @@ func _initialize() -> void:
 	jump(VStage.STAGES[9].length - 160.0)
 	await play(420)
 	await snap("w2_midboss")
+	# the world bosses
+	for w in range(1, 6):
+		var i: int = w * 8 + 7
+		vg.start_stage(i, "lance" if w % 2 else "warden")
+		await play(60)
+		jump(VStage.STAGES[i].length - 160.0)
+		await play(560, 0.9)
+		await snap("w%d_boss" % (w + 1))
 	quit()

@@ -337,7 +337,8 @@ func _warm_up() -> void:
 	add_child(w)
 	var flashed := Models.drifter()
 	var list: Array = [VShips.lance(), Models.ship(), Models.pod(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
-		Models.generator(1), Models.block(Models.M.rock), Models.carrier("L"), Models.item("L")]
+		Models.generator(1), Models.block(Models.M.rock), Models.carrier("L"), Models.item("L"), Models.shard(), Models.flake(), Models.hulk(),
+		Models.drone(), Models.seeker(), Models.sentinel(), Models.wasp(), Models.nest(), Models.lancer(), Models.bulwark()]
 	for k in Models.M:
 		var mat = Models.M[k]
 		if mat is Material:
@@ -355,6 +356,8 @@ func _warm_up() -> void:
 	var bw := Node3D.new()
 	w.add_child(bw)
 	Models.set_flash(Models.boss(bw), true)
+	for b in [Models.boss_prism(bw), Models.boss_titan(bw), Models.boss_heart(bw), Models.boss_queen(bw), Models.boss_bastion(bw)]:
+		Models.set_flash(b, true)
 	for i in 4:
 		await get_tree().process_frame
 	w.queue_free()
@@ -1392,6 +1395,9 @@ func _spawn_end(kind: String) -> void:
 	if kind == "bloom":
 		spawn_boss()
 		return
+	if kind in ["prism", "queen", "titan", "bastion", "heart"]:
+		spawn_gboss(kind)
+		return
 	var wd: Dictionary = VStage.WORLDS[G.world]
 	var hk: float = 1.0 + 0.2 * G.world + 0.03 * G.j
 	var parts := kind.split(":")
@@ -1802,6 +1808,9 @@ func boss_damage(part: Dictionary, d: int) -> void:
 	var B: Dictionary = G.boss
 	if B.is_empty() or B.dying:
 		return
+	if B.kind != "bloom":
+		_gboss_damage(part.o, d)
+		return
 	match part.kind:
 		"petal":
 			var p: Dictionary = part.o
@@ -1856,6 +1865,9 @@ func update_boss() -> void:
 			shake = 22.0
 			remove_boss()
 			_stage_clear()
+		return
+	if B.kind != "bloom":
+		_update_gboss(B)
 		return
 	if B.enter:
 		B.y -= 0.5
@@ -1944,6 +1956,11 @@ func update_boss() -> void:
 func remove_boss() -> void:
 	var B: Dictionary = G.boss
 	if B.is_empty():
+		return
+	if B.kind != "bloom":
+		B.m.queue_free()
+		G.boss = {}
+		G.bparts = []
 		return
 	var u: Dictionary = B.m.get_meta("u")
 	for m in u.petals + u.stalks + u.segs + [u.tip]:
@@ -2584,6 +2601,9 @@ func _sync_beam(b: Dictionary) -> void:
 
 func _sync_boss() -> void:
 	var B: Dictionary = G.boss
+	if B.kind != "bloom":
+		_sync_gboss(B)
+		return
 	var u: Dictionary = B.m.get_meta("u")
 	B.m.position = Vector3(X(B.x), Y(B.y), 0)
 	B.m.visible = _shown(B.x, B.y, 40.0)
@@ -2635,3 +2655,420 @@ func _sync_boss() -> void:
 	hp += maxf(0.0, T.hp)
 	mxh += T.max
 	hud.boss = 0.0 if B.dying else clampf(hp / mxh, 0.0, 1.0)
+
+
+# ---------- the world bosses of worlds 2 to 6 ----------
+# Ported from the landscape game (git history before 2026-11-17, main.gd `spawn_gboss`), turned
+# so the boss sits at the top of the screen and faces down. Each is a set of parts: guards or
+# guns to break first, armour that only blocks, and a core that kills it.
+
+func _part(key: String, hp: float, r: float, o := {}) -> Dictionary:
+	var p := {id = uid(), key = key, hp = hp, max = hp, r = r, alive = true, flash = 0, x = 0.0, y = 0.0, core = false, armour = false, cd = 0, burst = 0}
+	p.merge(o, true)
+	return p
+
+
+func spawn_gboss(kind: String) -> void:
+	var k: float = 1.0 + 0.15 * G.world
+	var B := {kind = kind, x = W / 2.0, y = top() + 60.0, t = 0, bt = 0, enter = true, phase2 = false, phase3 = false, dying = 0, lid = 0.0,
+		open = false, parts = {}, rot = 0.0}
+	var list: Array = []
+	match kind:
+		"prism":
+			B.home = H - 48.0
+			list = [_part("top", 26 * k, 7.5, {oy = -27.0, cd = 70}), _part("bot", 26 * k, 7.5, {oy = 27.0, cd = 145}),
+				_part("core", 90 * k, 10.0, {core = true, armour = true})]
+			B.m = Models.boss_prism(world)
+		"titan":
+			B.home = H - 36.0
+			list = [_part("hullA", 9999, 13.0, {armour = true, oy = -12.0}), _part("hullB", 9999, 13.0, {armour = true, oy = 12.0}),
+				_part("top", 30 * k, 7.0, {oy = -28.0, cd = 90}), _part("bot", 30 * k, 7.0, {oy = 28.0, cd = 150}),
+				_part("core", 120 * k, 7.5, {core = true, armour = true})]
+			B.m = Models.boss_titan(world)
+		"queen":
+			B.home = H - 52.0
+			list = [_part("top", 28 * k, 9.0, {oy = -25.0, cd = 80}), _part("bot", 28 * k, 9.0, {oy = 25.0, cd = 145}),
+				_part("sac", 40 * k, 11.0, {cd = 120}), _part("core", 110 * k, 8.5, {core = true, armour = true})]
+			B.m = Models.boss_queen(world)
+		"bastion":
+			B.home = H - 48.0
+			for i in 4:
+				list.append(_part("p%d" % i, 9999, 7.0, {armour = true, i = i}))
+			for i in 4:
+				list.append(_part("g%d" % i, 16 * k, 5.5, {i = i, oy = [-44.0, -22.0, 22.0, 44.0][i], cd = 60 + i * 30}))
+			list.append(_part("core", 150 * k, 9.0, {core = true}))
+			B.m = Models.boss_bastion(world)
+		_:
+			B.home = H - 62.0
+			for i in 8:
+				list.append(_part("n%d" % i, 10 * k, 5.0, {i = i, cd = 60 + i * 17}))
+			list.append(_part("core", 160 * k, 12.0, {core = true, armour = true}))
+			B.m = Models.boss_heart(world)
+	# the side-view model faces -x: a quarter turn makes it face down the screen
+	B.m.rotation.z = PI / 2
+	for p in list:
+		B.parts[p.key] = p
+	B.list = list
+	G.boss = B
+	audio.music("final" if kind == "heart" else "boss")
+	audio.play("alarm")
+	hud.boss_name = Worlds.LIST[G.world].boss_name
+	hud.banner("Warning", hud.boss_name + " approaching", 150)
+	Diag.once("vboss " + kind)
+	_update_gboss(B)
+
+
+func _gboss_damage(p: Dictionary, d: int) -> void:
+	var B: Dictionary = G.boss
+	if B.dying or p.armour or not p.alive:
+		return
+	p.hp -= d
+	p.flash = 3
+	if p.hp > 0:
+		audio.play("hit")
+		return
+	if p.core:
+		B.dying = 1
+		add_score(10000 + 3000 * G.world)
+		for b in G.eb:
+			b.dead = true
+		audio.play("boom")
+		shake = 16.0
+	else:
+		p.alive = false
+		boom(p.x, p.y, 9, true)
+		audio.play("boom")
+		shake = maxf(shake, 6.0)
+		add_score(1500)
+		P.ult = minf(1.0, P.ult + 0.12)
+
+
+func _update_gboss(B: Dictionary) -> void:
+	if B.enter:
+		B.y -= 0.5
+		if B.y <= B.home:
+			B.y = B.home
+			B.enter = false
+	else:
+		B.bt += 1
+	var P2: Dictionary = B.parts
+	for p in B.list:
+		if p.flash:
+			p.flash -= 1
+	match B.kind:
+		"prism":
+			# two crystal guards fire bursts; once both are gone the core spins out spirals
+			if not B.enter:
+				B.x = W / 2.0 + sin(B.bt * 0.012) * 16.0
+				B.y = B.home + sin(B.bt * 0.007) * 8.0
+			var guards := 0
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				p.y = B.y - 2.0
+				p.x = B.x + p.oy * (1.0 + 0.08 * sin(B.t * 0.05))
+				if not p.alive:
+					continue
+				guards += 1
+				if B.enter:
+					continue
+				p.cd -= 1
+				if p.cd <= 0 and p.burst == 0:
+					p.burst = 5
+					p.cd = 150
+				if p.burst > 0 and B.t % 6 == 0:
+					aim(p.x, p.y - 4, 1.7)
+					p.burst -= 1
+			var c: Dictionary = P2.core
+			c.x = B.x
+			c.y = B.y
+			c.armour = guards > 0
+			if guards == 0:
+				if not B.phase2:
+					B.phase2 = true
+					audio.play("alarm")
+				var cyc: int = B.t % 300
+				if cyc < 130 and B.t % 7 == 0:
+					var a: float = B.t * 0.11
+					for j in 3:
+						bullet(c.x, c.y, cos(a + j * TAU / 3.0) * 0.85 * bspeed(), sin(a + j * TAU / 3.0) * 0.85 * bspeed())
+				if cyc == 200:
+					fan(c.x, c.y - 8, 1.3, 5, 0.2)
+				if B.t % 360 == 300:
+					for j in 2:
+						E("shard", c.x + (j * 2 - 1) * 14.0, c.y - 6, {stop = c.y - 50.0 - j * 20.0, vy = -1.6, vx = 0.0, st = 0, score = 0})
+			elif not B.enter and B.t % 260 == 130:
+				ring(c.x, c.y, 8, 0.7)
+		"titan":
+			# two guns on the flanks; the furnace hatch opens on a cycle, longer once the guns are gone
+			if not B.enter:
+				B.x = W / 2.0 + sin(B.bt * 0.01) * 14.0
+			var guns := 0
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				p.y = B.y - 14.0
+				p.x = B.x + p.oy
+				if not p.alive:
+					continue
+				guns += 1
+				if B.enter:
+					continue
+				p.cd -= 1
+				if p.cd <= 0:
+					fan(p.x, p.y - 6, 1.1, 3, 0.24)
+					p.cd = 110
+			for key in ["hullA", "hullB"]:
+				var p: Dictionary = P2[key]
+				p.y = B.y + 4.0
+				p.x = B.x + p.oy
+			var c: Dictionary = P2.core
+			c.y = B.y - 16.0
+			c.x = B.x
+			var cyc: int = B.t % 280
+			var was: bool = B.open
+			B.open = not B.enter and (cyc > 40 and cyc < 220 if guns == 0 else cyc > 70 and cyc < 180)
+			c.armour = not B.open
+			if B.open and not was:
+				ring(c.x, c.y, 12, 0.8)
+				for j in 2:
+					E("drone", c.x + (j * 2 - 1) * 10.0, c.y - 4, {vy = -2.0, vx = 0.0, turn = 0, score = 0})
+			if B.open and cyc % 40 == 20:
+				aim(c.x, c.y - 4, 1.4)
+			B.lid += ((1.0 if B.open else 0.0) - B.lid) * 0.15
+		"queen":
+			# wings fan bullets, the sac hatches wasps; with the wings gone the head opens up
+			if not B.enter:
+				B.x = W / 2.0 + sin(B.bt * 0.014) * 20.0
+				B.y = B.home + sin(B.bt * 0.009) * 10.0
+			var wings := 0
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				p.y = B.y + 2.0
+				p.x = B.x + p.oy + sin(B.t * 0.3) * 1.5
+				if not p.alive:
+					continue
+				wings += 1
+				if B.enter:
+					continue
+				p.cd -= 1
+				if p.cd <= 0:
+					fan(p.x, p.y - 4, 1.0, 5, 0.22)
+					p.cd = 130
+			var sac: Dictionary = P2.sac
+			sac.y = B.y + 16.0
+			sac.x = B.x
+			if sac.alive and not B.enter:
+				sac.cd -= 1
+				if sac.cd <= 0 and G.enemies.size() < 30:
+					for j in 3:
+						var wx: float = sac.x + (j - 1) * 10.0
+						E("wasp", wx, sac.y - 4, {x0 = wx, ph = j * 1.1, st = 0, vx = 0.0, vy = 0.0, score = 0})
+					sac.cd = 200
+			var c: Dictionary = P2.core
+			c.y = B.y - 14.0
+			c.x = B.x
+			c.armour = wings > 0
+			if wings == 0:
+				if not B.phase2:
+					B.phase2 = true
+					audio.play("alarm")
+				var cyc: int = B.t % 240
+				if cyc < 120 and B.t % 12 == 0:
+					fan(c.x, c.y - 6, 1.4, 3, 0.18)
+				if cyc == 180:
+					fan(c.x, c.y, 1.0, 7, 0.2)
+			elif not B.enter and B.t % 240 == 200:
+				aim(c.x, c.y - 6, 1.3)
+		"bastion":
+			# four guns on a beam; armour plates circle the core, faster once the guns are gone
+			if not B.enter:
+				B.x = W / 2.0 + sin(B.bt * 0.008) * 8.0
+			var guns := 0
+			for i in 4:
+				var p: Dictionary = P2["g%d" % i]
+				p.y = B.y + 4.0
+				p.x = B.x + p.oy
+				if not p.alive:
+					continue
+				guns += 1
+				if B.enter:
+					continue
+				p.cd -= 1
+				if p.cd <= 0:
+					aim(p.x, p.y - 5, 1.2)
+					p.cd = 120
+			B.rot += 0.03 if guns == 0 else 0.015
+			for i in 4:
+				var p: Dictionary = P2["p%d" % i]
+				var a: float = i * TAU / 4.0 + B.rot
+				p.y = B.y - 6.0 + cos(a) * 19.0
+				p.x = B.x + sin(a) * 19.0
+			var c: Dictionary = P2.core
+			c.y = B.y - 6.0
+			c.x = B.x
+			if guns == 0:
+				if not B.phase2:
+					B.phase2 = true
+					audio.play("alarm")
+				var cyc: int = B.t % 200
+				if cyc < 36 and cyc % 6 == 0:
+					aim(c.x, c.y, 2.0)
+				if cyc == 120:
+					ring(c.x, c.y, 12, 0.8)
+			elif not B.enter and B.t % 260 == 130:
+				ring(c.x, c.y, 8, 0.7)
+		_:
+			# eight nodes orbit the heart; when they're gone it roams the top half spiralling fire
+			var nodes := 0
+			for i in 8:
+				var p: Dictionary = P2["n%d" % i]
+				var a: float = i * TAU / 8.0 + B.t * 0.012
+				p.y = B.y + cos(a) * 26.0
+				p.x = B.x + sin(a) * 26.0
+				if not p.alive:
+					continue
+				nodes += 1
+				if B.enter:
+					continue
+				p.cd -= 1
+				if p.cd <= 0:
+					aim(p.x, p.y, 1.1)
+					p.cd = 150
+			var c: Dictionary = P2.core
+			c.armour = nodes > 0
+			if nodes > 0:
+				if not B.enter:
+					B.x = W / 2.0 + sin(B.bt * 0.01) * 10.0
+					if B.t % 240 == 120:
+						ring(B.x, B.y, 10, 0.7)
+			else:
+				if not B.phase2:
+					B.phase2 = true
+					B.bt = 0
+					audio.play("alarm")
+					hud.banner("Warning", "The heart is exposed", 120)
+				if not B.phase3 and c.hp < c.max * 0.4:
+					B.phase3 = true
+					audio.play("alarm")
+				var tx: float = W / 2.0 + sin(B.bt * 0.018) * 32.0
+				var ty: float = B.home - 6.0 + sin(B.bt * 0.009) * 22.0
+				B.x += (tx - B.x) * 0.05
+				B.y += (ty - B.y) * 0.05
+				var cyc: int = B.t % 260
+				var arms := 3 if B.phase3 else 2
+				if cyc < 150 and B.t % (5 if B.phase3 else 6) == 0:
+					var a: float = B.t * 0.09
+					for j in arms:
+						bullet(B.x, B.y, cos(a + j * TAU / arms) * 0.8 * bspeed(), sin(a + j * TAU / arms) * 0.8 * bspeed())
+				if cyc == 200:
+					ring(B.x, B.y, 14, 0.75)
+				if B.t % 330 == 160:
+					for j in 2:
+						E("seeker", B.x + (j * 2 - 1) * 12.0, B.y - 10, {vx = (j * 2 - 1) * 0.6, vy = -1.0, score = 0})
+			c.x = B.x
+			c.y = B.y
+	var parts := []
+	for p in B.list:
+		if p.alive:
+			parts.append({o = p, x = p.x, y = p.y, r = p.r, kind = "shield" if p.armour else ("core" if p.core else "part")})
+	G.bparts = parts
+
+
+## A point of the stage in the boss model's frame (the model is turned a quarter turn).
+func _bl(x: float, y: float, z: float) -> Vector3:
+	return Vector3(Y(y), -X(x), z)
+
+
+func _sync_gboss(B: Dictionary) -> void:
+	var u: Dictionary = B.m.get_meta("u")
+	B.m.position = Vector3.ZERO
+	B.m.visible = _shown(B.x, B.y, 60.0)
+	var P2: Dictionary = B.parts
+	var c: Dictionary = P2.core
+	var hp := 0.0
+	var mx := 0.0
+	for p in B.list:
+		if p.max < 9999:
+			hp += maxf(0.0, p.hp)
+			mx += p.max
+	hud.boss = 0.0 if B.dying else clampf(hp / mx, 0.0, 1.0)
+	match B.kind:
+		"prism":
+			var core: Node3D = u.core
+			core.position = _bl(c.x, c.y, 0)
+			core.rotation = Vector3(0, B.t * 0.02, sin(B.t * 0.02) * 0.2)
+			Models.set_flash(core, c.flash > 0 and not c.armour)
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				var n: Node3D = u[key]
+				var beam: Node3D = u[key + "_beam"]
+				n.visible = p.alive
+				beam.visible = p.alive
+				n.position = _bl(p.x, p.y, 1)
+				n.rotation.y = B.t * 0.04
+				Models.set_flash(n, p.flash > 0)
+				beam.position = _bl((p.x + c.x) / 2.0, (p.y + c.y) / 2.0, -2)
+				beam.scale = Vector3(1.6, absf(p.x - c.x), 1.6)
+		"titan":
+			(u.hull as Node3D).position = _bl(B.x, B.y + 4, -4)
+			var core: Node3D = u.core
+			core.position = _bl(c.x, c.y, 2)
+			core.rotation.z = B.t * 0.05
+			Models.set_flash(core, c.flash > 0 and not c.armour)
+			(u.lidT as Node3D).position = _bl(c.x - 4.5 - B.lid * 8.0, c.y - 3, 6)
+			(u.lidB as Node3D).position = _bl(c.x + 4.5 + B.lid * 8.0, c.y - 3, 6)
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				var n: Node3D = u[key]
+				n.visible = p.alive
+				n.position = _bl(p.x, p.y, 3)
+				var d := Vector2(P.x - p.x, P.y - p.y)
+				(n.get_meta("piv") as Node3D).rotation.z = atan2(-d.x, d.y) - PI
+				Models.set_flash(n, p.flash > 0)
+		"queen":
+			var head: Node3D = u.core
+			head.position = _bl(c.x, c.y, 2)
+			head.rotation.y = sin(B.t * 0.03) * 0.3
+			Models.set_flash(head, c.flash > 0 and not c.armour)
+			var sac: Dictionary = P2.sac
+			var sn: Node3D = u.sac
+			sn.visible = sac.alive
+			sn.position = _bl(sac.x, sac.y, -2)
+			sn.scale = Vector3.ONE * (1.0 + sin(B.t * 0.08) * 0.05)
+			Models.set_flash(sn, sac.flash > 0)
+			for key in ["top", "bot"]:
+				var p: Dictionary = P2[key]
+				var n: Node3D = u[key]
+				n.visible = p.alive
+				n.position = _bl(B.x, p.y, 0)
+				n.rotation.x = sin(B.t * 0.6) * 0.5
+				Models.set_flash(n, p.flash > 0)
+		"bastion":
+			var core: Node3D = u.core
+			core.position = _bl(c.x, c.y, 0)
+			core.rotation.z = -B.rot * 2.0
+			Models.set_flash(core, c.flash > 0)
+			(u.frame as Node3D).position = _bl(B.x, B.y + 10, -6)
+			for i in 4:
+				var p: Dictionary = P2["p%d" % i]
+				var pl: Node3D = u.plates[i]
+				pl.position = _bl(p.x, p.y, 4)
+				pl.rotation.z = -(i * TAU / 4.0 + B.rot)
+				var g: Dictionary = P2["g%d" % i]
+				var gn: Node3D = u.guns[i]
+				gn.visible = g.alive
+				gn.position = _bl(g.x, g.y, 2)
+				Models.set_flash(gn, g.flash > 0)
+		_:
+			var core: Node3D = u.core
+			core.position = _bl(c.x, c.y, 0)
+			(u.spikes as Node3D).rotation.z = B.t * 0.01
+			core.rotation.y = B.t * 0.01
+			(u.shell as Node3D).visible = c.armour
+			Models.set_flash(core, c.flash > 0 and not c.armour)
+			for i in 8:
+				var p: Dictionary = P2["n%d" % i]
+				var n: Node3D = u.nodes[i]
+				n.visible = p.alive
+				n.position = _bl(p.x, p.y, 2)
+				n.rotation = Vector3(B.t * 0.03, B.t * 0.02, 0)
+				Models.set_flash(n, p.flash > 0)

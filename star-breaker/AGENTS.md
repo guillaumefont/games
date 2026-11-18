@@ -163,8 +163,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   each world's flyer groups (`VStage.WORLDS`), Lance and Warden. Stage ids are "w1s1".."w6s8".
   The menu is a stage map: world tabs and a 2 x 4 grid (`_build_map` in `vhud.gd`). Each world has
   its own colours (`LOOKS` in `vgame.gd`, applied by `apply_world()`) and song. Stage 8 ends with
-  the world boss (only the Bloom Mother is ported; other worlds end with a "giant" of their big
-  flyer), stages 1-7 with mid-bosses made of big flyers (`_spawn_end`). Best score per stage is
+  the world boss, stages 1-7 with mid-bosses made of big flyers (`_spawn_end`). The Bloom Mother
+  has its own code (`spawn_boss`); the bosses of worlds 2-6 share one parts system
+  (`spawn_gboss`, `_update_gboss`, `_sync_gboss`), ported from the landscape game and turned a
+  quarter turn: their models are rotated, so part positions go through `_bl()`. Best score per stage is
   saved under `[portrait] bests` in `user://save.cfg` (an Array of 48).
 - All 13 flyers from the landscape game are in, turned to come down the screen (`_update_enemies`,
   `_update_big`). Embers and hoppers stay cut: they enter from the bottom edge, under the thumb.

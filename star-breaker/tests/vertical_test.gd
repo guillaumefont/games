@@ -310,12 +310,60 @@ func _initialize() -> void:
 	vg.start_stage(47, "lance")
 	vg.finish(true)
 	check(not vg.hud._result_next.visible, "the last stage has no Next")
+	await world_boss_checks()
 	vg.hud.menu_pressed.emit()
 	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
 
 	await rock_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
 	quit(1 if fails else 0)
+
+
+## The bosses of worlds 2 to 6: each arrives at the top, attacks, shrugs off hits on its
+## armour, and dies (clearing the stage) once its guards and core are destroyed.
+func world_boss_checks() -> void:
+	print("World bosses")
+	for w in range(1, 6):
+		var i: int = w * 8 + 7
+		vg.start_stage(i, "lance")
+		settle()
+		vg.G.scroll = VStage.STAGES[i].length - 200
+		vg.G.si = 0
+		while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll:
+			vg.G.si += 1
+		var t := 0
+		while vg.G.boss.is_empty() and t < 1000:
+			t += 1
+			tick(1, false)
+		var kind: String = Worlds.LIST[w].boss
+		check(not vg.G.boss.is_empty() and vg.G.boss.kind == kind, "world %d ends with the %s" % [w + 1, Worlds.LIST[w].boss_name])
+		for e in vg.G.enemies:
+			e.dead = true
+		tick(320, false)
+		var B: Dictionary = vg.G.boss
+		check(not B.enter and B.y < 224.0 and B.y > 140.0 and B.x > 20.0 and B.x < 106.0, "the %s settles at the top of the screen (%.0f, %.0f)" % [kind, B.x, B.y])
+		var fired := false
+		for k in 300:
+			tick(1, false)
+			if not vg.G.eb.is_empty():
+				fired = true
+		check(fired, "the %s attacks" % kind)
+		var c: Dictionary = B.parts.core
+		if c.armour:
+			var hp0: float = c.hp
+			vg.boss_damage({o = c, kind = "shield"}, 5)
+			check(c.hp == hp0, "the %s's core is armoured while its guards live" % kind)
+		for p in B.list:
+			if not p.core and p.max < 9999:
+				vg.boss_damage({o = p, kind = "part"}, 9999)
+		tick(300, false)
+		if kind == "titan":
+			while not B.open:
+				tick(1, false)
+		check(not c.armour or kind == "titan", "with its guards gone the %s's core opens" % kind)
+		vg.boss_damage({o = c, kind = "core"}, 99999)
+		tick(400, false)
+		check(vg.mode == "result" and vg.G.boss.is_empty(), "the %s's death clears the stage" % kind)
 
 
 ## The flyers of all six worlds, the stage ends, and ground targets in reach of the ship.
@@ -352,7 +400,7 @@ func flyer_checks() -> void:
 			if e.type == "turret" or e.type == "generator":
 				if not VStage.in_reach(ev, e):
 					check(false, "stage %d: a %s at %.0f sits behind a wall" % [i + 1, e.type, e.d])
-	check(names.has("big:hulk") and names.has("twins:bulwark") and names.has("bloom"), "stages end with mid-bosses of every world's big flyer")
+	check(names.has("big:hulk") and names.has("twins:bulwark") and names.has("bloom") and names.has("heart"), "stages end with mid-bosses of every world's big flyer, worlds with their bosses")
 	# the end of a Frost Rift stage: a Rime Hulk grown to mid-boss size
 	for e in vg.G.enemies:
 		e.dead = true
