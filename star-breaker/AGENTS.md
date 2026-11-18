@@ -52,10 +52,19 @@ godot --headless --path . --script tests/update_test.gd  # self-update: pack dow
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
 godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
 godot --headless --path . --script tests/run_test.gd     # canyon run: course is fair, racing line earns gold, camera swings back
+godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours
 ```
 
 Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
 (`tools/worlds_shots.gd` takes the stage map and one shot per world.)
+
+## Replay progress (tiers, medals, colours)
+
+- `scripts/progress.gd` (`Progress`) holds it, saved in `user://save.cfg` under `[progress]`, keyed by
+  a stage's `id` ("w1s1"), never its index. Tiers scale the game only through `vgame.tier_mul(key)`
+  (bullet, fire, hp, score) and `Progress.TIERS[t].ships`; new enemy fire cooldowns should
+  decrement by `tier_mul("fire")`. A new stage-end kind needs a `Progress.PAR` entry (else
+  `DEFAULT_PAR`). Screens: `tools/progress_shots.gd` (same command as below, other script).
 
 ## App icon
 

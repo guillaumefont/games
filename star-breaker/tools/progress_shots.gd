@@ -42,7 +42,12 @@ func _initialize() -> void:
 	vg.prog.stages = {w1s1 = {m = [15, 5, 0], c = 3}, w1s2 = {m = [11, 0, 0], c = 1}}
 	vg.prog.paint = {lance = "violet", warden = "moss"}
 	vg.hud.prog = vg.prog
-	vg.hud.set_bests([184200, 96350, 0])
+	var bs: Array = []
+	bs.resize(VStage.STAGES.size())
+	bs.fill(0)
+	bs[0] = 184200
+	bs[1] = 96350
+	vg.hud.set_bests(bs)
 	for i in 20:
 		await process_frame
 	await snap("p_menu_normal")

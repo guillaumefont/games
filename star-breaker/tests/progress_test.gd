@@ -72,14 +72,18 @@ func _initialize() -> void:
 	check(vg.G.tier == 0, "starting a closed tier plays the highest open one")
 	vg.update()
 	var normal_speed: float = vg.bspeed()
+	var f0: int = vg.G.foes
 	var e: Dictionary = vg.E("drifter", 60, 150)
 	var normal_hp: float = e.hp
-	check(vg.G.foes == 1, "spawned enemies are counted for Sweep")
+	check(vg.G.foes == f0 + 1, "spawned enemies are counted for Sweep")
+	var k0: int = vg.G.foes_killed
 	vg.kill_e(e)
-	check(vg.G.foes_killed == 1, "kills are counted for Sweep")
+	check(vg.G.foes_killed == k0 + 1, "kills are counted for Sweep")
+	var b0n: int = vg.G.breakables
+	var r0: int = vg.G.broken
 	var g: Dictionary = vg.E("generator", 20, 150)
 	vg.kill_e(g)
-	check(vg.G.breakables == 1 and vg.G.broken == 1 and vg.G.foes == 1, "generators count for Breaker, not Sweep")
+	check(vg.G.breakables == b0n + 1 and vg.G.broken == r0 + 1 and vg.G.foes == f0 + 1, "generators count for Breaker, not Sweep")
 	vg.hurt()
 	check(vg.G.hits == 1, "hull hits are counted for Untouched")
 	vg.G.clear_t = 1
@@ -104,7 +108,7 @@ func _initialize() -> void:
 	vg.prog.stages["w1s2"] = {m = [15, 15, 15], c = 7}
 	vg.prog.stages["w1s3"] = {m = [15, 15, 15], c = 7}
 	check(not vg.prog.set_paint("lance", "obsidian"), "Obsidian Lance needs 32 medals")
-	vg.prog.stages["w1s4"] = {m = [15, 0, 0], c = 1}
+	vg.prog.stages["w1s4"] = {m = [15, 15, 15], c = 7}
 	check(vg.prog.total() >= 32 and vg.prog.set_paint("lance", "obsidian"), "32 medals open Obsidian Lance")
 	vg.start_stage(0, "lance", 0)
 	var found := false

@@ -279,6 +279,8 @@ func stage_label(i: int) -> String:
 		t += "\nlocked"
 	elif i < bests.size() and int(bests[i]) > 0:
 		t += "\n" + _fmt(int(bests[i]))
+	else:
+		t += "\n "  # keeps the name on the top line, clear of the medal pips
 	return t.to_upper()
 
 
