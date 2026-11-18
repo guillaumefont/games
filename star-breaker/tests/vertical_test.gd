@@ -536,7 +536,8 @@ func rock_checks() -> void:
 	vg.P.hull = 3
 	vg.P.x = w0.x + vg.ROCK_PAD + 1.5
 	var sc: int = vg.G.score
-	tick(12, false, 0.0, 0.0, false, false)
+	# (the stage runs slow just after a hit: give it a dozen of its own ticks)
+	tick(30, false, 0.0, 0.0, false, false)
 	check(vg.G.score > sc and vg.P.hull == 3, "skimming the rock pays points without damage")
 	# shots and bullets break on the rock
 	vg.P.x = (w0.x + w0.y) / 2.0
