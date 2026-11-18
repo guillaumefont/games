@@ -10,7 +10,7 @@ const W := 126.0
 const H := 224.0
 
 const STAGES := [
-	{name = "Spore Fields", sub = "The Hollow Moon · 1", length = 2600.0, seed = 11, fort = [1300.0, 1900.0], end = "matriarch"},
+	{name = "Spore Fields", sub = "The Hollow Moon · 1", length = 2600.0, seed = 11, fort = [1300.0, 1900.0], end = "matriarch", run = 1120.0},
 	{name = "Crystal Gate", sub = "The Hollow Moon · 2", length = 2700.0, seed = 23, fort = [1100.0, 2000.0], end = "twins"},
 	{name = "Bloom Heart", sub = "The Hollow Moon · 3", length = 2300.0, seed = 37, fort = [900.0, 1500.0], end = "bloom"},
 ]
@@ -28,7 +28,11 @@ static func build(i: int) -> Array:
 	var pool := ["sine", "dive", "turrets", "sine", "shell", "dive", "turrets"]
 	var d := 260.0
 	var k := i
+	var run: float = s.get("run", -9999.0)
 	while d < s.length - 120:
+		if d >= run - 240 and d < run + 40:
+			d = run + 40
+			continue
 		if d >= fa - 80 and d < fb + 60:
 			d = fb + 140
 			continue
@@ -39,6 +43,9 @@ static func build(i: int) -> Array:
 	ev.append({d = fa * 0.45, type = "carrier", x = 20.0, dir = 1.0, item = "L"})
 	ev.append({d = fb + 60, type = "carrier", x = W - 20, dir = -1.0, item = "L"})
 	_fortress(ev, fa, fb, rng, i)
+	if s.has("run"):
+		# the canyon run (see VRun): its mouth appears at the top of the screen here
+		ev.append({d = run, type = "run"})
 	ev.append({d = s.length, type = "end", kind = s.end})
 	ev.sort_custom(func(a, b): return a.d < b.d)
 	return ev
@@ -90,13 +97,14 @@ static func _fortress(ev: Array, a: float, b: float, rng: RandomNumberGenerator,
 ## [start, end, gap]: the walls slide in from the screen edges to leave a `gap` wide passage
 ## that wanders from side to side, then slide out again. An island is
 ## [start, length, x, half-width]: a lozenge of rock in the open that splits the way in two.
+## Stage 1 has one island only: the canyon run takes the place of the other.
 const CANYONS := [
 	[[480.0, 760.0, 68.0]],
 	[[420.0, 700.0, 64.0]],
 	[[1560.0, 1800.0, 60.0]],
 ]
 const ISLANDS := [
-	[[1040.0, 170.0, 63.0, 15.0], [2010.0, 150.0, 48.0, 13.0]],
+	[[2010.0, 150.0, 48.0, 13.0]],
 	[[860.0, 160.0, 63.0, 15.0], [2080.0, 150.0, 74.0, 14.0]],
 	[[360.0, 150.0, 63.0, 14.0], [640.0, 170.0, 46.0, 15.0]],
 ]

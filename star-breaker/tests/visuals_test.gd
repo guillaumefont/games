@@ -160,8 +160,13 @@ func _initialize() -> void:
 	for e in vg.G.enemies:
 		first[e.id] = true
 	var on_screen := []
-	for f in 900:
+	var st := 0
+	while st < 900:
 		tick(1)
+		# the canyon run holds the stage still: count stage time only
+		if vg.G.has("run"):
+			continue
+		st += 1
 		for e in vg.G.enemies:
 			# carriers fly in from the side, and a boss's brood hatches out of it
 			if not first.has(e.id) and not e.get("boss", false) and e.type != "carrier" and e.get("score", 1) != 0:
