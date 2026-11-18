@@ -2,7 +2,8 @@ extends SceneTree
 ## Replay tiers, medals and the medal track: Normal is open and clearing a tier opens the next
 ## one for that stage, Nova and Supernova make enemies tougher (faster bullets, more fire, more
 ## hit points, two ships on Supernova), the four medals are judged from a run, medals are
-## counted once and saved, and the medal track unlocks ship colours that repaint the ship.
+## counted once and saved, the medal track unlocks ship colours that repaint the ship, runs bank
+## flux, and flux buys ship levels that raise damage.
 
 var vg: Node3D
 var fails := 0
@@ -124,9 +125,54 @@ func _initialize() -> void:
 	check(found, "the chosen colour repaints the ship")
 	check(Models.M.hull.albedo_color.is_equal_approx(Color("dfe8f2")), "repainting leaves the shared stock material alone")
 	vg.hud.refresh_progress()
-	check(vg.hud._btn_medals.text.begins_with("MEDALS %d" % vg.prog.total()), "the menu shows the medal count")
+	check(vg.hud._btn_medals.text.contains("MEDALS %d" % vg.prog.total()) and vg.hud._btn_medals.text.contains("FLUX"), "the menu shows flux and the medal count")
 	vg.hud.show_screen("medals")
 	check(vg.hud.medals_scr.visible and not vg.hud.menu_scr.visible, "the medals screen opens from the menu")
+
+	# --- flux and ship levels ---
+	check(Progress.power(1) == 1.0 and is_equal_approx(Progress.power(Progress.MAX_LEVEL), 2.0), "ship levels add up to double damage at level 50")
+	check(Progress.level_cost(1) < Progress.level_cost(10) and Progress.level_cost(10) < Progress.level_cost(49), "each level costs more than the last")
+	var early := 0
+	for lv in range(1, 10):
+		early += Progress.level_cost(lv)
+	check(early < 2000, "level 10 costs under 2,000 flux (about 5 Normal stages)")
+	var fp := Progress.new()
+	check(fp.bank_run(25000, 0, 2) == 250 + 2 * Progress.MEDAL_FLUX[0], "a run banks 1 flux per 100 points plus a bonus per new medal")
+	check(not fp.buy_level("warden") or fp.level("warden") == 2, "levelling spends flux")
+	fp.flux = 0
+	check(not fp.buy_level("lance") and fp.level("lance") == 1, "no level without the flux")
+	fp.flux = 100000
+	check(fp.buy_level("lance") and fp.level("lance") == 2 and fp.flux == 100000 - Progress.level_cost(1), "a level up costs its price")
+	var fc := ConfigFile.new()
+	fp.save_to(fc)
+	var fq := Progress.new()
+	fq.load_from(fc)
+	check(fq.flux == fp.flux and fq.level("lance") == 2, "flux and levels are saved")
+	vg.prog.flux = 0
+	vg.prog.levels = {lance = 1, warden = 1}
+	vg.start_stage(0, "lance", 0)
+	var e3: Dictionary = vg.E("drifter", 60, 150)
+	var h3: float = e3.hp
+	vg.dmg_e(e3, 1)
+	var d1: float = h3 - e3.hp
+	vg.prog.levels.lance = Progress.MAX_LEVEL
+	vg.start_stage(0, "lance", 0)
+	var e4: Dictionary = vg.E("drifter", 60, 150)
+	var h4: float = e4.hp
+	vg.dmg_e(e4, 1)
+	check(is_equal_approx(h4 - e4.hp, d1 * 2.0), "a level 50 ship deals double damage")
+	vg.G.score = 30000
+	vg.G.clear_t = 1
+	var f0b: int = vg.prog.flux
+	vg.finish(true)
+	check(vg.prog.flux >= f0b + 300 and vg.hud._result_lines.text.contains("FLUX"), "a cleared run banks its flux and the result says how much")
+	vg.prog.levels.warden = 1
+	vg.prog.flux = Progress.level_cost(1)
+	vg.hud.refresh_progress()
+	check(not vg.hud._level_btns.warden.disabled, "the hangar's level up button is on when you can afford it")
+	vg.hud._level_btns.warden.pressed.emit()
+	check(vg.prog.level("warden") == 2 and vg.prog.flux == 0 and vg.hud._level_btns.warden.disabled, "levelling up from the hangar spends the flux")
+	check(vg.hud._level_lbls.warden.text.contains("LV 2"), "the hangar shows the new level")
 
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails > 0 else 0)

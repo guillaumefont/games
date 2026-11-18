@@ -52,7 +52,7 @@ godot --headless --path . --script tests/update_test.gd  # self-update: pack dow
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
 godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
 godot --headless --path . --script tests/run_test.gd     # canyon run: course is fair, racing line earns gold, camera swings back
-godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours
+godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours, flux, ship levels
 ```
 
 Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
@@ -64,7 +64,9 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   a stage's `id` ("w1s1"), never its index. Tiers scale the game only through `vgame.tier_mul(key)`
   (bullet, fire, hp, score) and `Progress.TIERS[t].ships`; new enemy fire cooldowns should
   decrement by `tier_mul("fire")`. A new stage-end kind needs a `Progress.PAR` entry (else
-  `DEFAULT_PAR`). Screens: `tools/progress_shots.gd` (same command as below, other script).
+  `DEFAULT_PAR`). Flux (`Progress.flux`) is banked once per run in `finish()` (score / 100 plus
+  `MEDAL_FLUX` per new medal) and buys ship levels; a level scales every hit through `G.power`,
+  applied only in `dmg_e` and `boss_damage`, so new damage paths must go through those. Screens: `tools/progress_shots.gd` (same command as below, other script).
 
 ## App icon
 
