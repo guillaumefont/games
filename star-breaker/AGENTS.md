@@ -7,7 +7,7 @@ Guillaume wants a modern mobile-game look (glass HUD, bloom, Rubik font), not re
 Portrait only since 2026-11-17 (Guillaume: "switch the whole game to portrait now that we are
 committed"); the landscape game was removed, its history is in git before that date.
 Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release
-(Lance: charge beam; Warden: fling or recall the pod), second finger = ultimate.
+(Lance: charge beam; Warden: fling or recall the pod), double tap = ultimate (a second finger or the ULT button work too).
 
 ## Pull requests
 

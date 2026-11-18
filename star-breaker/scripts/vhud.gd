@@ -330,7 +330,7 @@ func _update_how() -> void:
 	if not how:
 		return
 	var k := ship
-	var t := "%s: %s. Drag to fly, it fires on its own. Second finger: %s." % [VShips.KITS[k].name, VShips.KITS[k].sub, VShips.KITS[k].ult_name]
+	var t := "%s: %s. Drag to fly, it fires on its own. Double tap: %s." % [VShips.KITS[k].name, VShips.KITS[k].sub, VShips.KITS[k].ult_name]
 	t += " Rock hurts; skim it for points."
 	how.text = t
 

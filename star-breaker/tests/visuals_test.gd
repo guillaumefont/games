@@ -174,6 +174,23 @@ func _initialize() -> void:
 				if e.y < vg.view.end.y:
 					on_screen.append("%s at %.0f" % [e.type, e.y])
 	check(first.size() > 5 and on_screen.is_empty(), "on a tall phone enemies appear above the screen's top edge, not on it (%d seen; on screen: %s)" % [first.size(), on_screen])
+	# and they stay hidden until they reach into the screen, so no shadow shows ahead of them
+	var hidden_above := true
+	var shown_inside := true
+	vg._process(1.0 / 60.0)
+	for e in vg.G.enemies:
+		if e.y - maxf(e.hw, e.hh) - 2.0 > vg.view.end.y:
+			hidden_above = hidden_above and not (e.m as Node3D).visible
+		elif e.y < vg.view.end.y - 10.0 and e.y > vg.view.position.y + 10.0 and e.x > 0.0 and e.x < vg.W:
+			shown_inside = shown_inside and (e.m as Node3D).visible
+	var probe: Dictionary = vg.E("drifter", 60, vg.view.end.y + 20.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = 60.0})
+	vg._process(1.0 / 60.0)
+	var above_hidden: bool = not (probe.m as Node3D).visible
+	probe.y = vg.view.end.y - 20.0
+	vg._process(1.0 / 60.0)
+	check(hidden_above and above_hidden and (probe.m as Node3D).visible and shown_inside,
+		"enemies above the screen stay hidden (no shadow ahead of them) and show once they reach it")
+	probe.dead = true
 	vg.view = keep_view
 
 	# --- explosions ---

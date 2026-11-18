@@ -1,7 +1,7 @@
 extends SceneTree
 ## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
-## Nova) or flings and recalls Warden's pod, a second finger fires the ultimate, barriers and
+## Nova) or flings and recalls Warden's pod, a double tap fires the ultimate, barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
 ## end with their mid-bosses and the Bloom Mother.
 
@@ -76,6 +76,32 @@ func _initialize() -> void:
 	check(vg.G.beams.size() == 1 and vg.G.beams[0].lv == 1 and not vg.G.beams[0].nova, "lifting fires a LV 1 beam")
 	tick(60, false)
 	check(vg.G.beams.is_empty(), "the beam fades")
+	# on a phone a touch also arrives as a made-up mouse click, ahead of the touch itself: the
+	# real touch decides the hold, so lifting the finger still releases
+	var fake := func(pressed: bool) -> void:
+		var mb := InputEventMouseButton.new()
+		mb.device = InputEvent.DEVICE_ID_EMULATION
+		mb.button_index = MOUSE_BUTTON_LEFT
+		mb.pressed = pressed
+		mb.position = Vector2(270, 900)
+		vg._input(mb)
+	var finger := func(pressed: bool) -> void:
+		var t := InputEventScreenTouch.new()
+		t.index = 0
+		t.pressed = pressed
+		t.position = Vector2(270, 900)
+		vg._input(t)
+	fake.call(true)
+	finger.call(true)
+	vg.poll_input()
+	var held_down: bool = vg.inp.hold
+	finger.call(false)
+	fake.call(false)
+	vg.poll_input()
+	check(held_down and not vg.inp.hold, "on a phone, lifting the finger ends the hold (the mouse copy of a touch is ignored)")
+	vg._touch_seen = false
+	vg._mouse_down = false
+	vg._touch_id = -1
 	# the Nova burns bullets in its path
 	tick(250, true)
 	check(vg.charge_lv(vg.P.charge) == 4, "holding 4 s reaches the Nova")
@@ -96,7 +122,38 @@ func _initialize() -> void:
 	e.dead = true
 	tick(60, false)
 
-	# ultimate: the gauge fills from kills, a second finger fires Starbreak
+	# double tap: a quick tap then a touch near it fires the ultimate; drags and flicks never do
+	var pu: float = vg.px_per_unit()
+	var spot := Vector2(300, 900)
+	var dt := func(gap: int, first_ms: int, moved: float, far: float) -> bool:
+		vg._ult_latch = false
+		vg._tap_ms = -100000
+		vg._press(spot, 10000)
+		vg._moved = moved
+		vg._release(spot, 10000 + first_ms)
+		vg._press(spot + Vector2(far, 0), 10000 + first_ms + gap)
+		var got: bool = vg._ult_latch
+		vg._release(spot, 10000 + first_ms + gap + 500)
+		vg._ult_latch = false
+		return got
+	check(dt.call(150, 90, 0.0, 0.0), "a quick double tap fires the ultimate")
+	check(dt.call(150, 90, pu * 1.0, pu * 6.0), "a double tap fires even with a little wobble")
+	check(not dt.call(150, 600, 0.0, 0.0), "lifting after a drag and touching again doesn't fire it")
+	check(not dt.call(150, 90, pu * 12.0, 0.0), "a quick flick to dodge doesn't count as a tap")
+	check(not dt.call(500, 90, 0.0, 0.0), "two taps far apart in time don't fire it")
+	check(not dt.call(150, 90, 0.0, pu * 40.0), "two taps far apart on screen don't fire it")
+	var three := func() -> int:
+		var n := 0
+		for k in 3:
+			vg._ult_latch = false
+			vg._press(spot, 20000 + k * 180)
+			n += int(vg._ult_latch)
+			vg._release(spot, 20000 + k * 180 + 80)
+		vg._ult_latch = false
+		return n
+	check(three.call() == 1, "a triple tap fires it once, not twice")
+
+	# ultimate: the gauge fills from kills, a double tap fires Starbreak
 	check(vg.P.ult < 1.0, "the ultimate gauge starts short of full")
 	tick(1, true, 0, 0, true)
 	check(vg.G.ult_t == 0, "the ultimate does nothing until the gauge is full")
@@ -105,12 +162,26 @@ func _initialize() -> void:
 		vg.kill_e(d)
 	check(vg.P.ult >= 1.0, "kills fill the ultimate gauge")
 	tick(1, true, 0, 0, true)
-	check(vg.G.ult_t > 0 and vg.G.beams.size() >= 1 and vg.G.beams.back().ult, "a second finger fires Starbreak")
-	var tgt: Dictionary = vg.E("shell", 100, 150, {hold = 0.0})
+	check(vg.G.ult_t > 0 and vg.G.beams.size() >= 1 and vg.G.beams.back().ult, "the ultimate fires Starbreak")
+	var sb: Dictionary = vg.G.beams.back()
+	check(is_equal_approx(sb.x, vg.P.x) and is_equal_approx(sb.y0, vg.P.y + 6) and sb.ang < -1.0,
+		"Starbreak stems from the ship's nose, starting up-left")
+	var tgt: Dictionary = vg.E("shell", vg.P.x + 40, vg.P.y + 30, {hold = 0.0})
 	var thp: float = tgt.hp
-	tick(125, true)
-	check(tgt.hp < thp or tgt.get("dead", false), "Starbreak sweeps across the screen and hits")
-	check(vg.G.ult_t == 0 and vg.P.ult == 0.0, "the ultimate ends and the gauge is spent")
+	var low: Dictionary = vg.E("shell", vg.P.x - 30, vg.P.y + 12, {hold = 0.0})
+	var lhp: float = low.hp
+	# pin the targets beside the ship while the beam swings round
+	for k in 125:
+		tgt.x = vg.P.x + 40
+		tgt.y = vg.P.y + 30
+		low.x = vg.P.x - 30
+		low.y = vg.P.y + 12
+		tick(1, true)
+		if k == 59:
+			check(sb.ang > -0.2 and sb.ang < 0.2 and is_equal_approx(sb.x, vg.P.x), "halfway, Starbreak points straight up from the ship")
+	check(tgt.hp < thp or tgt.get("dead", false), "Starbreak sweeps from the ship and hits off to the side")
+	check(low.hp < lhp or low.get("dead", false), "the sweep reaches low beside the ship too")
+	check(vg.G.ult_t == 0 and vg.P.ult < 1.0, "the ultimate ends and the gauge is spent")
 	tgt.dead = true
 
 	# hull: a bullet costs a hull point; three cost a ship
@@ -175,6 +246,10 @@ func _initialize() -> void:
 		vg.E("drifter", 30 + i * 30, 170, {move = "sine", amp = 0.0, ph = 0.0, x0 = 30.0 + i * 30})
 	tick(1, true, 0, 0, true)
 	check(vg.pod.state == "shatter" and vg.G.shards.size() == 8, "Shatter bursts the pod into eight shards")
+	var from_ship := true
+	for sh in vg.G.shards:
+		from_ship = from_ship and Vector2(sh.x - vg.P.x, sh.y - vg.P.y).length() < 4.0
+	check(from_ship, "Shatter's shards fly out of the ship")
 	vg.P.inv = 0
 	vg.bullet(vg.P.x, vg.P.y, 0, 0)
 	tick(1, true, 0, 0, false, false)
