@@ -1973,6 +1973,7 @@ func _process(_delta: float) -> void:
 		b.m.position = Vector3(X(b.x), Y(b.y), 2)
 	for it in G.items:
 		it.m.position = Vector3(X(it.x), Y(it.y), 0)
+		it.m.visible = _shown(it.x, it.y, 6.0)
 		(it.m.get_meta("core") as Node3D).rotation.y += 0.05
 	for s in G.shards:
 		s.m.position = Vector3(X(s.x), Y(s.y), 3)
@@ -1996,9 +1997,17 @@ func _process(_delta: float) -> void:
 	camera.position = Vector3(0, 0, CAM_D) + j
 
 
+## Whether something at (x, y), `r` in size, reaches into the screen. Things wait hidden until
+## then: the low sun throws shadows far across the ground, so a model above the top edge would
+## otherwise show its shadow on screen before itself.
+func _shown(x: float, y: float, r: float) -> bool:
+	return y - r < view.end.y and y + r > view.position.y and x + r > view.position.x and x - r < view.end.x
+
+
 func _sync_e(e: Dictionary) -> void:
 	var m: Node3D = e.m
 	m.position = Vector3(X(e.x), Y(e.y), -4.0 if e.ground else 0.0)
+	m.visible = _shown(e.x, e.y, maxf(e.hw, e.hh) + 2.0)
 	Models.set_flash(m, e.flash > 0)
 	match e.type:
 		"drifter":
@@ -2025,7 +2034,10 @@ func _sync_bar(b: Dictionary) -> void:
 	n[2].scale = Vector3(rw, b.th, 10)
 	n[3].position = Vector3(X(right + 1.0), Y(b.y), 1)
 	n[3].scale = Vector3(1, b.th + 2, 12)
-	n[4].visible = b.locked
+	var shown: bool = b.y - b.th < view.end.y and b.y + b.th > view.position.y
+	for k in [0, 1, 2, 3, 5, 6]:
+		n[k].visible = shown
+	n[4].visible = b.locked and shown
 	n[4].position = Vector3(X(b.gx), Y(b.y), 0)
 	n[4].scale = Vector3(b.gw, b.th * 0.6, 4)
 	n[5].position = Vector3(X(left - lw / 2.0), Y(b.y - b.th / 2.0 + 1.0), 5.2)
@@ -2048,6 +2060,7 @@ func _sync_boss() -> void:
 	var B: Dictionary = G.boss
 	var u: Dictionary = B.m.get_meta("u")
 	B.m.position = Vector3(X(B.x), Y(B.y), 0)
+	B.m.visible = _shown(B.x, B.y, 40.0)
 	u.core.rotation.z = B.t * 0.004
 	var op: float = B.core.lid
 	u.lidT.rotation.x = -op * 1.3
