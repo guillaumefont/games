@@ -84,7 +84,8 @@ func _run() -> void:
 	main.ui.loading.visible = false
 	var name: String = Defs.TRACKS[0]["name"]
 	var gold: float = Medals.targets(name, "standard")[2]
-	var ev := { "track": 0, "variant": "standard", "mode": "trial", "humans": 1, "kind": "attack", "idx": 0, "theme": "" }
+	# a Road Trip run (Special Stages pay no medal: they rank times instead)
+	var ev := { "track": 0, "variant": "standard", "mode": "trial", "humans": 1, "kind": "campaign", "idx": 0, "theme": "" }
 
 	# a Gold run pays coins: x2 is offered, and pays the same again once
 	await start(ev)
@@ -185,7 +186,7 @@ func _run() -> void:
 	await finish_trial(silver - 0.05)
 	check(not offers().has("gold_ghost"), "not offered again once open")
 	# a Gold run never offers it
-	await start({ "track": 1, "variant": "standard", "mode": "trial", "humans": 1, "kind": "attack", "idx": 0, "theme": "" })
+	await start({ "track": 1, "variant": "standard", "mode": "trial", "humans": 1, "kind": "campaign", "idx": 0, "theme": "" })
 	await finish_trial(Medals.targets(Defs.TRACKS[1]["name"], "standard")[2] - 0.1)
 	check(not offers().has("gold_ghost"), "no Gold ghost offer after a Gold run")
 	# Reset progress closes it again

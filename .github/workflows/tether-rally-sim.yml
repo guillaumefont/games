@@ -65,6 +65,13 @@ jobs:
         run: ./godot --headless --path . --script tests/attack_unlock_test.gd
       - name: Time attack is Standard only, one world chip
         run: ./godot --headless --path . --script tests/time_attack_test.gd
+      - name: Special Stages rank times, no medals (fake board server)
+        run: ./godot --headless --path . --script tests/stage_rank_test.gd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Special Stages board server
+        run: node --experimental-sqlite server/test.mjs
       - name: Off the Map custom run (hidden link, every pick open, nothing saved)
         run: ./godot --headless --path . --script tests/custom_game_test.gd
       - name: No blue accent in the UI or icon (Ice Blue case)

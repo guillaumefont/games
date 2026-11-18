@@ -1,6 +1,7 @@
 # Time attack is the plain layout only (Guillaume, 2026-11-13): one record and one ghost per
 # track. Its track screen has no variant tiles and no world grid, just one world chip that
-# steps through the opened worlds; the list cards show the Standard medal once it is won.
+# steps through the opened worlds. Special Stages show no medal (Guillaume, 2026-11-18): a list
+# card is the track's name and its best lap (and rank), see tests/stage_rank_test.gd.
 # 2-player races keep the four variants.
 #   godot --headless --path . --script tests/time_attack_test.gd
 extends SceneTree
@@ -34,13 +35,11 @@ func _init() -> void:
 	check(Menu.variants_for("attack") == ["standard"], "Time attack offers the Standard layout only")
 	check(Menu.variants_for("versus").size() == Defs.VARIANTS.size(), "2-player races keep all %d variants" % Defs.VARIANTS.size())
 
-	# the list card medal is the Standard one: a variant medal (won in the campaign) does not show
+	# a Road Trip medal never shows on a Special Stage card
 	var t := 0
 	var name: String = Defs.TRACKS[t]["name"]
-	Records.award_medal(Records.key(name, "reverse"), "trial", 3)
-	check(Menu.attack_medal(t) == 0, "a Reverse medal does not count on the Time attack card")
 	Records.award_medal(Records.key(name, "standard"), "trial", 2)
-	check(Menu.attack_medal(t) == 2, "the Standard medal does (%d)" % Menu.attack_medal(t))
+	check(Menu.stage_line(t) == "No time yet", "a Road Trip medal is not a Special Stage time (%s)" % Menu.stage_line(t))
 
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
@@ -50,7 +49,7 @@ func _init() -> void:
 	root.size = Vector2i(1280, 720)
 	await frames(2)
 
-	# the list: each card is the track's name (no number box, no note), rings once a medal is won
+	# the list: each card is the track's name and its stage line (no number box, no medal)
 	for tt in Defs.TRACKS:
 		Records.set_flag("attack", tt["name"])
 	menu.kind = "attack"
@@ -61,13 +60,14 @@ func _init() -> void:
 	var named := true
 	for p in cards.size():
 		var labels: Array = cards[p].find_children("*", "Label", true, false)
-		if labels.size() != 1 or labels[0].text != String(Defs.TRACKS[order[p]]["name"]).to_upper():
+		if labels.size() != 2 or labels[0].text != String(Defs.TRACKS[order[p]]["name"]).to_upper() \
+				or labels[1].text != Menu.stage_line(order[p]):
 			named = false
 			print("  card %d: %s" % [p, labels.map(func(l): return l.text)])
-	check(named, "list cards show just the track name")
+	check(named, "list cards show the track name and its best / rank line")
 	var with_rings: Array = cards.filter(func(c): return not c.find_children("*", "MedalStrip", true, false).is_empty() \
 		or c.find_children("*", "", true, false).any(func(n): return n.get_script() == preload("res://scripts/medal_strip.gd")))
-	check(with_rings.size() == 1 and with_rings[0] == cards[order.find(t)], "medal rings only on the card with a medal (%d)" % with_rings.size())
+	check(with_rings.is_empty(), "no medal rings on Special Stage cards (%d)" % with_rings.size())
 
 	# one world open: no chip, no variant tiles, even if the event came in as a variant
 	menu.kind = "attack"

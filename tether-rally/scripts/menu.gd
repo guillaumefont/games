@@ -25,6 +25,7 @@ const Awards = preload("res://scripts/awards.gd")
 const AwardMedal = preload("res://scripts/award_medal.gd")
 const Paper = preload("res://scripts/paper.gd")
 const Ads = preload("res://scripts/ads.gd")
+const Ranking = preload("res://scripts/ranking.gd")
 # world card pictures: the land of each theme, no track (tools/gen_loading_art.gd ART_SCENERY=1)
 const WORLD_ART := {
 	"snow": preload("res://art/world_snow.jpg"), "forest": preload("res://art/world_forest.jpg"),
@@ -482,7 +483,7 @@ func show_home() -> void:
 	lines.add_child(_road_line(1, "flag", "ROAD TRIP", "%d / %d stops  ·  next: %s, stop %d" % [cleared, Campaign.count(), next_name, first - Campaign.chapter_start(Campaign.chapter_of(first)) + 1],
 		func(): kind = "campaign"; world = -1; show_list(), true))
 	var n_open := Campaign.attack_tracks().size()
-	var ta_sub := "%d stages  ·  chase your ghost" % n_open if n_open == Defs.TRACKS.size() \
+	var ta_sub := "%d stages  ·  your time, your world rank" % n_open if n_open == Defs.TRACKS.size() \
 		else "%d / %d stages open  ·  the Road Trip opens more" % [n_open, Defs.TRACKS.size()]
 	lines.add_child(_road_line(2, "watch", "SPECIAL STAGES", ta_sub,
 		func(): kind = "attack"; _list_scroll.erase(kind); show_list()))
@@ -1427,16 +1428,22 @@ static func variants_for(mode_kind: String) -> Array:
 		return ["standard"]
 	return Defs.VARIANTS.map(func(v): return v[0])
 
-# the medal a Time attack track card shows: its Standard Time trial medal
-static func attack_medal(track_i: int) -> int:
-	return Campaign.medal(Defs.TRACKS[track_i]["name"], "standard", "trial")
+# Special Stages show no medal (Guillaume, 2026-11-18): only time and rank. A stage's best is
+# its own record (Records.stage_key), never the Road Trip's Standard time.
+static func stage_best(track_i: int) -> float:
+	return Records.get_best(Records.stage_key(Defs.TRACKS[track_i]["name"]))
+
+# the line under a Special Stage card's name: the best lap and its narrowest rank shown
+static func stage_line(track_i: int) -> String:
+	var best := stage_best(track_i)
+	return Ranking.card_line(best, Ranking.fresh(Defs.TRACKS[track_i]["name"], best))
 
 # a track on the Time attack / 2-player list; in Time attack a track the campaign has not
 # opened yet is greyed with a padlock and says which event opens it. A Time attack card is
 # just the road and its name, with the medal once one is won.
 func _track_card(i: int, num: int, open := true) -> Button:
-	var best := -1 if kind == "versus" else attack_medal(i)
-	var note: String = "" if kind == "attack" else Defs.TRACKS[i]["note"]
+	var best := -1
+	var note: String = stage_line(i) if kind == "attack" else Defs.TRACKS[i]["note"]
 	if kind == "attack":
 		num = 0
 	if not open:
@@ -1533,7 +1540,9 @@ func show_event() -> void:
 		if v[0] == ev["variant"]: vdesc = v[2]
 	if ev["variant"] != "standard":   # only a variant with a rule of its own needs a word
 		right.add_child(ui._label(vdesc, 13, C_MUTED))
-	if ev["kind"] != "versus":
+	if ev["kind"] == "attack":
+		_stage_block(right)
+	elif ev["kind"] != "versus":
 		var t := _targets()
 		var labels: Array = t["labels"]
 		var line: String = t["line"]
@@ -1566,6 +1575,59 @@ func show_event() -> void:
 	gm.add_theme_constant_override("margin_bottom", 5)
 	gm.add_child(go)
 	right.add_child(gm)
+
+# A Special Stage's page: the best lap and where it ranks (world first, then the narrowest
+# region with enough players). The board is asked again each time the page opens; its answer
+# refills the block in place if the page is still up.
+var _rank_box: VBoxContainer
+
+func _stage_block(right: VBoxContainer) -> void:
+	var name: String = Defs.TRACKS[ev["track"]]["name"]
+	var best := stage_best(ev["track"])
+	_rank_box = VBoxContainer.new()
+	_rank_box.add_theme_constant_override("separation", 4)
+	_rank_box.set_meta("stage_rank", name)
+	right.add_child(_rank_box)
+	_fill_rank(_rank_box, best, Ranking.fresh(name, best))
+	if best > 0.0 and Ranking.online():
+		var box := _rank_box
+		var refill := func(r: Dictionary):
+			if is_instance_valid(box) and box.is_inside_tree() and not r.is_empty():
+				_fill_rank(box, best, r)
+		if Ranking.fresh(name, best).is_empty():
+			Ranking.submit(self, name, best, refill)
+		else:
+			Ranking.fetch(self, name, refill)
+
+func _fill_rank(box: VBoxContainer, best: float, reply: Dictionary) -> void:
+	for ch in box.get_children():
+		box.remove_child(ch)
+		ch.queue_free()
+	for l in stage_rank_text(best, reply):
+		var big: bool = l[2]
+		var row := HBoxContainer.new()
+		var a: Label = ui._label(l[0], 18 if big else 15, C_FG if big else C_MUTED, ui.f_bold)
+		a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		a.autowrap_mode = TextServer.AUTOWRAP_OFF
+		a.clip_text = true
+		row.add_child(a)
+		var b: Label = ui._label(l[1], 22 if big else 16, C_FG, ui.f_display if big else ui.f_bold)
+		b.autowrap_mode = TextServer.AUTOWRAP_OFF
+		b.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(b)
+		box.add_child(row)
+
+# the lines of a Special Stage's page: [label, value, big?]
+static func stage_rank_text(best: float, reply: Dictionary) -> Array:
+	if best <= 0.0:
+		return [["No time yet", "", true], ["Set a lap to get a world rank", "", false]]
+	var out := [["Best lap", Ranking.fmt2(best), true]]
+	var lines := Ranking.rank_lines(reply)
+	if lines.is_empty():
+		out.append(["World rank", "checking…" if Ranking.online() else "offline", false])
+	for l in lines:
+		out.append(["%s rank" % l[0], l[1], false])
+	return out
 
 # where the event screen sits in its carousel: [index, count]
 func _event_pos() -> Array:

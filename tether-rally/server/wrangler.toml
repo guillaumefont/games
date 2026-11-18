@@ -1,0 +1,9 @@
+# Tether Rally Special Stages boards. Deploy steps: README.md in this folder.
+name = "tether-boards"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tether-boards"
+database_id = "REPLACE_WITH_THE_ID_WRANGLER_PRINTS"

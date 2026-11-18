@@ -21,6 +21,7 @@ static func _load() -> ConfigFile:
 		_cfg.load(PATH)
 		_move_ghosts()
 		_drop_old_layout_records()
+		_seed_stages()
 	return _cfg
 
 static func _drop_old_layout_records() -> void:
@@ -50,6 +51,28 @@ static func _drop_old_layout_records() -> void:
 
 static func key(track_name: String, variant: String) -> String:
 	return track_name + ("" if variant == "standard" else "-" + variant)
+
+# Special Stages keep their own best lap and ghost (Guillaume, 2026-11-18: a Special Stage is
+# about time and rank, not medals), so a Special Stage time never earns a Road Trip medal.
+# Its best is the time the world ranking gets.
+static func stage_key(track_name: String) -> String:
+	return "stage:" + track_name
+
+# once: Special Stages used to share the Standard record, so a player keeps that best and ghost
+static func _seed_stages() -> void:
+	if bool(_cfg.get_value(META, "stages", false)):
+		return
+	var had_any := _cfg.get_sections().size() > 0
+	for d in Defs.TRACKS:
+		var k := key(d["name"], "standard")
+		var sk := stage_key(d["name"])
+		if _cfg.has_section_key(k, "best") and not _cfg.has_section_key(sk, "best"):
+			_cfg.set_value(sk, "best", _cfg.get_value(k, "best"))
+			if FileAccess.file_exists(_ghost_path(k)) and not FileAccess.file_exists(_ghost_path(sk)):
+				DirAccess.copy_absolute(_ghost_path(k), _ghost_path(sk))
+	_cfg.set_value(META, "stages", true)
+	if had_any:
+		_cfg.save(PATH)
 
 static func get_best(k: String) -> float:
 	return float(_load().get_value(k, "best", -1.0))
@@ -152,4 +175,5 @@ static func reset() -> void:
 			DirAccess.remove_absolute(gp)
 	_cfg = ConfigFile.new()
 	_cfg.set_value(META, "layouts", LAYOUT_VERSION)
+	_cfg.set_value(META, "stages", true)
 	_cfg.save(PATH)

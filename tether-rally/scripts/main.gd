@@ -26,6 +26,7 @@ const Ads = preload("res://scripts/ads.gd")
 const Store = preload("res://scripts/store.gd")
 const Monetization = preload("res://scripts/monetization.gd")
 const GoldGhosts = preload("res://scripts/gold_ghosts.gd")
+const Ranking = preload("res://scripts/ranking.gd")
 
 var view: WorldView
 var ui: UI
@@ -39,6 +40,7 @@ var rival_tier := Rivals.VERSUS_TIER  # campaign races: the tier of the event's 
 # Off the Map (a custom run from the menu): practice only. Nothing is saved (records, ghosts,
 # medals, coins, awards, the Daily Detour), so it can never open the Road Trip by the back door.
 var free_run := false
+var stage_run := false   # a Special Stage: time and world rank only, no medal (Ranking)
 var free_laps := 0   # Off the Map: laps picked, 0 = the track's own count
 var catch_up := false                 # campaign races only
 var track: TrackData
@@ -186,6 +188,8 @@ func _loading_drawn() -> void:
 		JavaScriptBridge.eval("window.tetherReady && window.tetherReady()", true)
 
 func rec_key() -> String:
+	if stage_run:
+		return Records.stage_key(cur_def()["name"])
 	return Records.key(cur_def()["name"], variant)
 
 func cur_def() -> Dictionary:
@@ -436,6 +440,7 @@ func _start_event(ev: Dictionary) -> void:
 	var camp: bool = ev.get("kind", "") == "campaign"
 	free_run = ev.get("kind", "") == "custom"
 	daily_run = ev.get("kind", "") == "daily"
+	stage_run = ev.get("kind", "") == "attack" and mode == "trial" and humans == 1
 	free_laps = int(ev.get("laps", 0)) if free_run else 0
 	rival_tier = Rivals.campaign_tier(Campaign.chapter_of(ev["idx"])) if camp else Rivals.VERSUS_TIER
 	if free_run:
@@ -465,7 +470,7 @@ func new_race(built: TrackData = null) -> void:
 	ghost = Records.get_ghost(rec_key()) if mode == "trial" and not tutorial else []
 	daily_scored = daily_run and not tutorial and Daily.attempts_left() > 0
 	var nm: String = cur_def()["name"]
-	gold_ghost = GoldGhosts.trace(nm, variant) if mode == "trial" and not tutorial and humans == 1 and GoldGhosts.unlocked(nm, variant) else []
+	gold_ghost = GoldGhosts.trace(nm, variant) if mode == "trial" and not tutorial and humans == 1 and not stage_run and GoldGhosts.unlocked(nm, variant) else []
 	view.setup_cars(race, mode == "trial" and not tutorial, _dress(race), not gold_ghost.is_empty())
 	# the ideal line: for one run after its video, or always with No ads and its Settings option
 	var ideal: bool = mode == "trial" and not tutorial and humans == 1 and GoldGhosts.has(nm, variant) \
@@ -503,6 +508,8 @@ func new_race(built: TrackData = null) -> void:
 		# Collect targets are for the whole race: with another lap count they mean nothing
 		if free_run and track.tokens.size() > 0 and race.laps_total != int(cur_def().get("laps", 3)):
 			medal_targets = []
+		if stage_run:   # no medal pace on a Special Stage: the gap is to your own best lap
+			medal_targets = [rec_before] if rec_before > 0.0 else []
 		ui.build_hud(race, track.tokens.size(), medal_targets.any(func(t): return t > 0.0))
 		_update_hud()   # zeroes on screen from the countdown on
 	ui.minimap.race = race
@@ -779,7 +786,8 @@ func _trial_lap(c, lt: float, trace: Array) -> void:
 			Records.set_lap(rec_key(), lt)
 		else:
 			Records.set_best(rec_key(), lt)
-			Records.award_medal(rec_key(), "trial", Medals.trial_tier(cur_def()["name"], variant, lt))
+			if not stage_run:
+				Records.award_medal(rec_key(), "trial", Medals.trial_tier(cur_def()["name"], variant, lt))
 			new_record = true
 			sfx.blip(1320, 0.25, "square", 0.06, 300)
 			Haptics.reward()
@@ -801,7 +809,8 @@ func _trial_run(c) -> void:
 		return
 	if prev <= 0.0 or c.finish_time < prev:
 		Records.set_best(rec_key(), c.finish_time)
-		Records.award_medal(rec_key(), "trial", Medals.trial_tier(cur_def()["name"], variant, c.finish_time))
+		if not stage_run:
+			Records.award_medal(rec_key(), "trial", Medals.trial_tier(cur_def()["name"], variant, c.finish_time))
 		new_record = true
 		sfx.blip(1320, 0.25, "square", 0.06, 300)
 		Haptics.reward()
@@ -875,7 +884,10 @@ func _update_gap(c, lap_t: float, gems: bool) -> void:
 		return
 	var shown := tier if tier >= 0 else lowest
 	var gap: float = pace - medal_targets[shown] * frac
-	ui.set_hud_tag("gap", Medals.NAMES[shown], Medals.COLORS[shown])
+	if stage_run:
+		ui.set_hud_tag("gap", "Best", UI.C_MUTED)
+	else:
+		ui.set_hud_tag("gap", Medals.NAMES[shown], Medals.COLORS[shown])
 	ui.set_hud("gap", "%s%.2f" % ["-" if gap <= 0.0 else "+", minf(absf(gap), 99.99)])
 	ui.set_hud_color("gap", Color("#7be38b") if gap <= 0.0 else Color("#e2574c"))
 
@@ -894,6 +906,9 @@ func _show_results() -> void:
 	ui.hide_lap_note()
 	if free_run:
 		_show_free_results()
+		return
+	if stage_run:
+		_show_stage_results()
 		return
 	var name: String = Defs.TRACKS[track_idx]["name"]
 	if mode == "trial":
@@ -986,11 +1001,60 @@ func _show_results() -> void:
 	_world_moment()
 	_award_moment()
 
+# Special Stage results (Guillaume, 2026-11-18): the time and where it ranks, no medal and no
+# medal coins. The rank rows show the cached rank at once and fill in when the board answers.
+func _show_stage_results() -> void:
+	var name: String = Defs.TRACKS[track_idx]["name"]
+	var c = race.cars[0]
+	var rec := Records.get_best(rec_key())
+	var rows := stage_rows(c.best_lap, rec, Ranking.fresh(name, rec))
+	var rewards: Array = []
+	if new_record:
+		var gain := rec_before - rec
+		rewards.append({ "text": "−%.2f S FASTER" % gain if rec_before > 0.0 and gain > 0.0 else "FIRST TIME SET", "col": UI.C_GAIN })
+		Wallet.bump("records")
+	attempt_live = false
+	ideal_offer = GoldGhosts.has(name, variant) and c.finished and not Ads.ads_removed()
+	var note := _pay(0, 0, { "mode": "trial", "variant": variant, "finished": c.finished, "clean_laps": c.best_clean_laps,
+		"streak": c.best_streak, "hits": c.hits, "gems_all": false }, rewards)
+	note += "Special Stages rank your best lap against other drivers. Medals are won on the Road Trip."
+	ui.show_results("New best" if new_record else "Special Stage", rows, _unlock_note() + note, not ui.menu.next_event().is_empty(), 3, rewards)
+	_refresh_offers()
+	if _counts_for_ads():
+		Monetization.note_race()
+	_starter_card(rewards)
+	_world_moment()
+	_award_moment()
+	if rec > 0.0 and Ranking.online():
+		var n := results_n
+		var lap: float = c.best_lap
+		var reply := func(r: Dictionary):
+			if n == results_n and phase == "results" and not r.is_empty():
+				ui.set_result_rows(stage_rows(lap, rec, r))
+		if new_record or Ranking.fresh(name, rec).is_empty():
+			Ranking.submit(self, name, rec, reply)
+		else:
+			Ranking.fetch(self, name, reply)
+
+# the Special Stage results table: this run's lap, the best, then one row per rank shown
+static func stage_rows(lap: float, best: float, reply: Dictionary) -> Array:
+	var rows: Array = []
+	if lap > 0.0:
+		rows.append({ "cells": ["Fastest lap", "", UI.fmt2(lap)], "hl": true })
+	if best > 0.0 and absf(best - lap) > 0.0005:
+		rows.append({ "cells": ["Your best", "", UI.fmt2(best)] })
+	var lines := Ranking.rank_lines(reply)
+	if lines.is_empty() and best > 0.0:
+		lines = [["World rank", "checking…" if Ranking.online() else "offline"]]
+	for l in lines:
+		rows.append({ "cells": [l[0] if l[0] == "World rank" else "%s rank" % l[0], "", l[1]], "rank": true })
+	return rows
+
 # Off the Map results: the run itself (fastest lap or the finishing order), compared with the
 # record, and nothing paid or saved
 func _show_free_results() -> void:
 	var name: String = Defs.TRACKS[track_idx]["name"]
-	var note := "Off the Map: a free run. Records, medals and coins come from the Road Trip and Special Stages."
+	var note := "Off the Map: a free run. Medals and coins come from the Road Trip, ranked times from Special Stages."
 	if mode == "trial":
 		var c = race.cars[0]
 		var rows: Array = []
@@ -1173,6 +1237,7 @@ func _offer_granted(id: String, total: int, screen: int) -> void:
 # records, ghosts and the campaign start over. Options and paid packs stay.
 func _reset_progress() -> void:
 	Records.reset()
+	Ranking.reset()
 	Wallet.reset()
 	Cosmetics.unequip_all()
 	ui.hide_settings()
