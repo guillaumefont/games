@@ -204,6 +204,11 @@ func _ready() -> void:
 	hud.resume_pressed.connect(func(): set_paused(false))
 	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship))
 	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship))
+	hud.tier_pressed.connect(func(t: int): start_stage(G.stage, G.ship, t))
+	hud.paint_chosen.connect(func(ship: String, id: String):
+		if prog.set_paint(ship, id):
+			_save()
+			hud.refresh_progress())
 	hud.menu_pressed.connect(to_menu)
 	hud.pause_pressed.connect(func(): _pause_latch = true)
 	hud.mute_pressed.connect(func():
@@ -228,6 +233,8 @@ func _ready() -> void:
 const SAVE_PATH := "user://save.cfg"
 var muted := false
 var bests: Array = []
+## Medals, cleared tiers and ship colours (see Progress).
+var prog := Progress.new()
 var _env: Environment
 
 
@@ -245,8 +252,10 @@ func _load() -> void:
 			for i in mini(b.size(), at.size()):
 				if at[i] < bests.size():
 					bests[at[i]] = int(b[i])
+		prog.load_from(cfg)
 	audio.set_muted(muted)
 	hud.set_muted(muted)
+	hud.prog = prog
 	hud.set_bests(bests)
 
 
@@ -255,6 +264,7 @@ func _save() -> void:
 	cfg.load(SAVE_PATH)
 	cfg.set_value("game", "muted", muted)
 	cfg.set_value("portrait", "bests", bests)
+	prog.save_to(cfg)
 	cfg.save(SAVE_PATH)
 
 
@@ -652,13 +662,18 @@ func poll_input() -> void:
 
 # ---------- flow ----------
 
-func start_stage(i: int, kind: String) -> void:
+## Starts stage `i` with ship `kind` on tier `tier` (-1: the tier picked on the menu), or the
+## highest tier below it that this stage has open.
+func start_stage(i: int, kind: String, tier := -1) -> void:
 	teardown()
 	i = clampi(i, 0, VStage.STAGES.size() - 1)
 	var sd: Dictionary = VStage.STAGES[i]
-	Diag.note("VSTAGE", "%d %s" % [i, kind])
+	var tr := prog.best_open(Progress.stage_id(i), hud.tier if tier < 0 else tier)
+	var td: Dictionary = Progress.tier(tr)
+	Diag.note("VSTAGE", "%d %s tier %d" % [i, kind, tr])
 	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
-		boss = {}, bparts = [], score = 0, world = sd.world, j = sd.j, lives = SHIPS, clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length}
+		boss = {}, bparts = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
+		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
 		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
@@ -670,7 +685,9 @@ func start_stage(i: int, kind: String) -> void:
 		run_b.node.visible = false
 		world.add_child(run_b.node)
 		_run_built = false
-	ship_m = VShips.upright(VShips.model(kind))
+	var model := VShips.model(kind)
+	Progress.apply_paint(model, prog.paint_of(kind))
+	ship_m = VShips.upright(model)
 	ship_m.add_child(Models.glow("ff9a40", 8))
 	world.add_child(ship_m)
 	if kind == "warden":
@@ -678,9 +695,9 @@ func start_stage(i: int, kind: String) -> void:
 		pod_m.add_child(Models.glow("3ff0e0", 9))
 		world.add_child(pod_m)
 	hud.ship = kind
-	hud.stage_name = sd.name
+	hud.stage_name = sd.name if tr == 0 else "%s · %s" % [sd.name, td.name]
 	hud.boss = -1.0
-	hud.banner(sd.name, sd.sub, 160)
+	hud.banner(sd.name, sd.sub if tr == 0 else "%s · %s" % [sd.sub, td.name], 160)
 	mode = "play"
 	paused = false
 	hud.show_screen("play")
@@ -750,6 +767,16 @@ func finish(cleared: bool) -> void:
 		hud.set_bests(bests)
 		_save()
 	hud.set_result(cleared, fmt(G.score), G.stage + 1 < VStage.STAGES.size())
+	var id := Progress.stage_id(G.stage)
+	var got := Progress.judge({cleared = cleared, foes = G.foes, foes_killed = G.foes_killed, breakables = G.breakables,
+		broken = G.broken, hits = G.hits, boss_ticks = G.boss_ticks, end = G.end_kind, tier = G.tier,
+		boss_scale = 1.0 if G.end_kind == "bloom" else 1.0 + 0.2 * G.world + 0.03 * G.j})
+	var rep := prog.record(id, G.tier, cleared, got)
+	rep.merge({cleared = cleared, tier = G.tier, got = got, held = prog.medals(id, G.tier)})
+	G.report = rep
+	_save()
+	hud.refresh_progress()
+	hud.set_report(rep)
 	hud.show_screen("result")
 	Diag.note("VSTAGE_END", "cleared=%s score=%d" % [cleared, G.score])
 
@@ -1048,6 +1075,7 @@ func _damage_target(t: Dictionary, d: int) -> void:
 
 
 func hurt() -> void:
+	G.hits += 1
 	P.hull -= 1
 	P.inv = HIT_INV
 	P.hit_t = 20
@@ -1060,6 +1088,7 @@ func hurt() -> void:
 
 
 func kill_player() -> void:
+	G.hits += 1
 	P.alive = false
 	P.respawn = 90
 	P.laser = 0
@@ -1241,7 +1270,12 @@ func bullet(x: float, y: float, vx: float, vy: float) -> void:
 
 ## Enemy bullets get faster stage by stage and world by world.
 func bspeed() -> float:
-	return 1.0 + 0.03 * G.j + 0.07 * G.world
+	return (1.0 + 0.03 * G.j + 0.07 * G.world) * tier_mul("bullet")
+
+
+## How much the stage's tier (Normal, Nova, Supernova) scales `key`: bullet, fire, hp or score.
+func tier_mul(key: String) -> float:
+	return float(Progress.tier(G.get("tier", 0))[key])
 
 
 func aim(x: float, y: float, s: float) -> void:
@@ -1302,6 +1336,8 @@ func spawn(s: Dictionary) -> void:
 				start_run()
 		"end":
 			G.ended = true
+			G.boss_t0 = G.t
+			G.end_kind = s.kind
 			_spawn_end(s.kind)
 		"turret", "generator":
 			var tx: float = s.x
@@ -1388,7 +1424,16 @@ func E(type: String, x: float, y: float, o := {}) -> Dictionary:
 	var e := {id = uid(), type = type, x = x, y = y, hw = d[0], hh = d[1], hp = hp, max = hp, score = d[3], t = 0, cd = 60, flash = 0,
 		ground = type in GROUND}
 	e.merge(o, true)
+	if type != "carrier":
+		e.hp *= tier_mul("hp")
 	e.max = e.hp
+	# medal counts: generators and walls for Breaker, everything else that scores for Sweep
+	if type == "block" or type == "generator":
+		e.brk = true
+		G.breakables = G.get("breakables", 0) + 1
+	elif int(e.score) > 0:
+		e.foe = true
+		G.foes = G.get("foes", 0) + 1
 	var m: Node3D
 	match type:
 		"drifter":
@@ -1547,7 +1592,7 @@ func _update_enemies() -> void:
 						e.y += e.vy
 			"turret":
 				if e.y < H - 4 and e.y > 20:
-					e.cd -= 1
+					e.cd -= tier_mul("fire")
 					if e.cd <= 0:
 						aim(e.x, e.y, 1.15)
 						e.cd = 110
@@ -1579,7 +1624,7 @@ func _update_big(e: Dictionary) -> void:
 		e.y -= 0.8
 		return
 	e.x += sin(e.t * 0.012) * 0.35
-	e.cd -= 1
+	e.cd -= tier_mul("fire")
 	if e.cd <= 0:
 		match e.type:
 			"shell":
@@ -1628,6 +1673,10 @@ func dmg_e(e: Dictionary, d: int) -> void:
 func kill_e(e: Dictionary) -> void:
 	e.dead = true
 	e.killed = true
+	if e.get("brk", false):
+		G.broken += 1
+	elif e.get("foe", false):
+		G.foes_killed += 1
 	var big: bool = e.type in BIG
 	boom(e.x, e.y, 14 if big else 6, big)
 	audio.play("boom" if big else "small")
@@ -1647,7 +1696,7 @@ func kill_e(e: Dictionary) -> void:
 
 
 func add_score(n: int) -> void:
-	G.score += n
+	G.score += int(n * tier_mul("score"))
 
 
 func drop_item(x: float, y: float, k: String) -> void:
@@ -1741,6 +1790,10 @@ func spawn_boss() -> void:
 		core = {id = uid(), hp = 80.0, max = 80.0, flash = 0, open = false, ot = 0, lid = 0.0},
 		petals = petals,
 		tent = {id = uid(), n = 11, hp = 30.0, max = 30.0, alive = true, flash = 0, cd = 160, segs = [], drop = 0}}
+	var hm := tier_mul("hp")
+	for part in petals + [G.boss.core, G.boss.tent]:
+		part.hp *= hm
+		part.max = part.hp
 	G.boss.m = Models.boss(world)
 	G.boss.m.rotation.z = PI / 2
 
@@ -1823,7 +1876,7 @@ func update_boss() -> void:
 			continue
 		alive += 1
 		if not B.enter:
-			p.cd -= 1
+			p.cd -= tier_mul("fire")
 			if p.cd <= 0:
 				aim(p.x, p.y, 1.1)
 				p.cd = 120
@@ -1863,7 +1916,7 @@ func update_boss() -> void:
 	if T.alive:
 		var tip: Dictionary = T.segs[T.n - 1]
 		if not B.enter:
-			T.cd -= 1
+			T.cd -= tier_mul("fire")
 			if T.cd <= 0:
 				fan(tip.x, tip.y, 0.9, 2, 0.35)
 				T.cd = 140
@@ -1904,6 +1957,8 @@ func _stage_clear() -> void:
 	if G.clear_t > 0:
 		return
 	G.clear_t = 1
+	if G.boss_t0 >= 0:
+		G.boss_ticks = G.t - G.boss_t0
 	G.mid_boss = false
 	hud.boss = -1.0
 	add_score(G.lives * 2000)
