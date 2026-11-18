@@ -88,7 +88,7 @@ godot --headless --path . --script tests/award_anim_test.gd # every award has a 
 godot --headless --path . --script tests/names_test.gd       # Tether Rally + traveller mode names, no old names in UI text
 godot --headless --path . --script tests/rivals_test.gd    # rival tiers get harder, stay beatable (~4 min)
 godot --headless --path . --script tests/obstacles_test.gd # the AI's line never touches an Obstacles post
-godot --headless --path . --script tests/camera_test.gd    # low camera shots: off while racing, never inside the land
+godot --headless --path . --script tests/camera_test.gd    # low camera shots: off while racing, never inside the land, never too close
 godot --headless --path . --script tests/shadow_test.gd    # sun shadows: soft edges, range holds still, covers the screen
 godot --headless --path . --script tests/quality_switch_test.gd # first switch to Low compiles shaders behind the loading screen
 godot --headless --path . --script tests/engine_test.gd    # every vehicle has an engine sound that loops cleanly
@@ -277,5 +277,7 @@ Only redo the ones where the change is visible, and put before/after images in t
 - The race camera stays fairly top-down (68°) while the player steers, so lines through bends stay
   readable. Low cinematic shots (`WorldView.CINE_SHOTS`, picked in `main.gd` `_pick_shot`) are only
   for moments nobody steers: countdown, finish/results, the tutorial's cards and frozen bends.
+  No shot comes closer than `WorldView.CINE_MIN_DIST` (5.5 m): closer, the low-poly cars stop
+  reading as toys and their facets show (Guillaume, 2026-11-16; checked by `camera_test`).
   After a finish the cars drive on behind the results (AI drives the player's car; their events
   are dropped except skids/sparks) and the results panel sits to one side so the chase cam shows it.
