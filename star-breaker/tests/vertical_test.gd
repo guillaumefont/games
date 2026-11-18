@@ -76,6 +76,32 @@ func _initialize() -> void:
 	check(vg.G.beams.size() == 1 and vg.G.beams[0].lv == 1 and not vg.G.beams[0].nova, "lifting fires a LV 1 beam")
 	tick(60, false)
 	check(vg.G.beams.is_empty(), "the beam fades")
+	# on a phone a touch also arrives as a made-up mouse click, ahead of the touch itself: the
+	# real touch decides the hold, so lifting the finger still releases
+	var fake := func(pressed: bool) -> void:
+		var mb := InputEventMouseButton.new()
+		mb.device = InputEvent.DEVICE_ID_EMULATION
+		mb.button_index = MOUSE_BUTTON_LEFT
+		mb.pressed = pressed
+		mb.position = Vector2(270, 900)
+		vg._input(mb)
+	var finger := func(pressed: bool) -> void:
+		var t := InputEventScreenTouch.new()
+		t.index = 0
+		t.pressed = pressed
+		t.position = Vector2(270, 900)
+		vg._input(t)
+	fake.call(true)
+	finger.call(true)
+	vg.poll_input()
+	var held_down: bool = vg.inp.hold
+	finger.call(false)
+	fake.call(false)
+	vg.poll_input()
+	check(held_down and not vg.inp.hold, "on a phone, lifting the finger ends the hold (the mouse copy of a touch is ignored)")
+	vg._touch_seen = false
+	vg._mouse_down = false
+	vg._touch_id = -1
 	# the Nova burns bullets in its path
 	tick(250, true)
 	check(vg.charge_lv(vg.P.charge) == 4, "holding 4 s reaches the Nova")

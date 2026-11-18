@@ -450,7 +450,14 @@ func px_per_unit() -> float:
 # ---------- input ----------
 
 func _input(event: InputEvent) -> void:
+	# on a phone each touch also arrives as a made-up mouse click (the menu's buttons need it),
+	# ahead of the touch itself: steering ignores those, or the first one would leave the
+	# mouse "held" for good and lifting the finger would never trigger the release
+	if (event is InputEventMouseButton or event is InputEventMouseMotion) and event.device == InputEvent.DEVICE_ID_EMULATION:
+		return
 	if event is InputEventScreenTouch:
+		if not _touch_seen:
+			_mouse_down = false
 		_touch_seen = true
 		var t := event as InputEventScreenTouch
 		if t.pressed:
