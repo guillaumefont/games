@@ -57,12 +57,23 @@ static func sx(x: float) -> float:
 	return x - 63.0
 
 
-## Canyon speed (course units per tick) at `u`: builds up through the run, eases off at the exit
-## so the stage's own scroll can take over.
+## The stage's own scroll speed (SCROLL in vgame.gd): the run starts and ends at it, so the
+## ground never jumps in speed on the way in or out.
+const STAGE_SPEED := 0.6
+
+
+## Canyon speed (course units per tick) at `u`: picks up from the stage's scroll as the mouth
+## comes down the screen, builds through the run, and eases back to the stage's scroll at the exit.
 static func speed(u: float) -> float:
-	if u > LEN - 220.0:
-		return lerpf(3.3, 1.2, clampf((u - (LEN - 220.0)) / 220.0, 0.0, 1.0))
-	return lerpf(2.2, 3.3, clampf(u / 1500.0, 0.0, 1.0))
+	var up := lerpf(STAGE_SPEED, 3.5, smoothstep(-240.0, 350.0, u))
+	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 200.0, LEN, u))
+
+
+## Height of the drawn canyon floor at `u`: it starts and ends just under the moon's own ground
+## (so the moon shows through the open mouth and exit) and rises to FLOOR inside.
+static func floor_z(u: float) -> float:
+	var k := smoothstep(-40.0, 200.0, u) * (1.0 - smoothstep(LEN - 330.0, LEN - 120.0, u))
+	return lerpf(-74.0, FLOOR, k)
 
 
 ## Passage centre (x) and half width (y) at `u`.
@@ -213,7 +224,7 @@ class Builder:
 
 
 ## Heights of the wall's bands, floor to rim, and how far each juts back into the rock.
-const BANDS := [FLOOR - 6.0, -26.0, -12.0, 2.0, 18.0, RIM]
+const BANDS := [-84.0, -26.0, -12.0, 2.0, 18.0, RIM]
 
 
 ## One row of canyon (walls, rim tops, floor) between u0 and u1.
@@ -269,7 +280,7 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 		var xa1 := sx(pa.x - pa.y - 4.0 + (pa.y * 2.0 + 8.0) * tb)
 		var xb0 := sx(pb.x - pb.y - 4.0 + (pb.y * 2.0 + 8.0) * ta)
 		var xb1 := sx(pb.x - pb.y - 4.0 + (pb.y * 2.0 + 8.0) * tb)
-		var h := func(uu: float, ii: int) -> float: return FLOOR + (VStage.hash(Vector2(uu * 0.1, ii)) - 0.5) * 1.6
+		var h := func(uu: float, ii: int) -> float: return VRun.floor_z(uu) + (VStage.hash(Vector2(uu * 0.1, ii)) - 0.5) * 1.6
 		var a := Vector3(xa0, u0, h.call(u0, i))
 		var b := Vector3(xb0, u1, h.call(u1, i))
 		var c := Vector3(xa1, u0, h.call(u0, i + 1))
@@ -283,7 +294,7 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 		for s in [-1.0, 1.0]:
 			var x0 := sx(pa.x + s * (pa.y - 2.0))
 			var x1 := sx(pa.x + s * (pa.y * 0.45))
-			var z := FLOOR + 1.0
+			var z := floor_z(u0) + 1.0
 			glow.tri(Vector3(x0, u0, z), Vector3(x1, u0, z), Vector3(x1, u0 + 1.4, z), Color.WHITE, Vector3.BACK)
 			glow.tri(Vector3(x0, u0, z), Vector3(x1, u0 + 1.4, z), Vector3(x0, u0 + 1.4, z), Color.WHITE, Vector3.BACK)
 

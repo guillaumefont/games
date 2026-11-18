@@ -2268,7 +2268,7 @@ func start_run() -> void:
 	P.ready_lv = 0
 	if pod.get("state", "") == "out":
 		pod.state = "back"
-	hud.banner("Canyon run", "Steer through · drag up and down too", 170)
+	hud.banner("Canyon run", "Drag up and down to climb and dive", 130)
 	audio.play("alarm")
 	Diag.note("RUN", "start")
 
@@ -2287,8 +2287,9 @@ func _update_run() -> void:
 		if R.abort >= 45:
 			end_run(false)
 			return
-	# the moon floor scrolls with the canyon while it shows (before the swing and after it)
-	if R.k < 0.6:
+	# the moon floor scrolls with the canyon while it shows (before the swing and after it), at
+	# the canyon's speed, which starts and ends at the stage's own
+	if R.k < 0.97:
 		G.foff = G.get("foff", 0.0) + sp
 	if R.d >= VRun.LEN:
 		end_run(true)
@@ -2375,7 +2376,7 @@ func _sync_run() -> void:
 		_run_built = run_b.step()
 	var k: float = G.run.k if G.has("run") else 0.0
 	for c in chunks.values():
-		c.visible = k < 0.6
+		c.visible = k < 0.97
 	for ch in ship_m.get_children():
 		if ch.has_meta("nf"):
 			ch.rotation.x = k * PI / 2.0
