@@ -59,7 +59,7 @@ static func _make() -> Array:
 			rng.seed = 7919 * (w + 1) + 131 * j
 			var length := 2300.0 if last else 2600.0 + 50.0 * j + 40.0 * w
 			# the fortress sits early on odd stages and late on even ones, longer as you go
-			var flen := 600.0 + 40.0 * j + (100.0 if w >= 4 else 0.0)
+			var flen := 600.0 + 70.0 * j + (100.0 if w >= 4 else 0.0)
 			var fa := roundf(length * (0.36 if j % 2 else 0.48) / 10.0) * 10.0
 			if last:
 				fa = 900.0
@@ -144,6 +144,7 @@ static func build(i: int) -> Array:
 	ev.append({d = fa * 0.45, type = "carrier", x = 20.0, dir = 1.0, item = "L"})
 	ev.append({d = fb + 60, type = "carrier", x = W - 20, dir = -1.0, item = "L"})
 	_fortress(ev, fa, fb, rng, i)
+	_outpost(ev, s, rng)
 	if s.has("run"):
 		# the canyon run (see VRun): its mouth appears at the top of the screen here
 		ev.append({d = run, type = "run"})
@@ -151,6 +152,22 @@ static func build(i: int) -> Array:
 	_clear_shots(ev)
 	ev.sort_custom(func(a, b): return a.d < b.d)
 	return ev
+
+
+## Outpost pieces on the ground: a few at the start of a world, more every stage, crowding round
+## the fortress as the stage closes in on it.
+static func _outpost(ev: Array, s: Dictionary, rng: RandomNumberGenerator) -> void:
+	var kinds := ["bunker", "radar", "pad", "tanks", "mast", "hangar"]
+	var n: int = 4 + s.j * 3
+	var fa: float = s.fort[0]
+	var fb: float = s.fort[1]
+	for q in n:
+		# two in three cluster round the fortress, the rest spread out ahead of it
+		var d: float = rng.randf_range(fa - 500.0, fb + 100.0) if q % 3 else rng.randf_range(200.0, s.length - 300.0)
+		var x: float = rng.randf_range(4.0, 30.0) if q % 2 else rng.randf_range(96.0, 122.0)
+		if q % 5 == 4:
+			x = rng.randf_range(30.0, 96.0)
+		ev.append({d = d, type = "prop", kind = kinds[rng.randi() % kinds.size()], x = x, rot = rng.randf_range(-0.4, 0.4)})
 
 
 ## A ground target in the screen above a barrier would sit behind its wall, out of reach of the
@@ -222,21 +239,39 @@ static func _group(ev: Array, kind: String, d: float, rng: RandomNumberGenerator
 ## Barriers across the screen: fixed, sliding, a wall to shoot through and one locked by a
 ## generator, with turrets between them.
 static func _fortress(ev: Array, a: float, b: float, rng: RandomNumberGenerator, stage: int) -> void:
+	var sj: int = stage % PER_WORLD
 	var modes: Array = (["fixed", "slide", "wall", "locked"] if stage % 3 == 0 else (["slide", "locked", "wall", "slide"] if stage % 3 == 1 else ["locked", "wall", "slide"])).duplicate()
+	if sj >= 2:
+		modes.insert(1, "shutter")
 	if (b - a) > 760.0:
 		modes.append("locked" if modes[-1] != "locked" else "slide")
+	if (b - a) > 980.0:
+		modes.append("shutter" if modes[-1] != "shutter" else "fixed")
 	var n: int = modes.size()
 	var span := (b - a) / float(n)
 	for j in n:
 		var d := a + span * (j + 0.6)
 		var gx := rng.randf_range(34, W - 34)
 		var m: String = modes[j]
-		var e := {d = d, type = "barrier", mode = m, gx = gx, gw = 30.0 if m != "slide" else 34.0, key = "k%d" % j}
+		var e := {d = d, type = "barrier", mode = m, gx = gx, gw = 30.0 if m != "slide" else 34.0, key = "k%d" % j, ph = rng.randf_range(0.0, TAU)}
+		if m == "shutter":
+			e.gw = 36.0
 		ev.append(e)
 		if m == "locked":
 			# the generator sits on the ground just before its barrier
 			ev.append({d = d - 70, type = "generator", x = W - gx if absf(W - gx - gx) > 30 else (20.0 if gx > W / 2 else W - 20), key = e.key})
 		ev.append({d = d - 120, type = "turret", x = 20.0 if j % 2 else W - 20})
+		# guns on the front edge of the wall, from stage 2 on (not on a sliding wall)
+		if m != "slide" and sj >= 1:
+			var lw: float = gx - e.gw / 2.0
+			var rw: float = W - gx - e.gw / 2.0
+			for q in (2 if sj >= 5 else 1):
+				var side_left: bool = (lw >= rw) if q == 0 else (lw < rw)
+				var room: float = lw if side_left else rw
+				if room < 22.0:
+					continue
+				var wx: float = (lw - room / 2.0) if side_left else (W - rw + room / 2.0)
+				ev.append({d = d - 6.5, type = "wallgun", x = clampf(wx, 8.0, W - 8.0)})
 		# divers come through the opening, more of them deeper into the campaign
 		for q in 2 + mini(4, stage / 6):
 			ev.append({d = d - 40 + q * 18, type = "drifter", x = clampf(gx + (q - 1) * 10.0, 10.0, W - 10.0), move = "dive", stop = 175.0 - q * 6.0})

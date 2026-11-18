@@ -173,6 +173,11 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
 - Ground targets (turrets, generators) are moved into line with the opening of the barrier just
   below them (`VStage._clear_shots`): Guillaume hated towers he couldn't shoot behind walls. Enemy
   bullets stop on barrier walls too. The test checks every stage (`VStage.in_reach`).
+- Fortress barriers are full walls standing on the ground (`Models.fort_wall`, one per side of
+  the opening, the right one mirrored), not floating beams (Guillaume: "strange"). Walls carry
+  guns on their front edge (`wallgun`, from stage 2), `shutter` barriers close and reopen their
+  opening, and outpost pieces (`Models.prop`: bunkers, radars, pads, tanks, masts, hangars) stand
+  on the ground, more every stage and crowding round the fortress (`VStage._outpost`).
 - Guillaume wants dense stages ("the ships can handle much more"): keep the group spacing and
   sizes in `VStage.build()` / `_group()` rising with stage and world.
 - The menu's device row: sound, graphics (safe = no glow/MSAA), and the build line; the crash

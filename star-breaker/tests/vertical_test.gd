@@ -311,12 +311,55 @@ func _initialize() -> void:
 	vg.finish(true)
 	check(not vg.hud._result_next.visible, "the last stage has no Next")
 	await world_boss_checks()
+	await fortress_checks()
 	vg.hud.menu_pressed.emit()
 	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
 
 	await rock_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
 	quit(1 if fails else 0)
+
+
+## Fortresses: full walls on the ground, guns on their front edge, shutters that close, and
+## outpost pieces round them, more of them later in a world.
+func fortress_checks() -> void:
+	print("Fortresses")
+	var n1 := 0
+	var n8 := 0
+	var guns := 0
+	var shutters := 0
+	for i in VStage.STAGES.size():
+		for e in VStage.build(i):
+			if e.type == "prop":
+				if i % 8 == 0:
+					n1 += 1
+				elif i % 8 == 7:
+					n8 += 1
+			guns += 1 if e.type == "wallgun" else 0
+			shutters += 1 if e.type == "barrier" and e.mode == "shutter" else 0
+	check(n8 > n1 * 2, "outposts grow through a world (%d pieces on first stages, %d on last)" % [n1, n8])
+	check(guns > 40 and shutters > 30, "walls carry guns (%d) and shutters close openings (%d)" % [guns, shutters])
+	vg.start_stage(13, "lance")
+	settle()
+	vg.add_bar({d = vg.G.scroll + 150.0, mode = "shutter", gx = 63.0, gw = 36.0, key = "s", ph = 0.0})
+	var b: Dictionary = vg.G.bars.back()
+	var closed := false
+	var opened := false
+	for k in 400:
+		tick(1, false)
+		closed = closed or b.gw < 2.0
+		opened = opened or b.gw > 35.0
+	check(closed and opened, "a shutter closes its opening and opens it again")
+	var wall: Node3D = b.nodes[0]
+	check(wall.get_child(0).get_aabb().position.z < -60.0, "a fortress wall stands on the ground, not in the air")
+	# a wall gun sits in front of its wall, where the ship's shots reach it
+	vg.spawn({type = "wallgun", x = 30.0, d = b.wy - 6.5})
+	var g: Dictionary = vg.G.enemies.back()
+	tick(1, false)
+	check(g.y < b.y - b.th / 2.0 and not vg.bar_solid(b, g.x, g.y - g.hh, 0.0), "a wall gun stands clear of the wall's band")
+	vg.spawn({type = "prop", kind = "radar", x = 20.0, d = vg.G.scroll + 100.0})
+	tick(2, false)
+	check(vg.G.props.size() > 0 and vg.G.props.back().m.position.z < -30.0, "outpost pieces stand on the ground")
 
 
 ## The bosses of worlds 2 to 6: each arrives at the top, attacks, shrugs off hits on its
