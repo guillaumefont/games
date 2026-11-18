@@ -2,6 +2,14 @@ class_name View3D
 extends Node3D
 ## Draws the battle: terrain, water, decor, ore, units, buildings, effects, fog of war.
 
+## Terrain look (2026-11-16 overhaul, "calm the terrain"): vertex jitter, per-triangle colour noise,
+## grass desaturation, grass variation scale and how much flat-ground normals lean up (less facet contrast).
+const TERR_JIT := 0.18
+const TERR_NOISE := 0.02
+const TERR_DESAT := 0.15
+const TERR_GVAR := 0.8
+const TERR_SOFT := 0.5
+
 const T := 32
 const MW := 64
 const MH := 64
@@ -283,13 +291,17 @@ func build_world() -> void:
 	var JX := PackedFloat32Array(); JX.resize(HN * HN); var JZ := PackedFloat32Array(); JZ.resize(HN * HN)
 	for j in range(1, HN - 1):
 		for i in range(1, HN - 1):
-			JX[j * HN + i] = (Sim.hash2(i, j, sd + 31) - .5) * .26; JZ[j * HN + i] = (Sim.hash2(i, j, sd + 32) - .5) * .26
+			JX[j * HN + i] = (Sim.hash2(i, j, sd + 31) - .5) * TERR_JIT; JZ[j * HN + i] = (Sim.hash2(i, j, sd + 32) - .5) * TERR_JIT
 	var verts := PackedVector3Array(); var cols := PackedColorArray(); var norms := PackedVector3Array()
 	var TH: Dictionary = D.THEMES[S.theme]
 	_apply_light(TH)
 	var v3 := func(a: Array) -> Vector3: return Vector3(a[0], a[1], a[2])
 	var BASEC := [v3.call(TH.grass), v3.call(TH.dirt), v3.call(TH.sand), v3.call(TH.rock), v3.call(TH.bed)]
-	var G0: Vector3 = v3.call(TH.grass); var GV: Vector3 = v3.call(TH.gvar); var CL: Vector3 = v3.call(TH.cliff); var RK: Vector3 = v3.call(TH.rock)
+	# Calmer ground: grass a little desaturated so units stand out (see TERR_* constants)
+	var desat := func(c: Vector3) -> Vector3:
+		var l := c.x * .3 + c.y * .59 + c.z * .11
+		return c.lerp(Vector3(l, l, l), TERR_DESAT)
+	var G0: Vector3 = desat.call(v3.call(TH.grass)); var GV: Vector3 = v3.call(TH.gvar) * TERR_GVAR; var CL: Vector3 = v3.call(TH.cliff); var RK: Vector3 = v3.call(TH.rock)
 	var BED: Vector3 = v3.call(TH.bed); var SND: Vector3 = v3.call(TH.sand)
 	var H := S.H
 	for j in HN - 1:
@@ -304,9 +316,9 @@ func build_world() -> void:
 				var tr: Array = tris[k]
 				var h0: float = tr[0].y; var h1: float = tr[1].y; var h2: float = tr[2].y
 				var hmin: float = min(h0, min(h1, h2)); var hmax: float = max(h0, max(h1, h2)); var hav := (h0 + h1 + h2) / 3.0
-				var base: Vector3 = BASEC[t]; var v := (Sim.hash2(i * 3 + k, j, sd + 41) - .5) * .07
+				var base: Vector3 = BASEC[t]; var v := (Sim.hash2(i * 3 + k, j, sd + 41) - .5) * TERR_NOISE
 				if t == D.GRASS:
-					var p := Sim.fbm(i / 9.0, j / 9.0, sd + 50); base = G0 + GV * p
+					var p := Sim.fbm(i / 16.0, j / 16.0, sd + 50); base = G0 + GV * p
 				if hmax - hmin > .28 and t != D.WATER: base = CL
 				if t == D.ROCK: base = RK + Vector3(.12, .11, .1) * hav
 				if ore_t: base = Vector3(.5, .4, .24)
@@ -315,6 +327,7 @@ func build_world() -> void:
 				var p0: Vector3 = tr[0]; var p1: Vector3 = tr[1]; var p2: Vector3 = tr[2]
 				var n := (p1 - p0).cross(p2 - p0).normalized()
 				if n.y < 0: n = -n
+				n = (n + Vector3.UP * TERR_SOFT).normalized()  # softer facets on gentle ground; cliffs stay sharp
 				# clockwise for Godot: tris above are counter-clockwise seen from above
 				verts.append_array([p0, p2, p1])
 				for q in 3: cols.append(col); norms.append(n)
