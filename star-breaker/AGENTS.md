@@ -201,4 +201,8 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   The moon floor keeps the run's distance in `G.foff`.
   Guillaume wants the way in and out seamless (2026-11-18): the canyon's speed starts and ends
   at the stage's scroll (`VRun.STAGE_SPEED`) and its floor dips under the moon's ground at both
-  ends (`VRun.floor_z`), so the moon shows through the mouth and exit; the test checks both. GIF frames: `tools/run_shots.gd`.
+  ends (`VRun.floor_z`), so the moon shows through the mouth and exit; the test checks both.
+  Readability (Guillaume found it too hard, 2026-11-18): every way through has a soft light behind
+  it (`VRun.gap_light`) and the fog brightens in the run, so the gap is the brightest thing ahead;
+  up/down moves come in same-direction pairs with ~1 s before a change; peak speed 3.0. Obstacles
+  are rock concretions (`VRun._blob`), never bigger than their collision shape. GIF frames: `tools/run_shots.gd`.

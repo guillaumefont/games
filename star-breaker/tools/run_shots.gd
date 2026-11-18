@@ -47,7 +47,7 @@ func _initialize() -> void:
 	var f := 0
 	var t := 0
 	var after := 0
-	var stills := {"run_mouth": -60.0, "run_swing": -40.0, "run_pillars": 236.0, "run_arch": 548.0, "run_spine": 735.0, "run_bend": 1180.0, "run_window": 1612.0}
+	var stills := {"run_swing": -40.0, "run_pillars": 150.0, "run_arch": 540.0, "run_arch2": 660.0, "run_spine": 820.0, "run_bend": 1170.0, "run_window": 1370.0, "run_window2": 1500.0}
 	while after < 150:
 		var dx := 0.0
 		var dy := 0.0
