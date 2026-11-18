@@ -42,8 +42,12 @@ var menu_scr: Control
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
+## The stage map: six world tabs and the selected world's eight stages.
 var _stage_btns: Array = []
-var bests: Array = [0, 0, 0]
+var _world_btns: Array = []
+var _world_lbl: Label
+var world_sel := 0
+var bests: Array = []
 var _crash: PanelContainer
 var _crash_txt: Label
 var _crash_report := ""
@@ -161,11 +165,8 @@ func _build_menu() -> Control:
 	var t := _label("STAR BREAKER", 44, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	var s := _label("THE HOLLOW MOON", 18, 700, C_LANCE, 4.0)
-	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(s)
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 24
+	gap.custom_minimum_size.y = 8
 	v.add_child(gap)
 	var sl := _label("SHIP", 16, 700, C_MUTED, 3.0)
 	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -191,15 +192,66 @@ func _build_menu() -> Control:
 	var gap2 := Control.new()
 	gap2.custom_minimum_size.y = 12
 	v.add_child(gap2)
-	for i in VStage.STAGES.size():
-		var st: Dictionary = VStage.STAGES[i]
-		var b := _button("%d  %s" % [i + 1, st.name], i == 0)
-		b.pressed.connect(func(): stage_chosen.emit(i, ship))
-		v.add_child(_center(b))
-		_stage_btns.append(b)
+	_build_map(v)
 	_build_device(v)
 	select_ship(ship)
 	return v.get_parent()
+
+
+## World tabs, the world's name, and a grid of its eight stages (2 x 4).
+func _build_map(v: VBoxContainer) -> void:
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 8)
+	var n: int = VStage.WORLDS.size()
+	for w in n:
+		var b := Button.new()
+		b.text = str(w + 1)
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 8 * (n - 1)) / n, 56)
+		b.pressed.connect(func(): select_world(w))
+		tabs.add_child(b)
+		_world_btns.append(b)
+	v.add_child(tabs)
+	_world_lbl = _label("", 18, 700, C_LANCE, 3.0)
+	_world_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_world_lbl)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 10)
+	for j in VStage.PER_WORLD:
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 12) / 2.0, 74)
+		b.pressed.connect(func(): stage_chosen.emit(world_sel * VStage.PER_WORLD + j, ship))
+		grid.add_child(b)
+		_stage_btns.append(b)
+	v.add_child(_center(grid))
+	select_world(0)
+
+
+## Shows world `w` on the stage map.
+func select_world(w: int) -> void:
+	world_sel = clampi(w, 0, VStage.WORLDS.size() - 1)
+	for k in _world_btns.size():
+		_style_button(_world_btns[k], k == world_sel)
+	var wd: Dictionary = Worlds.LIST[world_sel]
+	_world_lbl.text = ("%s  ·  %s" % [wd.sub, wd.name]).to_upper()
+	for j in _stage_btns.size():
+		var b: Button = _stage_btns[j]
+		b.text = stage_label(world_sel * VStage.PER_WORLD + j)
+		_style_button(b, false)
+		b.add_theme_font_size_override("font_size", 17)
+
+
+## A stage button's text: number and name, and the best score under it.
+func stage_label(i: int) -> String:
+	var st: Dictionary = VStage.STAGES[i]
+	var t: String = "%d  %s" % [st.j + 1, st.name]
+	if i < bests.size() and int(bests[i]) > 0:
+		t += "\n" + _fmt(int(bests[i]))
+	return t.to_upper()
 
 
 ## The crash notice (after a session that didn't end cleanly) and the device row: sound,
@@ -301,12 +353,8 @@ func show_crash_notice(summary: String, report: String) -> void:
 ## Each stage's best score, shown on its button.
 func set_bests(b: Array) -> void:
 	bests = b.duplicate()
-	for i in _stage_btns.size():
-		var st: Dictionary = VStage.STAGES[i]
-		var t := "%d  %s" % [i + 1, st.name]
-		if i < bests.size() and int(bests[i]) > 0:
-			t += "  ·  " + _fmt(int(bests[i]))
-		_stage_btns[i].text = t.to_upper()
+	if _world_lbl != null:
+		select_world(world_sel)
 
 
 static func _fmt(n: int) -> String:
