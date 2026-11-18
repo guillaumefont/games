@@ -19,6 +19,19 @@ Rule from Guillaume, 2026-11-15. It replaces the older per-game merge rules.
 - This allows merging your own PRs only. A PR that Guillaume said to hold, or someone else's PR, still waits
   for Guillaume's go-ahead.
 
+## Resolving merge conflicts
+
+Rule from Guillaume, 2026-11-17.
+
+- When a PR conflicts with `main` (yours, or one Guillaume asked you to look at), resolve the conflict yourself
+  as far as you can instead of stopping to ask: merge `main` into the PR branch (don't rebase or force-push a
+  branch that's already pushed), keep the intent of both sides, run the affected game's tests, and push.
+- Typical cases you can settle alone: both sides added lines to the same list or doc (keep both), or one side
+  changed code the other only moved or reformatted.
+- Ask Guillaume only when the two sides really disagree about behaviour and neither choice is clearly right.
+  Then say what each side does and which one you'd pick.
+- Mention in your report that you resolved a conflict and how, so it can be checked in the PR.
+
 ## Showing a preview of the result
 
 Rule from Guillaume, 2026-11-16.
