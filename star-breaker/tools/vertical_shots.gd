@@ -72,8 +72,8 @@ func _initialize() -> void:
 	vg.update()
 	await play(30, true)
 	await snap("v_shatter")
-	vg.start_stage(2, "lance")
-	vg.G.scroll = VStage.STAGES[2].length - 150
+	vg.start_stage(7, "lance")
+	vg.G.scroll = VStage.STAGES[7].length - 150
 	vg.G.si = vg.script_list.size() - 1
 	await play(600, true, 0.7)
 	await snap("v_bloom")

@@ -853,3 +853,97 @@ static func boss_bastion(world: Node3D) -> Node3D:
 	g.set_meta("u", u)
 	world.add_child(g)
 	return g
+
+
+# ---------- fortress walls and outpost pieces (portrait) ----------
+# Built standing up: z is height, the play plane is z = 0 and the ground sits about 68 below.
+
+## One side of a fortress wall: a 200-unit run of wall from its inner end (x = 0) outwards along
+## -x, from the ground up past the play plane, with a walkway cap, battlements, a lit band on the
+## face, buttresses, and a gate tower at the inner end with a glowing lip.
+static func fort_wall(th: float, glow_mat: Material) -> Node3D:
+	var g := Node3D.new()
+	var L := 200.0
+	g.add_child(mesh(geo("fwB%d" % th, func(): return Geo.xf(Geo.box(L, th, 76), Geo.move(-L / 2, 0, -34))), M.fort_a))
+	g.add_child(mesh(geo("fwC%d" % th, func(): return Geo.xf(Geo.box(L, th + 1.6, 1.4), Geo.move(-L / 2, 0, 4.4))), M.fort_trim))
+	g.add_child(mesh(geo("fwM%d" % th, func():
+		var t: Array = []
+		var x := -6.0
+		while x > -L:
+			for sy in [-1.0, 1.0]:
+				t.append_array(Geo.xf(Geo.box(2.6, 1.4, 2.2), Geo.move(x, sy * (th / 2.0 + 0.1), 6.2)))
+			x -= 5.5
+		return t), M.fort_b))
+	g.add_child(mesh(geo("fwW%d" % th, func():
+		var t: Array = []
+		var x := -9.0
+		while x > -L:
+			t.append_array(Geo.xf(Geo.box(3.4, 0.5, 1.0), Geo.move(x, -th / 2.0 - 0.3, -3.0)))
+			x -= 7.0
+		return t), M.fort_win))
+	g.add_child(mesh(geo("fwT%d" % th, func():
+		var t: Array = []
+		var x := -16.0
+		while x > -L:
+			t.append_array(Geo.xf(Geo.box(3.0, 3.0, 60), Geo.move(x, -th / 2.0 - 1.4, -38)))
+			x -= 22.0
+		return t), M.fort_trim))
+	var tower := Node3D.new()
+	tower.add_child(mesh(geo("fwG%d" % th, func(): return Geo.xf(Geo.box(6, th + 4, 84), Geo.move(-2, 0, -33))), M.fort_b))
+	tower.add_child(mesh(geo("fwGc%d" % th, func(): return Geo.xf(Geo.box(7, th + 5, 1.4), Geo.move(-2, 0, 9.6))), M.fort_trim))
+	tower.add_child(mesh(geo("fwGl", func(): return Geo.xf(Geo.box(1.4, 2, 1.6), Geo.move(0.8, 0, 10.6))), glow_mat))
+	g.add_child(tower)
+	return g
+
+
+## A gun on the front edge of a wall: an armoured block with a barrel that tracks the ship.
+static func wall_gun() -> Node3D:
+	var g := Node3D.new()
+	g.add_child(mesh(geo("wgB", func(): return Geo.box(6, 4, 3.4)), M.steel_dark))
+	g.add_child(mesh(geo("wgD", func(): return Geo.xf(Geo.hemi(2.4, 6, 2), Geo.rot(Vector3.RIGHT, PI / 2))), M.steel, Vector3(0, 0, 1.7)))
+	var piv := Node3D.new()
+	piv.position.z = 2.6
+	g.add_child(piv)
+	piv.add_child(mesh(geo("wgG", func(): return Geo.box(1.1, 5, 1.1)), M.hot, Vector3(0, 2.6, 0)))
+	g.set_meta("piv", piv)
+	return g
+
+
+## Outpost pieces on the ground, getting thicker as the stages close in on each world's fortress.
+static func prop(kind: String) -> Node3D:
+	var g := Node3D.new()
+	match kind:
+		"bunker":
+			g.add_child(mesh(geo("prB", func(): return Geo.prism([[-7, 0], [7, 0], [5, 4], [-5, 4]], 9)), M.fort_a))
+			g.get_child(0).rotation.x = PI / 2
+			g.add_child(mesh(geo("prBs", func(): return Geo.box(8, 0.6, 0.9)), M.fort_win, Vector3(0, -4.6, 2.6)))
+		"radar":
+			g.add_child(mesh(geo("prRm", func(): return Geo.box(1.2, 1.2, 14)), M.fort_trim, Vector3(0, 0, 7)))
+			var dish := Node3D.new()
+			dish.position.z = 14
+			dish.add_child(mesh(geo("prRd", func(): return Geo.xf(Geo.hemi(5, 8, 2), Geo.rot(Vector3.RIGHT, -PI / 2.6))), M.fort_b))
+			dish.add_child(mesh(geo("prRl", func(): return Geo.ico(0.8, 0)), M.fort_win, Vector3(0, -2, 2)))
+			g.add_child(dish)
+			g.set_meta("spin", dish)
+		"pad":
+			g.add_child(mesh(geo("prP", func(): return Geo.xf(Geo.cyl(10, 10, 0.8, 8), Geo.rot(Vector3.RIGHT, PI / 2))), M.fort_b))
+			g.add_child(mesh(geo("prPr", func(): return Geo.ring(6.5, 7.5, 16)), M.fort_win, Vector3(0, 0, 0.5)))
+			for k in 4:
+				var a := k * TAU / 4.0 + PI / 4.0
+				g.add_child(mesh(geo("prPl", func(): return Geo.ico(0.7, 0)), M.fort_light, Vector3(cos(a) * 9, sin(a) * 9, 0.8)))
+		"tanks":
+			for k in 2:
+				g.add_child(mesh(geo("prT", func(): return Geo.xf(Geo.cyl(3.2, 3.2, 7, 8), Geo.rot(Vector3.RIGHT, PI / 2))), M.fort_a, Vector3(-4 + k * 8, 0, 3.5)))
+				g.add_child(mesh(geo("prTc", func(): return Geo.xf(Geo.cyl(3.4, 3.4, 0.8, 8), Geo.rot(Vector3.RIGHT, PI / 2))), M.fort_trim, Vector3(-4 + k * 8, 0, 6.2)))
+		"mast":
+			g.add_child(mesh(geo("prMm", func(): return Geo.cyl(0.4, 1.0, 24, 4)), M.fort_trim))
+			g.get_child(0).rotation.x = PI / 2
+			g.get_child(0).position.z = 12
+			var lt := mesh(geo("prMl", func(): return Geo.ico(1.0, 0)), M.fort_light, Vector3(0, 0, 24.5))
+			g.add_child(lt)
+			g.set_meta("blink", lt)
+		_:
+			# hangar: a long half-barrel with a lit door
+			g.add_child(mesh(geo("prH", func(): return Geo.xf(Geo.cyl(7, 7, 22, 8), Geo.rot(Vector3.FORWARD, PI / 2))), M.fort_a))
+			g.add_child(mesh(geo("prHd", func(): return Geo.box(0.6, 8, 6)), M.fort_win, Vector3(-11.2, 0, 2.4)))
+	return g

@@ -14,6 +14,9 @@ signal safe_toggled
 signal refresh_pressed
 signal pause_pressed
 signal ult_pressed
+signal tier_pressed(tier: int)
+signal paint_chosen(ship: String, id: String)
+signal level_pressed(ship: String)
 
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
@@ -37,13 +40,20 @@ var boss := -1.0
 var boss_name := ""
 var stage_name := ""
 var playing := false
+## Replay progress (set by the game after loading the save) and the tier picked on the menu.
+var prog: Progress
+var tier := 0
 
 var menu_scr: Control
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
+## The stage map: six world tabs and the selected world's eight stages.
 var _stage_btns: Array = []
-var bests: Array = [0, 0, 0]
+var _world_btns: Array = []
+var _world_lbl: Label
+var world_sel := 0
+var bests: Array = []
 var _crash: PanelContainer
 var _crash_txt: Label
 var _crash_report := ""
@@ -59,6 +69,18 @@ var _banner: Label
 var _banner_sub: Label
 var _banner_t := 0
 var btn_pause: Button
+var _tier_btns: Array = []
+var _stage_pips: Array = []
+var _btn_medals: Button
+var medals_scr: Control
+var _medals_total: Label
+var _paint_btns := {}
+var _flux_lbl: Label
+var _level_lbls := {}
+var _level_btns := {}
+var _result_pips: Pips
+var _result_lines: Label
+var _result_tier: Button
 var ult_rect := Rect2()
 
 
@@ -83,6 +105,7 @@ func _ready() -> void:
 	menu_scr = _build_menu()
 	pause_scr = _build_pause()
 	result_scr = _build_result()
+	medals_scr = _build_medals()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	show_screen("menu")
@@ -161,11 +184,8 @@ func _build_menu() -> Control:
 	var t := _label("STAR BREAKER", 44, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	var s := _label("THE HOLLOW MOON", 18, 700, C_LANCE, 4.0)
-	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(s)
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 24
+	gap.custom_minimum_size.y = 8
 	v.add_child(gap)
 	var sl := _label("SHIP", 16, 700, C_MUTED, 3.0)
 	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -191,15 +211,81 @@ func _build_menu() -> Control:
 	var gap2 := Control.new()
 	gap2.custom_minimum_size.y = 12
 	v.add_child(gap2)
-	for i in VStage.STAGES.size():
-		var st: Dictionary = VStage.STAGES[i]
-		var b := _button("%d  %s" % [i + 1, st.name], i == 0)
-		b.pressed.connect(func(): stage_chosen.emit(i, ship))
-		v.add_child(_center(b))
-		_stage_btns.append(b)
+	v.add_child(_build_tier_row())
+	_build_map(v)
+	_btn_medals = _small_button("")
+	_btn_medals.custom_minimum_size.x = COL_W
+	_btn_medals.pressed.connect(func(): show_screen("medals"))
+	v.add_child(_center(_btn_medals))
 	_build_device(v)
 	select_ship(ship)
 	return v.get_parent()
+
+
+## World tabs, the world's name, and a grid of its eight stages (2 x 4).
+func _build_map(v: VBoxContainer) -> void:
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 8)
+	var n: int = VStage.WORLDS.size()
+	for w in n:
+		var b := Button.new()
+		b.text = str(w + 1)
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 8 * (n - 1)) / n, 56)
+		b.pressed.connect(func(): select_world(w))
+		tabs.add_child(b)
+		_world_btns.append(b)
+	v.add_child(tabs)
+	_world_lbl = _label("", 18, 700, C_LANCE, 3.0)
+	_world_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_world_lbl)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 10)
+	for j in VStage.PER_WORLD:
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 12) / 2.0, 74)
+		b.pressed.connect(func(): stage_chosen.emit(world_sel * VStage.PER_WORLD + j, ship))
+		var pips := Pips.new()
+		pips.position = Vector2(b.custom_minimum_size.x - 18 - Pips.WIDTH, b.custom_minimum_size.y - Pips.HEIGHT - 12)
+		b.add_child(pips)
+		_stage_pips.append(pips)
+		grid.add_child(b)
+		_stage_btns.append(b)
+	v.add_child(_center(grid))
+	select_world(0)
+
+
+## Shows world `w` on the stage map.
+func select_world(w: int) -> void:
+	world_sel = clampi(w, 0, VStage.WORLDS.size() - 1)
+	for k in _world_btns.size():
+		_style_button(_world_btns[k], k == world_sel)
+	var wd: Dictionary = Worlds.LIST[world_sel]
+	_world_lbl.text = ("%s  ·  %s" % [wd.sub, wd.name]).to_upper()
+	for j in _stage_btns.size():
+		var b: Button = _stage_btns[j]
+		b.text = stage_label(world_sel * VStage.PER_WORLD + j)
+		_style_button(b, false)
+		b.add_theme_font_size_override("font_size", 17)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	refresh_progress()
+
+
+## A stage button's text: number and name, and the best score under it.
+func stage_label(i: int) -> String:
+	var st: Dictionary = VStage.STAGES[i]
+	var t: String = "%d  %s" % [st.j + 1, st.name]
+	if prog and not prog.unlocked(Progress.stage_id(i), tier):
+		t += "\nlocked"
+	elif i < bests.size() and int(bests[i]) > 0:
+		t += "\n" + _fmt(int(bests[i]))
+	else:
+		t += "\n "  # keeps the name on the top line, clear of the medal pips
+	return t.to_upper()
 
 
 ## The crash notice (after a session that didn't end cleanly) and the device row: sound,
@@ -301,12 +387,45 @@ func show_crash_notice(summary: String, report: String) -> void:
 ## Each stage's best score, shown on its button.
 func set_bests(b: Array) -> void:
 	bests = b.duplicate()
-	for i in _stage_btns.size():
-		var st: Dictionary = VStage.STAGES[i]
-		var t := "%d  %s" % [i + 1, st.name]
-		if i < bests.size() and int(bests[i]) > 0:
-			t += "  ·  " + _fmt(int(bests[i]))
-		_stage_btns[i].text = t.to_upper()
+	if _world_lbl != null:
+		select_world(world_sel)
+
+
+## Redraws everything that shows progress: the tier row, the shown world's stage labels, medals
+## and locks, the medal count and the ship colours.
+func refresh_progress() -> void:
+	for t in _tier_btns.size():
+		_style_tier(_tier_btns[t], t)
+	for j in _stage_btns.size():
+		var i: int = world_sel * VStage.PER_WORLD + j
+		var b: Button = _stage_btns[j]
+		b.text = stage_label(i)
+		var id := Progress.stage_id(i)
+		var open: bool = prog == null or prog.unlocked(id, tier)
+		b.disabled = not open
+		b.modulate.a = 1.0 if open else 0.45
+		if j < _stage_pips.size():
+			_stage_pips[j].set_medals(prog.medals(id, tier) if prog else 0)
+			_stage_pips[j].visible = open
+	if prog and _btn_medals:
+		_btn_medals.text = "HANGAR  ·  %s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
+		_medals_total.text = "MEDALS %d / %d" % [prog.total(), Progress.max_total()]
+		_flux_lbl.text = "%s FLUX" % _fmt(prog.flux)
+		for k in _level_btns:
+			var lv := prog.level(k)
+			_level_lbls[k].text = "%s  ·  LV %d  ·  +%d%% DAMAGE" % [String(VShips.KITS[k].name).to_upper(), lv, int(round((Progress.power(lv) - 1.0) * 100.0))]
+			var b: Button = _level_btns[k]
+			if lv >= Progress.MAX_LEVEL:
+				b.text = "MAX LEVEL"
+				b.disabled = true
+			else:
+				var cost := Progress.level_cost(lv)
+				b.text = "LEVEL UP  ·  %s FLUX" % _fmt(cost)
+				b.disabled = prog.flux < cost
+			b.modulate.a = 0.5 if b.disabled else 1.0
+		for k in _paint_btns:
+			for sw in _paint_btns[k]:
+				_style_swatch(sw, k)
 
 
 static func _fmt(n: int) -> String:
@@ -356,6 +475,18 @@ func _build_result() -> Control:
 	_result_sub = _label("", 22, 700, C_MUTED, 2.0)
 	_result_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_result_sub)
+	_result_pips = Pips.new()
+	_result_pips.big = true
+	_result_pips.custom_minimum_size = Vector2(Pips.WIDTH_BIG, Pips.HEIGHT_BIG)
+	v.add_child(_center(_result_pips))
+	_result_lines = _label("", 18, 700, C_TEXT, 1.0)
+	_result_lines.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_result_lines.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_result_lines.custom_minimum_size.x = COL_W
+	v.add_child(_center(_result_lines))
+	_result_tier = _button("", true)
+	_result_tier.pressed.connect(func(): tier_pressed.emit(int(_result_tier.get_meta("tier", 0))))
+	v.add_child(_center(_result_tier))
 	_result_next = _button("Next stage", true)
 	_result_next.pressed.connect(func(): next_pressed.emit())
 	v.add_child(_center(_result_next))
@@ -370,6 +501,7 @@ func _build_result() -> Control:
 ## Shows one of "menu", "pause", "result" or "play" (no menu, the HUD only).
 func show_screen(which: String) -> void:
 	menu_scr.visible = which == "menu"
+	medals_scr.visible = which == "medals"
 	pause_scr.visible = which == "pause"
 	result_scr.visible = which == "result"
 	playing = which == "play" or which == "pause"
@@ -461,3 +593,236 @@ func _draw() -> void:
 		draw_rect(r2, Color(1, 1, 1, 0.12))
 		draw_rect(Rect2(r2.position, Vector2(bw2 * clampf(boss, 0, 1), 10)), C_SPORE)
 		draw_string(fonts[700], Vector2(210, 44), boss_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, C_SPORE)
+
+
+# ---------- tiers, medals and ship colours ----------
+
+## Normal, Nova, Supernova: the tier the stage buttons start.
+func _build_tier_row() -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	for t in Progress.TIERS.size():
+		var b := Button.new()
+		b.text = String(Progress.TIERS[t].name).to_upper()
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 20) / 3.0, 56)
+		b.pressed.connect(func(): select_tier(t))
+		row.add_child(b)
+		_tier_btns.append(b)
+		_style_tier(b, t)
+	return row
+
+
+func select_tier(t: int) -> void:
+	tier = clampi(t, 0, Progress.TIERS.size() - 1)
+	refresh_progress()
+
+
+func _style_tier(b: Button, t: int) -> void:
+	var col := Color(String(Progress.TIERS[t].color))
+	for st in ["normal", "hover", "pressed", "focus"]:
+		var s := StyleBoxFlat.new()
+		s.bg_color = Color(col, 0.9) if t == tier else Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.7)
+		s.border_color = Color(col, 0.7)
+		s.set_border_width_all(0 if t == tier else 2)
+		s.set_corner_radius_all(999)
+		s.anti_aliasing = true
+		b.add_theme_stylebox_override(st, s)
+	var fv := FontVariation.new()
+	fv.base_font = fonts[800]
+	fv.spacing_glyph = 2
+	b.add_theme_font_override("font", fv)
+	b.add_theme_font_size_override("font_size", 16)
+	for k in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(k, C_INK if t == tier else col)
+
+
+## The end of a run: the medals of this tier (new ones ringed), what got unlocked, and a
+## button to replay the stage on the next tier once it's open.
+func set_report(r: Dictionary) -> void:
+	_result_pips.set_medals(int(r.get("held", 0)), r.get("new_medals", []))
+	var lines: Array = []
+	var tname: String = Progress.tier(int(r.get("tier", 0))).name
+	if r.get("cleared", false):
+		lines.append("%s · %d of 4 medals" % [tname, Progress.bits(int(r.get("held", 0)))])
+	else:
+		lines.append("Clear the stage to earn medals")
+	if int(r.get("unlocked_tier", -1)) > 0:
+		lines.append("%s unlocked for this stage" % Progress.tier(r.unlocked_tier).name)
+	if int(r.get("flux", 0)) > 0:
+		lines.append("+%s flux" % _fmt(int(r.flux)))
+	for rw in r.get("rewards", []):
+		lines.append("New ship colour: %s" % Progress.reward_name(rw))
+	_result_lines.text = "\n".join(lines).to_upper()
+	var nt := int(r.get("tier", 0)) + 1
+	var show_tier: bool = r.get("cleared", false) and nt < Progress.TIERS.size()
+	_result_tier.visible = show_tier
+	if show_tier:
+		_result_tier.text = ("Replay on " + String(Progress.TIERS[nt].name)).to_upper()
+		_result_tier.set_meta("tier", nt)
+		_style_button(_result_tier, true)
+		var col := Color(String(Progress.TIERS[nt].color))
+		for st in ["normal", "hover", "pressed", "focus"]:
+			var sb: StyleBoxFlat = _result_tier.get_theme_stylebox(st)
+			sb.bg_color = col if st != "pressed" else col.lightened(0.15)
+			sb.shadow_color = Color(col, 0.35)
+
+
+## The hangar: flux in the bank, the four medals explained and the medal count, then each
+## ship's level (with a level-up button) and colours (locked ones say how many medals they need).
+func _build_medals() -> Control:
+	var v := _screen()
+	v.add_theme_constant_override("separation", 12)
+	var t := _label("HANGAR", 44, 800, C_TEXT, 6.0)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	_flux_lbl = _label("", 26, 800, C_AMBER, 2.0)
+	_flux_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_flux_lbl)
+	_medals_total = _label("", 16, 700, C_MUTED, 2.0)
+	_medals_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_medals_total)
+	var legend := VBoxContainer.new()
+	legend.add_theme_constant_override("separation", 8)
+	for k in Progress.MEDALS.size():
+		var info: Dictionary = Progress.MEDAL_INFO[Progress.MEDALS[k]]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		var p := Pips.new()
+		p.only = k
+		p.custom_minimum_size = Vector2(22, Pips.HEIGHT)
+		p.set_medals(1 << k)
+		row.add_child(p)
+		var l := _label("%s  ·  %s" % [String(info.name).to_upper(), info.how], 17, 700, C_TEXT)
+		row.add_child(l)
+		legend.add_child(row)
+	var note := _label("Each stage has 4 medals on each tier. Clear a tier to open the next.", 15, 500, C_MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size.x = COL_W
+	legend.add_child(note)
+	v.add_child(_center(legend))
+	for k in VShips.ORDER:
+		var gap := Control.new()
+		gap.custom_minimum_size.y = 6
+		v.add_child(gap)
+		var sl := _label("", 17, 800, C_LANCE, 2.0)
+		sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(sl)
+		_level_lbls[k] = sl
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 10)
+		_paint_btns[k] = []
+		for s in Progress.SCHEMES[k]:
+			var b := Button.new()
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(80, 64)
+			b.set_meta("scheme", s.id)
+			var sid: String = s.id
+			b.pressed.connect(func(): paint_chosen.emit(k, sid))
+			row.add_child(b)
+			_paint_btns[k].append(b)
+		v.add_child(row)
+		var up := _button("", true, 60)
+		up.pressed.connect(func(): level_pressed.emit(k))
+		up.add_theme_stylebox_override("disabled", up.get_theme_stylebox("normal"))
+		up.add_theme_color_override("font_disabled_color", C_INK)
+		v.add_child(_center(up))
+		_level_btns[k] = up
+	var back := _button("Back", false)
+	back.pressed.connect(func(): show_screen("menu"))
+	v.add_child(_center(back))
+	return v.get_parent()
+
+
+## A colour swatch: hull colour with a dark trim ring and a glow dot; ringed when chosen, dimmed
+## with the medals it needs when locked.
+func _style_swatch(b: Button, k: String) -> void:
+	var id: String = b.get_meta("scheme")
+	var s := Progress.scheme(k, id)
+	var open: bool = prog == null or prog.scheme_open(k, id)
+	var chosen: bool = prog != null and prog.paint_of(k).id == id
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(s.hull) if open else Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.7)
+		sb.border_color = Color(s.glow) if chosen else (Color(s.dark) if open else Color(1, 1, 1, 0.18))
+		sb.set_border_width_all(6 if chosen else 3)
+		sb.set_corner_radius_all(20)
+		sb.shadow_color = Color(Color(s.glow), 0.5) if chosen else Color(0, 0, 0, 0)
+		sb.shadow_size = 12 if chosen else 0
+		sb.anti_aliasing = true
+		b.add_theme_stylebox_override(st, sb)
+	b.disabled = not open
+	b.text = "" if open else str(Progress.scheme_at(k, id))
+	b.tooltip_text = s.name
+	var fv := FontVariation.new()
+	fv.base_font = fonts[800]
+	b.add_theme_font_override("font", fv)
+	b.add_theme_font_size_override("font_size", 20)
+	b.add_theme_color_override("font_disabled_color", C_MUTED)
+	b.add_theme_color_override("font_color", C_INK)
+
+
+## Four medal pips in a row (Sweep, Untouched, Breaker, Swift): filled in the medal's colour
+## when held, an empty ring when not. The big version names each medal and rings the new ones.
+class Pips:
+	extends Control
+	const WIDTH := 4 * 22.0
+	const HEIGHT := 22.0
+	const WIDTH_BIG := 4 * 120.0
+	const HEIGHT_BIG := 70.0
+	var held := 0
+	var fresh: Array = []
+	var big := false
+	## Draw one medal only (index), or all four (-1).
+	var only := -1
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		custom_minimum_size = Vector2(WIDTH, HEIGHT)
+		size = custom_minimum_size
+
+	func set_medals(m: int, new_ones: Array = []) -> void:
+		held = m
+		fresh = new_ones
+		queue_redraw()
+
+	func _draw() -> void:
+		var font: Font = ThemeDB.fallback_font
+		var hud := get_parent()
+		while hud and not hud is VHud:
+			hud = hud.get_parent()
+		if hud:
+			font = hud.fonts[700]
+		if not big and only < 0:
+			# a dark pill behind the row so the pips read on a bright (accent) button too
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(11 / 255.0, 8 / 255.0, 48 / 255.0, 0.75)
+			sb.set_corner_radius_all(999)
+			draw_style_box(sb, Rect2(-4, -2, WIDTH + 8, HEIGHT + 4))
+		for k in Progress.MEDALS.size():
+			if only >= 0 and k != only:
+				continue
+			var key: String = Progress.MEDALS[k]
+			var col := Color(String(Progress.MEDAL_INFO[key].color))
+			var has := held & (1 << k) != 0
+			var c: Vector2
+			var r: float
+			if big:
+				c = Vector2(60 + k * 120, 20)
+				r = 15.0
+			else:
+				c = Vector2(11 + (0 if only >= 0 else k * 22), 11)
+				r = 7.0
+			if has:
+				draw_circle(c, r, col)
+				draw_circle(c, r * 0.45, Color(1, 1, 1, 0.55))
+			else:
+				draw_arc(c, r - 1.0, 0, TAU, 24, Color(col, 0.45), 2.0, true)
+			if big:
+				if fresh.has(key):
+					draw_arc(c, r + 6, 0, TAU, 32, Color(col, 0.9), 2.5, true)
+				var name: String = String(Progress.MEDAL_INFO[key].name).to_upper()
+				var w := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+				draw_string(font, Vector2(c.x - w / 2, 62), name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col if has else Color(1, 1, 1, 0.4))

@@ -66,13 +66,44 @@ func _initialize() -> void:
 	while u < VRun.LEN:
 		u += VRun.speed(u)
 		ticks += 1
-	check(ticks > 720 and ticks < 1000, "the run lasts about 15 s (%.1f s)" % (ticks / 60.0))
+	check(ticks > 720 and ticks < 1100, "the run lasts 12 to 18 s (%.1f s)" % (ticks / 60.0))
+	# the way out is as gentle as the way in: the camera turns no faster on the way out
+	var turn_in := 0.0
+	var turn_out := 0.0
+	var uu := VRun.SHIP_Y - 240.0
+	while uu < VRun.LEN:
+		var nu := uu + VRun.speed(uu)
+		var dk := absf(VRun.swing(nu) - VRun.swing(uu))
+		if uu < 500.0:
+			turn_in = maxf(turn_in, dk)
+		else:
+			turn_out = maxf(turn_out, dk)
+		uu = nu
+	check(turn_out <= turn_in * 1.05, "the camera swings out no faster than it swung in (%.4f vs %.4f a tick)" % [turn_out, turn_in])
+	var last := 0.0
+	for o in VRun.OBS:
+		last = maxf(last, o.u + VRun.DEPTH)
+	check(last < VRun.OUT, "every obstacle is behind the ship before the camera starts to swing out")
 	check(VStage.build(0).any(func(e): return e.type == "run"), "stage 1 has a canyon run")
+	# seamless: it picks up from the stage's scroll speed and hands back to it
+	check(VRun.STAGE_SPEED == vg.SCROLL and absf(VRun.speed(VRun.SHIP_Y - 300.0) - vg.SCROLL) < 0.01 and absf(VRun.speed(VRun.LEN) - vg.SCROLL) < 0.01, "the run starts and ends at the stage's own scroll speed")
+	check(VRun.floor_z(-60.0) < -68.0 and VRun.floor_z(VRun.LEN - 60.0) < -68.0 and VRun.floor_z(600.0) == VRun.FLOOR, "the canyon's floor starts and ends under the moon's ground")
 
 	print("Run")
 	to_run()
 	check(vg.G.has("run"), "the canyon's mouth arrives in stage 1")
 	check(vg.G.enemies.is_empty() and vg.G.eb.is_empty(), "the sky is cleared for it")
+	# regression: the mouth once started ~600 units out and the empty stage stood still ~10 s
+	var wait := 0
+	var d_probe: float = vg.G.run.d
+	while d_probe < 0.0:
+		d_probe += VRun.speed(d_probe)
+		wait += 1
+	check(wait < 240, "the canyon's mouth reaches the ship within 4 s of the run starting (%.1f s)" % (wait / 60.0))
+	var dark := 0
+	for gi in vg.G.run.casters:
+		dark += int(gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	check(vg.G.run.casters.size() > 0 and dark == 0, "the canyon throws no shadow on the screen as it starts")
 	var scroll0: float = vg.G.scroll
 	tick()
 	check(vg.G.scroll == scroll0, "the stage holds still during the run")
@@ -81,13 +112,23 @@ func _initialize() -> void:
 	var looked := false
 	var climbed := false
 	var guns: int = vg.G.pb.size()
+	# the ground under the ship (the moon while it shows, then the canyon) never jumps in speed
+	var last_v := -1.0
+	var jolt := 0.0
+	var last_f: float = vg.G.scroll + vg.G.foff
 	while vg.G.has("run"):
 		var R: Dictionary = vg.G.run
 		var tgt := VRun.line(R.d + 6.0)
 		var g := lerpf(1.0, VRun.GAIN, R.k)
 		var dx := clampf((tgt.x - vg.P.x) / g, -4.0, 4.0)
 		var dy := clampf((tgt.y - vg.P.z) / VRun.GAIN, -4.0, 4.0)
+		var rd0: float = R.d
 		tick(dx, dy)
+		var v: float = (vg.G.run.d - rd0) if vg.G.has("run") else (vg.G.scroll + vg.G.foff - last_f)
+		last_f = vg.G.scroll + vg.G.foff
+		if last_v >= 0.0:
+			jolt = maxf(jolt, absf(v - last_v))
+		last_v = v
 		if vg.G.has("run") and vg.G.run.k > 0.99:
 			swung = true
 			# the camera looks along the canyon (its forward axis is +Y), not down at it
@@ -101,12 +142,25 @@ func _initialize() -> void:
 	check(vg.P.hull == vg.HULL, "no hull point lost")
 	check(absf((-vg.camera.global_transform.basis.z).dot(Vector3.FORWARD)) > 0.99 and vg.camera.position.z > 200.0, "the camera is back top-down after the run")
 	check(vg.P.z == 0.0, "the ship is back on the play plane")
+	var f0: float = vg.G.scroll + vg.G.foff
 	tick()
+	jolt = maxf(jolt, absf(vg.G.scroll + vg.G.foff - f0 - last_v))
+	check(jolt < 0.1, "the ground's speed changes smoothly in, through and out of the run (biggest step %.3f a tick)" % jolt)
 	check(vg.G.scroll > scroll0 and vg.G.foff > 0.0, "the stage carries on and the floor keeps its distance")
 	var lefts := 0
 	for c in vg.chunks.values():
 		lefts += int(c.visible)
 	check(lefts > 0, "the moon floor shows again")
+
+	print("Thumb up")
+	to_run()
+	vg._touch_seen = true
+	for i in 400:
+		vg.P.inv = 5
+		vg.inp = {hold = false, fire = false, dx = 0.0, dy = 0.0, ult = false, pause = false}
+		vg.update()
+	check(vg.mode == "play", "lifting the thumb in the canyon run doesn't pause the game")
+	vg._touch_seen = false
 
 	print("Touching rock")
 	to_run()

@@ -181,7 +181,7 @@ func _initialize() -> void:
 			check(sb.ang > -0.2 and sb.ang < 0.2 and is_equal_approx(sb.x, vg.P.x), "halfway, Starbreak points straight up from the ship")
 	check(tgt.hp < thp or tgt.get("dead", false), "Starbreak sweeps from the ship and hits off to the side")
 	check(low.hp < lhp or low.get("dead", false), "the sweep reaches low beside the ship too")
-	check(vg.G.ult_t == 0 and vg.P.ult < 1.0, "the ultimate ends and the gauge is spent")
+	check(vg.G.ult_t == 0 and vg.P.ult == 0.0, "the ultimate ends and the gauge is spent (its own kills don't refill it)")
 	tgt.dead = true
 
 	# hull: a bullet costs a hull point; three cost a ship
@@ -258,7 +258,8 @@ func _initialize() -> void:
 	check(vg.pod.state == "dock" and vg.G.shards.is_empty(), "the pod reforms after Shatter")
 
 	# --- stages ---
-	for st in 3:
+	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
+	for st in VStage.STAGES.size():
 		var ev := VStage.build(st)
 		var kinds := {}
 		for x in ev:
@@ -278,11 +279,11 @@ func _initialize() -> void:
 			vg.dmg_e(e2, 999)
 	tick(200, true)
 	check(vg.mode == "result" and vg.hud._result_next.visible, "killing the mid-boss clears the stage, with Next")
-	# stage 3 ends with the Bloom Mother
+	# stage 8 ends with the Bloom Mother
 	vg.hud.next_pressed.emit()
 	check(vg.G.stage == 1, "Next starts stage 2")
-	vg.start_stage(2, "lance")
-	vg.G.scroll = VStage.STAGES[2].length - 200
+	vg.start_stage(7, "lance")
+	vg.G.scroll = VStage.STAGES[7].length - 200
 	vg.G.si = 0
 	while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll:
 		vg.G.si += 1
@@ -291,7 +292,7 @@ func _initialize() -> void:
 	while vg.G.boss.is_empty() and t < 1000:
 		t += 1
 		tick(1, true)
-	check(not vg.G.boss.is_empty() and vg.G.boss.kind == "bloom", "stage 3 ends with the Bloom Mother")
+	check(not vg.G.boss.is_empty() and vg.G.boss.kind == "bloom", "stage 8 ends with the Bloom Mother")
 	tick(300, true)
 	check(vg.G.boss.y < 224 and not vg.G.boss.enter, "the Bloom Mother settles at the top of the screen")
 	for p in vg.G.boss.petals:
@@ -302,13 +303,164 @@ func _initialize() -> void:
 	vg.G.boss.core.hp = 1
 	vg.boss_damage({kind = "core", o = vg.G.boss.core, x = 0.0, y = 0.0}, 5)
 	tick(400, true)
-	check(vg.mode == "result" and not vg.hud._result_next.visible, "the Bloom Mother's death clears world 1")
+	check(vg.mode == "result" and vg.hud._result_next.visible, "the Bloom Mother's death clears world 1, with Next to world 2")
+	vg.hud.next_pressed.emit()
+	check(vg.G.stage == 8 and vg.G.world == 1 and vg.look == vg.LOOKS[1], "Next goes on to Frost Rift, in its own colours")
+	await flyer_checks()
+	vg.start_stage(47, "lance")
+	vg.finish(true)
+	check(not vg.hud._result_next.visible, "the last stage has no Next")
+	await world_boss_checks()
+	await fortress_checks()
 	vg.hud.menu_pressed.emit()
 	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
 
 	await rock_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
 	quit(1 if fails else 0)
+
+
+## Fortresses: full walls on the ground, guns on their front edge, shutters that close, and
+## outpost pieces round them, more of them later in a world.
+func fortress_checks() -> void:
+	print("Fortresses")
+	var n1 := 0
+	var n8 := 0
+	var guns := 0
+	var shutters := 0
+	for i in VStage.STAGES.size():
+		for e in VStage.build(i):
+			if e.type == "prop":
+				if i % 8 == 0:
+					n1 += 1
+				elif i % 8 == 7:
+					n8 += 1
+			guns += 1 if e.type == "wallgun" else 0
+			shutters += 1 if e.type == "barrier" and e.mode == "shutter" else 0
+	check(n8 > n1 * 2, "outposts grow through a world (%d pieces on first stages, %d on last)" % [n1, n8])
+	check(guns > 40 and shutters > 30, "walls carry guns (%d) and shutters close openings (%d)" % [guns, shutters])
+	vg.start_stage(13, "lance")
+	settle()
+	vg.add_bar({d = vg.G.scroll + 150.0, mode = "shutter", gx = 63.0, gw = 36.0, key = "s", ph = 0.0})
+	var b: Dictionary = vg.G.bars.back()
+	var closed := false
+	var opened := false
+	for k in 400:
+		tick(1, false)
+		closed = closed or b.gw < 2.0
+		opened = opened or b.gw > 35.0
+	check(closed and opened, "a shutter closes its opening and opens it again")
+	var wall: Node3D = b.nodes[0]
+	check(wall.get_child(0).get_aabb().position.z < -60.0, "a fortress wall stands on the ground, not in the air")
+	# a wall gun sits in front of its wall, where the ship's shots reach it
+	vg.spawn({type = "wallgun", x = 30.0, d = b.wy - 6.5})
+	var g: Dictionary = vg.G.enemies.back()
+	tick(1, false)
+	check(g.y < b.y - b.th / 2.0 and not vg.bar_solid(b, g.x, g.y - g.hh, 0.0), "a wall gun stands clear of the wall's band")
+	vg.spawn({type = "prop", kind = "radar", x = 20.0, d = vg.G.scroll + 100.0})
+	tick(2, false)
+	check(vg.G.props.size() > 0 and vg.G.props.back().m.position.z < -30.0, "outpost pieces stand on the ground")
+
+
+## The bosses of worlds 2 to 6: each arrives at the top, attacks, shrugs off hits on its
+## armour, and dies (clearing the stage) once its guards and core are destroyed.
+func world_boss_checks() -> void:
+	print("World bosses")
+	for w in range(1, 6):
+		var i: int = w * 8 + 7
+		vg.start_stage(i, "lance")
+		settle()
+		vg.G.scroll = VStage.STAGES[i].length - 200
+		vg.G.si = 0
+		while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll:
+			vg.G.si += 1
+		var t := 0
+		while vg.G.boss.is_empty() and t < 1000:
+			t += 1
+			tick(1, false)
+		var kind: String = Worlds.LIST[w].boss
+		check(not vg.G.boss.is_empty() and vg.G.boss.kind == kind, "world %d ends with the %s" % [w + 1, Worlds.LIST[w].boss_name])
+		for e in vg.G.enemies:
+			e.dead = true
+		tick(320, false)
+		var B: Dictionary = vg.G.boss
+		check(not B.enter and B.y < 224.0 and B.y > 140.0 and B.x > 20.0 and B.x < 106.0, "the %s settles at the top of the screen (%.0f, %.0f)" % [kind, B.x, B.y])
+		var fired := false
+		for k in 300:
+			tick(1, false)
+			if not vg.G.eb.is_empty():
+				fired = true
+		check(fired, "the %s attacks" % kind)
+		var c: Dictionary = B.parts.core
+		if c.armour:
+			var hp0: float = c.hp
+			vg.boss_damage({o = c, kind = "shield"}, 5)
+			check(c.hp == hp0, "the %s's core is armoured while its guards live" % kind)
+		for p in B.list:
+			if not p.core and p.max < 9999:
+				vg.boss_damage({o = p, kind = "part"}, 9999)
+		tick(300, false)
+		if kind == "titan":
+			while not B.open:
+				tick(1, false)
+		check(not c.armour or kind == "titan", "with its guards gone the %s's core opens" % kind)
+		vg.boss_damage({o = c, kind = "core"}, 99999)
+		tick(400, false)
+		check(vg.mode == "result" and vg.G.boss.is_empty(), "the %s's death clears the stage" % kind)
+
+
+## The flyers of all six worlds, the stage ends, and ground targets in reach of the ship.
+func flyer_checks() -> void:
+	print("Flyers")
+	settle()
+	for k in ["shards", "drones", "seekers", "wasps", "lancers"]:
+		var before: int = vg.G.enemies.size()
+		vg.spawn({type = k, x = 63.0, d = vg.G.scroll + 224.0, n = 3})
+		var group: Array = vg.G.enemies.slice(before)
+		var y0: float = group[0].y
+		tick(90, false)
+		var moved := false
+		for e in group:
+			if e.y < y0 - 20.0:
+				moved = true
+		check(group.size() == 3 and y0 > 200.0 and moved, "%s come down from the top of the screen" % k)
+	for k in ["flake", "hulk", "sentinel", "nest", "bulwark"]:
+		for e in vg.G.enemies:
+			e.dead = true
+		for b in vg.G.eb:
+			b.dead = true
+		tick(1)
+		vg.spawn({type = k, x = 63.0, d = vg.G.scroll + 224.0})
+		tick(260, false)
+		check(not vg.G.eb.is_empty() or vg.G.enemies.size() > 1, "a %s comes in and attacks" % k)
+	var names := {}
+	for i in VStage.STAGES.size():
+		var ev := VStage.build(i)
+		for e in ev:
+			if e.type == "end":
+				names[e.kind] = true
+		for e in ev:
+			if e.type == "turret" or e.type == "generator":
+				if not VStage.in_reach(ev, e):
+					check(false, "stage %d: a %s at %.0f sits behind a wall" % [i + 1, e.type, e.d])
+	check(names.has("big:hulk") and names.has("twins:bulwark") and names.has("bloom") and names.has("heart"), "stages end with mid-bosses of every world's big flyer, worlds with their bosses")
+	# the end of a Frost Rift stage: a Rime Hulk grown to mid-boss size
+	for e in vg.G.enemies:
+		e.dead = true
+	tick(1)
+	vg._spawn_end("big:hulk")
+	check(vg.G.enemies.size() == 1 and vg.G.enemies[0].boss and vg.hud.boss_name == "Rime Hulk", "a mid-boss arrives with its name")
+	# enemy bullets stop on a barrier's wall
+	vg.add_bar({d = vg.G.scroll + 120.0, mode = "fixed", gx = 20.0, gw = 30.0, key = "t"})
+	tick(1)
+	var bar: Dictionary = vg.G.bars.back()
+	vg.bullet(90.0, bar.y + 10.0, 0.0, -1.0)
+	tick(20)
+	var through := false
+	for b in vg.G.eb:
+		if absf(b.x - 90.0) < 0.1 and b.y < bar.y - 6.0:
+			through = true
+	check(not through, "enemy bullets stop on a wall")
 
 
 ## Rock set pieces: a short canyon and a couple of islands per stage, with open sky
@@ -384,7 +536,8 @@ func rock_checks() -> void:
 	vg.P.hull = 3
 	vg.P.x = w0.x + vg.ROCK_PAD + 1.5
 	var sc: int = vg.G.score
-	tick(12, false, 0.0, 0.0, false, false)
+	# (the stage runs slow just after a hit: give it a dozen of its own ticks)
+	tick(30, false, 0.0, 0.0, false, false)
 	check(vg.G.score > sc and vg.P.hull == 3, "skimming the rock pays points without damage")
 	# shots and bullets break on the rock
 	vg.P.x = (w0.x + w0.y) / 2.0
