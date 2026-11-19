@@ -845,7 +845,9 @@ func step() -> void:
 			spawn(script_list[G.si])
 			_due = -INF
 		G.si += 1
-	if _touch_seen and not inp.hold:
+	# no auto-pause in the canyon run: the guns rest there, so lifting the thumb to wait for the
+	# canyon (or between obstacles) is natural and paused the game "for no reason"
+	if _touch_seen and not inp.hold and not G.has("run"):
 		_no_thumb += 1
 		if _no_thumb >= AUTO_PAUSE:
 			set_paused(true)
@@ -2395,13 +2397,13 @@ func _run_player() -> void:
 	P.x = clampf(P.x + inp.dx * g, 5, W - 5)
 	P.vx = lerpf(P.vx, inp.dx * g, 0.3)
 	P.y = lerpf(P.y, VRun.SHIP_Y, 0.06)
-	if R.d < VRun.LEN - 260.0 and R.abort == 0:
+	if R.d < VRun.OUT and R.abort == 0:
 		var dz: float = inp.dy * VRun.GAIN * smoothstep(0.3, 0.8, k)
 		P.z = clampf(P.z + dz, VRun.ZMIN, VRun.ZMAX)
 		P.vz = lerpf(P.vz, dz, 0.3)
 	else:
 		# the exit: the ship glides back up to the play plane
-		P.z = lerpf(P.z, 0.0, 0.08)
+		P.z = lerpf(P.z, 0.0, 0.035)
 		P.vz = lerpf(P.vz, 0.0, 0.3)
 	var what := VRun.hit(P.x, P.z, R.prev, R.d, VRun.PAD)
 	if what != "" and P.inv <= 0:

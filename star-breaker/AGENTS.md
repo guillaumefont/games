@@ -206,4 +206,7 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   Readability (Guillaume found it too hard, 2026-11-18): every way through has a soft light behind
   it (`VRun.gap_light`) and the fog brightens in the run, so the gap is the brightest thing ahead;
   up/down moves come in same-direction pairs with ~1 s before a change; peak speed 3.0. Obstacles
-  are rock concretions (`VRun._blob`), never bigger than their collision shape. GIF frames: `tools/run_shots.gd`.
+  are rock concretions (`VRun._blob`), never bigger than their collision shape.
+  No auto-pause during the run (lifting the thumb there paused the game "for no reason"). The way
+  out mirrors the way in: every obstacle is passed before `VRun.OUT`, then the camera swings back
+  at most as fast as it swung in. GIF frames: `tools/run_shots.gd`.

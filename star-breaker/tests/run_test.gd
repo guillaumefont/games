@@ -66,7 +66,24 @@ func _initialize() -> void:
 	while u < VRun.LEN:
 		u += VRun.speed(u)
 		ticks += 1
-	check(ticks > 720 and ticks < 1000, "the run lasts about 15 s (%.1f s)" % (ticks / 60.0))
+	check(ticks > 720 and ticks < 1100, "the run lasts 12 to 18 s (%.1f s)" % (ticks / 60.0))
+	# the way out is as gentle as the way in: the camera turns no faster on the way out
+	var turn_in := 0.0
+	var turn_out := 0.0
+	var uu := VRun.SHIP_Y - 240.0
+	while uu < VRun.LEN:
+		var nu := uu + VRun.speed(uu)
+		var dk := absf(VRun.swing(nu) - VRun.swing(uu))
+		if uu < 500.0:
+			turn_in = maxf(turn_in, dk)
+		else:
+			turn_out = maxf(turn_out, dk)
+		uu = nu
+	check(turn_out <= turn_in * 1.05, "the camera swings out no faster than it swung in (%.4f vs %.4f a tick)" % [turn_out, turn_in])
+	var last := 0.0
+	for o in VRun.OBS:
+		last = maxf(last, o.u + VRun.DEPTH)
+	check(last < VRun.OUT, "every obstacle is behind the ship before the camera starts to swing out")
 	check(VStage.build(0).any(func(e): return e.type == "run"), "stage 1 has a canyon run")
 	# seamless: it picks up from the stage's scroll speed and hands back to it
 	check(VRun.STAGE_SPEED == vg.SCROLL and absf(VRun.speed(VRun.SHIP_Y - 300.0) - vg.SCROLL) < 0.01 and absf(VRun.speed(VRun.LEN) - vg.SCROLL) < 0.01, "the run starts and ends at the stage's own scroll speed")
@@ -134,6 +151,16 @@ func _initialize() -> void:
 	for c in vg.chunks.values():
 		lefts += int(c.visible)
 	check(lefts > 0, "the moon floor shows again")
+
+	print("Thumb up")
+	to_run()
+	vg._touch_seen = true
+	for i in 400:
+		vg.P.inv = 5
+		vg.inp = {hold = false, fire = false, dx = 0.0, dy = 0.0, ult = false, pause = false}
+		vg.update()
+	check(vg.mode == "play", "lifting the thumb in the canyon run doesn't pause the game")
+	vg._touch_seen = false
 
 	print("Touching rock")
 	to_run()
