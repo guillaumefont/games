@@ -11,7 +11,9 @@ extends RefCounted
 ## The course is a pure function of `u`, so the same numbers drive the collision, the mesh and
 ## the tests.
 
-const LEN := 1850.0
+const LEN := 1960.0
+## Past here the ship only glides back to the play plane while the camera swings out.
+const OUT := LEN - 400.0
 const FLOOR := -40.0
 const RIM := 34.0
 ## The ship's height range inside the canyon (it scrapes the floor, never digs in).
@@ -31,7 +33,7 @@ const MEDALS := [["Gold", 5000], ["Silver", 2000], ["Bronze", 500]]
 ## The passage: [u, centre x, half width], eased between keys. Wide (off screen) at both ends.
 const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
 	[540.0, 63.0, 30.0], [1060.0, 63.0, 30.0], [1140.0, 52.0, 23.0], [1220.0, 78.0, 22.0], [1300.0, 50.0, 23.0],
-	[1380.0, 63.0, 30.0], [1590.0, 63.0, 32.0], [1730.0, 63.0, 100.0], [2600.0, 63.0, 100.0]]
+	[1380.0, 63.0, 30.0], [1580.0, 63.0, 32.0], [1800.0, 63.0, 100.0], [2700.0, 63.0, 100.0]]
 
 ## Obstacles: concretion columns (dodge sideways), rock bridges (dive under: rock above z),
 ## ridges (climb over: rock below z) and walls with one hole to thread. dx is from the passage
@@ -64,7 +66,7 @@ const STAGE_SPEED := 0.6
 ## comes down the screen, builds through the run, and eases back to the stage's scroll at the exit.
 static func speed(u: float) -> float:
 	var up := lerpf(STAGE_SPEED, 3.0, smoothstep(-240.0, 250.0, u))
-	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 200.0, LEN, u))
+	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 360.0, LEN, u))
 
 
 ## Height of the drawn canyon floor at `u`: it starts and ends well under the moon's own ground (below its rivers and craters)
@@ -87,7 +89,8 @@ static func passage(u: float) -> Vector2:
 
 ## How far the camera has swung behind the ship (0 top-down .. 1 behind) at `u`.
 static func swing(u: float) -> float:
-	return smoothstep(-150.0, 30.0, u) * (1.0 - smoothstep(LEN - 250.0, LEN - 40.0, u))
+	# the way out is as long and gentle as the way in: it starts once the last obstacle is passed
+	return smoothstep(-150.0, 30.0, u) * (1.0 - smoothstep(OUT, LEN - 30.0, u))
 
 
 ## The hole of a window obstacle: centre x, centre z.
@@ -173,7 +176,7 @@ static func line(u: float) -> Vector2:
 static func motes() -> Array:
 	var out := []
 	var u := 180.0
-	while u < LEN - 240.0:
+	while u < OUT:
 		var l := line(u)
 		if hit(l.x, l.y, u - 6.0, u + 6.0, 2.0) == "":
 			out.append([u, l.x, l.y])
