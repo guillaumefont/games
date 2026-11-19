@@ -1319,9 +1319,20 @@ func show_results(title: String, rows: Array, note: String, has_next := false, c
 	res_again.set_meta("look", "card" if has_next else "go")
 	set_tile_on(res_again, false)
 	res_title.text = title
-	for ch in res_table.get_children():
-		ch.queue_free()
 	res_table.columns = cols
+	set_result_rows(rows)
+	res_note.text = note
+	results.visible = true
+	hide_coach()
+	hud.visible = false
+	minimap.visible = false
+	big.text = ""
+
+# the results table, also refilled while it shows (a Special Stage rank arriving from the board)
+func set_result_rows(rows: Array) -> void:
+	for ch in res_table.get_children():
+		res_table.remove_child(ch)
+		ch.queue_free()
 	for row in rows:
 		var hl: bool = row.get("hl", false)
 		var cells: Array = row["cells"]
@@ -1334,12 +1345,6 @@ func show_results(title: String, rows: Array, note: String, has_next := false, c
 			if row.has("color") and k == 1:
 				l.add_theme_color_override("font_color", Paper.ink_of(row["color"]))
 			res_table.add_child(l)
-	res_note.text = note
-	results.visible = true
-	hide_coach()
-	hud.visible = false
-	minimap.visible = false
-	big.text = ""
 
 func _show_rewards(rewards: Array) -> void:
 	for ch in res_rewards.get_children():

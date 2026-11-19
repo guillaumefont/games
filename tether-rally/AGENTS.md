@@ -81,6 +81,7 @@ godot --headless --path . --script tests/medals_test.gd     # medals saved and s
 godot --headless --path . --script tests/race_results_test.gd # race results = order over the line, medal from it
 godot --headless --path . --script tests/attack_unlock_test.gd # Time attack tracks open with the campaign
 godot --headless --path . --script tests/time_attack_test.gd  # Time attack: Standard only, world chip
+godot --headless --path . --script tests/stage_rank_test.gd  # Special Stages: own best, no medal, world rank (fake server)
 godot --headless --path . --script tests/custom_game_test.gd # Off the Map: hidden link, all picks open, saves nothing
 godot --headless --path . --script tests/colours_test.gd    # no blue accent in UI, icons, splash, web page
 godot --headless --path . --script tests/logo_test.gd       # medal logo: icons up to date, web page and game draw it
@@ -250,6 +251,16 @@ Only redo the ones where the change is visible, and put before/after images in t
   chip in the track screen's header that steps through opened worlds (`_world_chip`), not a grid.
   Its list cards are the road and its name, with the Standard medal once won (`Menu.attack_medal()`).
   Covered by `tests/time_attack_test.gd`.
+- Special Stages (Guillaume, 2026-11-18): time and rank only, never medals. A stage keeps its own
+  best lap and ghost (`Records.stage_key`, seeded once from the old shared Standard record), so a
+  stage time never earns a Road Trip medal, medal coins, the Gold ghost or a medal pace on the HUD
+  (the gap is to your own best). Cards, the stage page and the results show the best and its rank
+  (`Ranking`, `scripts/ranking.gd`): the world rank always, plus the narrowest of continent /
+  country / zip code once that region has `Ranking.OPEN_AT` players. Ranks come from the board
+  server in `server/` (Cloudflare Worker + D1, deploy steps in its README; it reads the region from
+  the connection); while `Ranking.URL` is empty nothing is sent and ranks read "offline". Covered
+  by `tests/stage_rank_test.gd` (a fake board server) and `node --experimental-sqlite server/test.mjs`.
+  Tests that need a medal-paying Time trial use a `campaign` event, not `attack`.
 - Off the Map (Guillaume, 2026-11-14): a custom run (any track, world, mode, layout, lap count,
   rival level), reached from a small taped paper scrap on the home page ("off the map", under the
   Track of the day photo in landscape, at the page foot in portrait), not a numbered line.
