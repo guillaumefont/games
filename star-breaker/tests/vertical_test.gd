@@ -2,7 +2,7 @@ extends SceneTree
 ## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
 ## Nova) or flings and recalls Warden's pod, a double tap fires Warden's ultimate,
-## charging past the Nova once primed lets loose Lance's Storm, barriers and
+## charging on past the Nova lets loose Lance's Storm, barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
 ## end with their mid-bosses and the Bloom Mother.
 
@@ -154,23 +154,15 @@ func _initialize() -> void:
 		return n
 	check(three.call() == 1, "a triple tap fires it once, not twice")
 
-	# Lance's ultimate, the Storm: the charge bar's stage after the Nova, primed by kills
-	check(vg.P.ult < 1.0, "the Storm starts unprimed")
+	# Lance's ultimate, the Storm: the charge bar's stage after the Nova, no kills needed
 	check(not vg.hud.has_ult_ring(), "Lance has no separate ultimate gauge")
 	tick(1, true, 0, 0, true)
 	check(vg.G.ult_t == 0 and not vg.G.has("storm"), "a double tap does nothing for Lance")
-	tick(vg.STORM_AT + 20, true)
-	check(vg.P.charge == vg.CHARGE_MAX, "unprimed, the charge stops at the Nova")
 	tick(1, false)
 	tick(60, false)
-	for i in 30:
-		var d: Dictionary = vg.E("drifter", 60, 150, {move = "sine", amp = 0.0, ph = 0.0, x0 = 60.0})
-		vg.kill_e(d)
-	check(vg.P.ult >= 1.0, "kills prime the Storm")
-	tick(1, true, 0, 0, true)
-	check(not vg.G.has("storm") and vg.P.ult >= 1.0, "primed, a double tap still does nothing: the Storm comes from the charge bar")
+	vg.P.ult = 0.0
 	tick(vg.STORM_AT + 20, true)
-	check(vg.P.charge == vg.STORM_AT, "primed, the charge runs on past the Nova to the Storm")
+	check(vg.P.charge == vg.STORM_AT, "with no kills at all, holding runs the charge on past the Nova to the Storm")
 	check(vg.hud.charge >= 1.0 and vg.hud.charge_marks[3] < 1.0, "the bar shows the Storm as its last stage, after the Nova")
 	var foes := []
 	for k in 5:
@@ -199,11 +191,15 @@ func _initialize() -> void:
 	for f in foes:
 		all_dead = all_dead and f.get("dead", false)
 	check(all_dead, "every small flyer on screen dies")
-	check(big.get("dead", false) or big.hp <= bhp - vg.STORM_DMG + 0.01, "big flyers take one heavy hit")
+	check(not big.get("dead", false) and big.hp <= bhp - vg.STORM_DMG + 0.01, "big flyers take one hit and live")
 	check(not far.get("dead", false) and far.hp == fhp, "enemies off screen are spared")
 	check(vg.G.has("storm") and (vg.G.storm.m as Node3D).get_child_count() > 3, "the bolts crackle on after striking")
 	tick(vg.STORM_LIFE, false)
-	check(not vg.G.has("storm") and vg.G.ult_t == 0 and vg.P.ult == 0.0, "the Storm ends and is spent (its own kills don't prime it again)")
+	check(not vg.G.has("storm") and vg.G.ult_t == 0, "the Storm ends")
+	tick(vg.CHARGE_MAX - 20, true)
+	tick(1, false)
+	check(not vg.G.has("storm"), "lifting before the Storm stage fires no lightning")
+	tick(60, false)
 	big.dead = true
 	far.dead = true
 

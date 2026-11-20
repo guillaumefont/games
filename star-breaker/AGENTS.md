@@ -9,8 +9,8 @@ committed"); the landscape game was removed, its history is in git before that d
 Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release
 (Lance: charge beam; Warden: fling or recall the pod), double tap = Warden's ultimate (a second finger or the ULT button work too).
 Lance's ultimate (the Storm, chain lightning on every enemy on screen) has no gauge or double tap:
-it is the charge bar's stage after the Nova (`STORM_AT`), reachable only once kills have primed
-`P.ult`; the Starbreak sweeping beam it replaced (2026-11-20) is in git history.
+it is the charge bar's stage after the Nova (`STORM_AT`, 7 s), free with no kills needed
+(Guillaume's call 2026-11-20; the hold length and lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced (2026-11-20) is in git history.
 
 ## Pull requests
 
