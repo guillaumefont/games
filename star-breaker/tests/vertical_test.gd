@@ -432,6 +432,8 @@ func world_boss_checks() -> void:
 func flyer_checks() -> void:
 	print("Flyers")
 	settle()
+	# every stage now has a canyon run, which clears the sky: keep it out of these checks
+	vg.script_list = vg.script_list.filter(func(e): return e.type != "run")
 	for k in ["shards", "drones", "seekers", "wasps", "lancers"]:
 		var before: int = vg.G.enemies.size()
 		vg.spawn({type = k, x = 63.0, d = vg.G.scroll + 224.0, n = 3})

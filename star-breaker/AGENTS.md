@@ -55,6 +55,7 @@ godot --headless --path . --script tests/update_test.gd  # self-update: pack dow
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
 godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
 godot --headless --path . --script tests/run_test.gd     # canyon run: course is fair, racing line earns gold, camera swings back
+godot --headless --path . --script tests/runs_test.gd    # a canyon run in every stage: all 48 courses fair and flyable, gold in one stage per world
 godot --headless --path . --script tests/popin_test.gd   # every stage on a tall phone: no model or shadow appears inside the screen (-- <stages> vp=WxH)
 godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours, flux, ship levels
 ```
@@ -258,3 +259,9 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   Holes (Guillaume, 2026-11-20): bigger (hw 17, hh 15) and each one opens into a rock funnel
   towards the ship (`HOLE_RINGS` at `FUNNEL` units before the wall). Collision follows it:
   `flare(o, u)` widens the oval before the wall and `front(o)` is how far the rock reaches.
+  A run in every stage (Guillaume, 2026-11-20): `VStage` gives each stage `run` (130 before the
+  fortress) and `course`: stage 1 keeps `VRun.handmade()`, the others get `VRun.generate(seed,
+  world)` (~15 s, 5-6 obstacles, one bend, harder each world). `VRun.use(course)` swaps the course
+  in (LEN, OUT, PATH, TURN, OBS are static vars). Outpost props and islands stay out of the ground
+  the camera sees behind the ship as it swings. tests/runs_test.gd checks all 48 courses and flies
+  one stage per world for gold. tools/run_shots.gd takes a stage index as a second argument.

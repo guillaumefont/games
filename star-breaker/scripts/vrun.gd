@@ -11,9 +11,14 @@ extends RefCounted
 ## The course is a pure function of `u`, so the same numbers drive the collision, the mesh and
 ## the tests.
 
-const LEN := 2400.0
+## The course in use (see `use()`): stage 1's long hand-made run by default, a short generated
+## one in every other stage (`generate()`).
+static var LEN := 2400.0
 ## Past here the ship only glides back to the play plane while the camera swings out.
-const OUT := LEN - 400.0
+static var OUT := 2000.0
+static var PATH: Array = BASE_PATH
+static var TURN: Array = BASE_TURN
+static var OBS: Array = BASE_OBS
 const FLOOR := -40.0
 const RIM := 34.0
 ## The ship's height range inside the canyon (it scrapes the floor, never digs in).
@@ -32,7 +37,7 @@ const MEDALS := [["Gold", 5000], ["Silver", 2000], ["Bronze", 500]]
 
 ## The passage: [u, centre x, half width], eased between keys. Wide (off screen) at both ends,
 ## and once wide inside: a basin split by a mesa.
-const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
+const BASE_PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
 	[540.0, 63.0, 30.0], [1080.0, 63.0, 30.0], [1180.0, 63.0, 52.0], [1380.0, 63.0, 52.0], [1460.0, 63.0, 30.0],
 	[1520.0, 63.0, 30.0], [1580.0, 52.0, 23.0], [1660.0, 78.0, 22.0], [1740.0, 50.0, 23.0], [1820.0, 63.0, 30.0],
 	[2020.0, 63.0, 32.0], [2240.0, 63.0, 100.0], [2900.0, 63.0, 100.0]]
@@ -40,7 +45,7 @@ const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [
 ## Where the canyon heads: [u, degrees to the left], eased between keys. It runs straight where
 ## the camera swings (so the moon's floor lines up with it) and turns no tighter than a radius of
 ## ~230 units, so the rim's back (180 units out) never folds over on the inside of a bend.
-const TURN := [[-400.0, 0.0], [520.0, 0.0], [740.0, 35.0], [860.0, 35.0], [1160.0, -15.0], [1260.0, -15.0],
+const BASE_TURN := [[-400.0, 0.0], [520.0, 0.0], [740.0, 35.0], [860.0, 35.0], [1160.0, -15.0], [1260.0, -15.0],
 	[1380.0, 0.0], [1490.0, 0.0], [1640.0, 22.0], [1790.0, 0.0], [2900.0, 0.0]]
 
 ## Obstacles, laid out for movement more than precision (Guillaume, 2026-11-20): every gap is big,
@@ -49,7 +54,7 @@ const TURN := [[-400.0, 0.0], [520.0, 0.0], [740.0, 35.0], [860.0, 35.0], [1160.
 ## arches up towards the middle), saddle ridges (climb over: lowest in the middle) and eroded
 ## walls with one oval hole. dx is from the passage centre; an arch's or ridge's z is its height at
 ## the walls.
-const OBS := [
+const BASE_OBS := [
 	{u = 230.0, k = "pillar", dx = -10.0, r = 14.0},
 	{u = 350.0, k = "pillar", dx = 10.0, r = 14.0},
 	{u = 470.0, k = "pillar", dx = -10.0, r = 14.0},
@@ -64,6 +69,82 @@ const OBS := [
 	{u = 1860.0, k = "spine", z = 2.0},
 	{u = 1965.0, k = "window", dx = -8.0, z = -12.0, hw = 17.0, hh = 15.0},
 ]
+
+## Stage 1's hand-made course.
+static func handmade() -> Dictionary:
+	return {len = 2400.0, path = BASE_PATH, turn = BASE_TURN, obs = BASE_OBS}
+
+
+## Makes `c` (from `handmade()` or `generate()`) the course in use.
+static func use(c: Dictionary) -> void:
+	LEN = c.len
+	OUT = c.len - 400.0
+	PATH = c.path
+	TURN = c.turn
+	OBS = c.obs
+	_ctr = PackedVector2Array()
+
+
+## A short course for a stage (Guillaume wants a run in every stage, 2026-11-20): ~12-15 s, built
+## from the stage's seed so no two are alike, harder world by world (closer obstacles, a narrower
+## passage, smaller holes, bigger spires, lower bridges, higher ridges). Same rules as stage 1's:
+## every gap is big but sits across the canyon or up/down from the last one, so the ship keeps
+## moving; one bend, straight while the camera swings in and out.
+static func generate(seed: int, world: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var w := float(world)
+	var n := 5 + (1 if world >= 3 else 0)
+	var sp := 112.0 - 4.0 * w
+	var hw := 30.0 - 0.8 * w
+	var u0 := 230.0
+	var obs := []
+	var side := 1.0 if rng.randf() < 0.5 else -1.0
+	var low := rng.randf() < 0.5
+	var prev := ""
+	for i in n:
+		var kinds := ["pillar", "window", "arch", "spine"].filter(func(k): return k != prev)
+		var k: String = kinds[rng.randi() % kinds.size()]
+		var u := u0 + i * sp
+		match k:
+			"pillar":
+				side = -side
+				obs.append({u = u, k = k, dx = -side * 10.0, r = 14.0 + 0.4 * w})
+			"window":
+				side = -side
+				low = not low
+				var z := rng.randf_range(-17.0, -12.0) if low else rng.randf_range(2.0, 5.0)
+				obs.append({u = u, k = k, dx = side * 8.0, z = z, hw = 17.0 - 0.5 * w, hh = 15.0 - 0.5 * w})
+			"arch":
+				low = true
+				obs.append({u = u, k = k, z = -20.0 - 0.6 * w})
+			"spine":
+				low = false
+				obs.append({u = u, k = k, z = 4.0 + 0.8 * w})
+		prev = k
+	var last: float = obs[-1].u
+	var out := last + 45.0
+	var length := out + 400.0
+	# the passage sways a little between obstacles
+	var path := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, hw + 2.0]]
+	for i in n - 1:
+		path.append([u0 + (i + 0.5) * sp, 63.0 + rng.randf_range(-7.0, 7.0), hw])
+	path.append([out + 20.0, 63.0, hw + 2.0])
+	path.append([length - 160.0, 63.0, 100.0])
+	path.append([length + 500.0, 63.0, 100.0])
+	# one bend (no tighter than ~260 units of radius) and back, straight again before the way out
+	var a := rng.randf_range(22.0, 35.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+	# 160 units of turn per 22 degrees keeps the tightest point (smoothstep's middle) wider than
+	# ~250 units of radius; both turns must fit before the way out
+	var b0 := 380.0
+	var b3 := out - 40.0
+	var tl := minf(160.0 * absf(a) / 22.0, (b3 - b0) / 2.0)
+	a = signf(a) * minf(absf(a), 22.0 * tl / 160.0)
+	var b1 := b0 + tl
+	var b2 := b3 - tl
+	var turn := [[-400.0, 0.0], [b0, 0.0], [b1, a], [b2, a], [b3, 0.0], [length + 500.0, 0.0]]
+	return {len = length, path = path, turn = turn, obs = obs}
+
 
 ## How much a bridge's underside rises from the walls to its middle, and a ridge's crest dips.
 const ARCH_RISE := 9.0
@@ -293,7 +374,8 @@ static func line(u: float) -> Vector2:
 	var dx := 0.0
 	var z := -4.0
 	for o in OBS:
-		if o.u + half(o) + 3.0 < u:
+		# held until the ship is well through (a thumb a little ahead of it must not leave early)
+		if o.u + half(o) + 10.0 < u:
 			continue
 		if o.u - half(o) - u < 100.0:
 			var po := passage(o.u)

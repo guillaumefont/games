@@ -101,10 +101,11 @@ static func _make() -> Array:
 				islands.append([roundf(spots[k]), isl_len, roundf(x), 13.0 + rng.randf_range(0.0, 2.0)])
 			var st := {id = "w%ds%d" % [w + 1, j + 1], name = wd.names[j], sub = "%s · %d" % [Worlds.LIST[w].name, j + 1], world = w, j = j, length = length,
 				seed = rng.seed, fort = [fa, fb], end = end, canyons = canyons, islands = islands}
-			if w == 0 and j == 0:
-				# the canyon run (VRun) takes the place of rock in the stretch before the fortress
-				st.run = fa - 130.0
-				st.islands = islands.filter(func(isl): return isl[0] + isl[1] < st.run - 300.0 or isl[0] > st.run + 300.0)
+			# every stage has a canyon run (VRun) in the stretch before the fortress, where it takes
+			# the place of rock: stage 1's long hand-made one, a short generated one everywhere else
+			st.run = fa - 130.0
+			st.course = VRun.handmade() if w == 0 and j == 0 else VRun.generate(rng.seed + 7919, w)
+			st.islands = islands.filter(func(isl): return isl[0] + isl[1] < st.run - 480.0 or isl[0] > st.run + 300.0)
 			out.append(st)
 	return out
 
@@ -164,6 +165,10 @@ static func _outpost(ev: Array, s: Dictionary, rng: RandomNumberGenerator) -> vo
 	for q in n:
 		# two in three cluster round the fortress, the rest spread out ahead of it
 		var d: float = rng.randf_range(fa - 500.0, fb + 100.0) if q % 3 else rng.randf_range(200.0, s.length - 300.0)
+		# none on the ground the camera sees behind the ship as it swings down for the canyon run
+		var run: float = s.get("run", -9999.0)
+		if d > run - 480.0 and d < run + 100.0:
+			d = rng.randf_range(run + 100.0, fb + 100.0)
 		var x: float = rng.randf_range(4.0, 30.0) if q % 2 else rng.randf_range(96.0, 122.0)
 		if q % 5 == 4:
 			x = rng.randf_range(30.0, 96.0)
