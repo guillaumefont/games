@@ -14,21 +14,14 @@ const COIL_SHAPES := 24
 const COIL_MORPH := 0.4
 ## Ticks for one charge-up pulse to close in on the laser ball.
 const CHARGE_PULSE := 24.0
-## The beam's twister: radius of the hard strands, one pulse's length (one turn), pulses per
-## strand, ticks between pulses and their speed. A strand's pulses ride a loop
-## PULSES * PULSE_GAP * PULSE_SPEED long (504), longer than the beam, so they line the whole
-## beam from its first frame and scroll up along it.
+## The charge strands' twister pieces (they coil round the charge ball): radius, one pulse's
+## length (one turn).
 const TWIST_R := 6.5
 const TWIST_PITCH := 26.0
-const PULSES := 7
-const PULSE_GAP := 12
-const PULSE_SPEED := 6.0
 const PULSE_LEN := 18.0
 ## Ticks each strand's pulses lag behind the first: pink, cyan, white hard strands, then the
 ## haze strand riding with each of them.
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
-## How wide the twister opens at each charge level.
-const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
 ## The Storm (Lance's ultimate): forked chain lightning, re-drawn every STORM_FLICKER ticks
 ## so it jitters, a white core in a cyan sheath and a pink haze, and a flash on each target.
 const STORM_FLICKER := 3
@@ -42,6 +35,8 @@ const STORM_W := [10.0, 4.0, 1.6]
 ## Layer strength: haze, sheath, core (additive, so they don't wash out to white).
 const STORM_ALPHA := [0.4, 0.75, 1.0]
 const STORM_FLASHES := 48
+## Width of the charge beam's lightning per level (1 = the Storm's), LV 1 to the Nova.
+const BEAM_SCALE := [0.0, 0.9, 1.2, 1.5, 2.0]
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -206,72 +201,26 @@ static func sync_charge(n: Node3D, charge: int, charge_max: int, lv: int, tt: in
 
 # ---------- the beam ----------
 
-## The laser line: a white core in a soft sheath and haze, a flare at the muzzle, a flare where
-## it strikes, and from level 2 the twister: corkscrew pulses of the level's strands lining
-## the whole beam and streaming up it, staggered out of phase.
-static func beam_node(lv: int) -> Node3D:
-	init()
-	var n := Node3D.new()
-	var rod := Models.geo("vbrod", func(): return Geo.xf(Geo.cyl(0.5, 0.5, 1.0, 6), Transform3D(Basis(), Vector3(0, 0.5, 0))))
-	var core := Models.mesh(rod, Models.M.beam)
-	var sheath := Models.mesh(rod, Models.M.laser_glow)
-	var col: String = CHARGE_COL[lv] if lv >= 3 else "dfe9ff"
-	# the haze is a band, soft across but even along its whole length (a radial glow
-	# stretched up the screen would bulge in the middle and taper at the ends)
-	var haze := Models.glow(col, 1.0)
-	haze.material_override = band_mat(col)
-	var flare := Models.glow("ffffff", 1.0)
-	var tip := Models.glow(col, 1.0)
-	for c in [haze, sheath, core, flare, tip]:
-		n.add_child(c)
-	var parts := {core = core, sheath = sheath, haze = haze, flare = flare, tip = tip, pulses = []}
-	if lv >= 2:
-		for st in 6:
-			if not (STRANDS[lv] as Array).has(st % 3):
-				continue
-			for i in PULSES:
-				var pl := Models.mesh(pulse_mesh(st), pulse_mat(st))
-				pl.set_meta("lag", PULSE_LAG[st])
-				pl.set_meta("i", i)
-				n.add_child(pl)
-				parts.pulses.append(pl)
-	n.set_meta("parts", parts)
-	return n
+## The charge beam (every level, LV 1 to the Nova) in the Storm's look: a bolt of lightning
+## straight up from the nose, wider level by level (Guillaume, 2026-11-20: "make the previous
+## weapon levels look the same" as the Storm). Hits are unchanged: a straight column BEAM_W wide.
+static func beam_node(_lv: int) -> Node3D:
+	return storm_node()
 
 
-## Where pulse `i` of a strand lagging `lag` ticks sits along the beam at tick `t`.
-static func pulse_y(i: int, lag: int, t: float) -> float:
-	var gap := PULSE_GAP * PULSE_SPEED
-	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
-
-
-## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
-static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool) -> void:
-	var p: Dictionary = n.get_meta("parts")
-	var open := 1.0 + maxf(0.0, 3.0 - t) * 0.2
-	var cw := maxf(0.15, w * 0.3 * open)
-	(p.core as Node3D).scale = Vector3(cw, len, cw)
-	(p.sheath as Node3D).scale = Vector3(cw * 2.1, len, cw * 2.1)
-	var haze: Node3D = p.haze
-	haze.position = Vector3(0, len / 2.0, -0.5)
-	haze.scale = Vector3(w * 2.3 * open, len, 1)
-	var fs := w * (2.6 + 0.6 * sin(tt * 1.7)) * fade + 0.01
-	(p.flare as Node3D).scale = Vector3(fs * 1.3, fs, 1)
-	(p.flare as Node3D).position = Vector3(0, 0, 1)
-	var tip: Node3D = p.tip
-	tip.visible = hit_end
-	tip.position = Vector3(0, len, 1)
-	tip.scale = Vector3(1, 1, 0) * (w * 3.0 * fade * (1.0 + 0.25 * sin(tt * 2.3)) + 0.01) + Vector3.BACK
-	var spin := t * 0.35
-	for pl in p.pulses:
-		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t)
-		pl.visible = y + PULSE_LEN < len
-		if not pl.visible:
-			continue
-		# each pulse opens up a little as it travels, spinning as it goes
-		var grow: float = (0.75 + 0.35 * minf(1.0, y / 110.0)) * fade * TWIST_GROW[lv]
-		pl.position = Vector3(0, y, 0)
-		pl.basis = Basis(Vector3.BACK, PI / 2) * Basis(Vector3.RIGHT, -spin) * Basis().scaled(Vector3(1, grow, grow))
+## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life: a bolt up
+## from the nose that kinks no wider than the beam hits, with short forks from LV 2, and a
+## flash where it strikes a barrier.
+static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, _t: int, tt: int, hit_end: bool) -> void:
+	var ws: float = BEAM_SCALE[lv]
+	var bolt := [Vector3.ZERO, Vector3(0, len, 0)]
+	var full: float = w / maxf(fade, 0.05)
+	draw_bolts(n, [bolt], fade, tt, ws, maxf(0.8, full * 0.6), 6.0 + 10.0 * ws if lv >= 2 else 0.0, hit_end)
+	# a flash at the muzzle too
+	var g: Node3D = n.get_child(4)
+	g.visible = fade > 0.0
+	g.position = Vector3(0, 0, 1)
+	g.scale = Vector3(1, 1, 0) * (3.0 + 5.0 * ws) * fade + Vector3.BACK
 
 
 # ---------- the Storm ----------
@@ -301,12 +250,12 @@ static func storm_node() -> Node3D:
 
 ## A jagged path from `a` to `b` (3D, in the play plane): kinks stray sideways at random, the
 ## ends stay put.
-static func storm_path(a: Vector3, b: Vector3, rng: RandomNumberGenerator) -> PackedVector3Array:
+static func storm_path(a: Vector3, b: Vector3, rng: RandomNumberGenerator, jag_cap := STORM_JAG.y) -> PackedVector3Array:
 	var d := b - a
 	var len := maxf(0.01, Vector2(d.x, d.y).length())
 	var side := Vector3(-d.y, d.x, 0.0) / len
 	var n := clampi(int(len * STORM_KINKS), 3, 24)
-	var jag := minf(len * STORM_JAG.x, STORM_JAG.y)
+	var jag := minf(len * STORM_JAG.x, jag_cap)
 	var pts := PackedVector3Array()
 	for i in n + 1:
 		var u := float(i) / n
@@ -318,25 +267,32 @@ static func storm_path(a: Vector3, b: Vector3, rng: RandomNumberGenerator) -> Pa
 ## Lays the storm out `t` ticks in (of `life`): `bolts` are [from, to] pairs in 3D. Every bolt
 ## gets a fork or two off its kinks, and each target a flash.
 static func sync_storm(n: Node3D, bolts: Array, t: int, life: int, tt: int) -> void:
+	draw_bolts(n, bolts, clampf(float(life - t) / 20.0, 0.0, 1.0), tt)
+
+
+## Draws lightning `bolts` ([from, to] pairs in 3D, in `n`'s space) into a storm node at `fade`
+## (0-1): `wscale` scales the layers' width, `jag_cap` how far a kink strays (stage units),
+## `fork_cap` how long a fork runs, and `flash` lights the end of each bolt.
+static func draw_bolts(n: Node3D, bolts: Array, fade: float, tt: int, wscale := 1.0, jag_cap := STORM_JAG.y,
+		fork_cap := 1e6, flash := true) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = n.get_instance_id() + int(tt / STORM_FLICKER) * 7919
-	var fade := clampf(float(life - t) / 20.0, 0.0, 1.0)
 	var paths := []
 	for bo in bolts:
-		var pts := storm_path(bo[0], bo[1], rng)
+		var pts := storm_path(bo[0], bo[1], rng, jag_cap)
 		paths.append([pts, 1.0])
 		# forks: short side branches off a kink, dying out
-		for f in rng.randi_range(1, 2):
+		for f in (rng.randi_range(1, 2) if fork_cap > 0.0 else 0):
 			var k := rng.randi_range(1, pts.size() - 2)
 			var dir: Vector3 = (pts[k + 1] - pts[k - 1]).normalized().rotated(Vector3.BACK, rng.randf_range(-1.0, 1.0))
-			var flen: float = (bo[1] - bo[0]).length() * rng.randf_range(0.15, 0.35)
-			paths.append([storm_path(pts[k], pts[k] + dir * flen, rng), 0.55])
+			var flen: float = minf(fork_cap, (bo[1] - bo[0]).length() * rng.randf_range(0.15, 0.35))
+			paths.append([storm_path(pts[k], pts[k] + dir * flen, rng, jag_cap), 0.55])
 	for k in 3:
 		var im: ImmediateMesh = (n.get_child(k) as MeshInstance3D).mesh
 		im.clear_surfaces()
 		if paths.is_empty() or fade <= 0.0:
 			continue
-		var w: float = STORM_W[k] * (0.6 + 0.4 * fade) * (0.85 + 0.3 * rng.randf())
+		var w: float = STORM_W[k] * wscale * (0.6 + 0.4 * fade) * (0.85 + 0.3 * rng.randf())
 		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 		for pa in paths:
 			var pts: PackedVector3Array = pa[0]
@@ -354,8 +310,8 @@ static func sync_storm(n: Node3D, bolts: Array, t: int, life: int, tt: int) -> v
 		im.surface_end()
 	for k in STORM_FLASHES:
 		var g: Node3D = n.get_child(3 + k)
-		g.visible = k < bolts.size() and fade > 0.0
+		g.visible = flash and k < bolts.size() and fade > 0.0
 		if g.visible:
 			g.position = bolts[k][1] + Vector3(0, 0, 1)
-			g.scale = Vector3(1, 1, 0) * (6.0 + 3.0 * rng.randf()) * fade + Vector3.BACK
+			g.scale = Vector3(1, 1, 0) * (6.0 + 3.0 * rng.randf()) * fade * maxf(0.5, wscale) + Vector3.BACK
 
