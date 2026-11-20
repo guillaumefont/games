@@ -7,10 +7,11 @@ Guillaume wants a modern mobile-game look (glass HUD, bloom, Rubik font), not re
 Portrait only since 2026-11-17 (Guillaume: "switch the whole game to portrait now that we are
 committed"); the landscape game was removed, its history is in git before that date.
 Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release
-(Lance: charge beam; Warden: fling or recall the pod), double tap = Warden's ultimate (a second finger or the ULT button work too).
-Lance's ultimate (the Storm, chain lightning on every enemy on screen) has no gauge or double tap:
-it is the charge bar's stage after the Nova (`STORM_AT`, 7 s), free with no kills needed
-(Guillaume's call 2026-11-20; the hold length and lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced (2026-11-20) is in git history.
+(Lance: charge beam; Warden: fling or recall the pod). Ultimates have no gauge, no double tap and
+no kills needed: each ship's is the last stage of its charge bar, `ULT_AT` (7 s) of holding, then
+lift (Guillaume's calls 2026-11-20). Lance's bar runs LV 1-3, the Nova, then the Storm (chain
+lightning on every enemy on screen; the hold length and lighter `STORM_DMG` are its price);
+Warden's runs straight to Shatter, and lifting before it is full flings or recalls the pod; the Starbreak sweeping beam it replaced (2026-11-20) is in git history.
 
 ## Pull requests
 

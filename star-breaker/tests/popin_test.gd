@@ -193,10 +193,10 @@ func play(i: int) -> void:
 	for t in limit:
 		if vg.mode != "play":
 			break
-		vg.inp = {hold = true, fire = true, dx = sin(t * 0.021) * 1.2, dy = 0.0, ult = t % 900 == 450, pause = false}
+		# lift now and then after a long hold: fires each ship's ultimate
+		vg.inp = {hold = t % 900 != 450, fire = true, dx = sin(t * 0.021) * 1.2, dy = 0.0, pause = false}
 		if vg.P.alive:
 			vg.P.inv = maxi(vg.P.inv, 2)
-		vg.P.ult = 1.0 if t % 900 == 449 else vg.P.ult
 		# lose the ship now and then: it must come back in from below the screen
 		if t % 1500 == 700 and vg.P.alive and not vg.P.entering:
 			vg.kill_player()
