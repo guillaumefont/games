@@ -1805,11 +1805,12 @@ func add_bar(s: Dictionary) -> void:
 	var b := {wy = s.d, y = s.d - G.scroll, mode = s.mode, gx = s.gx, gx0 = s.gx, gw = s.gw, gw0 = s.gw, th = 8.0, key = s.key,
 		locked = s.mode == "locked", nodes = [], ph = s.get("ph", 0.0)}
 	var mat: Material = Models.M[Worlds.LIST[G.world].gate]
-	# a full wall on each side of the opening, standing on the ground (the right one mirrored)
+	# a full wall on each side of the opening, standing on the ground. The right one is turned
+	# half a turn, not mirrored: a mirrored node showed the back faces of its deck (black).
 	for k in 2:
 		var half := Models.fort_wall(b.th, mat)
 		if k == 1:
-			half.scale.x = -1.0
+			half.rotation.z = PI
 		world.add_child(half)
 		b.nodes.append(half)
 	var f := Models.mesh(Models.geo("vbar", func(): return Geo.box(1, 1, 1)), Models.M.field)
