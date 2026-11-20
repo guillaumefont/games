@@ -146,6 +146,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   built a slice per frame ahead of time (`Terrain.Builder`, `_building` in `vgame.gd`); building
   one in a single frame cost ~3 ms on desktop, so keep new terrain work inside the builder.
   Canyon walls and islands use `Terrain.cliff()` (faceted top, banded face) plus the glowing lip.
+  Ridged peaks everywhere (Guillaume, 2026-11-20): the side ridges, cliff tops (`TOP_PEAK`) and
+  the odd range crossing under the play field (`mountain()`, `RANGE_CELL`) use `Terrain.crest()`
+  (sharp crests, wide saddles) instead of smooth swells or flat plateaus. The floor must stay
+  below the ship's plane (68 under it) inside the play width; ranges top out around 55.
 - Weapon effects are `scripts/vfx.gd`: the laser-strand charge and Nova twister come from the
   landscape game's beam (git history before 2026-11-17, `main.gd` `sync_charge_fx`/`fire_beam`),
   turned to fly up the screen. Lights are few on purpose (Compatibility renders each omni light as
