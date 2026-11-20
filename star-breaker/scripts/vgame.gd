@@ -299,6 +299,9 @@ func refresh_game() -> void:
 	_save()
 	hud.set_build_state("restarting")
 	await get_tree().create_timer(0.15).timeout
+	# A clean exit: Android restarts by killing the process, so without this line the next
+	# launch read the log as a crash and switched safe graphics on.
+	Diag.note("QUIT", "restart")
 	restart_fn.call()
 
 

@@ -60,6 +60,10 @@ func _initialize() -> void:
 	main.hud.btn_build.pressed.emit()
 	await create_timer(0.3).timeout
 	check(restarted[0], "tapping the build line restarts to update")
+	# Android restarts by killing the process: the log must say it was a clean exit
+	var log_txt := FileAccess.get_file_as_string(Diag.PATH)
+	var at := log_txt.find(" REFRESH")
+	check(at >= 0 and log_txt.find(" QUIT", at) > at, "a refresh restart is logged as a clean exit, not a crash")
 	check(main.build_number("b73 abc1234") == 73, "build number read from the version")
 	main.driven = true
 	main.start_stage(0, "lance")
