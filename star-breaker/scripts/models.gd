@@ -858,40 +858,96 @@ static func boss_bastion(world: Node3D) -> Node3D:
 # ---------- fortress walls and outpost pieces (portrait) ----------
 # Built standing up: z is height, the play plane is z = 0 and the ground sits about 68 below.
 
+## Several convex pieces in one mesh, each wound outwards from its own centre (one `build()` over
+## them all would turn some faces inwards).
+static func _parts(key: String, mat: Material, f: Callable) -> MeshInstance3D:
+	return mesh(Geo.cached(key, func(): return Geo.build_wound(_orient_parts(f.call()))), mat)
+
+
+static func _orient_parts(pieces: Array) -> Array:
+	var t: Array = []
+	for piece in pieces:
+		var c := Vector3.ZERO
+		for tri in piece:
+			c += (tri[0] + tri[1] + tri[2]) / 3.0
+		c /= maxf(1.0, piece.size())
+		for tri in piece:
+			t.append(Geo.orient(tri, c))
+	return t
+
+
 ## One side of a fortress wall: a 200-unit run of wall from its inner end (x = 0) outwards along
-## -x, from the ground up past the play plane, with a walkway cap, battlements, a lit band on the
-## face, buttresses, and a gate tower at the inner end with a glowing lip.
+## -x, from the ground up past the play plane. Futuristic, not a castle (Guillaume, 2026-11-20): no
+## battlements or buttresses. The wall is a battered armour bank of 40-unit modules with dark seams,
+## a lit conduit sunk in its deck, a light slit along each face, sparse emitter nodes, and a leaning
+## blade pylon at the inner end whose lit tip points across the opening.
 static func fort_wall(th: float, glow_mat: Material) -> Node3D:
 	var g := Node3D.new()
 	var L := 200.0
-	g.add_child(mesh(geo("fwB%d" % th, func(): return Geo.xf(Geo.box(L, th, 76), Geo.move(-L / 2, 0, -34))), M.fort_a))
-	g.add_child(mesh(geo("fwC%d" % th, func(): return Geo.xf(Geo.box(L, th + 1.6, 1.4), Geo.move(-L / 2, 0, 4.4))), M.fort_trim))
-	g.add_child(mesh(geo("fwM%d" % th, func():
+	var h := th / 2.0
+	# the profile across the wall (y, z), swept along x: wide on the ground, chamfered at the deck
+	var prof := [[-h - 5.0, -72.0], [h + 5.0, -72.0], [h + 0.4, 0.0], [h - 1.0, 4.4], [-h + 1.0, 4.4], [-h - 0.4, 0.0]]
+	var sweep := Transform3D(Basis(Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)), Vector3.ZERO)
+	var mods := [[-1.0, -40.0], [-41.0, -80.0], [-81.0, -120.0], [-121.0, -160.0], [-161.0, -L]]
+	g.add_child(_parts("fwB%d" % th, M.fort_a, func():
 		var t: Array = []
-		var x := -6.0
-		while x > -L:
+		for m in mods:
+			var x0: float = m[0]
+			var x1: float = m[1]
+			t.append(Geo.xf(Geo.prism(prof, x0 - x1 - 1.2), Transform3D(sweep.basis, Vector3((x0 + x1) / 2.0, 0, 0))))
+		return t))
+	# dark seams between the modules, set a little back from the faces
+	g.add_child(_parts("fwS%d" % th, M.fort_dark, func():
+		var t: Array = []
+		for m in mods.slice(1):
+			var x: float = m[0] + 0.5
+			t.append(Geo.xf(Geo.prism([[-h - 4.2, -72.0], [h + 4.2, -72.0], [h - 0.4, 0.0], [h - 1.6, 4.0], [-h + 1.6, 4.0], [-h + 0.4, 0.0]], 1.4), Transform3D(sweep.basis, Vector3(x, 0, 0))))
+		return t))
+	# an inset armour panel on both faces of every module, leaving a frame of the module round it
+	var lean := atan2(4.6, 72.0)
+	g.add_child(_parts("fwP%d" % th, M.fort_b, func():
+		var t: Array = []
+		for m in mods:
 			for sy in [-1.0, 1.0]:
-				t.append_array(Geo.xf(Geo.box(2.6, 1.4, 2.2), Geo.move(x, sy * (th / 2.0 + 0.1), 6.2)))
-			x -= 5.5
-		return t), M.fort_b))
-	g.add_child(mesh(geo("fwW%d" % th, func():
+				var pz := -30.0
+				var py: float = sy * (h + 0.4 + 4.6 * -pz / 72.0 + 0.2)
+				var pl := Geo.xf(Geo.box(absf(m[0] - m[1]) - 7.0, 0.6, 44.0), Geo.rot(Vector3.RIGHT, -sy * lean))
+				t.append(Geo.xf(pl, Geo.move((m[0] + m[1]) / 2.0, py, pz)))
+		return t))
+	# the deck: a raised spine on each side of a sunk conduit that glows the whole length
+	g.add_child(_parts("fwD%d" % th, M.fort_b, func():
 		var t: Array = []
-		var x := -9.0
-		while x > -L:
-			t.append_array(Geo.xf(Geo.box(3.4, 0.5, 1.0), Geo.move(x, -th / 2.0 - 0.3, -3.0)))
-			x -= 7.0
-		return t), M.fort_win))
-	g.add_child(mesh(geo("fwT%d" % th, func():
+		for sy in [-1.0, 1.0]:
+			t.append(Geo.xf(Geo.box(L - 2.0, 1.6, 0.9), Geo.move(-L / 2.0 - 1.0, sy * (h - 2.2), 4.8)))
+		return t))
+	g.add_child(mesh(geo("fwL%d" % th, func(): return Geo.xf(Geo.box(L - 4.0, 1.0, 0.4), Geo.move(-L / 2.0 - 2.0, 0, 4.6))), M.fort_win))
+	# a light slit along each face, just under the deck
+	g.add_child(_parts("fwW%d" % th, M.fort_win, func():
 		var t: Array = []
-		var x := -16.0
-		while x > -L:
-			t.append_array(Geo.xf(Geo.box(3.0, 3.0, 60), Geo.move(x, -th / 2.0 - 1.4, -38)))
-			x -= 22.0
-		return t), M.fort_trim))
+		for sy in [-1.0, 1.0]:
+			t.append(Geo.xf(Geo.box(L - 14.0, 0.5, 0.7), Geo.move(-L / 2.0 - 7.0, sy * (h + 0.35), -1.6)))
+		return t))
+	# emitter nodes: a low hex cap on the deck every other module, with a lit eye
+	g.add_child(_parts("fwN%d" % th, M.fort_trim, func():
+		var t: Array = []
+		for x in [-60.0, -140.0]:
+			t.append(Geo.xf(Geo.xf(Geo.cyl(2.2, 3.2, 1.8, 6), Geo.rot(Vector3.RIGHT, PI / 2)), Geo.move(x, 0, 5.6)))
+		return t))
+	g.add_child(_parts("fwNe", M.fort_light, func():
+		var t: Array = []
+		for x in [-60.0, -140.0]:
+			t.append(Geo.xf(Geo.octa(1.0), Geo.move(x, 0, 6.8)))
+		return t))
+	# the blade pylon at the opening: a shard leaning over the gap (side view x/z, swept along y)
 	var tower := Node3D.new()
-	tower.add_child(mesh(geo("fwG%d" % th, func(): return Geo.xf(Geo.box(6, th + 4, 84), Geo.move(-2, 0, -33))), M.fort_b))
-	tower.add_child(mesh(geo("fwGc%d" % th, func(): return Geo.xf(Geo.box(7, th + 5, 1.4), Geo.move(-2, 0, 9.6))), M.fort_trim))
-	tower.add_child(mesh(geo("fwGl", func(): return Geo.xf(Geo.box(1.4, 2, 1.6), Geo.move(0.8, 0, 10.6))), glow_mat))
+	var blade := [[-14.0, -72.0], [1.0, -72.0], [2.6, 6.0], [0.4, 12.0], [-4.0, 9.0], [-9.0, 4.4]]
+	tower.add_child(mesh(geo("fwG%d" % th, func(): return Geo.xf(Geo.prism(blade, th + 3.0), Transform3D(Basis(Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0)), Vector3.ZERO))), M.fort_b))
+	# a collar where the blade leaves the wall, and a lit edge down its inner face
+	tower.add_child(mesh(geo("fwGc%d" % th, func(): return Geo.xf(Geo.box(11, th + 4.2, 1.2), Geo.move(-5.0, 0, 4.6))), M.fort_trim))
+	tower.add_child(mesh(geo("fwGs%d" % th, func():
+		var e := Geo.xf(Geo.box(0.8, 1.6, 7.0), Geo.rot(Vector3.UP, -0.36))
+		return Geo.xf(e, Geo.move(1.9, 0, 8.6))), glow_mat))
+	tower.add_child(mesh(geo("fwGl", func(): return Geo.xf(Geo.octa(1.5), Geo.move(1.0, 0, 11.6))), glow_mat))
 	g.add_child(tower)
 	return g
 
@@ -899,7 +955,7 @@ static func fort_wall(th: float, glow_mat: Material) -> Node3D:
 ## A gun on the front edge of a wall: an armoured block with a barrel that tracks the ship.
 static func wall_gun() -> Node3D:
 	var g := Node3D.new()
-	g.add_child(mesh(geo("wgB", func(): return Geo.box(6, 4, 3.4)), M.steel_dark))
+	g.add_child(mesh(geo("wgB", func(): return Geo.xf(Geo.cyl(3.0, 3.8, 3.4, 6), Geo.rot(Vector3.RIGHT, PI / 2))), M.steel_dark))
 	g.add_child(mesh(geo("wgD", func(): return Geo.xf(Geo.hemi(2.4, 6, 2), Geo.rot(Vector3.RIGHT, PI / 2))), M.steel, Vector3(0, 0, 1.7)))
 	var piv := Node3D.new()
 	piv.position.z = 2.6
@@ -914,9 +970,12 @@ static func prop(kind: String) -> Node3D:
 	var g := Node3D.new()
 	match kind:
 		"bunker":
-			g.add_child(mesh(geo("prB", func(): return Geo.prism([[-7, 0], [7, 0], [5, 4], [-5, 4]], 9)), M.fort_a))
-			g.get_child(0).rotation.x = PI / 2
-			g.add_child(mesh(geo("prBs", func(): return Geo.box(8, 0.6, 0.9)), M.fort_win, Vector3(0, -4.6, 2.6)))
+			# a low faceted dome on a hex plinth with a lit ring round its foot
+			g.add_child(mesh(geo("prBp", func(): return Geo.xf(Geo.cyl(8.0, 8.6, 1.6, 6), Geo.rot(Vector3.RIGHT, PI / 2))), M.fort_trim, Vector3(0, 0, 0.8)))
+			var dome := mesh(geo("prB", func(): return Geo.xf(Geo.hemi(6.4, 6, 2), Geo.rot(Vector3.RIGHT, PI / 2))), M.fort_a, Vector3(0, 0, 1.6))
+			dome.scale.z = 0.7
+			g.add_child(dome)
+			g.add_child(mesh(geo("prBs", func(): return Geo.ring(6.4, 7.2, 6)), M.fort_win, Vector3(0, 0, 1.7)))
 		"radar":
 			g.add_child(mesh(geo("prRm", func(): return Geo.box(1.2, 1.2, 14)), M.fort_trim, Vector3(0, 0, 7)))
 			var dish := Node3D.new()
