@@ -175,7 +175,7 @@ const STAGE_SPEED := 0.6
 ## Canyon speed (course units per tick) at `u`: picks up from the stage's scroll as the mouth
 ## comes down the screen, builds through the run, and eases back to the stage's scroll at the exit.
 static func speed(u: float) -> float:
-	var up := lerpf(STAGE_SPEED, 3.0, smoothstep(-240.0, 250.0, u))
+	var up := lerpf(STAGE_SPEED, 2.5, smoothstep(-240.0, 250.0, u))
 	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 360.0, LEN, u))
 
 

@@ -56,6 +56,33 @@ static func mesa(k: int) -> Array:
 	return out
 
 
+## A ridgeline's height (0..1) along world y: sharp crests and wide saddles, the sharpness of
+## ridged noise from two folded sines. `s` is the side, `i` picks the ridge.
+static func crest(wy: float, s: float, i: int) -> float:
+	var f := 0.017 + 0.006 * i
+	var a := 1.0 - absf(sin(wy * f + s * 1.3 * i + 0.6 * sin(wy * f * 0.37 + i)))
+	var b := 1.0 - absf(sin(wy * f * 2.7 + s * 2.1 + i * 3.3))
+	return pow(a, 3.0) * 0.75 + pow(b, 3.0) * 0.25
+
+
+const RANGE_CELL := 560.0
+
+
+## Mountain range `k` (by cell): [world y of its crest at x = 0, slope, half width, height], or [].
+static func mountain(k: int) -> Array:
+	if _ranges.has(k):
+		return _ranges[k]
+	var out := []
+	if h2(k, 11.3) >= 0.35:
+		out = [(k + 0.3 + h2(k, 12.7) * 0.4) * RANGE_CELL, (h2(k, 13.1) - 0.5) * 0.7, 26.0 + h2(k, 14.9) * 14.0,
+			30.0 + h2(k, 15.3) * 14.0]
+	_ranges[k] = out
+	return out
+
+
+static var _ranges := {}
+
+
 ## Large-scale tint between the two hues of the floor (0..1).
 static func tint(x: float, wy: float) -> float:
 	return 0.5 + 0.5 * sin(wy * 0.006 + x * 0.01) * cos(wy * 0.0041 - 1.1)
@@ -64,9 +91,12 @@ static func tint(x: float, wy: float) -> float:
 ## Ground height at stage-wide x (centred, -63..63 is the play width) and world distance `wy`.
 static func height(x: float, wy: float) -> float:
 	var ax := absf(x)
-	# side ridges: the ground climbs into mountains beyond the stage edges
+	# side ridges: the ground climbs into ridged peaks beyond the stage edges, sharp crests
+	# with saddles between them rather than a smooth swell
 	var edge := smoothstep(52.0, 132.0, ax)
-	var ridge := edge * (40.0 + 14.0 * sin(wy * 0.023 + signf(x) * 2.0) + 8.0 * sin(wy * 0.071 + x * 0.05))
+	var sd := signf(x)
+	var ridge := edge * (26.0 + 6.0 * sin(wy * 0.023 + sd * 2.0) + crest(wy + x * 0.6, sd, 1) * 16.0)
+	ridge += smoothstep(90.0, 230.0, ax) * crest(wy - x * 0.35, sd, 2) * 70.0
 	# rolling floor
 	var roll := sin(wy * 0.031 + x * 0.045) * 3.2 + sin(wy * 0.013 - x * 0.027 + 1.3) * 4.0
 	var h := ridge + roll
@@ -81,6 +111,21 @@ static func height(x: float, wy: float) -> float:
 			continue
 		var d := absf(q.x) + absf(q.y) * 0.8 + 0.25 * q.length()
 		h += float(me[4]) * (1.0 - smoothstep(0.82, 1.0, d))
+	# now and then a ridged range crosses under the play field: sharp peaks and saddles along
+	# a crest line, steep flanks either side
+	var kr := floori(wy / RANGE_CELL)
+	for k in range(kr - 1, kr + 2):
+		var rg := mountain(k)
+		if rg.is_empty():
+			continue
+		var dy := wy - (float(rg[0]) + x * float(rg[1]))
+		var w: float = rg[2]
+		if absf(dy) > w:
+			continue
+		var along := x + float(k) * 37.0
+		var peak := 0.35 + 0.65 * crest(along * 1.7, float(k), 3)
+		var side := 1.0 - absf(dy) / w
+		h += float(rg[3]) * peak * pow(side, 1.6)
 	var kc := floori(wy / CRATER_CELL)
 	for k in range(kc - 1, kc + 2):
 		var cr := crater(k)
@@ -510,6 +555,8 @@ class Acc:
 ## Offsets of a cliff top from its edge into the rock, and their heights above the edge.
 const TOP_OFF := [0.0, 2.5, 9.0, 20.0, 38.0, 70.0, 130.0]
 const TOP_Z := [0.0, 0.8, 2.6, 2.0, 4.5, 3.0, 5.0]
+## How far the top climbs into ridged peaks at each offset, deep in the rock (times `crest`).
+const TOP_PEAK := [0.0, 0.0, 1.0, 7.0, 18.0, 34.0, 46.0]
 ## Bands of a cliff face: depth below the edge and how far the face leans out at that depth.
 const FACE_Z := [0.0, -9.0, -22.0, -38.0, -62.0]
 const FACE_OUT := [0.0, 1.2, 3.4, 5.0, 8.0]
@@ -530,7 +577,8 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var o: float = minf(TOP_OFF[k], lim)
 			var jz := (h2(wy, k * 3.1 + s) - 0.5) * 2.2 if k > 0 else 0.0
 			var jy := (h2(wy + 1.0, k * 1.7 + s) - 0.5) * 2.0 if k > 0 else 0.0
-			top.append(Vector3(e.x + s * o, e.y + jy, float(TOP_Z[k]) * (o / maxf(0.001, TOP_OFF[k]) if k > 0 else 0.0) + jz))
+			var tz := float(TOP_Z[k]) + float(TOP_PEAK[k]) * crest(wy, s, k)
+			top.append(Vector3(e.x + s * o, e.y + jy, tz * (o / maxf(0.001, TOP_OFF[k]) if k > 0 else 0.0) + jz))
 		tops.append(top)
 		var face := []
 		for m in FACE_Z.size():
@@ -547,6 +595,9 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var jit := h2(wy, k * 2.0) - 0.5
 			var col := Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
 			col = col.lightened(jit * 0.1) if jit > 0.0 else col.darkened(-jit * 0.12)
+			# crests catch the light, saddles sink into the rock's darker tone
+			var hz := (a.z + b.z + c.z + d.z) * 0.25
+			col = col.darkened(0.12).lightened(clampf(hz / 40.0, 0.0, 1.0) * 0.3)
 			acc.tri(a, b, d, col, Vector3.BACK)
 			acc.tri(a, d, c, col.darkened(0.04), Vector3.BACK)
 		for m in FACE_Z.size() - 1:
