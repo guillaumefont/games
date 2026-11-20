@@ -111,6 +111,9 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
 
 ## Gotchas
 
+- Every path that leaves the app (back button, refresh-to-update restart) must call
+  `Diag.note("QUIT")` first. Android restarts by killing the process, and a log that doesn't end
+  in QUIT or SUSPEND is reported as a crash on the next launch (and turns safe graphics on).
 - Don't run GDScript on worker threads (`WorkerThreadPool`, `Thread`): song synthesis on a
   worker thread was the suspected cause of the Android build crashing seconds after start-up.
   Spread heavy work over frames on the main thread instead (see `scripts/audio.gd`).
