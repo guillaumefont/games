@@ -32,7 +32,6 @@ var ship := "lance"
 var score := "0"
 var hull := 3
 var ships := 3
-var ult := 0.0
 var ult_ready := false
 var charge := 0.0
 var charge_lv := 0
@@ -83,7 +82,6 @@ var _level_btns := {}
 var _result_pips: Pips
 var _result_lines: Label
 var _result_tier: Button
-var ult_rect := Rect2()
 
 
 func _ready() -> void:
@@ -455,7 +453,7 @@ func _update_how() -> void:
 	if VShips.KITS[k].ult == "storm":
 		t += " Keep charging past the Nova and lift for the %s: lightning on every enemy." % VShips.KITS[k].ult_name
 	else:
-		t += " Double tap: %s." % VShips.KITS[k].ult_name
+		t += " Hold until the bar fills and lift for %s." % VShips.KITS[k].ult_name
 	t += " Rock hurts; skim it for points."
 	how.text = t
 
@@ -542,7 +540,6 @@ func _layout() -> void:
 	var sz := get_viewport_rect().size
 	btn_pause.position = Vector2(sz.x - 28 - 64, 28)
 	btn_pause.size = Vector2(64, 64)
-	ult_rect = Rect2(sz.x - 28 - 92, 108, 92, 92)
 	_banner.position = Vector2(0, sz.y * 0.36)
 	_banner.size = Vector2(sz.x, 70)
 	_banner_sub.position = Vector2(0, sz.y * 0.36 + 74)
@@ -551,12 +548,7 @@ func _layout() -> void:
 
 ## True when `p` (canvas position) is on a HUD control, so a touch there is not a thumb.
 func on_control(p: Vector2) -> bool:
-	return (btn_pause.visible and btn_pause.get_global_rect().grow(12).has_point(p)) or (playing and has_ult_ring() and ult_rect.grow(12).has_point(p))
-
-
-## Warden's ultimate has its own ring; Lance's (the Storm) lives on the charge bar.
-func has_ult_ring() -> bool:
-	return VShips.KITS[ship].ult != "storm"
+	return btn_pause.visible and btn_pause.get_global_rect().grow(12).has_point(p)
 
 
 func _gui_input(_e: InputEvent) -> void:
@@ -575,10 +567,7 @@ func _draw() -> void:
 		var r := Rect2(30 + i * 30, 108, 24, 12)
 		draw_rect(r, Color(C_LANCE, 0.95) if i < hull else Color(1, 1, 1, 0.15))
 	draw_string(fonts[700], Vector2(30 + 3 * 30 + 6, 121), "x%d" % ships, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, C_TEXT)
-	if has_ult_ring():
-		_draw_ult_ring(f)
-	else:
-		_draw_charge_bar(f)
+	_draw_charge_bar(f)
 	# boss bar along the top
 	if boss >= 0.0:
 		# right of the score, left of the pause button
@@ -589,29 +578,18 @@ func _draw() -> void:
 		draw_string(fonts[700], Vector2(210, 44), boss_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, C_SPORE)
 
 
-## Warden's ultimate gauge: a ring that fills, glowing when ready.
-func _draw_ult_ring(f: Font) -> void:
-	var c := ult_rect.get_center()
-	var rad := ult_rect.size.x / 2.0 - 6
-	draw_circle(c, rad + 4, Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.7))
-	draw_arc(c, rad, 0, TAU, 48, Color(1, 1, 1, 0.14), 8, true)
-	var col := C_SPORE if ult_ready else C_VIOLET
-	if ult > 0.0:
-		draw_arc(c, rad, -PI / 2, -PI / 2 + TAU * clampf(ult, 0, 1), 48, col, 8, true)
-	var label := "ULT" if not ult_ready else "GO"
-	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-	draw_string(f, c + Vector2(-lw / 2, 8), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col if ult_ready else C_MUTED)
-
-
-## Lance's charge bar under the score while it charges: LV 1-3, the Nova, then the Storm, its
-## last stretch tinted pink. The STORM label lights up once the charge runs into it.
-func _draw_charge_bar(f: Font) -> void:
+## The charge bar under the score while the thumb is down, the same for every ship: it loads the
+## ultimate at its end, a stretch tinted pink whose label (STORM, SHATTER) lights up once the
+## charge runs into it. Lance's bar has LV 1-3 and the Nova before that stretch; Warden's runs
+## straight to it.
+func _draw_charge_bar(_f: Font) -> void:
 	if charge <= 0.0:
 		return
 	var bx := 30.0
 	var by := 140.0
 	var bw := 240.0
-	var nova: float = charge_marks[3]
+	var beam := ship == "lance"
+	var nova: float = charge_marks[3] if beam else 0.0
 	draw_rect(Rect2(bx, by, bw, 8), Color(1, 1, 1, 0.12))
 	# the Storm's stretch
 	var sx := bx + bw * nova
@@ -621,13 +599,15 @@ func _draw_charge_bar(f: Font) -> void:
 		var cc: Color = [C_TEXT, C_TEXT, C_LANCE, C_SPORE][maxi(0, charge_lv - 1)] if charge_lv > 0 else Color(1, 1, 1, 0.5)
 		draw_rect(Rect2(bx, by, bw * minf(charge, nova), 8), cc)
 		if charge > nova:
-			draw_rect(Rect2(sx, by - 2, bw * (charge - nova), 12), Color.WHITE)
-	for k in 3:
-		draw_rect(Rect2(bx + bw * float(charge_marks[k]) - 1, by - 2, 2, 12), Color(1, 1, 1, 0.6))
-	draw_rect(Rect2(sx - 1, by - 4, 3, 16), Color(1, 1, 1, 0.85))
-	if charge > nova:
+			draw_rect(Rect2(sx, by - 2, bw * (minf(charge, 1.0) - nova), 12), Color.WHITE)
+	if beam:
+		for k in 3:
+			draw_rect(Rect2(bx + bw * float(charge_marks[k]) - 1, by - 2, 2, 12), Color(1, 1, 1, 0.6))
+		draw_rect(Rect2(sx - 1, by - 4, 3, 16), Color(1, 1, 1, 0.85))
+	# Lance's label lights up in the Storm stretch; Warden's once the bar is full
+	if charge > nova and ult_ready and (beam or charge >= 1.0):
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.012)
-		draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), "STORM", HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
+		draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), String(VShips.KITS[ship].ult_name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
 				C_TEXT if charge >= 1.0 else Color(C_SPORE, pulse))
 
 

@@ -2,9 +2,9 @@ extends Node3D
 ## Star Breaker in portrait: the vertical slice. One thumb drags the ship (1:1 with the
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
 ## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
-## and a quick double tap fires Warden's ultimate once its gauge is full (one finger plays it all).
-## Lance's ultimate is the charge bar's last stage: charging on past the Nova reaches the Storm,
-## chain lightning through every enemy on screen.
+## and every ship's ultimate is the last stage of its charge bar: hold for ULT_AT ticks and lift
+## (one finger plays it all). Lance charges through LV 1-3 and the Nova to the Storm, chain
+## lightning through every enemy on screen; Warden's bar runs straight to Shatter.
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -23,13 +23,14 @@ const BEAM_LIFE := [0, 14, 18, 24, 44]
 const BEAM_DMG := [0, 4, 8, 14, 30]
 const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
 ## Lance's ultimate, the Storm: the charge bar's stage after the Nova. No kills needed
-## (Guillaume's call, 2026-11-20): holding on past the Nova reaches it at STORM_AT ticks (7 s),
+## (Guillaume's call, 2026-11-20): holding on past the Nova reaches it at ULT_AT ticks (7 s),
+## the same hold that loads Warden's Shatter (no gauge, no double tap for either ship),
 ## and lifting lets loose chain lightning that jumps from the ship through every enemy and boss
 ## part on screen, STORM_DMG each (two thirds of a Nova hit, once per target: it clears small
 ## flyers, leaves big ones and bosses hurt), within STORM_SPREAD ticks; the bolts crackle on
 ## for STORM_LIFE ticks. It also wipes the enemy bullets on screen. The long hold and the
 ## lighter hit are its price for being free.
-const STORM_AT := 420
+const ULT_AT := 420
 const STORM_DMG := 20
 const STORM_SPREAD := 24
 const STORM_LIFE := 70
@@ -72,26 +73,14 @@ var _slow_acc := 0.0
 var _flash_sky := 0
 
 ## Input, refreshed every frame from touch, mouse, keyboard and gamepad.
-var inp := {hold = false, fire = false, dx = 0.0, dy = 0.0, ult = false, pause = false}
+var inp := {hold = false, fire = false, dx = 0.0, dy = 0.0, pause = false}
 var _touch_id := -1
 var _touch_seen := false
 var _mouse_down := false
 var _no_thumb := 0
 var _pending := Vector2.ZERO
-var _ult_latch := false
-## Double tap for the ultimate: a quick tap (short, barely moved) then a touch near it soon after.
-## A drag that ends, or a flick to dodge, is never a tap, so dodging can't fire it by mistake.
-const TAP_MS := 200
-const DOUBLE_TAP_MS := 300
-var _down_ms := -100000
-var _down_pos := Vector2.ZERO
-var _moved := 0.0
-var _tap_ms := -100000
-var _tap_pos := Vector2.ZERO
-var _tap_fired := false
 var _pause_latch := false
 var _kb_pause_was := false
-var _kb_ult_was := false
 ## Tools that drive the game off-screen turn this off (their window can lose focus).
 var pause_on_focus_out := true
 ## Tests and tools set this to run the ticks themselves (with their own `inp`).
@@ -572,67 +561,23 @@ func _input(event: InputEvent) -> void:
 		var t := event as InputEventScreenTouch
 		if t.pressed:
 			if mode == "play" and hud.on_control(t.position):
-				if hud.ult_rect.grow(12).has_point(t.position):
-					_ult_latch = true
 				return
 			if _touch_id == -1:
 				_touch_id = t.index
-				_press(t.position)
-			elif t.index != _touch_id:
-				_ult_latch = true
 		elif t.index == _touch_id:
 			_touch_id = -1
-			_release(t.position)
 	elif event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
 		if d.index == _touch_id:
 			_pending += d.relative
-			_moved += d.relative.length()
 	elif event is InputEventMouseButton and not _touch_seen:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed and mode == "play" and hud.on_control(mb.position):
-				if hud.ult_rect.grow(12).has_point(mb.position):
-					_ult_latch = true
 				return
-			if mb.pressed and not _mouse_down:
-				_press(mb.position)
-			elif not mb.pressed and _mouse_down:
-				_release(mb.position)
 			_mouse_down = mb.pressed
-		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-			_ult_latch = true
 	elif event is InputEventMouseMotion and not _touch_seen and _mouse_down:
 		_pending += (event as InputEventMouseMotion).relative
-		_moved += (event as InputEventMouseMotion).relative.length()
-
-
-## The steering finger goes down: the second touch of a double tap fires the ultimate.
-func _press(pos: Vector2, now := -1) -> void:
-	if now < 0:
-		now = Time.get_ticks_msec()
-	var near := px_per_unit() * 14.0
-	if mode == "play" and now - _tap_ms < DOUBLE_TAP_MS and pos.distance_to(_tap_pos) < near:
-		_ult_latch = true
-		_tap_ms = -100000
-		_tap_fired = true
-	else:
-		_tap_fired = false
-	_down_ms = now
-	_down_pos = pos
-	_moved = 0.0
-
-
-## The steering finger lifts: a short touch that barely moved counts as a tap.
-func _release(pos: Vector2, now := -1) -> void:
-	if now < 0:
-		now = Time.get_ticks_msec()
-	# the touch that fired the ultimate doesn't start another double tap
-	if not _tap_fired and now - _down_ms < TAP_MS and _moved < px_per_unit() * 3.0:
-		_tap_ms = now
-		_tap_pos = pos
-	else:
-		_tap_ms = -100000
 
 
 func _notification(what: int) -> void:
@@ -675,13 +620,9 @@ func poll_input() -> void:
 	inp.hold = _touch_id != -1 or _mouse_down or kb_hold
 	# on keyboard or gamepad the main weapon is always on
 	inp.fire = inp.hold or not _touch_seen
-	var kb_ult := Input.is_physical_key_pressed(KEY_X) or Input.is_physical_key_pressed(KEY_SPACE) or Input.is_joy_button_pressed(0, JOY_BUTTON_Y)
-	inp.ult = _ult_latch or (kb_ult and not _kb_ult_was)
-	_kb_ult_was = kb_ult
 	var kb_pause := Input.is_physical_key_pressed(KEY_ESCAPE) or Input.is_physical_key_pressed(KEY_P) or Input.is_joy_button_pressed(0, JOY_BUTTON_START)
 	inp.pause = _pause_latch or (kb_pause and not _kb_pause_was)
 	_kb_pause_was = kb_pause
-	_ult_latch = false
 	_pause_latch = false
 
 
@@ -701,7 +642,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
-		held = false, ult = 0.0, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
+		held = false, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
 	apply_world(sd.world)
 	script_list = VStage.build(i)
@@ -937,27 +878,26 @@ func _update_player() -> void:
 	if inp.fire and P.fire_cd <= 0:
 		fire_main()
 		P.fire_cd = VShips.KITS[G.ship].fire_every
-	# the release: holding builds Lance's charge; lifting triggers the ship's move
+	# the release: holding builds the charge (Lance's beam levels, then the ultimate for both
+	# ships); lifting triggers the ship's move
 	var kit: Dictionary = VShips.KITS[G.ship]
 	if inp.hold:
+		P.charge = mini(charge_cap(), P.charge + 1)
 		if kit.release == "beam":
-			P.charge = mini(charge_cap(), P.charge + 1)
 			var lv := charge_lv(P.charge)
 			if lv > P.ready_lv:
 				P.ready_lv = lv
 				audio.play("ready", lv)
-			if P.charge == STORM_AT and not P.get("storm_rdy", false):
-				P.storm_rdy = true
-				audio.play("ready", 4)
-				shake = maxf(shake, 3.0)
+		if P.charge == ULT_AT and not P.get("storm_rdy", false):
+			P.storm_rdy = true
+			audio.play("ready", 4)
+			shake = maxf(shake, 3.0)
 	elif P.held:
 		release()
 		P.charge = 0
 		P.ready_lv = 0
 		P.storm_rdy = false
 	P.held = inp.hold
-	if inp.ult and kit.ult != "storm" and P.ult >= 1.0 and G.ult_t == 0:
-		ultimate()
 	_rock_player()
 	# touching an enemy or a barrier costs a hull point
 	if P.inv <= 0:
@@ -981,10 +921,12 @@ func release() -> void:
 	_slow_acc = 0.0
 	if kit.release == "beam":
 		var lv := charge_lv(P.charge)
-		if P.charge >= STORM_AT and G.ult_t == 0:
+		if P.charge >= ULT_AT and G.ult_t == 0:
 			storm()
 		elif lv > 0:
 			fire_beam(lv)
+	elif kit.release == "pod" and P.charge >= ULT_AT and G.ult_t == 0:
+		ultimate()
 	elif kit.release == "pod" and not pod.is_empty():
 		if pod.state == "dock":
 			pod.state = "out"
@@ -1035,14 +977,17 @@ func _beam_node(lv: int) -> Node3D:
 	return VFx.beam_node(lv)
 
 
-## How far Lance can charge: on past the Nova to the Storm (not while a Storm is still going).
+## How far the charge runs: to the ultimate (not while one is still going; Lance then stops at
+## the Nova, Warden just short of Shatter).
 func charge_cap() -> int:
-	return STORM_AT if G.ult_t == 0 and VShips.KITS[G.ship].ult == "storm" else CHARGE_MAX
+	if G.ult_t == 0:
+		return ULT_AT
+	return CHARGE_MAX if VShips.KITS[G.ship].release == "beam" else ULT_AT - 1
 
 
-## Warden's ultimate (double tap). Lance's is the Storm, fired from the charge bar.
+## Warden's ultimate, Shatter, fired by lifting at the end of its charge bar. Lance's is the
+## Storm.
 func ultimate() -> void:
-	P.ult = 0.0
 	audio.play("ready", 4)
 	shake = maxf(shake, 6.0)
 	Diag.once("ult " + G.ship)
@@ -1060,7 +1005,6 @@ func ultimate() -> void:
 ## The Storm: chain lightning from the ship's nose through every enemy and boss part on screen,
 ## nearest first, each hop striking a moment after the last. Enemy bullets on screen are wiped.
 func storm() -> void:
-	P.ult = 0.0
 	G.ult_t = STORM_LIFE
 	Diag.once("ult storm")
 	audio.play("beam", 4)
@@ -1833,9 +1777,6 @@ func kill_e(e: Dictionary) -> void:
 	if big:
 		shake = maxf(shake, 7.0)
 	add_score(e.score)
-	# kills made by the ultimate itself don't refill it (dense waves would hand it straight back)
-	if G.ult_t == 0:
-		P.ult = minf(1.0, P.ult + (0.18 if big else 0.045))
 	if e.type == "carrier":
 		drop_item(e.x, e.y, e.get("item", "L"))
 	if e.type == "generator":
@@ -1987,7 +1928,6 @@ func boss_damage(part: Dictionary, d: float) -> void:
 				boom(p.x, p.y, 9, true)
 				audio.play("boom")
 				add_score(1000)
-				P.ult = minf(1.0, P.ult + 0.12)
 			else:
 				audio.play("hit")
 		"tip":
@@ -1999,7 +1939,6 @@ func boss_damage(part: Dictionary, d: float) -> void:
 				boom(part.x, part.y, 9, true)
 				audio.play("boom")
 				add_score(2000)
-				P.ult = minf(1.0, P.ult + 0.12)
 			else:
 				audio.play("hit")
 		"core":
@@ -2525,13 +2464,7 @@ func end_run(done: bool) -> void:
 	var m := mini(R.hits, 2)
 	G.run_medal = m
 	add_score(VRun.MEDALS[m][1])
-	if m == 0:
-		P.ult = 1.0
-	elif m == 1:
-		P.ult = minf(1.0, P.ult + 0.5)
 	var sub := "%d/%d motes · +%s" % [R.got, R.motes.size(), fmt(VRun.MEDALS[m][1] + R.got * 50 + R.scrape)]
-	if m == 0 and VShips.KITS[G.ship].ult != "storm":
-		sub += " · ultimate charged"
 	hud.banner("%s run" % VRun.MEDALS[m][0], sub, 200)
 	audio.play("oneup")
 	Diag.note("RUN", "done hits=%d motes=%d" % [R.hits, R.got])
@@ -2710,15 +2643,13 @@ func _process(_delta: float) -> void:
 	for isl in G.islands:
 		isl.m.position = Vector3(0, isl.d - G.scroll - H / 2.0, -7.0)
 		isl.m.visible = not G.has("run") and _on_screen(_box(isl.m), W / 2.0, isl.d - G.scroll, -7.0)
-	var kit_ult: float = P.get("ult", 0.0)
 	hud.score = fmt(G.score)
 	hud.hull = P.hull if P.alive else 0
 	hud.ships = maxi(0, G.lives - 1) if P.alive else maxi(0, G.lives)
-	hud.ult = kit_ult
-	hud.ult_ready = kit_ult >= 1.0 and G.ult_t == 0
-	hud.charge = float(P.charge) / STORM_AT
+	hud.ult_ready = G.ult_t == 0
+	hud.charge = float(P.charge) / ULT_AT
 	hud.charge_lv = charge_lv(P.charge)
-	hud.charge_marks = [float(CHARGE_AT[1]) / STORM_AT, float(CHARGE_AT[2]) / STORM_AT, float(CHARGE_AT[3]) / STORM_AT, float(CHARGE_MAX) / STORM_AT]
+	hud.charge_marks = [float(CHARGE_AT[1]) / ULT_AT, float(CHARGE_AT[2]) / ULT_AT, float(CHARGE_AT[3]) / ULT_AT, float(CHARGE_MAX) / ULT_AT]
 	hud.queue_redraw()
 	# the ship banks as it slides sideways and blinks while invincible
 	ship_m.visible = P.alive and not (P.inv > 2 and (tt >> 2) % 2 and G.ult_t == 0)
@@ -3173,7 +3104,6 @@ func _gboss_damage(p: Dictionary, d: float) -> void:
 		audio.play("boom")
 		shake = maxf(shake, 6.0)
 		add_score(1500)
-		P.ult = minf(1.0, P.ult + 0.12)
 
 
 func _update_gboss(B: Dictionary) -> void:
