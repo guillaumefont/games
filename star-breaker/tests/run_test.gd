@@ -66,7 +66,7 @@ func _initialize() -> void:
 	while u < VRun.LEN:
 		u += VRun.speed(u)
 		ticks += 1
-	check(ticks > 720 and ticks < 1100, "the run lasts 12 to 18 s (%.1f s)" % (ticks / 60.0))
+	check(ticks > 720 and ticks < 1500, "the run lasts 12 to 25 s (%.1f s)" % (ticks / 60.0))
 	# the way out is as gentle as the way in: the camera turns no faster on the way out
 	var turn_in := 0.0
 	var turn_out := 0.0
@@ -82,8 +82,28 @@ func _initialize() -> void:
 	check(turn_out <= turn_in * 1.05, "the camera swings out no faster than it swung in (%.4f vs %.4f a tick)" % [turn_out, turn_in])
 	var last := 0.0
 	for o in VRun.OBS:
-		last = maxf(last, o.u + VRun.DEPTH)
+		last = maxf(last, o.u + VRun.half(o) + VRun.DEPTH / 2.0)
 	check(last < VRun.OUT, "every obstacle is behind the ship before the camera starts to swing out")
+	# bends: real ones, never so tight the rim's back folds over, and straight while the camera swings
+	var most := 0.0
+	var tight := 0.0
+	var bent_swing := 0.0
+	var ub := -300.0
+	while ub < VRun.LEN + 300.0:
+		most = maxf(most, absf(VRun.heading(ub)))
+		tight = maxf(tight, absf(VRun.heading(ub + 1.0) - VRun.heading(ub)))
+		if VRun.swing(ub) < 0.99:
+			bent_swing = maxf(bent_swing, absf(VRun.heading(ub)))
+		ub += 1.0
+	check(rad_to_deg(most) >= 30.0, "the canyon bends (up to %.0f degrees)" % rad_to_deg(most))
+	check(1.0 / tight > 220.0, "no bend tighter than a 220-unit radius (%.0f)" % (1.0 / tight))
+	check(bent_swing == 0.0, "the canyon runs straight while the camera swings in and out")
+	var straight := VRun.warp(Vector3(10.0, 100.0, 5.0))
+	check(straight.distance_to(Vector3(10.0, 100.0, 5.0)) < 0.01, "before its first bend the canyon is built where it always was")
+	var mesa := false
+	for o in VRun.OBS:
+		mesa = mesa or o.k == "mesa"
+	check(mesa and VRun.passage(1280.0).y > 45.0, "the canyon opens into a basin split by a mesa")
 	check(VStage.build(0).any(func(e): return e.type == "run"), "stage 1 has a canyon run")
 	# seamless: it picks up from the stage's scroll speed and hands back to it
 	check(VRun.STAGE_SPEED == vg.SCROLL and absf(VRun.speed(VRun.SHIP_Y - 300.0) - vg.SCROLL) < 0.01 and absf(VRun.speed(VRun.LEN) - vg.SCROLL) < 0.01, "the run starts and ends at the stage's own scroll speed")
@@ -120,6 +140,7 @@ func _initialize() -> void:
 	# off the bottom of the screen for about a second each way)
 	var vp: Vector2 = vg.get_viewport().get_visible_rect().size
 	var off_screen := 0.0
+	var in_rock := 0
 	while vg.G.has("run"):
 		var R: Dictionary = vg.G.run
 		var tgt := VRun.line(R.d + 6.0)
@@ -139,12 +160,16 @@ func _initialize() -> void:
 			if vg.camera.is_position_behind(vg.ship_m.global_position):
 				edge = 1.0
 			off_screen = maxf(off_screen, edge)
+			var cr: Dictionary = vg.G.run
+			if cr.k > 0.99 and cr.has("cam_x") and VRun.hit(cr.cam_x, cr.cz, cr.d - 38.5, cr.d - 37.5, 0.5) != "":
+				in_rock += 1
 		if vg.G.has("run") and vg.G.run.k > 0.99:
 			swung = true
 			# the camera looks along the canyon (its forward axis is +Y), not down at it
 			looked = looked or (-vg.camera.global_transform.basis.z).dot(Vector3.UP) > 0.9
 			climbed = climbed or absf(vg.P.z) > 8.0
 	check(off_screen <= 0.0, "the ship stays in sight, at least a tenth of the screen from its edges, through the whole run (worst %.2f past)" % off_screen)
+	check(in_rock == 0, "the camera never flies into rock behind the ship (%d ticks)" % in_rock)
 	check(swung and looked, "the camera swings down behind the ship and looks along the canyon")
 	check(climbed, "the thumb flies the ship up and down in the canyon")
 	check(vg.G.pb.size() <= guns, "the guns rest during the run")
