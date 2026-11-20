@@ -249,3 +249,6 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   sight throughout, and run_test checks that.
   Don't run two Godot instances at once for shots: they share the game's settings file, and a
   test changes the ship.
+  Holes (Guillaume, 2026-11-20): bigger (hw 17, hh 15) and each one opens into a rock funnel
+  towards the ship (`HOLE_RINGS` at `FUNNEL` units before the wall). Collision follows it:
+  `flare(o, u)` widens the oval before the wall and `front(o)` is how far the rock reaches.
