@@ -2,10 +2,10 @@ class_name VShips
 extends RefCounted
 ## Ship kits for the portrait game (the vertical slice). Each ship has a main weapon that fires
 ## on its own while the thumb is down, a release (what happens when the thumb lifts) and an
-## ultimate (double tap). Lance and Warden are in the slice; the other seven come later.
+## ultimate (Warden: double tap; Lance: the charge bar's last stage, the Storm). Lance and Warden are in the slice; the other seven come later.
 
 const KITS := {
-	lance = {name = "Lance", sub = "Hold to charge the beam, lift to fire", release = "beam", ult = "starbreak", ult_name = "Starbreak",
+	lance = {name = "Lance", sub = "Hold to charge the beam, lift to fire", release = "beam", ult = "storm", ult_name = "Storm",
 		fire_every = 6, shot_speed = 6.5},
 	warden = {name = "Warden", sub = "Lift to fling the pod, lift again to call it back", release = "pod", ult = "shatter", ult_name = "Shatter",
 		fire_every = 8, shot_speed = 5.5},
