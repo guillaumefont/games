@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshots of the portrait game (vertical slice) for reviews: the stage menu, Lance in
-## open ground charging, the Nova, Warden with its pod flung out, a fortress barrier, Starbreak,
+## open ground charging, the Nova, Warden with its pod flung out, a fortress barrier, the Storm,
 ## Shatter and the Bloom Mother, plus a canyon and an island.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- OUT_DIR
 
@@ -77,9 +77,11 @@ func _initialize() -> void:
 	vg.G.si = vg.script_list.size() - 1
 	await play(600, true, 0.7)
 	await snap("v_bloom")
+	# the Storm: primed, charge past the Nova and lift
 	vg.P.ult = 1.0
-	vg.inp = {hold = true, fire = true, dx = 0.0, dy = 0.0, ult = true, pause = false}
-	vg.update()
-	await play(50, true)
-	await snap("v_starbreak")
+	await play(vg.STORM_AT + 5, true)
+	await snap("v_charge_storm")
+	await play(1, false)
+	await play(14, false)
+	await snap("v_storm")
 	quit()

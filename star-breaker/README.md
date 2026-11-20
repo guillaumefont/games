@@ -25,13 +25,13 @@ names, art and levels are original.
 | --- | --- | --- |
 | Fly | Drag anywhere: the ship follows your thumb 1:1 | Arrows / WASD, left stick |
 | Fire | Automatic while your thumb is down | Automatic |
-| Release | Lift your thumb. **Lance:** fires its charge beam (hold longer for LV 2, 3 and the Nova). **Warden:** flings or recalls its pod | C / K (hold, release), B |
-| Ultimate | A second finger, or the ring at the top right, once kills have filled it. **Lance:** Starbreak. **Warden:** Shatter | X / Space, Y |
+| Release | Lift your thumb. **Lance:** fires its charge beam (hold longer for LV 2, 3, the Nova, and once kills have primed it, the Storm). **Warden:** flings or recalls its pod | C / K (hold, release), B |
+| Ultimate | **Lance:** the Storm, the charge bar's last stage (above). **Warden:** Shatter: a double tap, a second finger, or the ring at the top right, once kills have filled it | X / Space, Y (Warden) |
 | Pause | Pause button, Android back, or just lift your thumb for 3 s | Esc / P, Start |
 
 ## Game
 
-- **Ships:** **Lance** (charge beam; Starbreak sweeps a giant beam across the screen) and
+- **Ships:** **Lance** (charge beam; the Storm sends chain lightning through every enemy on screen) and
   **Warden** (a pod that blocks bullets, rams and fires; Shatter breaks the pod into shards and
   shields the ship).
 - **Stages:** Spore Fields, Crystal Gate and Bloom Heart, each with enemy waves, a fortress of

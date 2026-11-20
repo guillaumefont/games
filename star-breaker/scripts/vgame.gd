@@ -2,7 +2,9 @@ extends Node3D
 ## Star Breaker in portrait: the vertical slice. One thumb drags the ship (1:1 with the
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
 ## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
-## and a quick double tap fires the ultimate once its gauge is full (one finger plays it all). World 1 is three stages.
+## and a quick double tap fires Warden's ultimate once its gauge is full (one finger plays it all).
+## Lance's ultimate is the charge bar's last stage: once kills have primed it, charging past the
+## Nova reaches the Storm, chain lightning through every enemy on screen.
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -20,8 +22,16 @@ const CHARGE_MAX := 240
 const BEAM_LIFE := [0, 14, 18, 24, 44]
 const BEAM_DMG := [0, 4, 8, 14, 30]
 const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
-## How far Starbreak swings either side of straight up as it sweeps (radians).
-const ULT_SWEEP := 1.2
+## Lance's ultimate, the Storm: the charge bar's stage after the Nova. Kills prime it (the
+## same `P.ult` that fills Warden's gauge); once primed, holding on past the Nova reaches it at
+## STORM_AT ticks (5 s) and lifting lets loose chain lightning that jumps from the ship through
+## every enemy and boss part on screen, STORM_DMG each (the Nova's hit, once per target: it
+## clears small flyers, leaves big ones and bosses hurt), within STORM_SPREAD ticks; the bolts
+## crackle on for STORM_LIFE ticks. It also wipes the enemy bullets on screen.
+const STORM_AT := 300
+const STORM_DMG := 30
+const STORM_SPREAD := 24
+const STORM_LIFE := 70
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
 const SLOW := 0.4
 const SLOW_TICKS := 24
@@ -687,7 +697,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
-		held = false, ult = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
+		held = false, ult = 0.0, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
 	apply_world(sd.world)
 	script_list = VStage.build(i)
@@ -728,6 +738,8 @@ func teardown() -> void:
 	for b in G.get("bars", []):
 		for n in b.nodes:
 			n.queue_free()
+	if G.has("storm"):
+		G.storm.m.queue_free()
 	if not G.get("boss", {}).is_empty():
 		remove_boss()
 	for f in fx:
@@ -924,17 +936,22 @@ func _update_player() -> void:
 	var kit: Dictionary = VShips.KITS[G.ship]
 	if inp.hold:
 		if kit.release == "beam":
-			P.charge = mini(CHARGE_MAX, P.charge + 1)
+			P.charge = mini(charge_cap(), P.charge + 1)
 			var lv := charge_lv(P.charge)
 			if lv > P.ready_lv:
 				P.ready_lv = lv
 				audio.play("ready", lv)
+			if P.charge == STORM_AT and not P.get("storm_rdy", false):
+				P.storm_rdy = true
+				audio.play("ready", 4)
+				shake = maxf(shake, 3.0)
 	elif P.held:
 		release()
 		P.charge = 0
 		P.ready_lv = 0
+		P.storm_rdy = false
 	P.held = inp.hold
-	if inp.ult and P.ult >= 1.0 and G.ult_t == 0:
+	if inp.ult and kit.ult != "storm" and P.ult >= 1.0 and G.ult_t == 0:
 		ultimate()
 	_rock_player()
 	# touching an enemy or a barrier costs a hull point
@@ -959,7 +976,9 @@ func release() -> void:
 	_slow_acc = 0.0
 	if kit.release == "beam":
 		var lv := charge_lv(P.charge)
-		if lv > 0:
+		if P.charge >= STORM_AT and P.ult >= 1.0 and G.ult_t == 0:
+			storm()
+		elif lv > 0:
 			fire_beam(lv)
 	elif kit.release == "pod" and not pod.is_empty():
 		if pod.state == "dock":
@@ -998,7 +1017,7 @@ func shot(x: float, y: float, vx: float, vy: float, mat: Material, d: int) -> vo
 
 
 func fire_beam(lv: int) -> void:
-	var b := {lv = lv, life = BEAM_LIFE[lv], x = P.x, y0 = P.y + 6, y1 = H, w = BEAM_W[lv], hit = {}, nova = lv == 4, ult = false}
+	var b := {lv = lv, life = BEAM_LIFE[lv], x = P.x, y0 = P.y + 6, y1 = H, w = BEAM_W[lv], hit = {}, nova = lv == 4}
 	b.m = _beam_node(lv)
 	world.add_child(b.m)
 	G.beams.append(b)
@@ -1011,32 +1030,107 @@ func _beam_node(lv: int) -> Node3D:
 	return VFx.beam_node(lv)
 
 
+## How far Lance can charge: to the Nova, or on to the Storm once kills have primed it.
+func charge_cap() -> int:
+	return STORM_AT if P.get("ult", 0.0) >= 1.0 and G.ult_t == 0 and VShips.KITS[G.ship].ult == "storm" else CHARGE_MAX
+
+
+## Warden's ultimate (double tap). Lance's is the Storm, fired from the charge bar.
 func ultimate() -> void:
 	P.ult = 0.0
 	audio.play("ready", 4)
 	shake = maxf(shake, 6.0)
 	Diag.once("ult " + G.ship)
-	if G.ship == "lance":
-		# Starbreak: a beam from the ship's nose sweeps across the screen like a wiper, from
-		# up-left to up-right, burning all it crosses
-		G.ult_t = 120
-		var b := {lv = 4, life = 120, x = P.x, y0 = P.y + 6, y1 = view.end.y, w = 12.0, hit = {}, nova = true, ult = true,
-			ang = -ULT_SWEEP}
-		b.len = _ray_len(b.x, b.y0, b.ang)
-		b.m = VFx.beam_node(4, true)
-		world.add_child(b.m)
-		G.beams.append(b)
-		audio.play("beam", 4)
-	else:
-		# Shatter: the pod bursts into eight homing shards that fly out of the ship; the ship is
-		# shielded until the pod reforms
-		G.ult_t = 180
-		pod.state = "shatter"
-		for j in 8:
-			var a := TAU * j / 8.0
-			var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_m)
-			world.add_child(m)
-			G.shards.append({x = P.x, y = P.y, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
+	# Shatter: the pod bursts into eight homing shards that fly out of the ship; the ship is
+	# shielded until the pod reforms
+	G.ult_t = 180
+	pod.state = "shatter"
+	for j in 8:
+		var a := TAU * j / 8.0
+		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_m)
+		world.add_child(m)
+		G.shards.append({x = P.x, y = P.y, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
+
+
+## The Storm: chain lightning from the ship's nose through every enemy and boss part on screen,
+## nearest first, each hop striking a moment after the last. Enemy bullets on screen are wiped.
+func storm() -> void:
+	P.ult = 0.0
+	G.ult_t = STORM_LIFE
+	Diag.once("ult storm")
+	audio.play("beam", 4)
+	shake = maxf(shake, 8.0)
+	var pool := []
+	var r := view.grow(-1.0)
+	for e in G.enemies:
+		if not e.get("dead", false) and r.has_point(Vector2(e.x, e.y)):
+			pool.append({e = e, x = e.x, y = e.y})
+	for p in G.bparts:
+		if p.kind == "shield" or p.kind == "seg" or not p.get("alive", true):
+			continue
+		if r.has_point(Vector2(p.x, p.y)):
+			pool.append({part = p, x = p.x, y = p.y})
+	var from := Vector2(P.x, P.y + 8)
+	var hops := []
+	var n := pool.size()
+	while not pool.is_empty():
+		var bi := 0
+		var bd := 1e18
+		for k in pool.size():
+			var d := from.distance_squared_to(Vector2(pool[k].x, pool[k].y))
+			if d < bd:
+				bd = d
+				bi = k
+		var t: Dictionary = pool[bi]
+		pool.remove_at(bi)
+		t.at = int(float(hops.size()) * STORM_SPREAD / maxf(1.0, n))
+		t.src = hops.size() - 1
+		t.hit = false
+		hops.append(t)
+		from = Vector2(t.x, t.y)
+	G.storm = {t = 0, hops = hops, m = VFx.storm_node(), seed = randi()}
+	world.add_child(G.storm.m)
+	for b in G.eb:
+		if r.has_point(Vector2(b.x, b.y)):
+			b.dead = true
+			spark(b.x, b.y)
+
+
+## The storm's bolts as [from, to] pairs in 3D: the ship's nose to the first target,
+## then target to target, each shown once its hop has struck.
+func _storm_points() -> Array:
+	var out := []
+	for h in G.storm.hops:
+		if not h.hit:
+			break
+		var a := Vector2(P.x, P.y + 8) if h.src < 0 else Vector2(G.storm.hops[h.src].x, G.storm.hops[h.src].y)
+		out.append([Vector3(X(a.x), Y(a.y), 5), Vector3(X(h.x), Y(h.y), 5)])
+	return out
+
+
+func _update_storm() -> void:
+	if not G.has("storm"):
+		return
+	var S: Dictionary = G.storm
+	S.t += 1
+	for h in S.hops:
+		# the bolt follows its target while it lives
+		var o: Dictionary = h.get("e", h.get("part", {}))
+		if not o.is_empty() and not o.get("dead", false) and o.get("alive", true):
+			h.x = o.x
+			h.y = o.y
+		if not h.hit and S.t >= h.at:
+			h.hit = true
+			if h.has("e"):
+				if not h.e.get("dead", false):
+					dmg_e(h.e, STORM_DMG)
+			elif h.part.get("alive", true):
+				boss_damage(h.part, STORM_DMG)
+			spark(h.x, h.y)
+			audio.play("small")
+	if S.t >= STORM_LIFE:
+		S.m.queue_free()
+		G.erase("storm")
 
 
 func _update_ult() -> void:
@@ -1069,10 +1163,7 @@ func _update_ult() -> void:
 		if s.x < -10 or s.x > W + 10 or s.y < -10 or s.y > H + 10:
 			s.x = P.x
 			s.y = P.y
-	# Starbreak rides on the ship's nose and sweeps from up-left to up-right
-	for b in G.beams:
-		if b.ult:
-			b.ang = lerpf(-ULT_SWEEP, ULT_SWEEP, 1.0 - float(b.life) / 120.0)
+	_update_storm()
 
 
 ## The closest thing a homing shard can hit: an enemy or a boss part.
@@ -1230,28 +1321,25 @@ func _update_beams() -> void:
 			b.y0 = P.y + 6
 		# the beam stops at the first barrier above the ship
 		b.y1 = view.end.y + 4
-		if not b.ult:
-			for bar in G.bars:
-				if bar.y > b.y0 and bar.y < b.y1 and bar_solid(bar, b.x, bar.y, 0.0):
-					b.y1 = bar.y
-		b.len = b.y1 - b.y0 if not b.ult else _ray_len(b.x, b.y0, b.ang)
+		for bar in G.bars:
+			if bar.y > b.y0 and bar.y < b.y1 and bar_solid(bar, b.x, bar.y, 0.0):
+				b.y1 = bar.y
+		b.len = b.y1 - b.y0
 		var hw: float = b.w / 2.0
 		for e in G.enemies:
 			if _in_beam(b, e.x, e.y, e.hw, e.hh, hw):
 				var key := "e%d" % e.id
-				var every := 8 if b.ult else 1000000
-				if not b.hit.has(key) or (b.ult and G.t - int(b.hit[key]) >= every):
+				if not b.hit.has(key):
 					b.hit[key] = G.t
-					dmg_e(e, 3 if b.ult else BEAM_DMG[b.lv])
+					dmg_e(e, BEAM_DMG[b.lv])
 		for p in G.bparts:
 			if p.kind == "shield" or p.kind == "seg":
 				continue
 			if _in_beam(b, p.x, p.y, p.r, p.r, hw):
 				var key := "p%d" % p.o.id
-				var every2 := 8 if b.ult else 1000000
-				if not b.hit.has(key) or (b.ult and G.t - int(b.hit[key]) >= every2):
+				if not b.hit.has(key):
 					b.hit[key] = G.t
-					boss_damage(p, 3 if b.ult else BEAM_DMG[b.lv])
+					boss_damage(p, BEAM_DMG[b.lv])
 		if b.nova:
 			for eb in G.eb:
 				if _in_beam(b, eb.x, eb.y, 2.0, 0.0, hw):
@@ -1262,31 +1350,9 @@ func _update_beams() -> void:
 
 
 ## Whether something at (x, y), `rx` by `ry` half size, touches beam `b` (`hw` half wide). A beam
-## runs from (b.x, b.y0) for b.len, straight up or, for Starbreak, tilted by b.ang (towards +x).
+## runs straight up from (b.x, b.y0) for b.len.
 func _in_beam(b: Dictionary, x: float, y: float, rx: float, ry: float, hw: float) -> bool:
-	var a: float = b.get("ang", 0.0)
-	var dx := x - float(b.x)
-	var dy := y - float(b.y0)
-	var along := dx * sin(a) + dy * cos(a)
-	var across := dx * cos(a) - dy * sin(a)
-	# tilted, the target's box turns too: use its larger half size both ways
-	var r := maxf(rx, ry) if a != 0.0 else rx
-	var r2 := maxf(rx, ry) if a != 0.0 else ry
-	return absf(across) < r + hw and along > -r2 and along < float(b.len) + r2
-
-
-## How far a ray from (x, y) tilted by `a` from straight up runs before it leaves the screen.
-func _ray_len(x: float, y: float, a: float) -> float:
-	var d := Vector2(sin(a), cos(a))
-	var r := view.grow(4.0)
-	var t := 1e6
-	if d.x > 0.001:
-		t = minf(t, (r.end.x - x) / d.x)
-	elif d.x < -0.001:
-		t = minf(t, (r.position.x - x) / d.x)
-	if d.y > 0.001:
-		t = minf(t, (r.end.y - y) / d.y)
-	return maxf(1.0, t)
+	return absf(x - float(b.x)) < rx + hw and y > float(b.y0) - ry and y < float(b.y0) + float(b.len) + ry
 
 
 func bullet(x: float, y: float, vx: float, vy: float) -> void:
@@ -2460,7 +2526,7 @@ func end_run(done: bool) -> void:
 		P.ult = minf(1.0, P.ult + 0.5)
 	var sub := "%d/%d motes · +%s" % [R.got, R.motes.size(), fmt(VRun.MEDALS[m][1] + R.got * 50 + R.scrape)]
 	if m == 0:
-		sub += " · ultimate charged"
+		sub += " · Storm primed" if VShips.KITS[G.ship].ult == "storm" else " · ultimate charged"
 	hud.banner("%s run" % VRun.MEDALS[m][0], sub, 200)
 	audio.play("oneup")
 	Diag.note("RUN", "done hits=%d motes=%d" % [R.hits, R.got])
@@ -2645,8 +2711,9 @@ func _process(_delta: float) -> void:
 	hud.ships = maxi(0, G.lives - 1) if P.alive else maxi(0, G.lives)
 	hud.ult = kit_ult
 	hud.ult_ready = kit_ult >= 1.0 and G.ult_t == 0
-	hud.charge = float(P.charge) / CHARGE_MAX
+	hud.charge = float(P.charge) / STORM_AT
 	hud.charge_lv = charge_lv(P.charge)
+	hud.charge_marks = [float(CHARGE_AT[1]) / STORM_AT, float(CHARGE_AT[2]) / STORM_AT, float(CHARGE_AT[3]) / STORM_AT, float(CHARGE_MAX) / STORM_AT]
 	hud.queue_redraw()
 	# the ship banks as it slides sideways and blinks while invincible
 	ship_m.visible = P.alive and not (P.inv > 2 and (tt >> 2) % 2 and G.ult_t == 0)
@@ -2669,8 +2736,6 @@ func _process(_delta: float) -> void:
 		light_c = Color(VFx.CHARGE_COL[maxi(lv, 1)])
 		beam_light.position = charge_fx.position + Vector3(0, 0, 8)
 	for bm in G.beams:
-		if bm.ult:
-			continue
 		var f: float = clampf(float(bm.life) / 6.0, 0.0, 1.0)
 		if 3.0 * f + bm.lv >= light_e:
 			light_e = (2.0 + bm.lv * 0.8) * f
@@ -2710,6 +2775,8 @@ func _process(_delta: float) -> void:
 		s.m.rotation.z += 0.3
 	for b in G.beams:
 		_sync_beam(b)
+	if G.has("storm"):
+		VFx.sync_storm(G.storm.m, _storm_points(), G.storm.t, STORM_LIFE, tt)
 	if not G.boss.is_empty():
 		_sync_boss()
 	if G.get("mid_boss", false):
@@ -2934,9 +3001,8 @@ func _sync_beam(b: Dictionary) -> void:
 	var fade: float = clampf(float(b.life) / 6.0, 0.0, 1.0)
 	var w: float = b.w * fade
 	b.m.position = Vector3(X(b.x), Y(b.y0), 3)
-	b.m.rotation.z = -float(b.get("ang", 0.0))
-	var age: int = (120 if b.ult else BEAM_LIFE[b.lv]) - b.life
-	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, not b.ult and b.y1 < view.end.y)
+	var age: int = BEAM_LIFE[b.lv] - b.life
+	VFx.sync_beam(b.m, b.lv, len, w, fade, age, tt, b.y1 < view.end.y)
 
 
 func _sync_boss() -> void:

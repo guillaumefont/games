@@ -1,7 +1,8 @@
 extends SceneTree
 ## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
-## Nova) or flings and recalls Warden's pod, a double tap fires the ultimate, barriers and
+## Nova) or flings and recalls Warden's pod, a double tap fires Warden's ultimate,
+## charging past the Nova once primed lets loose Lance's Storm, barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
 ## end with their mid-bosses and the Bloom Mother.
 
@@ -153,36 +154,58 @@ func _initialize() -> void:
 		return n
 	check(three.call() == 1, "a triple tap fires it once, not twice")
 
-	# ultimate: the gauge fills from kills, a double tap fires Starbreak
-	check(vg.P.ult < 1.0, "the ultimate gauge starts short of full")
+	# Lance's ultimate, the Storm: the charge bar's stage after the Nova, primed by kills
+	check(vg.P.ult < 1.0, "the Storm starts unprimed")
+	check(not vg.hud.has_ult_ring(), "Lance has no separate ultimate gauge")
 	tick(1, true, 0, 0, true)
-	check(vg.G.ult_t == 0, "the ultimate does nothing until the gauge is full")
+	check(vg.G.ult_t == 0 and not vg.G.has("storm"), "a double tap does nothing for Lance")
+	tick(vg.STORM_AT + 20, true)
+	check(vg.P.charge == vg.CHARGE_MAX, "unprimed, the charge stops at the Nova")
+	tick(1, false)
+	tick(60, false)
 	for i in 30:
 		var d: Dictionary = vg.E("drifter", 60, 150, {move = "sine", amp = 0.0, ph = 0.0, x0 = 60.0})
 		vg.kill_e(d)
-	check(vg.P.ult >= 1.0, "kills fill the ultimate gauge")
+	check(vg.P.ult >= 1.0, "kills prime the Storm")
 	tick(1, true, 0, 0, true)
-	check(vg.G.ult_t > 0 and vg.G.beams.size() >= 1 and vg.G.beams.back().ult, "the ultimate fires Starbreak")
-	var sb: Dictionary = vg.G.beams.back()
-	check(is_equal_approx(sb.x, vg.P.x) and is_equal_approx(sb.y0, vg.P.y + 6) and sb.ang < -1.0,
-		"Starbreak stems from the ship's nose, starting up-left")
-	var tgt: Dictionary = vg.E("shell", vg.P.x + 40, vg.P.y + 30, {hold = 0.0})
-	var thp: float = tgt.hp
-	var low: Dictionary = vg.E("shell", vg.P.x - 30, vg.P.y + 12, {hold = 0.0})
-	var lhp: float = low.hp
-	# pin the targets beside the ship while the beam swings round
-	for k in 125:
-		tgt.x = vg.P.x + 40
-		tgt.y = vg.P.y + 30
-		low.x = vg.P.x - 30
-		low.y = vg.P.y + 12
-		tick(1, true)
-		if k == 59:
-			check(sb.ang > -0.2 and sb.ang < 0.2 and is_equal_approx(sb.x, vg.P.x), "halfway, Starbreak points straight up from the ship")
-	check(tgt.hp < thp or tgt.get("dead", false), "Starbreak sweeps from the ship and hits off to the side")
-	check(low.hp < lhp or low.get("dead", false), "the sweep reaches low beside the ship too")
-	check(vg.G.ult_t == 0 and vg.P.ult == 0.0, "the ultimate ends and the gauge is spent (its own kills don't refill it)")
-	tgt.dead = true
+	check(not vg.G.has("storm") and vg.P.ult >= 1.0, "primed, a double tap still does nothing: the Storm comes from the charge bar")
+	tick(vg.STORM_AT + 20, true)
+	check(vg.P.charge == vg.STORM_AT, "primed, the charge runs on past the Nova to the Storm")
+	check(vg.hud.charge >= 1.0 and vg.hud.charge_marks[3] < 1.0, "the bar shows the Storm as its last stage, after the Nova")
+	var foes := []
+	for k in 5:
+		foes.append(vg.E("drifter", 15 + k * 24, 120 + (k % 2) * 60, {move = "sine", amp = 0.0, ph = 0.0, x0 = 15.0 + k * 24}))
+	var big: Dictionary = vg.E("shell", 30, 190, {hold = 0.0})
+	var bhp: float = big.hp
+	var far: Dictionary = vg.E("drifter", 60, vg.view.end.y + 40, {move = "sine", amp = 0.0, ph = 0.0, x0 = 60.0})
+	var fhp: float = far.hp
+	vg.bullet(100, 200, 0, 0)
+	var beams: int = vg.G.beams.size()
+	tick(1, false)
+	var on_screen := 0
+	for en in vg.G.enemies:
+		if vg.view.grow(-1.0).has_point(Vector2(en.x, en.y)):
+			on_screen += 1
+	check(vg.G.has("storm") and vg.G.beams.size() == beams, "lifting at the Storm lets loose the lightning, not a beam")
+	check(vg.G.storm.hops.size() == on_screen and on_screen >= 6, "the lightning targets every enemy on screen, and only those (%d of %d)" % [vg.G.storm.hops.size(), on_screen])
+	var wiped := true
+	for b in vg.G.eb:
+		wiped = wiped and b.get("dead", false)
+	check(wiped, "the Storm wipes the enemy bullets on screen")
+	check(vg.G.storm.hops[0].src == -1 and vg.G.storm.hops[1].src == 0, "the lightning jumps from the ship, then target to target")
+	# lifting slows time a moment, so give it the slow-motion ticks too
+	tick(vg.STORM_SPREAD + vg.SLOW_TICKS + 4, false)
+	var all_dead := true
+	for f in foes:
+		all_dead = all_dead and f.get("dead", false)
+	check(all_dead, "every small flyer on screen dies")
+	check(big.get("dead", false) or big.hp <= bhp - vg.STORM_DMG + 0.01, "big flyers take one heavy hit")
+	check(not far.get("dead", false) and far.hp == fhp, "enemies off screen are spared")
+	check(vg.G.has("storm") and (vg.G.storm.m as Node3D).get_child_count() > 3, "the bolts crackle on after striking")
+	tick(vg.STORM_LIFE, false)
+	check(not vg.G.has("storm") and vg.G.ult_t == 0 and vg.P.ult == 0.0, "the Storm ends and is spent (its own kills don't prime it again)")
+	big.dead = true
+	far.dead = true
 
 	# hull: a bullet costs a hull point; three cost a ship
 	tick(60, false)
