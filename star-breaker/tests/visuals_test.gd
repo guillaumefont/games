@@ -109,7 +109,7 @@ func _initialize() -> void:
 	var bolts := [[Vector3(0, -60, 5), Vector3(20, 10, 5)], [Vector3(20, 10, 5), Vector3(-30, 50, 5)]]
 	VFx.sync_storm(sn, bolts, 1, 70, 0)
 	var im0: ImmediateMesh = (sn.get_child(2) as MeshInstance3D).mesh
-	check(im0.get_surface_count() == 1 and im0.surface_get_array_len(0) > 6 * 8, "the Storm draws its bolts as jagged ribbons")
+	check(im0.get_surface_count() == 1 and (im0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() > 6 * 8, "the Storm draws its bolts as jagged ribbons")
 	var a0: Array = im0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	var straight := true
 	for v in a0:
