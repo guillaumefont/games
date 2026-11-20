@@ -107,6 +107,9 @@ func _labels() -> Dictionary:
 		for o in (vg.fx if k == "fx" else G.get(k, [])):
 			if o.get("m") is Node:
 				out[o.m.get_instance_id()] = ""
+	# the Storm's lightning comes out of the ship
+	if G.get("storm", {}).get("m") is Node:
+		out[G.storm.m.get_instance_id()] = ""
 	for e in G.get("enemies", []):
 		if e.get("m") is Node:
 			# the boss's brood hatches out of the boss, kills drop no models
