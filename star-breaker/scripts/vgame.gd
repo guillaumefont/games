@@ -2338,7 +2338,7 @@ func start_run() -> void:
 	var motes := []
 	for mo in VRun.motes():
 		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_c)
-		m.position = Vector3(VRun.sx(mo[1]), mo[0], mo[2])
+		m.position = VRun.warp(Vector3(VRun.sx(mo[1]), mo[0], mo[2]))
 		n.add_child(m)
 		motes.append({u = mo[0], x = mo[1], z = mo[2], m = m, got = false})
 	# the canyon's mouth starts out of sight past the top, its shadows too
@@ -2478,7 +2478,32 @@ func _sync_run() -> void:
 	if not G.has("run"):
 		return
 	var R: Dictionary = G.run
-	R.node.position = Vector3(0, Y(VRun.SHIP_Y) - R.d, 0)
+	# the canyon turns under the ship: the point of its centre line level with the ship sits on
+	# the screen's centre line, and the canyon there runs straight up the screen (the gameplay
+	# stays in canyon coordinates, so the camera, steering and rock all follow the bends)
+	var h := VRun.heading(R.d)
+	var at := Transform3D(Basis(Vector3.BACK, -h), Vector3(0, Y(VRun.SHIP_Y), 0))
+	R.node.transform = at * Transform3D(Basis(), -Vector3(VRun.centre(R.d).x, VRun.centre(R.d).y, 0))
+	# the ship banks into a bend
+	var turn := VRun.heading(R.d + VRun.speed(R.d)) - h
+	R.bank = lerpf(R.get("bank", 0.0), clampf(-turn * 30.0, -0.5, 0.5) * R.k, 0.15)
+	# a gap's glow goes out once the ship is through and the camera reaches it, or the camera
+	# would fly through the glow and wash out the screen
+	# and a bridge, ridge or window goes once the camera reaches it (the ship is long through): from
+	# under a bridge it would hide the ship climbing out beyond it
+	for gl in R.node.get_children():
+		if gl.has_meta("gap_u"):
+			gl.visible = R.d - 38.0 < float(gl.get_meta("gap_u")) - 16.0
+		elif gl.has_meta("obs_u"):
+			var ou: float = gl.get_meta("obs_u")
+			# (its glowing seams sit 2.6 in front of it)
+			gl.visible = R.d - 38.0 < ou - VRun.DEPTH / 2.0 - 4.5
+			# once the ship is through, the rock between it and the camera fades like glass
+			var fade := clampf((R.d - ou - VRun.DEPTH / 2.0) / 10.0, 0.0, 1.0) * 0.8
+			var mat := (gl as MeshInstance3D).material_override as BaseMaterial3D
+			if mat:
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if fade > 0.0 else BaseMaterial3D.TRANSPARENCY_DISABLED
+				mat.albedo_color.a = 1.0 - fade
 	for gi in R.casters:
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if R.k > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for mo in R.motes:
@@ -2493,6 +2518,26 @@ func _camera_reset() -> void:
 	_env.fog_light_color = Color(look.fog)
 	_env.fog_depth_begin = CAM_D + 30.0
 	_env.fog_depth_end = CAM_D + 210.0
+
+
+## Where the chase camera at canyon (x, z) must go to stay out of obstacle `o`'s rock (with 3
+## units to spare), as it passes it.
+static func _cam_dodge(o: Dictionary, c: Vector2) -> Vector2:
+	match o.k:
+		"pillar", "mesa":
+			var px: float = VRun.passage(o.u).x + o.dx
+			var room: float = o.r + 3.0
+			if absf(c.x - px) < room:
+				c.x = px - room if c.x < px else px + room
+		"arch":
+			c.y = minf(c.y, o.z - 3.0)
+		"spine":
+			c.y = maxf(c.y, o.z + 3.0)
+		"window":
+			var h := VRun.hole(o)
+			c.x = clampf(c.x, h.x - o.hw + 3.0, h.x + o.hw - 3.0)
+			c.y = clampf(c.y, h.y - o.hh + 3.0, h.y + o.hh - 3.0)
+	return c
 
 
 ## A camera basis looking along `dir` with its up in the plane of +Y and +Z, so it never rolls
@@ -2511,9 +2556,31 @@ func _camera(j: Vector3) -> void:
 		return
 	var R: Dictionary = G.run
 	# the camera trails the ship sideways, a little towards the passage's middle
-	R.cx = lerpf(R.cx, lerpf(VRun.passage(R.d).x, P.x, 0.7), 0.15)
+	# (no more than 6 units off the ship, or in the wide basin it would leave the ship off screen)
+	R.cx = lerpf(R.cx, P.x + clampf((VRun.passage(R.d).x - P.x) * 0.3, -5.0, 5.0), 0.2)
 	var t := Vector3(X(R.cx), Y(VRun.SHIP_Y), P.get("z", 0.0) * 0.85)
-	var chase := Transform3D(Basis(), t + Vector3(0, -38, 19)).looking_at(t + Vector3(0, 70, 9), Vector3.BACK)
+	# the camera rides 38 units behind the ship, so it passes each column, bridge, ridge and
+	# window after the ship has: it steps round a column, ducks under a bridge and lifts over a
+	# ridge or into a hole as it goes through, instead of flying into the rock. It eases into the
+	# dodge as the rock nears and holds it hard while inside the rock's depth
+	var cz := t.z + 19.0
+	var cx: float = R.cx
+	var cu: float = R.d - 38.0
+	var want := Vector2(cx, cz)
+	for o in VRun.OBS:
+		var gap := absf(o.u - cu) - VRun.half(o)
+		if gap > 30.0:
+			continue
+		want = _cam_dodge(o, want)
+	R.cdx = lerpf(R.get("cdx", 0.0), want.x - cx, 0.25)
+	R.cdz = lerpf(R.get("cdz", 0.0), want.y - cz, 0.25)
+	var cam := Vector2(cx + R.cdx, cz + R.cdz)
+	for o in VRun.OBS:
+		if absf(o.u - cu) - VRun.half(o) < 2.0:
+			cam = _cam_dodge(o, cam)
+	R.cz = cam.y
+	R.cam_x = cam.x
+	var chase := Transform3D(Basis(), Vector3(X(R.cam_x), t.y - 38.0, R.cz)).looking_at(t + Vector3(0, 70, 9), Vector3.BACK)
 	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	# The swing orbits the ship rather than sliding between the two cameras: a straight slide
 	# looks past the ship halfway and drops it off the bottom of the screen for about a second.
@@ -2572,7 +2639,8 @@ func _process(_delta: float) -> void:
 	ship_m.visible = P.alive and not (P.inv > 2 and (tt >> 2) % 2 and G.ult_t == 0)
 	ship_m.position = Vector3(X(P.x), Y(P.y), P.get("z", 0.0))
 	var mdl: Node3D = ship_m.get_meta("model")
-	(mdl.get_meta("body") as Node3D).rotation.x = clampf(P.vx * 0.35, -0.6, 0.6)
+	var bank: float = G.run.get("bank", 0.0) if G.has("run") else 0.0
+	(mdl.get_meta("body") as Node3D).rotation.x = clampf(P.vx * 0.35 + bank, -0.8, 0.8)
 	(mdl.get_meta("flame") as Node3D).scale = Vector3(0.8 + randf() * 0.5, 1, 1)
 	# Lance's charge: a laser ball at the nose with the level's strands coiling round it
 	var lv := charge_lv(P.charge)

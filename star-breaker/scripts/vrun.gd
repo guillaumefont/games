@@ -11,7 +11,7 @@ extends RefCounted
 ## The course is a pure function of `u`, so the same numbers drive the collision, the mesh and
 ## the tests.
 
-const LEN := 1960.0
+const LEN := 2400.0
 ## Past here the ship only glides back to the play plane while the camera swings out.
 const OUT := LEN - 400.0
 const FLOOR := -40.0
@@ -30,10 +30,18 @@ const GAIN := 0.7
 const DEPTH := 8.0
 const MEDALS := [["Gold", 5000], ["Silver", 2000], ["Bronze", 500]]
 
-## The passage: [u, centre x, half width], eased between keys. Wide (off screen) at both ends.
+## The passage: [u, centre x, half width], eased between keys. Wide (off screen) at both ends,
+## and once wide inside: a basin split by a mesa.
 const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
-	[540.0, 63.0, 30.0], [1060.0, 63.0, 30.0], [1140.0, 52.0, 23.0], [1220.0, 78.0, 22.0], [1300.0, 50.0, 23.0],
-	[1380.0, 63.0, 30.0], [1580.0, 63.0, 32.0], [1800.0, 63.0, 100.0], [2700.0, 63.0, 100.0]]
+	[540.0, 63.0, 30.0], [1080.0, 63.0, 30.0], [1180.0, 63.0, 52.0], [1380.0, 63.0, 52.0], [1460.0, 63.0, 30.0],
+	[1520.0, 63.0, 30.0], [1580.0, 52.0, 23.0], [1660.0, 78.0, 22.0], [1740.0, 50.0, 23.0], [1820.0, 63.0, 30.0],
+	[2020.0, 63.0, 32.0], [2240.0, 63.0, 100.0], [2900.0, 63.0, 100.0]]
+
+## Where the canyon heads: [u, degrees to the left], eased between keys. It runs straight where
+## the camera swings (so the moon's floor lines up with it) and turns no tighter than a radius of
+## ~230 units, so the rim's back (180 units out) never folds over on the inside of a bend.
+const TURN := [[-400.0, 0.0], [520.0, 0.0], [740.0, 35.0], [860.0, 35.0], [1160.0, -15.0], [1260.0, -15.0],
+	[1380.0, 0.0], [1490.0, 0.0], [1640.0, 22.0], [1790.0, 0.0], [2900.0, 0.0]]
 
 ## Obstacles: concretion columns (dodge sideways), rock bridges (dive under: rock above z),
 ## ridges (climb over: rock below z) and walls with one hole to thread. dx is from the passage
@@ -46,10 +54,63 @@ const OBS := [
 	{u = 710.0, k = "arch", z = -16.0},
 	{u = 880.0, k = "spine", z = -6.0},
 	{u = 1000.0, k = "spine", z = 0.0},
-	{u = 1220.0, k = "arch", z = -6.0},
-	{u = 1430.0, k = "window", dx = 10.0, z = -10.0, hw = 10.0, hh = 9.0},
-	{u = 1550.0, k = "window", dx = -10.0, z = 4.0, hw = 10.0, hh = 9.0},
+	{u = 1280.0, k = "mesa", dx = 12.0, r = 20.0, len = 140.0},
+	{u = 1660.0, k = "arch", z = -6.0},
+	{u = 1850.0, k = "window", dx = 10.0, z = -10.0, hw = 10.0, hh = 9.0},
+	{u = 1970.0, k = "window", dx = -10.0, z = 4.0, hw = 10.0, hh = 9.0},
 ]
+
+
+## Half an obstacle's length along the canyon (a mesa is long, the rest DEPTH thick).
+static func half(o: Dictionary) -> float:
+	return o.get("len", DEPTH) / 2.0
+
+
+## The canyon's heading at `u` (radians, positive turns left).
+static func heading(u: float) -> float:
+	for i in TURN.size() - 1:
+		var a: Array = TURN[i]
+		var b: Array = TURN[i + 1]
+		if u <= b[0] or i == TURN.size() - 2:
+			return deg_to_rad(lerpf(a[1], b[1], smoothstep(float(a[0]), float(b[0]), u)))
+	return 0.0
+
+
+const _C0 := -400.0
+const _CSTEP := 2.0
+static var _ctr := PackedVector2Array()
+
+
+## Where the canyon's centre line (world x = 0 when straight) is at `u`, in the canyon node's
+## plane: the heading integrated along the canyon. Straight, it is (0, u).
+static func centre(u: float) -> Vector2:
+	if _ctr.is_empty():
+		var c := Vector2(0.0, _C0)
+		var uu := _C0
+		while uu <= LEN + 600.0:
+			_ctr.append(c)
+			var h := heading(uu + _CSTEP / 2.0)
+			c += Vector2(-sin(h), cos(h)) * _CSTEP
+			uu += _CSTEP
+	var f := clampf((u - _C0) / _CSTEP, 0.0, _ctr.size() - 1.001)
+	var i := int(f)
+	return _ctr[i].lerp(_ctr[i + 1], f - i)
+
+
+## A point in canyon coordinates (world x across, y = u along, z up), as built straight, to where
+## it sits in the bent canyon. All gameplay stays in canyon coordinates; only the mesh bends.
+static func warp(p: Vector3) -> Vector3:
+	var h := heading(p.y)
+	var c := centre(p.y)
+	return Vector3(c.x + p.x * cos(h), c.y + p.x * sin(h), p.z)
+
+
+## Bends a straight-built mesh: every vertex to its place, every normal turned with it.
+static func _bend(acc: Terrain.Acc) -> void:
+	for i in acc.v.size():
+		var h := heading(acc.v[i].y)
+		acc.n[i] = acc.n[i].rotated(Vector3.BACK, h)
+		acc.v[i] = warp(acc.v[i])
 
 
 ## Stage x to world x (as `X()` in vgame.gd).
@@ -105,7 +166,7 @@ static func hit(x: float, z: float, u0: float, u1: float, pad: float) -> String:
 	if x - pad < p.x - p.y or x + pad > p.x + p.y:
 		return "wall"
 	for o in OBS:
-		if o.u + DEPTH / 2.0 < u0 or o.u - DEPTH / 2.0 > u1:
+		if o.u + half(o) < u0 or o.u - half(o) > u1:
 			continue
 		if _solid(o, x, z, pad):
 			return o.k
@@ -114,7 +175,7 @@ static func hit(x: float, z: float, u0: float, u1: float, pad: float) -> String:
 
 static func _solid(o: Dictionary, x: float, z: float, pad: float) -> bool:
 	match o.k:
-		"pillar":
+		"pillar", "mesa":
 			return absf(x - (passage(o.u).x + o.dx)) < o.r + pad
 		"arch":
 			return z + pad > o.z
@@ -133,10 +194,10 @@ static func clearance(x: float, z: float, u: float) -> float:
 	var d := minf(x - (p.x - p.y), p.x + p.y - x)
 	d = minf(d, z - FLOOR)
 	for o in OBS:
-		if absf(o.u - u) > DEPTH:
+		if absf(o.u - u) > half(o) + DEPTH / 2.0:
 			continue
 		match o.k:
-			"pillar":
+			"pillar", "mesa":
 				d = minf(d, absf(x - (p.x + o.dx)) - o.r)
 			"arch":
 				d = minf(d, o.z - z)
@@ -155,10 +216,15 @@ static func line(u: float) -> Vector2:
 	var dx := 0.0
 	var z := -4.0
 	for o in OBS:
-		if o.u + DEPTH / 2.0 + 3.0 < u:
+		if o.u + half(o) + 3.0 < u:
 			continue
-		if o.u - u < 100.0:
+		if o.u - half(o) - u < 100.0:
 			match o.k:
+				"mesa":
+					# the tight side of the fork: harder, and the motes go that way
+					var l: float = p.x + o.dx - o.r - (p.x - p.y)
+					var r: float = p.x + p.y - (p.x + o.dx + o.r)
+					dx = (o.dx - o.r - l / 2.0) if l < r else (o.dx + o.r + r / 2.0)
 				"pillar":
 					dx = 9.0 if o.dx < 0.0 else -9.0
 				"arch":
@@ -169,7 +235,7 @@ static func line(u: float) -> Vector2:
 					dx = o.dx
 					z = o.z
 		break
-	return Vector2(clampf(p.x + dx, p.x - p.y + 7.0, p.x + p.y - 7.0), z)
+	return Vector2(clampf(p.x + dx, p.x - p.y + 6.0, p.x + p.y - 6.0), z)
 
 
 ## Crystal motes along the racing line: they show the way and pay points. [u, x, z] each.
@@ -213,10 +279,29 @@ class Builder:
 			u += ROW
 		for o in VRun.OBS:
 			if o.u >= _u and o.u < _u + SLICE:
-				VRun._obstacle(rock, lip, o, _pal)
+				if o.k in ["arch", "spine", "window"]:
+					# its own meshes, so it can go once the camera reaches it: the camera rides
+					# behind the ship, and a bridge it is under would otherwise hide the ship
+					# climbing out beyond it
+					var orock := Terrain.Acc.new()
+					var olip := Terrain.Acc.new()
+					VRun._obstacle(orock, olip, o, _pal)
+					VRun._bend(orock)
+					VRun._bend(olip)
+					# (own materials too, so it can fade once the ship is through)
+					for mi in [Terrain._mi(orock.mesh(), _mats.ground.duplicate(), true), Terrain._mi(olip.mesh(), _mats.lip.duplicate(), false)]:
+						mi.set_meta("obs_u", o.u)
+						node.add_child(mi)
+				else:
+					VRun._obstacle(rock, lip, o, _pal)
 				var gl := VRun.gap_light(o)
 				if gl.size.x > 0.0:
+					gl.node.rotation.y = VRun.heading(o.u)
+					gl.node.position = VRun.warp(gl.node.position)
+					gl.node.set_meta("gap_u", o.u)
 					node.add_child(gl.node)
+		for acc in [rock, lip, glow]:
+			VRun._bend(acc)
 		if rock.count() > 0:
 			node.add_child(Terrain._mi(rock.mesh(), _mats.ground, true))
 		if lip.count() > 0:
@@ -409,6 +494,32 @@ static func _obstacle(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, pal: D
 				_blob(rock, Vector3(cx + off.x, o.u + off.y, z + ry), Vector3(rr, rr, ry), _tone(pal, sd + i), sd + i)
 				z += ry * 1.55
 				i += 1
+		"mesa":
+			# a tall island of rock splitting the basin in two: banded sides studded with
+			# concretions (inside its width), a rim top with the canyon's glowing lip
+			var cx := sx(p.x + o.dx)
+			var r: float = o.r
+			var m0: float = o.u - o.len / 2.0
+			var m1: float = o.u + o.len / 2.0
+			_box(rock, Vector3(cx - r, m0, FLOOR - 4.0), Vector3(cx + r, m1, RIM), col)
+			var z := FLOOR
+			var n := 0
+			while z < RIM - 6.0:
+				_lumps(rock, pal, cx - r, cx + r - 15.0, m0, z, 1.0, sd + n * 50.0)
+				for s in [-1.0, 1.0]:
+					var yy := m0 + 6.0
+					var i := 0
+					while yy < m1 - 6.0:
+						var ry := 5.0 + VStage.hash(Vector2(sd + s, i + n * 20.0)) * 6.0
+						var rx := 2.5 + VStage.hash(Vector2(sd - s, i + n * 20.0)) * 2.0
+						_blob(rock, Vector3(cx + s * (r - rx), yy + ry, z + 4.0), Vector3(rx, ry, 4.5), _tone(pal, sd + i + n), sd + i * 1.3 + n * 7.0 + s)
+						yy += ry * 2.2
+						i += 1
+				z += 14.0
+				n += 1
+			for s in [-1.0, 1.0]:
+				_bar(lip, Vector3(cx + s * r - 0.45, m0, RIM), Vector3(cx + s * r + 0.45, m1, RIM + 0.4))
+			_bar(lip, Vector3(cx - r, m0 - 0.45, RIM), Vector3(cx + r, m0 + 0.45, RIM + 0.4))
 		"arch":
 			# a natural bridge: a slab of rock lumped with concretions, its underside on the edge
 			_box(rock, Vector3(xl, y0, o.z), Vector3(xr, y1, RIM + 4.0), col)

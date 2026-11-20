@@ -210,3 +210,11 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   No auto-pause during the run (lifting the thumb there paused the game "for no reason"). The way
   out mirrors the way in: every obstacle is passed before `VRun.OUT`, then the camera swings back
   at most as fast as it swung in. GIF frames: `tools/run_shots.gd`.
+  The swing orbits the ship, so it stays in the same place on screen (2026-11-19).
+  Bends, basin, fork (2026-11-20): gameplay stays in straight canyon coordinates. Only the mesh
+  is bent (`VRun.warp`, `VRun.heading`), and `_sync_run` turns the node so the canyon runs up
+  the screen at the ship. Keep the turns no tighter than a 220-unit radius (the rim's back folds
+  over otherwise), and keep them straight while the camera swings. The chase camera dodges rock
+  it passes (`_cam_dodge`). Bridges, ridges and windows fade once the ship is through, and hide
+  when the camera reaches them, so they never hide the ship. Wide spots go in `PATH`, and a
+  `mesa` obstacle (with `len`) splits one, with motes on the tight side.
