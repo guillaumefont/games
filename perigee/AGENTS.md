@@ -62,6 +62,10 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   guards against that in the port.)
 - The view interpolates between the last two steps (`px/py`, `cam_px/cam_py`). New moving things need
   their previous position kept the same way.
+- Fuel (the hidden timer that used to end long flights): each flight has `Sim.MAX_FLIGHT` seconds; when it runs out
+  the run ends with "Ran out of fuel" (leaving the screen is still "Drifted off into the dark"). `sim.fuel_left()`
+  reads it, and every catch refills it. The view draws it as a gauge ring round the ship in flight (`main._draw_fuel`),
+  sand while there is plenty and blinking coral in the last `Sim.FUEL_LOW` seconds (no blink with reduced motion).
 - `main.advance(delta)` is the whole frame; tests call it with process turned off.
 - Game input goes through `_unhandled_input` (left mouse button, emulated from touch, plus Space/Enter), so
   HUD buttons that take the tap must not pass it on. Keep `focus_mode = FOCUS_NONE` on buttons so Space

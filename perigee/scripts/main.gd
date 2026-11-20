@@ -847,6 +847,8 @@ func _draw() -> void:
 		Looks.draw_ship(self, eq.ship, ship, heading, t)
 		if sim.holding and p.planet == null and sim.state == "play":
 			draw_arc(ship, 10.0 + sin(t * 14.0) * 1.5, 0, TAU, 32, SAND, 1.5, true)
+		if p.planet == null and sim.state == "play":
+			_draw_fuel(ship, t, calm)
 
 	# particles
 	for q in particles:
@@ -858,6 +860,30 @@ func _draw() -> void:
 		var tw := font.get_string_size(q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		draw_string(font, Vector2(q.x - tw / 2.0, q.y), q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(q.col, clampf(q.life / 0.5, 0.0, 1.0)))
 	draw_set_transform(Vector2.ZERO)
+
+
+## The fuel gauge round the ship in flight: an arc that drains clockwise from the top as the
+## flight's fuel (Sim.MAX_FLIGHT seconds) runs out, faint while there is plenty, then coral and
+## blinking faster in the last Sim.FUEL_LOW seconds. Every catch fills the tank again.
+func _draw_fuel(ship: Vector2, t: float, calm: bool) -> void:
+	var left := sim.fuel_left()
+	var frac := left / Sim.MAX_FLIGHT
+	var r := 19.0
+	var low := left < Sim.FUEL_LOW
+	var col := Color(SAND, 0.85)
+	var back := Color(INK, 0.16)
+	var width := 3.0
+	if low:
+		# the last seconds: the whole ring turns coral and blinks faster as the tank empties
+		var urgency := 1.0 - left / Sim.FUEL_LOW
+		var blink := 1.0 if calm else 0.8 + 0.2 * cos(t * TAU * (2.0 + 4.0 * urgency))
+		col = Color(CORAL, blink)
+		back = Color(CORAL, 0.4 * blink)
+		width = 4.0
+	draw_arc(ship, r, 0, TAU, 48, back, width, true)
+	if frac <= 0.0:
+		return
+	draw_arc(ship, r, -PI / 2.0, -PI / 2.0 + TAU * frac, maxi(4, int(48 * frac)), col, width, true)
 
 
 ## A dotted ring like the prototype's setLineDash([3, 7]) with a moving dash offset.

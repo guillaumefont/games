@@ -385,6 +385,29 @@ func _initialize() -> void:
 	ps.step()
 	check(ps.player.planet == pu, "a lit pulsar ring catches (%s, lit %s)" % [ps.state, pu.lit(ps.t)])
 
+	# --- the fuel gauge: every flight has MAX_FLIGHT seconds of fuel ---
+	var f := Sim.new(9, 400, 700)
+	f.press()
+	f.release()
+	for i in 30:
+		f.step()
+	check(f.fuel_left() == Sim.MAX_FLIGHT, "a full tank while orbiting")
+	f.press()
+	f.release() # fling
+	for i in 60:
+		f.step()
+	check(f.player.planet == null and absf(f.fuel_left() - (Sim.MAX_FLIGHT - 0.5)) < 0.02,
+		"fuel drains with flight time (%.2f s left after 0.5 s)" % f.fuel_left())
+	# keep the ship in view so only the fuel can end the flight
+	f.player.fly_t = Sim.MAX_FLIGHT - 2.0 * Sim.DT
+	f.cam_x = f.player.x
+	f.cam_y = f.player.y
+	f.holding = false
+	for i in 4:
+		f.step()
+	check(f.state == "over" and f.death_why == "Ran out of fuel" and f.fuel_left() == 0.0,
+		"an empty tank ends the run with its own reason (%s, %s)" % [f.state, f.death_why])
+
 	# --- losing and restarting ---
 	var d := Sim.new(9, 400, 700)
 	d.press()
