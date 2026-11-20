@@ -58,11 +58,11 @@ const OBS := [
 	{u = 850.0, k = "arch", z = -22.0},
 	{u = 970.0, k = "spine", z = 4.0},
 	{u = 1280.0, k = "mesa", dx = 12.0, r = 20.0, len = 140.0},
-	{u = 1540.0, k = "window", dx = -12.0, z = -16.0, hw = 13.0, hh = 11.0},
+	{u = 1540.0, k = "window", dx = -8.0, z = -16.0, hw = 17.0, hh = 15.0},
 	{u = 1650.0, k = "arch", z = -18.0},
-	{u = 1760.0, k = "window", dx = 12.0, z = 8.0, hw = 13.0, hh = 11.0},
+	{u = 1760.0, k = "window", dx = 8.0, z = 5.0, hw = 17.0, hh = 15.0},
 	{u = 1860.0, k = "spine", z = 2.0},
-	{u = 1965.0, k = "window", dx = -11.0, z = -12.0, hw = 13.0, hh = 11.0},
+	{u = 1965.0, k = "window", dx = -8.0, z = -12.0, hw = 17.0, hh = 15.0},
 ]
 
 ## How much a bridge's underside rises from the walls to its middle, and a ridge's crest dips.
@@ -84,10 +84,10 @@ static func crest(o: Dictionary, x: float) -> float:
 
 
 ## How far (x, z) is out of a window's oval hole shrunk by `pad`: < 1 inside, > 1 rock.
-static func oval(o: Dictionary, x: float, z: float, pad: float) -> float:
+static func oval(o: Dictionary, x: float, z: float, pad: float, k := 1.0) -> float:
 	var h := hole(o)
-	var a := maxf(o.hw - pad, 0.5)
-	var b := maxf(o.hh - pad, 0.5)
+	var a := maxf(o.hw * k - pad, 0.5)
+	var b := maxf(o.hh * k - pad, 0.5)
 	return sqrt(pow((x - h.x) / a, 2.0) + pow((z - h.y) / b, 2.0))
 
 
@@ -204,6 +204,28 @@ static func swing(u: float) -> float:
 
 
 ## The hole of a window obstacle: centre x, centre z.
+## A hole's rock funnel: each ring of the worn face (times the hole's size) and how far before
+## the wall's front it sits, so the rock flares out towards the ship and eases it into the hole.
+const HOLE_RINGS := [1.0, 1.25, 1.65, 2.3, 3.3, 5.0]
+const FUNNEL := [0.0, 5.0, 12.0, 21.0, 31.0, 42.0]
+
+
+## How much wider than the hole the funnel is at `u` (1 in the hole itself).
+static func flare(o: Dictionary, u: float) -> float:
+	var d: float = o.u - DEPTH / 2.0 - u
+	if d <= 0.0:
+		return 1.0
+	for i in FUNNEL.size() - 1:
+		if d <= FUNNEL[i + 1]:
+			return lerpf(HOLE_RINGS[i], HOLE_RINGS[i + 1], (d - FUNNEL[i]) / (FUNNEL[i + 1] - FUNNEL[i]))
+	return 99.0
+
+
+## How far before `o.u` an obstacle's rock starts (a hole's funnel reaches further out).
+static func front(o: Dictionary) -> float:
+	return DEPTH / 2.0 + FUNNEL[-1] if o.k == "window" else half(o)
+
+
 static func hole(o: Dictionary) -> Vector2:
 	return Vector2(passage(o.u).x + o.dx, o.z)
 
@@ -215,7 +237,7 @@ static func hit(x: float, z: float, u0: float, u1: float, pad: float) -> String:
 	if x - pad < p.x - p.y or x + pad > p.x + p.y:
 		return "wall"
 	for o in OBS:
-		if o.u + half(o) < u0 or o.u - half(o) > u1:
+		if o.u + half(o) < u0 or o.u - front(o) > u1:
 			continue
 		if o.k == "pillar":
 			# a rock spire: an oval footprint, r across and half(o) along the canyon
@@ -224,12 +246,12 @@ static func hit(x: float, z: float, u0: float, u1: float, pad: float) -> String:
 			if pow((x - px) / (o.r + pad), 2.0) + pow(du / (half(o) + pad), 2.0) < 1.0:
 				return o.k
 			continue
-		if _solid(o, x, z, pad):
+		if _solid(o, x, z, pad, u1):
 			return o.k
 	return ""
 
 
-static func _solid(o: Dictionary, x: float, z: float, pad: float) -> bool:
+static func _solid(o: Dictionary, x: float, z: float, pad: float, u := 0.0) -> bool:
 	match o.k:
 		"pillar", "mesa":
 			return absf(x - (passage(o.u).x + o.dx)) < o.r + pad
@@ -238,7 +260,7 @@ static func _solid(o: Dictionary, x: float, z: float, pad: float) -> bool:
 		"spine":
 			return z - pad < crest(o, x)
 		"window":
-			return oval(o, x, z, pad) > 1.0
+			return oval(o, x, z, pad, flare(o, u)) > 1.0
 	return false
 
 
@@ -249,7 +271,7 @@ static func clearance(x: float, z: float, u: float) -> float:
 	var d := minf(x - (p.x - p.y), p.x + p.y - x)
 	d = minf(d, z - FLOOR)
 	for o in OBS:
-		if absf(o.u - u) > half(o) + DEPTH / 2.0:
+		if u > o.u + half(o) + DEPTH / 2.0 or u < o.u - front(o) - DEPTH / 2.0:
 			continue
 		match o.k:
 			"pillar", "mesa":
@@ -259,7 +281,8 @@ static func clearance(x: float, z: float, u: float) -> float:
 			"spine":
 				d = minf(d, z - crest(o, x))
 			"window":
-				d = minf(d, (1.0 - oval(o, x, z, 0.0)) * minf(o.hw, o.hh))
+				var k := flare(o, u)
+				d = minf(d, (1.0 - oval(o, x, z, 0.0, k)) * minf(o.hw, o.hh) * k)
 	return d
 
 
@@ -782,18 +805,19 @@ static func _eroded(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, col: Col
 	var cx := sx(h.x)
 	var cz: float = h.y
 	const SEG := 20
-	var rings := [1.0, 1.25, 1.65, 2.3, 3.3, 5.0]
+	var rings := HOLE_RINGS
+	# the worn face flares out towards the ship into a rock funnel (ring `r` sits FUNNEL[r]
+	# before the wall); `y` past the front is measured from the ring's own place
 	var pt := func(i: int, ring: int, y: float) -> Vector3:
 		var a := TAU * float(i % SEG) / SEG
 		var k: float = rings[ring]
-		var v := Vector3(cx + cos(a) * o.hw * k, y, cz + sin(a) * o.hh * k)
+		var yr: float = y - float(FUNNEL[ring]) if y < y1 - 0.1 else y
+		var v := Vector3(cx + cos(a) * o.hw * k, yr, cz + sin(a) * o.hh * k)
 		var j := VRun._jit(Vector3(v.x, y0, v.z), sd)
-		if ring == 0:
-			# the hole's rim only wears outwards
-			v += Vector3(cos(a), 0, sin(a)) * absf(j.x) * 1.6
-		else:
-			v += Vector3(j.x * 2.4, j.y * 1.2, j.z * 2.4)
-			v.y = minf(v.y, y0 + 1.0) if y < y1 - 0.1 else v.y
+		# the rock only wears outwards, so it never sticks into the way the collision allows
+		v += Vector3(cos(a), 0, sin(a)) * absf(j.x) * (1.6 if ring == 0 else 2.4)
+		if ring > 0:
+			v += Vector3(-sin(a), 0, cos(a)) * j.z * 1.5 + Vector3(0, j.y * 1.2, 0)
 		v.x = clampf(v.x, xl, xr)
 		v.z = clampf(v.z, FLOOR - 4.0, RIM + 6.0)
 		return v
@@ -804,8 +828,10 @@ static func _eroded(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, col: Col
 			var b: Vector3 = pt.call(i + 1, ring, y0)
 			var c: Vector3 = pt.call(i + 1, ring + 1, y0)
 			var d: Vector3 = pt.call(i, ring + 1, y0)
+			# the funnel catches more light towards the hole, so its cone reads at a glance
+			var fc := col.lightened(0.16 * (1.0 - float(ring) / (rings.size() - 1)))
 			for t in [[a, b, c], [a, c, d]]:
-				rock.tri(t[0], t[1], t[2], _facet(col, t[0], t[1], t[2], front), front)
+				rock.tri(t[0], t[1], t[2], _facet(fc, t[0], t[1], t[2], front), front)
 	# the hole's sides, through the wall
 	for i in SEG:
 		var a: Vector3 = pt.call(i, 0, y0)
@@ -820,8 +846,10 @@ static func _eroded(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, col: Col
 	for i in SEG:
 		var a: Vector3 = pt.call(i, rings.size() - 1, y0)
 		var b: Vector3 = pt.call(i + 1, rings.size() - 1, y0)
-		rock.tri(a, b, b + Vector3(0, y1 - y0, 0), col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
-		rock.tri(a, b + Vector3(0, y1 - y0, 0), a + Vector3(0, y1 - y0, 0), col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
+		var bb := Vector3(b.x, y1, b.z)
+		var ab := Vector3(a.x, y1, a.z)
+		rock.tri(a, b, bb, col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
+		rock.tri(a, bb, ab, col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
 	# a glowing seam round the hole's rim
 	for i in SEG:
 		var a: Vector3 = pt.call(i, 0, y0)
