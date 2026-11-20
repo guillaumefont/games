@@ -2354,8 +2354,6 @@ func start_run() -> void:
 		var gi := ch as GeometryInstance3D
 		if gi and gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 			G.run.casters.append(gi)
-	G.run.aim = _aim_frame()
-	n.add_child(G.run.aim)
 	G.slow = 0
 	P.z = 0.0
 	P.vz = 0.0
@@ -2366,34 +2364,6 @@ func start_run() -> void:
 	hud.banner("Canyon run", "Drag up and down to climb and dive", 130)
 	audio.play("alarm")
 	Diag.note("RUN", "start")
-
-
-## The aim frame: a small square drawn on the face of the next bridge, ridge or wall exactly where
-## the ship will cross it, so lining up with a hole doesn't depend on judging depth from behind
-## (the camera rides above and behind the ship, so on screen the hole and the ship never line up
-## where they really do). It turns pink when that spot is rock.
-func _aim_frame() -> Node3D:
-	var f := Node3D.new()
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.disable_fog = true
-	mat.albedo_color = Color("bff6ff")
-	# a little bigger than the ship's hit box, with thick bars, so it reads from 150 units out
-	var side := VRun.PAD * 2.0 + 3.0
-	var th := 1.0
-	for b in [[Vector3(0, 0, side / 2.0), Vector3(side + th, 0.3, th)], [Vector3(0, 0, -side / 2.0), Vector3(side + th, 0.3, th)],
-			[Vector3(side / 2.0, 0, 0), Vector3(th, 0.3, side)], [Vector3(-side / 2.0, 0, 0), Vector3(th, 0.3, side)]]:
-		var bm := BoxMesh.new()
-		bm.size = b[1]
-		var mi := MeshInstance3D.new()
-		mi.mesh = bm
-		mi.material_override = mat
-		mi.position = b[0]
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		f.add_child(mi)
-	f.set_meta("mat", mat)
-	f.visible = false
-	return f
 
 
 ## Moves the canyon past the ship and swings the camera behind it; ends the run at the exit.
@@ -2536,15 +2506,6 @@ func _sync_run() -> void:
 			if mat:
 				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if fade > 0.0 else BaseMaterial3D.TRANSPARENCY_DISABLED
 				mat.albedo_color.a = 1.0 - fade
-	var gate := VRun.next_gate(R.d)
-	var aim: Node3D = R.aim
-	aim.visible = R.k > 0.9 and not gate.is_empty() and R.abort == 0
-	if aim.visible:
-		var fu: float = gate.u - VRun.half(gate) - 3.2
-		aim.position = VRun.warp(Vector3(X(P.x), fu, P.z))
-		aim.rotation = Vector3(0, 0, VRun.heading(fu))
-		var clear := VRun.hit(P.x, P.z, gate.u - 0.5, gate.u + 0.5, VRun.PAD) == ""
-		(aim.get_meta("mat") as StandardMaterial3D).albedo_color = Color("bff6ff") if clear else Color("ff4fa3")
 	for gi in R.casters:
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if R.k > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for mo in R.motes:
@@ -2571,13 +2532,15 @@ static func _cam_dodge(o: Dictionary, c: Vector2) -> Vector2:
 			if absf(c.x - px) < room:
 				c.x = px - room if c.x < px else px + room
 		"arch":
-			c.y = minf(c.y, o.z - 3.0)
+			c.y = minf(c.y, VRun.under(o, c.x) - 3.0)
 		"spine":
-			c.y = maxf(c.y, o.z + 3.0)
+			c.y = maxf(c.y, VRun.crest(o, c.x) + 3.0)
 		"window":
+			# into the oval hole, 3 units in from its rim
 			var h := VRun.hole(o)
-			c.x = clampf(c.x, h.x - o.hw + 3.0, h.x + o.hw - 3.0)
-			c.y = clampf(c.y, h.y - o.hh + 3.0, h.y + o.hh - 3.0)
+			var e := VRun.oval(o, c.x, c.y, 3.0)
+			if e > 1.0:
+				c = h + (c - h) / e
 	return c
 
 
@@ -2621,7 +2584,10 @@ func _camera(j: Vector3) -> void:
 			cam = _cam_dodge(o, cam)
 	R.cz = cam.y
 	R.cam_x = cam.x
-	var chase := Transform3D(Basis(), Vector3(X(R.cam_x), t.y - 38.0, R.cz)).looking_at(t + Vector3(0, 70, 9), Vector3.BACK)
+	# it looks ahead of the ship itself, so a camera stepped aside round a column (or lagging a
+	# big swing across the canyon) still keeps the ship near the middle of the screen
+	var aim_at := Vector3(lerpf(t.x, X(P.x), 0.6), t.y + 70.0, t.z + 9.0)
+	var chase := Transform3D(Basis(), Vector3(X(R.cam_x), t.y - 38.0, R.cz)).looking_at(aim_at, Vector3.BACK)
 	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	# The swing orbits the ship rather than sliding between the two cameras: a straight slide
 	# looks past the ship halfway and drops it off the bottom of the screen for about a second.

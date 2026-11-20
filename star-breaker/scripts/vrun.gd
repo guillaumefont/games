@@ -43,22 +43,53 @@ const PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [
 const TURN := [[-400.0, 0.0], [520.0, 0.0], [740.0, 35.0], [860.0, 35.0], [1160.0, -15.0], [1260.0, -15.0],
 	[1380.0, 0.0], [1490.0, 0.0], [1640.0, 22.0], [1790.0, 0.0], [2900.0, 0.0]]
 
-## Obstacles: concretion columns (dodge sideways), rock bridges (dive under: rock above z),
-## ridges (climb over: rock below z) and walls with one hole to thread. dx is from the passage
-## centre. Up/down moves come in pairs the same way, and a change of direction gets ~1 s.
+## Obstacles, laid out for movement more than precision (Guillaume, 2026-11-20): every gap is big,
+## but each one sits across the canyon or up/down from the last, so the ship is always on the move.
+## Concretion columns (dodge to the open side), natural bridges (dive under: their underside
+## arches up towards the middle), saddle ridges (climb over: lowest in the middle) and eroded
+## walls with one oval hole. dx is from the passage centre; an arch's or ridge's z is its height at
+## the walls.
 const OBS := [
-	{u = 230.0, k = "pillar", dx = -11.0, r = 7.0},
-	{u = 330.0, k = "pillar", dx = 12.0, r = 7.0},
-	{u = 430.0, k = "pillar", dx = -10.0, r = 7.0},
-	{u = 590.0, k = "arch", z = -10.0},
-	{u = 710.0, k = "arch", z = -16.0},
-	{u = 880.0, k = "spine", z = -6.0},
-	{u = 1000.0, k = "spine", z = 0.0},
+	{u = 230.0, k = "pillar", dx = -10.0, r = 14.0},
+	{u = 350.0, k = "pillar", dx = 10.0, r = 14.0},
+	{u = 470.0, k = "pillar", dx = -10.0, r = 14.0},
+	{u = 610.0, k = "arch", z = -20.0},
+	{u = 730.0, k = "spine", z = 6.0},
+	{u = 850.0, k = "arch", z = -22.0},
+	{u = 970.0, k = "spine", z = 4.0},
 	{u = 1280.0, k = "mesa", dx = 12.0, r = 20.0, len = 140.0},
-	{u = 1660.0, k = "arch", z = -6.0},
-	{u = 1850.0, k = "window", dx = 10.0, z = -10.0, hw = 10.0, hh = 9.0},
-	{u = 1970.0, k = "window", dx = -10.0, z = 4.0, hw = 10.0, hh = 9.0},
+	{u = 1540.0, k = "window", dx = -12.0, z = -16.0, hw = 13.0, hh = 11.0},
+	{u = 1650.0, k = "arch", z = -18.0},
+	{u = 1760.0, k = "window", dx = 12.0, z = 8.0, hw = 13.0, hh = 11.0},
+	{u = 1860.0, k = "spine", z = 2.0},
+	{u = 1965.0, k = "window", dx = -11.0, z = -12.0, hw = 13.0, hh = 11.0},
 ]
+
+## How much a bridge's underside rises from the walls to its middle, and a ridge's crest dips.
+const ARCH_RISE := 9.0
+
+
+## A bridge's underside height at stage x: highest mid-canyon, curving down to the walls.
+static func under(o: Dictionary, x: float) -> float:
+	var p := passage(o.u)
+	var t := clampf((x - p.x) / p.y, -1.0, 1.0)
+	return o.z + ARCH_RISE * (1.0 - t * t)
+
+
+## A ridge's crest height at stage x: a saddle, lowest mid-canyon.
+static func crest(o: Dictionary, x: float) -> float:
+	var p := passage(o.u)
+	var t := clampf((x - p.x) / p.y, -1.0, 1.0)
+	return o.z - ARCH_RISE * (1.0 - t * t)
+
+
+## How far (x, z) is out of a window's oval hole shrunk by `pad`: < 1 inside, > 1 rock.
+static func oval(o: Dictionary, x: float, z: float, pad: float) -> float:
+	var h := hole(o)
+	var a := maxf(o.hw - pad, 0.5)
+	var b := maxf(o.hh - pad, 0.5)
+	return sqrt(pow((x - h.x) / a, 2.0) + pow((z - h.y) / b, 2.0))
+
 
 
 ## The way out, made a moment: past OUT the ship pulls up out of the canyon in an arc (peak
@@ -77,17 +108,10 @@ static func dive(u: float) -> float:
 	return -16.0 * sin(PI * smoothstep(-120.0, 60.0, u))
 
 
-## The next obstacle to line up with at `u` (not the mesa: it is passed sideways all along), or {}.
-static func next_gate(u: float) -> Dictionary:
-	for o in OBS:
-		if o.k == "mesa" or o.u - half(o) < u + 6.0:
-			continue
-		return o if o.u - u < 190.0 else {}
-	return {}
-
-
 ## Half an obstacle's length along the canyon (a mesa is long, the rest DEPTH thick).
 static func half(o: Dictionary) -> float:
+	if o.k == "pillar":
+		return o.r * 0.6
 	return o.get("len", DEPTH) / 2.0
 
 
@@ -193,6 +217,13 @@ static func hit(x: float, z: float, u0: float, u1: float, pad: float) -> String:
 	for o in OBS:
 		if o.u + half(o) < u0 or o.u - half(o) > u1:
 			continue
+		if o.k == "pillar":
+			# a rock spire: an oval footprint, r across and half(o) along the canyon
+			var du := 0.0 if (o.u >= u0 and o.u <= u1) else minf(absf(o.u - u0), absf(o.u - u1))
+			var px: float = passage(o.u).x + o.dx
+			if pow((x - px) / (o.r + pad), 2.0) + pow(du / (half(o) + pad), 2.0) < 1.0:
+				return o.k
+			continue
 		if _solid(o, x, z, pad):
 			return o.k
 	return ""
@@ -203,12 +234,11 @@ static func _solid(o: Dictionary, x: float, z: float, pad: float) -> bool:
 		"pillar", "mesa":
 			return absf(x - (passage(o.u).x + o.dx)) < o.r + pad
 		"arch":
-			return z + pad > o.z
+			return z + pad > under(o, x)
 		"spine":
-			return z - pad < o.z
+			return z - pad < crest(o, x)
 		"window":
-			var h := hole(o)
-			return absf(x - h.x) > o.hw - pad or absf(z - h.y) > o.hh - pad
+			return oval(o, x, z, pad) > 1.0
 	return false
 
 
@@ -225,12 +255,11 @@ static func clearance(x: float, z: float, u: float) -> float:
 			"pillar", "mesa":
 				d = minf(d, absf(x - (p.x + o.dx)) - o.r)
 			"arch":
-				d = minf(d, o.z - z)
+				d = minf(d, under(o, x) - z)
 			"spine":
-				d = minf(d, z - o.z)
+				d = minf(d, z - crest(o, x))
 			"window":
-				var h := hole(o)
-				d = minf(d, minf(o.hw - absf(x - h.x), o.hh - absf(z - h.y)))
+				d = minf(d, (1.0 - oval(o, x, z, 0.0)) * minf(o.hw, o.hh))
 	return d
 
 
@@ -244,23 +273,23 @@ static func line(u: float) -> Vector2:
 		if o.u + half(o) + 3.0 < u:
 			continue
 		if o.u - half(o) - u < 100.0:
+			var po := passage(o.u)
 			match o.k:
-				"mesa":
-					# the tight side of the fork: harder, and the motes go that way
-					var l: float = p.x + o.dx - o.r - (p.x - p.y)
-					var r: float = p.x + p.y - (p.x + o.dx + o.r)
-					dx = (o.dx - o.r - l / 2.0) if l < r else (o.dx + o.r + r / 2.0)
-				"pillar":
-					dx = 9.0 if o.dx < 0.0 else -9.0
+				"pillar", "mesa":
+					# the open side: the wider one, or for the mesa the tight one (motes go there)
+					var l: float = po.x + o.dx - o.r - (po.x - po.y)
+					var r: float = po.x + po.y - (po.x + o.dx + o.r)
+					var left := l > r if o.k == "pillar" else l < r
+					dx = (o.dx - o.r - l / 2.0) if left else (o.dx + o.r + r / 2.0)
 				"arch":
-					z = o.z - 9.0
+					z = under(o, po.x) - 10.0
 				"spine":
-					z = o.z + 9.0
+					z = crest(o, po.x) + 10.0
 				"window":
 					dx = o.dx
 					z = o.z
 		break
-	return Vector2(clampf(p.x + dx, p.x - p.y + 6.0, p.x + p.y - 6.0), z)
+	return Vector2(clampf(p.x + dx, p.x - p.y + 6.0, p.x + p.y - 6.0), clampf(z, ZMIN + 2.0, ZMAX - 2.0))
 
 
 ## Crystal motes along the racing line: they show the way and pay points. [u, x, z] each.
@@ -381,20 +410,26 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 			var out := Vector3(-s, 0, 0)
 			for t in [[a, b, d], [a, d, c]]:
 				rock.tri(t[0], t[1], t[2], _facet(base, t[0], t[1], t[2], out), out)
-		# the rim: a faceted top running back over the moon, so nothing shows past it
-		var offs := [0.0, 6.0, 22.0, 60.0, 180.0]
-		for k in offs.size() - 1:
-			var za2 := _rim_back(u0, s, k)
-			var zb2 := _rim_back(u1, s, k)
-			var za3 := _rim_back(u0, s, k + 1)
-			var zb3 := _rim_back(u1, s, k + 1)
-			var a := Vector3(ea + s * offs[k], u0, za2)
-			var b := Vector3(eb + s * offs[k], u1, zb2)
-			var c := Vector3(ea + s * offs[k + 1], u0, za3)
-			var d := Vector3(eb + s * offs[k + 1], u1, zb3)
-			var col := Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / offs.size())
+		# beyond the rim: mountains, not a plateau. Ridges climb away from the edge to jagged peaks
+		# 40 to 80 units up, then fall away over the moon, so nothing shows past them
+		for k in MOUNT.size() - 1:
+			var a := _mount(ea, u0, s, k)
+			var b := _mount(eb, u1, s, k)
+			var c := _mount(ea, u0, s, k + 1)
+			var d := _mount(eb, u1, s, k + 1)
 			for t in [[a, b, d], [a, d, c]]:
-				rock.tri(t[0], t[1], t[2], _facet(col, t[0], t[1], t[2], Vector3.BACK), Vector3.BACK)
+				var hgt: float = (t[0].z + t[1].z + t[2].z) / 3.0
+				rock.tri(t[0], t[1], t[2], _facet(_mount_col(pal, hgt), t[0], t[1], t[2], Vector3.BACK), Vector3.BACK)
+		# alien crystal outcrops: at the foot of the walls (in the rock, leaning away from the
+		# passage, never into it) and on the mountains' flanks
+		if VStage.hash(Vector2(u0 * 0.137, s * 7.3)) > 0.78:
+			var w := 1.2 + VStage.hash(Vector2(u0, s)) * 1.2
+			var base := Vector3(ea + s * (w + 1.5), u0 + 5.0, FLOOR + VStage.hash(Vector2(u0, s + 2.0)) * 8.0)
+			_crystals(glow, base, s, w, 7.0 + VStage.hash(Vector2(u0, s + 4.0)) * 9.0, u0)
+		if VStage.hash(Vector2(u0 * 0.211, s * 3.1)) > 0.7:
+			var mk := 3 + int(VStage.hash(Vector2(u0, s * 9.0)) * 2.0)
+			var mp := _mount(ea, u0 + 5.0, s, mk)
+			_crystals(glow, mp - Vector3(0, 0, 3.0), s, 2.5, 12.0 + VStage.hash(Vector2(u0, s + 6.0)) * 14.0, u0 + 0.5)
 		# the glowing lip on the rim edge (what the top-down view reads as the wall)
 		var la := rim_z(u0, s) + 0.3
 		var lb := rim_z(u1, s) + 0.3
@@ -434,18 +469,68 @@ static func rim_z(u: float, s: float) -> float:
 	return RIM + (0.5 + 0.5 * sin(u * 0.029 + s * 2.1)) * 6.0 - 2.0 + (VStage.hash(Vector2(u * 0.1, s)) - 0.5) * 3.0
 
 
-## The rim's top `k` steps back from the edge: a crest of crags just behind the edge (peaks on the
-## skyline), then falling away over the moon.
-static func _rim_back(u: float, s: float, k: int) -> float:
-	if k == 0:
-		return rim_z(u, s)
-	var h := VStage.hash(Vector2(u, k + s * 5.0))
+## The mountains' profile out from the rim edge: how far out each step is.
+const MOUNT := [0.0, 6.0, 16.0, 32.0, 55.0, 85.0, 125.0, 180.0]
+
+
+## Ridged noise in 0..1 with sharp crests, along the canyon.
+static func _ridge(u: float, s: float, i: int) -> float:
+	var f := 0.017 + 0.005 * i
+	var a := 1.0 - absf(sin(u * f + s * 1.3 * i + 0.6 * sin(u * f * 0.37 + i)))
+	var b := 1.0 - absf(sin(u * f * 2.7 + s * 2.1 + i * 3.3))
+	return pow(a, 3.0) * 0.75 + pow(b, 3.0) * 0.25
+
+
+## The mountain point `k` steps out from the rim edge at `e` (world x of the edge), on side `s`.
+static func _mount(e: float, u: float, s: float, k: int) -> Vector3:
+	var z: float
 	match k:
+		0:
+			return Vector3(e, u, rim_z(u, s))
 		1:
-			return rim_z(u, s) + 1.0 + h * 7.0 * (0.5 + 0.5 * sin(u * 0.07 + s))
+			z = rim_z(u, s) + 2.0 + VStage.hash(Vector2(u, s + 11.0)) * 4.0
 		2:
-			return rim_z(u, s) + h * 4.0
-	return RIM + (h - 0.5) * 3.0
+			z = RIM + 8.0 + _ridge(u, s, 1) * 18.0
+		3:
+			z = RIM + 14.0 + _ridge(u, s, 2) * 36.0
+		4:
+			z = RIM + 18.0 + _ridge(u, s, 3) * 50.0
+		5:
+			z = RIM + 10.0 + _ridge(u, s, 4) * 40.0
+		6:
+			z = RIM + _ridge(u, s, 5) * 20.0
+		_:
+			z = RIM - 6.0
+	var j := VStage.hash(Vector2(u * 0.31, k * 7.0 + s)) - 0.5
+	var gap: float = MOUNT[k] - MOUNT[k - 1]
+	return Vector3(e + s * (MOUNT[k] + j * gap * 0.5), u, z + j * 4.0)
+
+
+## Mountain rock's colour by height: dark foothills to pale crags, with a faint alien sheen on
+## the peaks.
+static func _mount_col(pal: Dictionary, z: float) -> Color:
+	var t := clampf((z - RIM) / 60.0, 0.0, 1.0)
+	var c := Color(pal.c_top2).lerp(Color(pal.c_top), t).lightened(t * 0.12)
+	return c.lerp(Color(pal.get("river_a", pal.c_top)), smoothstep(0.6, 1.0, t) * 0.12)
+
+
+## A cluster of three glowing crystals growing from `base`, leaning away from the passage (side s).
+static func _crystals(acc: Terrain.Acc, base: Vector3, s: float, w: float, l: float, seed: float) -> void:
+	for i in 3:
+		var lean := Vector3(s * (0.25 + VStage.hash(Vector2(seed, i)) * 0.5), (VStage.hash(Vector2(seed, i + 3.0)) - 0.5) * 0.6, 1.0).normalized()
+		var c := base + Vector3(s * i * w * 0.9, (i - 1) * w * 1.3, 0.0)
+		var len := l * (1.0 - i * 0.25)
+		var ww := w * (1.0 - i * 0.2)
+		var tip := c + lean * len
+		var bot := c - lean * len * 0.2
+		var side := lean.cross(Vector3.FORWARD).normalized()
+		var side2 := lean.cross(side).normalized()
+		var ring := [c + side * ww, c + side2 * ww, c - side * ww, c - side2 * ww]
+		for q in 4:
+			var a: Vector3 = ring[q]
+			var b: Vector3 = ring[(q + 1) % 4]
+			acc.convex(a, b, tip, Color.WHITE, c)
+			acc.convex(b, a, bot, Color.WHITE, c)
 
 
 ## A pseudo-random 3D offset in -1..1 per axis, the same wherever the same point is asked for
@@ -463,7 +548,10 @@ static func _crag(p: Vector3, s: float, m: int) -> Vector3:
 		return p
 	var j := _jit(p, 3.0 + s)
 	var slow := 0.5 + 0.5 * sin(p.y * 0.045 + s * 1.7 + float(m) * 0.6)
-	return p + Vector3(s * (absf(j.x) * 2.5 + slow * 4.0), j.y * 1.2, j.z * 3.5)
+	var slow2 := 0.5 + 0.5 * sin(p.y * 0.013 + s * 0.9 + float(m) * 1.3)
+	# the walls lean back as they rise (a canyon is a V, not a slot), with alcoves and buttresses
+	var lean := maxf(0.0, p.z - FLOOR) * 0.14
+	return p + Vector3(s * (absf(j.x) * 3.5 + slow * 5.0 + slow2 * 6.0 + lean), j.y * 1.2, j.z * 3.5)
 
 
 ## A facet's shade: lit from above (and a little from the front), with a per-facet drift, so
@@ -581,11 +669,13 @@ static func gap_light(o: Dictionary) -> Dictionary:
 	var size := Vector2.ZERO
 	match o.k:
 		"arch":
-			at = Vector3(sx(p.x), o.u + DEPTH, (FLOOR + o.z) / 2.0)
-			size = Vector2(p.y * 2.2, (o.z - FLOOR) * 1.5)
+			var top := under(o, p.x)
+			at = Vector3(sx(p.x), o.u + DEPTH, (FLOOR + top) / 2.0)
+			size = Vector2(p.y * 2.2, (top - FLOOR) * 1.5)
 		"spine":
-			at = Vector3(sx(p.x), o.u + DEPTH, (o.z + RIM) / 2.0)
-			size = Vector2(p.y * 2.2, (RIM - o.z) * 1.5)
+			var low := crest(o, p.x)
+			at = Vector3(sx(p.x), o.u + DEPTH, (low + RIM) / 2.0)
+			size = Vector2(p.y * 2.2, (RIM - low) * 1.5)
 		"window":
 			var h := hole(o)
 			at = Vector3(sx(h.x), o.u + DEPTH, h.y)
@@ -611,19 +701,23 @@ static func _obstacle(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, pal: D
 	var sd: float = o.u * 0.173
 	match o.k:
 		"pillar":
-			# a column of concretions stacked floor to rim, like a hoodoo: lumps and necks, never
-			# wider than the rock you can hit
+			# a rock spire: a faceted column on an oval footprint (never outside the rock you can
+			# hit), narrowing and leaning a little as it rises, with a broken top above the rim
 			var cx := sx(p.x + o.dx)
 			var r: float = o.r
-			var z := FLOOR - 4.0
-			var i := 0
-			while z < RIM + 4.0:
-				var ry := 4.0 + VStage.hash(Vector2(sd, i)) * 3.5
-				var rr := r * (0.68 + VStage.hash(Vector2(sd, i + 9.0)) * 0.32)
-				var off := Vector2(VStage.hash(Vector2(sd, i + 3.0)) - 0.5, VStage.hash(Vector2(sd, i + 5.0)) - 0.5) * (r - rr)
-				_blob(rock, Vector3(cx + off.x, o.u + off.y, z + ry), Vector3(rr, rr, ry), _tone(pal, sd + i), sd + i)
-				z += ry * 1.55
-				i += 1
+			var hl := half(o)
+			var top := RIM + 8.0 + VStage.hash(Vector2(sd, 3.0)) * 14.0
+			var keep := func(v: Vector3) -> Vector3:
+				var t := clampf((v.z - FLOOR) / (top - FLOOR), 0.0, 1.0)
+				# bulges and necks up its height, like a hoodoo worn by wind
+				var w := (1.0 - 0.3 * t * t) * (0.78 + 0.14 * sin(v.z * 0.21 + sd) + 0.08 * sin(v.z * 0.57 + sd * 3.0))
+				var c := Vector2(cx + sin(t * 2.0 + sd) * r * 0.12 * t, o.u)
+				var d := Vector2(v.x, v.y) - c
+				var e := sqrt(pow(d.x / (r * w), 2.0) + pow(d.y / (hl * w), 2.0))
+				if e > 1.0:
+					d /= e
+				return Vector3(c.x + d.x, c.y + d.y, v.z)
+			_rock(rock, Vector3(cx - r, o.u - hl, FLOOR - 4.0), Vector3(cx + r, o.u + hl, top), Color(pal.c_face).lerp(Color(pal.c_top), 0.35), sd, keep, 4.0, 1.6)
 		"mesa":
 			# a tall island of rock splitting the basin in two: faceted crags leaning in towards
 			# the top (never wider than the rock you can hit), the canyon's glowing lip on top
@@ -647,67 +741,98 @@ static func _obstacle(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, pal: D
 				_bar(lip, Vector3(cx + s * r - 0.45, m0, RIM), Vector3(cx + s * r + 0.45, m1, RIM + 0.4))
 			_bar(lip, Vector3(cx - r, m0 - 0.45, RIM), Vector3(cx + r, m0 + 0.45, RIM + 0.4))
 		"arch":
-			# a natural bridge: one faceted slab of rock, its underside kept on the edge (it only
-			# bulges up, never down into the way through), a row of concretions along that edge
+			# a natural bridge: thinnest mid-canyon, its underside arching up there and its top
+			# dipping, all broken into facets; nothing below the underside you can hit
 			var keep := func(v: Vector3) -> Vector3:
-				v.z = maxf(v.z, o.z)
+				var t := clampf((v.x - sx(p.x)) / p.y, -1.0, 1.0)
+				v.z = maxf(v.z, VRun.under(o, v.x + 63.0))
+				v.z = minf(v.z, RIM + 6.0 - 14.0 * (1.0 - t * t) + VRun._jit(v, sd).z * 2.0)
 				return v
-			_rock(rock, Vector3(xl, y0, o.z), Vector3(xr, y1, RIM + 4.0), col, sd, keep)
-			_lumps(rock, pal, xl, xr, y0, o.z, 1.0, sd, 1.5)
-			_bar(lip, Vector3(xl, f, o.z), Vector3(xr, f + 0.6, o.z + 0.7))
+			_rock(rock, Vector3(xl, y0, o.z), Vector3(xr, y1, RIM + 6.0), col, sd, keep, 6.0, 2.2)
+			_seam(lip, o, f, xl, xr, func(x: float) -> float: return VRun.under(o, x + 63.0), 0.7)
 		"spine":
-			# a ridge rising from the floor: a faceted slab, its crest kept on the edge, crowned
-			# with concretions
+			# a ridge rising from the floor, its crest a saddle that dips mid-canyon
 			var keep := func(v: Vector3) -> Vector3:
-				v.z = minf(v.z, o.z)
+				v.z = minf(v.z, VRun.crest(o, v.x + 63.0))
 				return v
-			_rock(rock, Vector3(xl, y0, FLOOR - 4.0), Vector3(xr, y1, o.z), col, sd, keep)
-			_lumps(rock, pal, xl, xr, y0, o.z, -1.0, sd, 1.5)
-			_bar(lip, Vector3(xl, f, o.z - 0.7), Vector3(xr, f + 0.6, o.z))
+			_rock(rock, Vector3(xl, y0, FLOOR - 4.0), Vector3(xr, y1, o.z), col, sd, keep, 6.0, 2.2)
+			_seam(lip, o, f, xl, xr, func(x: float) -> float: return VRun.crest(o, x + 63.0), -0.7)
 		"window":
-			var h := hole(o)
-			var hx0 := sx(h.x - o.hw)
-			var hx1 := sx(h.x + o.hw)
-			var hz0: float = h.y - o.hh
-			var hz1: float = h.y + o.hh
-			# a faceted wall of rock; whatever the facets push into the hole goes back to its rim
-			var keep := func(v: Vector3) -> Vector3:
-				if v.x > hx0 and v.x < hx1 and v.z > hz0 and v.z < hz1:
-					var dl := v.x - hx0
-					var dr := hx1 - v.x
-					var db := v.z - hz0
-					var dt := hz1 - v.z
-					var m := minf(minf(dl, dr), minf(db, dt))
-					if m == dl:
-						v.x = hx0
-					elif m == dr:
-						v.x = hx1
-					elif m == db:
-						v.z = hz0
-					else:
-						v.z = hz1
-				return v
-			_rock(rock, Vector3(xl, y0, FLOOR - 4.0), Vector3(hx0, y1, RIM + 4.0), col, sd, keep, 8.5)
-			_rock(rock, Vector3(hx1, y0, FLOOR - 4.0), Vector3(xr, y1, RIM + 4.0), col, sd, keep, 8.5)
-			_rock(rock, Vector3(hx0, y0, FLOOR - 4.0), Vector3(hx1, y1, hz0), col, sd, keep, 8.5)
-			_rock(rock, Vector3(hx0, y0, hz1), Vector3(hx1, y1, RIM + 4.0), col, sd, keep, 8.5)
-			# concretions crowd round the hole (outside it)
-			_lumps(rock, pal, hx0 - 6.0, hx1 + 6.0, y0, hz0, -1.0, sd, 1.2)
-			_lumps(rock, pal, hx0 - 6.0, hx1 + 6.0, y0, hz1, 1.0, sd + 20.0, 1.2)
-			for s in [[-1.0, hx0], [1.0, hx1]]:
-				var z := hz0
-				var i := 0
-				while z < hz1:
-					var rz := 3.5 + VStage.hash(Vector2(sd + s[0], i)) * 2.0
-					var rx := 3.5 + VStage.hash(Vector2(sd - s[0], i)) * 2.5
-					_blob(rock, Vector3(s[1] + s[0] * rx, y0, z + rz * 0.8), Vector3(rx, 3.2, rz), _tone(pal, sd + i + s[0]), sd + i * 3.0 + s[0])
-					z += rz * 1.3
-					i += 1
-			# a glowing seam round the hole
-			_bar(lip, Vector3(hx0, f, hz0 - 0.7), Vector3(hx1, f + 0.6, hz0))
-			_bar(lip, Vector3(hx0, f, hz1), Vector3(hx1, f + 0.6, hz1 + 0.7))
-			_bar(lip, Vector3(hx0 - 0.7, f, hz0), Vector3(hx0, f + 0.6, hz1))
-			_bar(lip, Vector3(hx1, f, hz0), Vector3(hx1 + 0.7, f + 0.6, hz1))
+			_eroded(rock, lip, o, col, sd, xl, xr, y0, y1, f)
+
+## A glowing seam along a curved edge (a bridge's underside or a ridge's crest) on the obstacle's
+## near face, `w` thick on the rock's side of the edge.
+static func _seam(lip: Terrain.Acc, o: Dictionary, f: float, x0: float, x1: float, edge: Callable, w: float) -> void:
+	var x := x0
+	while x < x1 - 0.01:
+		var xb := minf(x + 4.0, x1)
+		var za: float = edge.call(x)
+		var zb: float = edge.call(xb)
+		var d := Vector3(0, -1, 0)
+		lip.tri(Vector3(x, f, za), Vector3(xb, f, zb), Vector3(xb, f, zb + w), Color.WHITE, d)
+		lip.tri(Vector3(x, f, za), Vector3(xb, f, zb + w), Vector3(x, f, za + w), Color.WHITE, d)
+		x = xb
+
+
+## A wall of rock with one oval hole worn through it: rings of facets round the hole out to the
+## canyon's walls, floor and rim, and the hole's own worn sides through the wall's depth. Nothing
+## inside the oval you can fly through.
+static func _eroded(rock: Terrain.Acc, lip: Terrain.Acc, o: Dictionary, col: Color, sd: float, xl: float, xr: float, y0: float, y1: float, f: float) -> void:
+	var h := hole(o)
+	var cx := sx(h.x)
+	var cz: float = h.y
+	const SEG := 20
+	var rings := [1.0, 1.25, 1.65, 2.3, 3.3, 5.0]
+	var pt := func(i: int, ring: int, y: float) -> Vector3:
+		var a := TAU * float(i % SEG) / SEG
+		var k: float = rings[ring]
+		var v := Vector3(cx + cos(a) * o.hw * k, y, cz + sin(a) * o.hh * k)
+		var j := VRun._jit(Vector3(v.x, y0, v.z), sd)
+		if ring == 0:
+			# the hole's rim only wears outwards
+			v += Vector3(cos(a), 0, sin(a)) * absf(j.x) * 1.6
+		else:
+			v += Vector3(j.x * 2.4, j.y * 1.2, j.z * 2.4)
+			v.y = minf(v.y, y0 + 1.0) if y < y1 - 0.1 else v.y
+		v.x = clampf(v.x, xl, xr)
+		v.z = clampf(v.z, FLOOR - 4.0, RIM + 6.0)
+		return v
+	var front := Vector3(0, -1, 0)
+	for ring in rings.size() - 1:
+		for i in SEG:
+			var a: Vector3 = pt.call(i, ring, y0)
+			var b: Vector3 = pt.call(i + 1, ring, y0)
+			var c: Vector3 = pt.call(i + 1, ring + 1, y0)
+			var d: Vector3 = pt.call(i, ring + 1, y0)
+			for t in [[a, b, c], [a, c, d]]:
+				rock.tri(t[0], t[1], t[2], _facet(col, t[0], t[1], t[2], front), front)
+	# the hole's sides, through the wall
+	for i in SEG:
+		var a: Vector3 = pt.call(i, 0, y0)
+		var b: Vector3 = pt.call(i + 1, 0, y0)
+		var c: Vector3 = pt.call(i + 1, 0, y1)
+		var d: Vector3 = pt.call(i, 0, y1)
+		var inward := Vector3(cx, (y0 + y1) / 2.0, cz) - (a + b) / 2.0
+		inward.y = 0.0
+		for t in [[a, b, c], [a, c, d]]:
+			rock.tri(t[0], t[1], t[2], _facet(col.lightened(0.08), t[0], t[1], t[2], inward), inward)
+	# the outer edge of the wall, back into the canyon's sides (hidden in the walls, floor and rim)
+	for i in SEG:
+		var a: Vector3 = pt.call(i, rings.size() - 1, y0)
+		var b: Vector3 = pt.call(i + 1, rings.size() - 1, y0)
+		rock.tri(a, b, b + Vector3(0, y1 - y0, 0), col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
+		rock.tri(a, b + Vector3(0, y1 - y0, 0), a + Vector3(0, y1 - y0, 0), col.darkened(0.2), Vector3(a.x - cx, 0, a.z - cz))
+	# a glowing seam round the hole's rim
+	for i in SEG:
+		var a: Vector3 = pt.call(i, 0, y0)
+		var b: Vector3 = pt.call(i + 1, 0, y0)
+		var ao := cx + (a.x - cx) * 1.06
+		var bo := cx + (b.x - cx) * 1.06
+		var az := cz + (a.z - cz) * 1.06
+		var bz := cz + (b.z - cz) * 1.06
+		lip.tri(Vector3(a.x, f, a.z), Vector3(b.x, f, b.z), Vector3(bo, f, bz), Color.WHITE, front)
+		lip.tri(Vector3(a.x, f, a.z), Vector3(bo, f, bz), Vector3(ao, f, az), Color.WHITE, front)
+
 
 ## A row of concretions along an edge at height `z`, from x0 to x1, on the near face (y0). `s` is
 ## the side the rock is on (1: above the edge, an underside; -1: below it, a crest): the lumps sit
