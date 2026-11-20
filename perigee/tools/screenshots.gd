@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshots of the real game for reviews: start card, first hop with guide dots, a catch,
-## late game (moon 30+), game over, the lab's twin, retro and pulsar moons, and Voyage (the level
+## late game (moon 30+), the fuel gauge (full and low), game over, the lab's twin, retro and pulsar moons, and Voyage (the level
 ## map, a level's card, a sector, the clear card). Needs a display:
 ##   xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
 ##     --script tools/screenshots.gd -- /tmp/perigee-shots
@@ -57,6 +57,26 @@ func _initialize() -> void:
 	await run(0.0)
 	await shot("4-late-game")
 	main.on_release()
+	# the fuel gauge round the ship in flight, part drained, then nearly empty
+	main.sim.new_run(5)
+	for i in 120 * 200:
+		match bot.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		if main.sim.hops >= 6 and main.sim.player.planet == null and main.sim.player.fly_t > 0.2:
+			break
+	main.sim.player.fly_t = 1.4
+	await run(0.0)
+	await shot("4b-fuel-gauge")
+	main.sim.player.fly_t = Sim.MAX_FLIGHT - 0.6
+	await run(0.0)
+	await shot("4c-fuel-low")
 	main.sim.die("Drifted off into the dark")
 	await run(1.0)
 	await shot("5-game-over")
