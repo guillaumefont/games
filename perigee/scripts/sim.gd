@@ -11,7 +11,8 @@ extends RefCounted
 const DT := 1.0 / 120.0
 const START_RING := 110.0
 const CAPTURE_LOCK := 0.15 ## a release this soon after a capture does not fling
-const MAX_FLIGHT := 4.5 ## seconds in flight before you are lost
+const MAX_FLIGHT := 4.5 ## seconds of fuel per flight: the ship is lost when it runs out (the view draws the gauge)
+const FUEL_LOW := 1.5 ## seconds of fuel left when the gauge turns to a warning
 const RESTART_LOCK := 0.45 ## seconds after a death before a tap restarts
 const TRAIL := 44 ## trail points (one per step, so about 0.37 s)
 
@@ -637,8 +638,17 @@ func _fly(dt: float) -> void:
 	# lost
 	var sx := p.x - cam_x
 	var sy := p.y - cam_y
-	if absf(sx) > W / 2.0 + 50.0 or absf(sy) > H / 2.0 + 50.0 or p.fly_t > MAX_FLIGHT:
+	if absf(sx) > W / 2.0 + 50.0 or absf(sy) > H / 2.0 + 50.0:
 		die("Drifted off into the dark")
+	elif p.fly_t > MAX_FLIGHT:
+		die("Ran out of fuel")
+
+
+## Seconds of fuel left in this flight (a full tank while orbiting, refilled by every catch).
+func fuel_left() -> float:
+	if player.planet != null:
+		return MAX_FLIGHT
+	return maxf(0.0, MAX_FLIGHT - player.fly_t)
 
 
 static func planet_x(pl: Planet, time: float) -> float:
