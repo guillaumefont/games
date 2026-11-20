@@ -116,6 +116,10 @@ func _initialize() -> void:
 	var last_v := -1.0
 	var jolt := 0.0
 	var last_f: float = vg.G.scroll + vg.G.foff
+	# the ship stays in sight while the camera swings down behind it and back up (it once fell
+	# off the bottom of the screen for about a second each way)
+	var vp: Vector2 = vg.get_viewport().get_visible_rect().size
+	var off_screen := 0.0
 	while vg.G.has("run"):
 		var R: Dictionary = vg.G.run
 		var tgt := VRun.line(R.d + 6.0)
@@ -129,11 +133,18 @@ func _initialize() -> void:
 		if last_v >= 0.0:
 			jolt = maxf(jolt, absf(v - last_v))
 		last_v = v
+		if vg.G.has("run"):
+			var sp: Vector2 = vg.camera.unproject_position(vg.ship_m.global_position) / vp
+			var edge := maxf(maxf(0.1 - sp.x, sp.x - 0.9), maxf(0.1 - sp.y, sp.y - 0.9))
+			if vg.camera.is_position_behind(vg.ship_m.global_position):
+				edge = 1.0
+			off_screen = maxf(off_screen, edge)
 		if vg.G.has("run") and vg.G.run.k > 0.99:
 			swung = true
 			# the camera looks along the canyon (its forward axis is +Y), not down at it
 			looked = looked or (-vg.camera.global_transform.basis.z).dot(Vector3.UP) > 0.9
 			climbed = climbed or absf(vg.P.z) > 8.0
+	check(off_screen <= 0.0, "the ship stays in sight, at least a tenth of the screen from its edges, through the whole run (worst %.2f past)" % off_screen)
 	check(swung and looked, "the camera swings down behind the ship and looks along the canyon")
 	check(climbed, "the thumb flies the ship up and down in the canyon")
 	check(vg.G.pb.size() <= guns, "the guns rest during the run")
