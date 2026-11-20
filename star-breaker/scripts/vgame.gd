@@ -2495,6 +2495,13 @@ func _camera_reset() -> void:
 	_env.fog_depth_end = CAM_D + 210.0
 
 
+## A camera basis looking along `dir` with its up in the plane of +Y and +Z, so it never rolls
+## while it swings from looking down (up = +Y) to looking along the canyon (up = +Z).
+static func _aim(dir: Vector3) -> Basis:
+	var f := dir.normalized()
+	return Basis.looking_at(f, Vector3.RIGHT.cross(f))
+
+
 ## Top-down, or swung down behind the ship during the canyon run (`k` of the way).
 func _camera(j: Vector3) -> void:
 	var k: float = G.run.k if G.has("run") else 0.0
@@ -2508,8 +2515,17 @@ func _camera(j: Vector3) -> void:
 	var t := Vector3(X(R.cx), Y(VRun.SHIP_Y), P.get("z", 0.0) * 0.85)
 	var chase := Transform3D(Basis(), t + Vector3(0, -38, 19)).looking_at(t + Vector3(0, 70, 9), Vector3.BACK)
 	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
-	var q := Quaternion(td.basis).slerp(Quaternion(chase.basis), k)
-	camera.transform = Transform3D(Basis(q), td.origin.lerp(chase.origin, k) + j * 0.5)
+	# The swing orbits the ship rather than sliding between the two cameras: a straight slide
+	# looks past the ship halfway and drops it off the bottom of the screen for about a second.
+	# The camera circles over the ship from above to behind it, and the ship's place on screen
+	# moves only from where it sat top-down to where it sits in the chase view.
+	var s := Vector3(X(P.x), Y(P.y), P.get("z", 0.0))
+	var o0 := td.origin - s
+	var o1 := chase.origin - s
+	var o := o0.normalized().slerp(o1.normalized(), k) * lerpf(o0.length(), o1.length(), k)
+	var off0 := Quaternion(_aim(-o0).inverse() * td.basis)
+	var off1 := Quaternion(_aim(-o1).inverse() * chase.basis)
+	camera.transform = Transform3D(_aim(-o) * Basis(off0.slerp(off1, k)), s + o + j * 0.5)
 	var wide := 80.0 if camera.keep_aspect == Camera3D.KEEP_WIDTH else 62.0
 	camera.fov = lerpf(_fov_td, wide, k)
 	camera.near = lerpf(10.0, 1.5, k)
