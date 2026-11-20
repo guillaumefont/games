@@ -177,7 +177,12 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   below them (`VStage._clear_shots`): Guillaume hated towers he couldn't shoot behind walls. Enemy
   bullets stop on barrier walls too. The test checks every stage (`VStage.in_reach`).
 - Fortress barriers are full walls standing on the ground (`Models.fort_wall`, one per side of
-  the opening, the right one mirrored), not floating beams (Guillaume: "strange"). Walls carry
+  the opening, the right one turned half a turn: a mirrored node shows black back faces), not
+  floating beams (Guillaume: "strange"). Fortresses are futuristic, not medieval (Guillaume,
+  2026-11-20): no battlements, merlons or buttresses. Walls are battered armour modules with
+  seams and inset panels, a lit conduit in the deck, sparse emitter nodes, and a leaning blade
+  pylon at each side of the opening; outposts are domes, hex plinths and lit rings. Screens:
+  `tools/fort_shots.gd`. Walls carry
   guns on their front edge (`wallgun`, from stage 2), `shutter` barriers close and reopen their
   opening, and outpost pieces (`Models.prop`: bunkers, radars, pads, tanks, masts, hangars) stand
   on the ground, more every stage and crowding round the fortress (`VStage._outpost`).
