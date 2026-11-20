@@ -2354,6 +2354,8 @@ func start_run() -> void:
 		var gi := ch as GeometryInstance3D
 		if gi and gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
 			G.run.casters.append(gi)
+	G.run.aim = _aim_frame()
+	n.add_child(G.run.aim)
 	G.slow = 0
 	P.z = 0.0
 	P.vz = 0.0
@@ -2364,6 +2366,34 @@ func start_run() -> void:
 	hud.banner("Canyon run", "Drag up and down to climb and dive", 130)
 	audio.play("alarm")
 	Diag.note("RUN", "start")
+
+
+## The aim frame: a small square drawn on the face of the next bridge, ridge or wall exactly where
+## the ship will cross it, so lining up with a hole doesn't depend on judging depth from behind
+## (the camera rides above and behind the ship, so on screen the hole and the ship never line up
+## where they really do). It turns pink when that spot is rock.
+func _aim_frame() -> Node3D:
+	var f := Node3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.disable_fog = true
+	mat.albedo_color = Color("bff6ff")
+	# a little bigger than the ship's hit box, with thick bars, so it reads from 150 units out
+	var side := VRun.PAD * 2.0 + 3.0
+	var th := 1.0
+	for b in [[Vector3(0, 0, side / 2.0), Vector3(side + th, 0.3, th)], [Vector3(0, 0, -side / 2.0), Vector3(side + th, 0.3, th)],
+			[Vector3(side / 2.0, 0, 0), Vector3(th, 0.3, side)], [Vector3(-side / 2.0, 0, 0), Vector3(th, 0.3, side)]]:
+		var bm := BoxMesh.new()
+		bm.size = b[1]
+		var mi := MeshInstance3D.new()
+		mi.mesh = bm
+		mi.material_override = mat
+		mi.position = b[0]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		f.add_child(mi)
+	f.set_meta("mat", mat)
+	f.visible = false
+	return f
 
 
 ## Moves the canyon past the ship and swings the camera behind it; ends the run at the exit.
@@ -2399,11 +2429,13 @@ func _run_player() -> void:
 	P.y = lerpf(P.y, VRun.SHIP_Y, 0.06)
 	if R.d < VRun.OUT and R.abort == 0:
 		var dz: float = inp.dy * VRun.GAIN * smoothstep(0.3, 0.8, k)
+		# the swoop down into the canyon on the way in rides on top of the steering
+		dz += VRun.dive(R.d) - VRun.dive(R.prev)
 		P.z = clampf(P.z + dz, VRun.ZMIN, VRun.ZMAX)
 		P.vz = lerpf(P.vz, dz, 0.3)
 	else:
-		# the exit: the ship glides back up to the play plane
-		P.z = lerpf(P.z, 0.0, 0.035)
+		# the exit: the ship pulls up out of the canyon and settles onto the play plane
+		P.z = lerpf(P.z, VRun.lift(R.d), 0.06)
 		P.vz = lerpf(P.vz, 0.0, 0.3)
 	var what := VRun.hit(P.x, P.z, R.prev, R.d, VRun.PAD)
 	if what != "" and P.inv <= 0:
@@ -2504,6 +2536,15 @@ func _sync_run() -> void:
 			if mat:
 				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if fade > 0.0 else BaseMaterial3D.TRANSPARENCY_DISABLED
 				mat.albedo_color.a = 1.0 - fade
+	var gate := VRun.next_gate(R.d)
+	var aim: Node3D = R.aim
+	aim.visible = R.k > 0.9 and not gate.is_empty() and R.abort == 0
+	if aim.visible:
+		var fu: float = gate.u - VRun.half(gate) - 3.2
+		aim.position = VRun.warp(Vector3(X(P.x), fu, P.z))
+		aim.rotation = Vector3(0, 0, VRun.heading(fu))
+		var clear := VRun.hit(P.x, P.z, gate.u - 0.5, gate.u + 0.5, VRun.PAD) == ""
+		(aim.get_meta("mat") as StandardMaterial3D).albedo_color = Color("bff6ff") if clear else Color("ff4fa3")
 	for gi in R.casters:
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if R.k > 0.5 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for mo in R.motes:
@@ -2594,7 +2635,12 @@ func _camera(j: Vector3) -> void:
 	var off1 := Quaternion(_aim(-o1).inverse() * chase.basis)
 	camera.transform = Transform3D(_aim(-o) * Basis(off0.slerp(off1, k)), s + o + j * 0.5)
 	var wide := 80.0 if camera.keep_aspect == Camera3D.KEEP_WIDTH else 62.0
-	camera.fov = lerpf(_fov_td, wide, k)
+	# the swings have some swagger: the camera rolls into them and the view widens mid-swing (the
+	# roll turns round the camera's own axis, so the ship keeps its place on screen near enough)
+	var swing := sin(PI * k)
+	var roll := swing * 0.2 * (1.0 if R.d < VRun.LEN / 2.0 else -1.0)
+	camera.transform.basis = camera.transform.basis * Basis(Vector3.BACK, roll)
+	camera.fov = lerpf(_fov_td, wide, k) + swing * 10.0
 	camera.near = lerpf(10.0, 1.5, k)
 	_env.fog_depth_begin = lerpf(CAM_D + 30.0, 140.0, k)
 	# the depth of the canyon glows, so near rock stands dark against it and every way through
