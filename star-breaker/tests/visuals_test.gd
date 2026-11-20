@@ -96,12 +96,26 @@ func _initialize() -> void:
 	for bm in vg.G.beams:
 		beam = bm
 	check(not beam.is_empty() and beam.nova, "lifting at full charge fires the Nova")
-	var pulses: Array = (beam.m as Node3D).get_meta("parts").pulses if not beam.is_empty() else []
-	var shown := 0
-	for pl in pulses:
-		if pl.visible:
-			shown += 1
-	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
+	# every charge level now looks like the Storm: a bolt of lightning, wider level by level
+	var bim: ImmediateMesh = ((beam.m as Node3D).get_child(2) as MeshInstance3D).mesh if not beam.is_empty() else null
+	check(bim != null and bim.get_surface_count() == 1, "the Nova is drawn as the Storm's lightning")
+	var lo := VFx.beam_node(1)
+	root.add_child(lo)
+	VFx.sync_beam(lo, 1, 200.0, 2.0, 1.0, 1, 1, false)
+	var hi := VFx.beam_node(4)
+	root.add_child(hi)
+	VFx.sync_beam(hi, 4, 200.0, 7.0, 1.0, 1, 1, false)
+	var spread := func(n: Node3D) -> float:
+		var xs: PackedVector3Array = ((n.get_child(0) as MeshInstance3D).mesh as ImmediateMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var m := 0.0
+		for v in xs:
+			m = maxf(m, absf(v.x))
+		return m
+	var s1: float = spread.call(lo)
+	var s4: float = spread.call(hi)
+	check(s1 < s4, "a LV 1 bolt is slimmer than the Nova's (%.1f < %.1f)" % [s1, s4])
+	lo.free()
+	hi.free()
 
 	# --- the Storm: jagged chain lightning that flickers, forks, and flashes on each target ---
 	var sn := VFx.storm_node()
