@@ -29,20 +29,18 @@ const PULSE_LEN := 18.0
 const PULSE_LAG := [0, 4, 8, 0, 4, 8]
 ## How wide the twister opens at each charge level.
 const TWIST_GROW := [0.0, 0.0, 0.55, 0.72, 1.0]
-## Starbreak's strands: no twister, but many short-lived thin jagged arcs of pink, cyan and
-## white crackling round the laser like static electricity, with no glow of their own
-## (Guillaume's calls: short lived, many of them, erratic). Each arc jolts about at random
-## now and then (ARC_JOLT_CHANCE a tick), up to ARC_JOLT.x along the beam and ARC_JOLT.y
-## radians round it, for
-## ARC_LIFE ticks, then jumps somewhere else.
-const ULT_PULSES := 12
-## Wider, soft haze strands mixed in among the thin ones, moving the same way.
-const ULT_HAZE := 12
-const ARC_LIFE := Vector2i(10, 22)
-const ARC_JOLT := Vector2(3.0, 0.5)
-## Chance an arc jolts on a given tick: it twitches now and then rather than every frame.
-const ARC_JOLT_CHANCE := 0.3
-const ARC_SHAPES := 12
+## The Storm (Lance's ultimate): forked chain lightning, re-drawn every STORM_FLICKER ticks
+## so it jitters, a white core in a cyan sheath and a pink haze, and a flash on each target.
+const STORM_FLICKER := 3
+## Kinks per stage unit of bolt, and how far a kink strays sideways (part of the hop's length,
+## capped in stage units).
+const STORM_KINKS := 0.16
+const STORM_JAG := Vector2(0.14, 7.0)
+## Layer widths (stage units): haze, sheath, core.
+const STORM_W := [3.2, 1.2, 0.5]
+## Layer strength: haze, sheath, core (additive, so they don't wash out to white).
+const STORM_ALPHA := [0.45, 0.8, 1.0]
+const STORM_FLASHES := 48
 
 ## Charge colour per level (the ring round the ball) and the light it casts.
 const CHARGE_COL := ["4a5470", "dfe9ff", "ffffff", "3ff0e0", "ff4fa3"]
@@ -210,7 +208,7 @@ static func sync_charge(n: Node3D, charge: int, charge_max: int, lv: int, tt: in
 ## The laser line: a white core in a soft sheath and haze, a flare at the muzzle, a flare where
 ## it strikes, and from level 2 the twister: corkscrew pulses of the level's strands lining
 ## the whole beam and streaming up it, staggered out of phase.
-static func beam_node(lv: int, ult := false) -> Node3D:
+static func beam_node(lv: int) -> Node3D:
 	init()
 	var n := Node3D.new()
 	var rod := Models.geo("vbrod", func(): return Geo.xf(Geo.cyl(0.5, 0.5, 1.0, 6), Transform3D(Basis(), Vector3(0, 0.5, 0))))
@@ -226,26 +224,7 @@ static func beam_node(lv: int, ult := false) -> Node3D:
 	for c in [haze, sheath, core, flare, tip]:
 		n.add_child(c)
 	var parts := {core = core, sheath = sheath, haze = haze, flare = flare, tip = tip, pulses = []}
-	if ult:
-		for i in ULT_PULSES:
-			var st := i % 3
-			var hard := Models.mesh(arc_mesh(0, true), pulse_mat(st))
-			var g := Node3D.new()
-			g.add_child(hard)
-			n.add_child(g)
-			var pl := {n = g, hard = hard}
-			parts.pulses.append(pl)
-		for i in ULT_HAZE:
-			var soft := Models.mesh(arc_mesh(0, false), pulse_mat(i % 3 + 3))
-			var g := Node3D.new()
-			g.add_child(soft)
-			n.add_child(g)
-			parts.pulses.append({n = g, soft = soft})
-		# no haze and no ball at the bottom: the static arcs alone light the beam
-		haze.visible = false
-		flare.visible = false
-		parts.ult = true
-	elif lv >= 2:
+	if lv >= 2:
 		for st in 6:
 			if not (STRANDS[lv] as Array).has(st % 3):
 				continue
@@ -265,22 +244,6 @@ static func pulse_y(i: int, lag: int, t: float) -> float:
 	return fposmod((i * PULSE_GAP + t - lag) * PULSE_SPEED, PULSES * gap)
 
 
-## A Starbreak arc jumps somewhere new on the beam: shape, angle, size and a short life.
-static func _respawn(pl: Dictionary, len: float) -> void:
-	pl.len = randf_range(13.0, 32.0)
-	pl.y = randf() * maxf(1.0, len - pl.len)
-	pl.ang = randf() * TAU
-	pl.r = randf_range(0.6, 1.15)
-	pl.flip = randf() < 0.5
-	pl.life = randi_range(ARC_LIFE.x, ARC_LIFE.y)
-	pl.t = 0
-	var v := randi() % ARC_SHAPES
-	if pl.has("hard"):
-		(pl.hard as MeshInstance3D).mesh = arc_mesh(v, true)
-	else:
-		(pl.soft as MeshInstance3D).mesh = arc_mesh(v, false)
-
-
 ## Lays out a beam `len` long and `w` wide (already faded), `t` ticks into its life.
 static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: int, tt: int, hit_end: bool) -> void:
 	var p: Dictionary = n.get_meta("parts")
@@ -298,9 +261,6 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 	tip.visible = hit_end
 	tip.position = Vector3(0, len, 1)
 	tip.scale = Vector3(1, 1, 0) * (w * 3.0 * fade * (1.0 + 0.25 * sin(tt * 2.3)) + 0.01) + Vector3.BACK
-	if p.has("ult"):
-		_sync_ult(p.pulses, len, w, fade, t)
-		return
 	var spin := t * 0.35
 	for pl in p.pulses:
 		var y := pulse_y(int(pl.get_meta("i")), int(pl.get_meta("lag")), t)
@@ -313,65 +273,88 @@ static func sync_beam(n: Node3D, lv: int, len: float, w: float, fade: float, t: 
 		pl.basis = Basis(Vector3.BACK, PI / 2) * Basis(Vector3.RIGHT, -spin) * Basis().scaled(Vector3(1, grow, grow))
 
 
-## A jagged arc of static jumping out of the beam, curling part of the way round it and back
-## in: shape `v`, along +X over a length of 1 and round a radius of 1, a hard strand or its haze.
-static func arc_mesh(v: int, hard: bool) -> ArrayMesh:
-	return Geo.cached("uarc%s%d" % ["h" if hard else "z", v], func():
-		var rng := RandomNumberGenerator.new()
-		rng.seed = v * 977 + 5
-		var span := rng.randf_range(0.5, 1.2) * TAU
-		var n := 9
-		var pts := []
-		for i in n + 1:
-			var u := float(i) / n
-			# leaves the core, kinks its way round at about the beam's radius, dives back in
-			var rr := lerpf(0.35, 1.0, sin(u * PI)) * (1.0 + (rng.randf_range(-0.28, 0.28) if i > 0 and i < n else 0.0))
-			var a := u * span + (rng.randf_range(-0.25, 0.25) if i > 0 and i < n else 0.0)
-			var x := u + (rng.randf_range(-0.06, 0.06) if i > 0 and i < n else 0.0)
-			pts.append(Vector3(x, cos(a) * rr, sin(a) * rr))
-		var tube := 0.018 if hard else 0.07
-		var sides := 3 if hard else 4
-		var tris := []
-		for i in n:
-			var p0: Vector3 = pts[i]
-			var p1: Vector3 = pts[i + 1]
-			var d := (p1 - p0).normalized()
-			var side := d.cross(Vector3.RIGHT if absf(d.x) < 0.9 else Vector3.UP).normalized()
-			var up := d.cross(side).normalized()
-			var r0 := []
-			var r1 := []
-			for k in sides:
-				var a := TAU * k / sides
-				var o := (side * cos(a) + up * sin(a)) * tube
-				r0.append(p0 + o)
-				r1.append(p1 + o)
-			var m := (p0 + p1) / 2.0
-			for k in sides:
-				var k2 := (k + 1) % sides
-				tris.append(Geo.orient([r0[k], r1[k], r1[k2]], m))
-				tris.append(Geo.orient([r0[k], r1[k2], r0[k2]], m))
-		return Geo.build_wound(tris))
+# ---------- the Storm ----------
+
+## The Storm: three ribbon layers (redrawn as it flickers) and a pool of flashes for the targets.
+static func storm_node() -> Node3D:
+	init()
+	var n := Node3D.new()
+	var mats := []
+	for k in 3:
+		var m: StandardMaterial3D = band_mat(["ff4fa3", "3ff0e0", "ffffff"][k]).duplicate()
+		m.albedo_color = Color(["ff4fa3", "3ff0e0", "ffffff"][k], STORM_ALPHA[k])
+		mats.append(m)
+	for k in 3:
+		var mi := MeshInstance3D.new()
+		mi.mesh = ImmediateMesh.new()
+		mi.material_override = mats[k]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.position.z = k * 0.1
+		n.add_child(mi)
+	for k in STORM_FLASHES:
+		var g := Models.glow("dfe9ff" if k % 2 else "ff4fa3", 1.0)
+		g.visible = false
+		n.add_child(g)
+	return n
 
 
-## Starbreak's static: each arc jolts about erratically along and round the beam for a few
-## ticks, keeping its shape, then jumps elsewhere with a new one.
-static func _sync_ult(pulses: Array, len: float, w: float, fade: float, t: int) -> void:
-	var R := w / maxf(fade, 0.05) * 0.8
-	for pl in pulses:
-		if not pl.has("life"):
-			_respawn(pl, len)
-			# stagger so the arcs don't all jump on the same tick
-			pl.t = randi() % int(pl.life)
-		pl.t += 1
-		if randf() < ARC_JOLT_CHANCE:
-			pl.y += randf_range(-ARC_JOLT.x, ARC_JOLT.x)
-			pl.ang += randf_range(-ARC_JOLT.y, ARC_JOLT.y)
-		if pl.t > pl.life or pl.y < 0.0 or pl.y + pl.len > len:
-			_respawn(pl, len)
-		var g: Node3D = pl.n
-		g.visible = fade > 0.05 and pl.y + pl.len <= len
-		if not g.visible:
+## A jagged path from `a` to `b` (3D, in the play plane): kinks stray sideways at random, the
+## ends stay put.
+static func storm_path(a: Vector3, b: Vector3, rng: RandomNumberGenerator) -> PackedVector3Array:
+	var d := b - a
+	var len := maxf(0.01, Vector2(d.x, d.y).length())
+	var side := Vector3(-d.y, d.x, 0.0) / len
+	var n := clampi(int(len * STORM_KINKS), 3, 24)
+	var jag := minf(len * STORM_JAG.x, STORM_JAG.y)
+	var pts := PackedVector3Array()
+	for i in n + 1:
+		var u := float(i) / n
+		var off := 0.0 if i == 0 or i == n else rng.randf_range(-jag, jag) * sin(u * PI)
+		pts.append(a + d * u + side * off)
+	return pts
+
+
+## Lays the storm out `t` ticks in (of `life`): `bolts` are [from, to] pairs in 3D. Every bolt
+## gets a fork or two off its kinks, and each target a flash.
+static func sync_storm(n: Node3D, bolts: Array, t: int, life: int, tt: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = n.get_instance_id() + int(tt / STORM_FLICKER) * 7919
+	var fade := clampf(float(life - t) / 20.0, 0.0, 1.0)
+	var paths := []
+	for bo in bolts:
+		var pts := storm_path(bo[0], bo[1], rng)
+		paths.append([pts, 1.0])
+		# forks: short side branches off a kink, dying out
+		for f in rng.randi_range(1, 2):
+			var k := rng.randi_range(1, pts.size() - 2)
+			var dir: Vector3 = (pts[k + 1] - pts[k - 1]).normalized().rotated(Vector3.BACK, rng.randf_range(-1.0, 1.0))
+			var flen: float = (bo[1] - bo[0]).length() * rng.randf_range(0.15, 0.35)
+			paths.append([storm_path(pts[k], pts[k] + dir * flen, rng), 0.55])
+	for k in 3:
+		var im: ImmediateMesh = (n.get_child(k) as MeshInstance3D).mesh
+		im.clear_surfaces()
+		if paths.is_empty() or fade <= 0.0:
 			continue
-		var r: float = R * pl.r * (0.6 + 0.4 * fade)
-		g.position = Vector3(0, pl.y, 0)
-		g.basis = Basis(Vector3.UP, pl.ang) * Basis(Vector3.BACK, PI / 2) * Basis().scaled(Vector3(pl.len * (-1.0 if pl.flip else 1.0), r, r))
+		var w: float = STORM_W[k] * (0.6 + 0.4 * fade) * (0.85 + 0.3 * rng.randf())
+		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		for pa in paths:
+			var pts: PackedVector3Array = pa[0]
+			# forks are thinner than the bolts
+			var pw: float = w * pa[1]
+			for i in pts.size() - 1:
+				var p0 := pts[i]
+				var p1 := pts[i + 1]
+				var sd := (p1 - p0)
+				sd = Vector3(-sd.y, sd.x, 0.0).normalized() * pw * 0.5
+				var q := [p0 - sd, p0 + sd, p1 + sd, p1 - sd]
+				for v in [0, 1, 2, 0, 2, 3]:
+					im.surface_set_uv(Vector2(0.0 if v == 0 or v == 3 else 1.0, 0.5))
+					im.surface_add_vertex(q[v])
+		im.surface_end()
+	for k in STORM_FLASHES:
+		var g: Node3D = n.get_child(3 + k)
+		g.visible = k < bolts.size() and fade > 0.0
+		if g.visible:
+			g.position = bolts[k][1] + Vector3(0, 0, 1)
+			g.scale = Vector3(1, 1, 0) * (6.0 + 3.0 * rng.randf()) * fade + Vector3.BACK
+

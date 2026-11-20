@@ -94,8 +94,7 @@ func _initialize() -> void:
 	tick(4, false)
 	var beam: Dictionary = {}
 	for bm in vg.G.beams:
-		if not bm.ult:
-			beam = bm
+		beam = bm
 	check(not beam.is_empty() and beam.nova, "lifting at full charge fires the Nova")
 	var pulses: Array = (beam.m as Node3D).get_meta("parts").pulses if not beam.is_empty() else []
 	var shown := 0
@@ -104,54 +103,32 @@ func _initialize() -> void:
 			shown += 1
 	check(pulses.size() == 6 * VFx.PULSES and shown > 6, "the Nova's twister of strands lines the beam (%d of %d pulses shown)" % [shown, pulses.size()])
 
-	# --- Starbreak's strands: many short-lived thin arcs of static round the laser ---
-	var ub := VFx.beam_node(4, true)
-	var ps: Array = ub.get_meta("parts").pulses
-	VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 1, 1, false)
-	var spots := []
-	for pl in ps:
-		spots.append(pl.y)
-	for f in VFx.ARC_LIFE.y + 1:
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 2 + f, 2 + f, false)
-	var jumped := 0
-	for i in ps.size():
-		if ps[i].y != spots[i]:
-			jumped += 1
-	check(ps.size() >= 10, "Starbreak crackles with arcs (%d)" % ps.size())
-	var parts: Dictionary = ub.get_meta("parts")
-	check(not (parts.haze as Node3D).visible and not (parts.flare as Node3D).visible,
-		"Starbreak has no haze and no ball at its base")
-	var thin := 0
-	var wide := 0
-	var single := true
-	for pl in ps:
-		single = single and (pl.n as Node3D).get_child_count() == 1
-		if pl.has("hard"):
-			thin += 1
-		else:
-			wide += 1
-	check(single, "each arc is one strand, thin or haze, never both")
-	check(thin >= 8 and wide >= 8, "Starbreak mixes thin strands with wider haze strands (%d thin, %d haze)" % [thin, wide])
-	check(jumped >= ps.size() - 1, "each arc is short lived and moves on within %d ticks (%d of %d)" % [VFx.ARC_LIFE.y + 1, jumped, ps.size()])
-	var jolted := 0
-	var alive := 0
-	for f in 6:
-		var prev := []
-		for pl in ps:
-			prev.append([pl.y, pl.t, pl.ang])
-		VFx.sync_beam(ub, 4, 300.0, 12.0, 1.0, 20 + f, 20 + f, false)
-		for i in ps.size():
-			if ps[i].t != prev[i][1] + 1:
-				continue
-			alive += 1
-			var dy: float = absf(ps[i].y - prev[i][0])
-			var da: float = absf(ps[i].ang - prev[i][2])
-			if dy > VFx.ARC_JOLT.x + 0.01 or da > VFx.ARC_JOLT.y + 0.01:
-				jolted = -1000
-			elif dy > 0.0 or da > 0.0:
-				jolted += 1
-	check(alive > 20 and jolted > 0 and jolted < alive, "a living arc jolts about erratically now and then, within bounds (%d of %d)" % [jolted, alive])
-	ub.free()
+	# --- the Storm: jagged chain lightning that flickers, forks, and flashes on each target ---
+	var sn := VFx.storm_node()
+	root.add_child(sn)
+	var bolts := [[Vector3(0, -60, 5), Vector3(20, 10, 5)], [Vector3(20, 10, 5), Vector3(-30, 50, 5)]]
+	VFx.sync_storm(sn, bolts, 1, 70, 0)
+	var im0: ImmediateMesh = (sn.get_child(2) as MeshInstance3D).mesh
+	check(im0.get_surface_count() == 1 and (im0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() > 6 * 8, "the Storm draws its bolts as jagged ribbons")
+	var a0: Array = im0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var straight := true
+	for v in a0:
+		# off the straight line from the ship to the first target?
+		var u: float = (v.y + 60.0) / 70.0
+		if absf(v.x - 20.0 * u) > 1.5 and v.y < 10:
+			straight = false
+	check(not straight, "the bolts kink, not straight lines")
+	VFx.sync_storm(sn, bolts, 1, 70, VFx.STORM_FLICKER)
+	var a1: Array = im0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	check(a1 != a0, "the lightning jitters: it is redrawn every %d ticks" % VFx.STORM_FLICKER)
+	var flashes := 0
+	for k in VFx.STORM_FLASHES:
+		if (sn.get_child(3 + k) as Node3D).visible:
+			flashes += 1
+	check(flashes == 2, "each target flashes where the lightning strikes it")
+	VFx.sync_storm(sn, bolts, 70, 70, 9)
+	check(im0.get_surface_count() == 0 and not (sn.get_child(3) as Node3D).visible, "the Storm fades out at the end of its life")
+	sn.free()
 
 	# --- things enter from off screen, even on a tall phone that shows past the stage ---
 	var keep_view: Rect2 = vg.view
