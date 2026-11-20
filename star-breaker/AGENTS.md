@@ -218,3 +218,15 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   it passes (`_cam_dodge`). Bridges, ridges and windows fade once the ship is through, and hide
   when the camera reaches them, so they never hide the ship. Wide spots go in `PATH`, and a
   `mesa` obstacle (with `len`) splits one, with motes on the tight side.
+  Low poly without the blocky look (Guillaume, 2026-11-20): no plain boxes or level stripes.
+  Rock is built with `VRun._rock`, a box broken into irregular facets, with `keep` holding every
+  point out of the flyable space. Walls use `_crag` (pushed into the rock only). The rim's skyline
+  rises and dips (`rim_z`). Each facet gets its own shade (`_facet`). Concretions are kept to the
+  edges of the gaps. The Builder does one slice or one obstacle per frame (its worst frame is
+  about 16 ms on a desktop). Keep it that way.
+  Holes: the aim frame (`_aim_frame`) sits on the next wall's face where the ship will cross. It
+  turns pink when that spot is rock. Transitions: the ship swoops in (`VRun.dive`) and pulls up
+  on the way out (`VRun.lift`), and the camera rolls and widens mid-swing. The ship must stay in
+  sight throughout, and run_test checks that.
+  Don't run two Godot instances at once for shots: they share the game's settings file, and a
+  test changes the ship.
