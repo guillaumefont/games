@@ -3,8 +3,8 @@ extends Node3D
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
 ## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
 ## and a quick double tap fires Warden's ultimate once its gauge is full (one finger plays it all).
-## Lance's ultimate is the charge bar's last stage: once kills have primed it, charging past the
-## Nova reaches the Storm, chain lightning through every enemy on screen.
+## Lance's ultimate is the charge bar's last stage: charging on past the Nova reaches the Storm,
+## chain lightning through every enemy on screen.
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -22,14 +22,15 @@ const CHARGE_MAX := 240
 const BEAM_LIFE := [0, 14, 18, 24, 44]
 const BEAM_DMG := [0, 4, 8, 14, 30]
 const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
-## Lance's ultimate, the Storm: the charge bar's stage after the Nova. Kills prime it (the
-## same `P.ult` that fills Warden's gauge); once primed, holding on past the Nova reaches it at
-## STORM_AT ticks (5 s) and lifting lets loose chain lightning that jumps from the ship through
-## every enemy and boss part on screen, STORM_DMG each (the Nova's hit, once per target: it
-## clears small flyers, leaves big ones and bosses hurt), within STORM_SPREAD ticks; the bolts
-## crackle on for STORM_LIFE ticks. It also wipes the enemy bullets on screen.
-const STORM_AT := 300
-const STORM_DMG := 30
+## Lance's ultimate, the Storm: the charge bar's stage after the Nova. No kills needed
+## (Guillaume's call, 2026-11-20): holding on past the Nova reaches it at STORM_AT ticks (7 s),
+## and lifting lets loose chain lightning that jumps from the ship through every enemy and boss
+## part on screen, STORM_DMG each (two thirds of a Nova hit, once per target: it clears small
+## flyers, leaves big ones and bosses hurt), within STORM_SPREAD ticks; the bolts crackle on
+## for STORM_LIFE ticks. It also wipes the enemy bullets on screen. The long hold and the
+## lighter hit are its price for being free.
+const STORM_AT := 420
+const STORM_DMG := 20
 const STORM_SPREAD := 24
 const STORM_LIFE := 70
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
@@ -979,7 +980,7 @@ func release() -> void:
 	_slow_acc = 0.0
 	if kit.release == "beam":
 		var lv := charge_lv(P.charge)
-		if P.charge >= STORM_AT and P.ult >= 1.0 and G.ult_t == 0:
+		if P.charge >= STORM_AT and G.ult_t == 0:
 			storm()
 		elif lv > 0:
 			fire_beam(lv)
@@ -1033,9 +1034,9 @@ func _beam_node(lv: int) -> Node3D:
 	return VFx.beam_node(lv)
 
 
-## How far Lance can charge: to the Nova, or on to the Storm once kills have primed it.
+## How far Lance can charge: on past the Nova to the Storm (not while a Storm is still going).
 func charge_cap() -> int:
-	return STORM_AT if P.get("ult", 0.0) >= 1.0 and G.ult_t == 0 and VShips.KITS[G.ship].ult == "storm" else CHARGE_MAX
+	return STORM_AT if G.ult_t == 0 and VShips.KITS[G.ship].ult == "storm" else CHARGE_MAX
 
 
 ## Warden's ultimate (double tap). Lance's is the Storm, fired from the charge bar.
@@ -2528,8 +2529,8 @@ func end_run(done: bool) -> void:
 	elif m == 1:
 		P.ult = minf(1.0, P.ult + 0.5)
 	var sub := "%d/%d motes · +%s" % [R.got, R.motes.size(), fmt(VRun.MEDALS[m][1] + R.got * 50 + R.scrape)]
-	if m == 0:
-		sub += " · Storm primed" if VShips.KITS[G.ship].ult == "storm" else " · ultimate charged"
+	if m == 0 and VShips.KITS[G.ship].ult != "storm":
+		sub += " · ultimate charged"
 	hud.banner("%s run" % VRun.MEDALS[m][0], sub, 200)
 	audio.play("oneup")
 	Diag.note("RUN", "done hits=%d motes=%d" % [R.hits, R.got])

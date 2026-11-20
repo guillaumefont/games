@@ -37,9 +37,10 @@ const STORM_FLICKER := 3
 const STORM_KINKS := 0.16
 const STORM_JAG := Vector2(0.14, 7.0)
 ## Layer widths (stage units): haze, sheath, core.
-const STORM_W := [3.2, 1.2, 0.5]
+## Bulky like the Nova beam (Guillaume, 2026-11-20: "bulkier, like the laser").
+const STORM_W := [10.0, 4.0, 1.6]
 ## Layer strength: haze, sheath, core (additive, so they don't wash out to white).
-const STORM_ALPHA := [0.45, 0.8, 1.0]
+const STORM_ALPHA := [0.4, 0.75, 1.0]
 const STORM_FLASHES := 48
 
 ## Charge colour per level (the ring round the ball) and the light it casts.

@@ -25,7 +25,7 @@ names, art and levels are original.
 | --- | --- | --- |
 | Fly | Drag anywhere: the ship follows your thumb 1:1 | Arrows / WASD, left stick |
 | Fire | Automatic while your thumb is down | Automatic |
-| Release | Lift your thumb. **Lance:** fires its charge beam (hold longer for LV 2, 3, the Nova, and once kills have primed it, the Storm). **Warden:** flings or recalls its pod | C / K (hold, release), B |
+| Release | Lift your thumb. **Lance:** fires its charge beam (hold longer for LV 2, 3, the Nova, and at 7 s the Storm). **Warden:** flings or recalls its pod | C / K (hold, release), B |
 | Ultimate | **Lance:** the Storm, the charge bar's last stage (above). **Warden:** Shatter: a double tap, a second finger, or the ring at the top right, once kills have filled it | X / Space, Y (Warden) |
 | Pause | Pause button, Android back, or just lift your thumb for 3 s | Esc / P, Start |
 

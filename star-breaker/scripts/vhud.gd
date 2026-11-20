@@ -453,7 +453,7 @@ func _update_how() -> void:
 	var k := ship
 	var t := "%s: %s. Drag to fly, it fires on its own." % [VShips.KITS[k].name, VShips.KITS[k].sub]
 	if VShips.KITS[k].ult == "storm":
-		t += " Kills prime the %s: charge past the Nova and lift for lightning on every enemy." % VShips.KITS[k].ult_name
+		t += " Keep charging past the Nova and lift for the %s: lightning on every enemy." % VShips.KITS[k].ult_name
 	else:
 		t += " Double tap: %s." % VShips.KITS[k].ult_name
 	t += " Rock hurts; skim it for points."
@@ -603,26 +603,20 @@ func _draw_ult_ring(f: Font) -> void:
 	draw_string(f, c + Vector2(-lw / 2, 8), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col if ult_ready else C_MUTED)
 
 
-## Lance's charge bar under the score: LV 1-3, the Nova, then the Storm. The Storm's stretch
-## is always shown: it fills violet as kills prime it, turns pink once primed, and the charge
-## runs on into it. Hidden while there is nothing to show.
+## Lance's charge bar under the score while it charges: LV 1-3, the Nova, then the Storm, its
+## last stretch tinted pink. The STORM label lights up once the charge runs into it.
 func _draw_charge_bar(f: Font) -> void:
-	if charge <= 0.0 and ult <= 0.0:
+	if charge <= 0.0:
 		return
 	var bx := 30.0
 	var by := 140.0
 	var bw := 240.0
 	var nova: float = charge_marks[3]
 	draw_rect(Rect2(bx, by, bw, 8), Color(1, 1, 1, 0.12))
-	# the Storm's stretch: priming, then primed
+	# the Storm's stretch
 	var sx := bx + bw * nova
 	var sw := bw * (1.0 - nova)
-	var primed := ult >= 1.0 and ult_ready
-	if primed:
-		var pulse := 0.55 + 0.25 * sin(Time.get_ticks_msec() * 0.008)
-		draw_rect(Rect2(sx, by, sw, 8), Color(C_SPORE, pulse * 0.6))
-	elif ult > 0.0:
-		draw_rect(Rect2(sx, by, sw * clampf(ult, 0, 1), 8), Color(C_VIOLET, 0.8))
+	draw_rect(Rect2(sx, by, sw, 8), Color(C_SPORE, 0.25))
 	if charge > 0.0:
 		var cc: Color = [C_TEXT, C_TEXT, C_LANCE, C_SPORE][maxi(0, charge_lv - 1)] if charge_lv > 0 else Color(1, 1, 1, 0.5)
 		draw_rect(Rect2(bx, by, bw * minf(charge, nova), 8), cc)
@@ -631,9 +625,10 @@ func _draw_charge_bar(f: Font) -> void:
 	for k in 3:
 		draw_rect(Rect2(bx + bw * float(charge_marks[k]) - 1, by - 2, 2, 12), Color(1, 1, 1, 0.6))
 	draw_rect(Rect2(sx - 1, by - 4, 3, 16), Color(1, 1, 1, 0.85))
-	var lbl := "STORM" if primed else ""
-	if lbl != "":
-		draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, C_SPORE if charge < 1.0 else C_TEXT)
+	if charge > nova:
+		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.012)
+		draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), "STORM", HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
+				C_TEXT if charge >= 1.0 else Color(C_SPORE, pulse))
 
 
 # ---------- tiers, medals and ship colours ----------
