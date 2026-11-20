@@ -1,0 +1,149 @@
+extends SceneTree
+## A canyon run in every stage (Guillaume, 2026-11-20): each stage's course is fair, short,
+## bends gently, keeps the ship moving, and can be flown clean along its racing line. Then one
+## stage per world is flown in the game itself, for gold.
+
+var vg: Node3D
+var fails := 0
+
+
+func check(cond: bool, what: String) -> void:
+	print("  ok   " if cond else "  FAIL ", what)
+	if not cond:
+		fails += 1
+
+
+func tick(dx := 0.0, dy := 0.0) -> void:
+	vg.inp = {hold = true, fire = true, dx = dx, dy = dy, ult = false, pause = false}
+	vg.update()
+	vg._process(1.0 / 60.0)
+
+
+## Flies the racing line of the course in use without the game: the thumb moves the ship at
+## most 4 units a tick (times the gain), as in the game. Returns the obstacle hit, or "".
+func fly() -> String:
+	var u := 0.0
+	var l := VRun.line(0.0)
+	var x := l.x
+	var z := l.y
+	while u < VRun.OUT:
+		var nu := u + VRun.speed(u)
+		var t := VRun.line(nu + 6.0)
+		x += clampf(t.x - x, -4.0 * VRun.GAIN, 4.0 * VRun.GAIN)
+		z += clampf(t.y - z, -4.0 * VRun.GAIN, 4.0 * VRun.GAIN)
+		var what := VRun.hit(x, z, u, nu, VRun.PAD)
+		if what != "":
+			return "%s at %.0f" % [what, nu]
+		u = nu
+	return ""
+
+
+func _initialize() -> void:
+	print("Star Breaker: a canyon run in every stage")
+	var unfair := []
+	var long := []
+	var crashed := []
+	var bends := []
+	var still := []
+	var shortest := 99.0
+	var longest := 0.0
+	for i in VStage.STAGES.size():
+		var st: Dictionary = VStage.STAGES[i]
+		if not st.has("run") or not st.has("course"):
+			unfair.append("%d has no run" % i)
+			continue
+		VRun.use(st.course)
+		# a way through every obstacle
+		for o in VRun.OBS:
+			var p := VRun.passage(o.u)
+			var way := false
+			var x := p.x - p.y + 4.0
+			while x < p.x + p.y - 4.0 and not way:
+				var z := VRun.ZMIN
+				while z <= VRun.ZMAX and not way:
+					way = VRun.hit(x, z, o.u - 1.0, o.u + 1.0, VRun.PAD + 1.0) == ""
+					z += 1.0
+				x += 1.0
+			if not way:
+				unfair.append("%d %s at %.0f" % [i, o.k, o.u])
+		# how long it lasts
+		var ticks := 0
+		var u := VRun.SHIP_Y - 280.0
+		while u < VRun.LEN:
+			u += VRun.speed(u)
+			ticks += 1
+		var secs := ticks / 60.0
+		if i > 0:
+			shortest = minf(shortest, secs)
+			longest = maxf(longest, secs)
+			if secs < 11.0 or secs > 15.5:
+				long.append("%d: %.1f s" % [i, secs])
+		# the racing line flies clean
+		var what := fly()
+		if what != "" and i > 0:
+			crashed.append("%d: %s" % [i, what])
+		# bends: gentle, and straight while the camera swings
+		var tight := 0.0
+		var bent_swing := 0.0
+		var ub := -300.0
+		while ub < VRun.LEN + 300.0:
+			tight = maxf(tight, absf(VRun.heading(ub + 1.0) - VRun.heading(ub)))
+			if VRun.swing(ub) < 0.99:
+				bent_swing = maxf(bent_swing, absf(VRun.heading(ub)))
+			ub += 1.0
+		if 1.0 / tight < 220.0 or bent_swing > 0.0:
+			bends.append("%d: radius %.0f, %.2f rad while swinging" % [i, 1.0 / tight, bent_swing])
+		# movement over precision: no two obstacles in a row ask for the same thing
+		for k in VRun.OBS.size() - 1:
+			if i > 0 and VRun.OBS[k].k == VRun.OBS[k + 1].k:
+				still.append("%d: two %ss in a row" % [i, VRun.OBS[k].k])
+	check(unfair.is_empty(), "every stage has a run, and every obstacle leaves a way through %s" % str(unfair))
+	check(long.is_empty(), "the generated runs last about 15 s at most (%.1f to %.1f s) %s" % [shortest, longest, str(long)])
+	check(crashed.is_empty(), "every racing line flies clean %s" % str(crashed))
+	check(bends.is_empty(), "every bend is gentle and the canyon is straight while the camera swings %s" % str(bends))
+	check(still.is_empty(), "no two obstacles in a row are the same kind %s" % str(still))
+	var a: Dictionary = VStage.STAGES[1].course
+	var b: Dictionary = VStage.STAGES[2].course
+	check(str(a.obs) != str(b.obs), "no two stages share a course")
+	var w0: Dictionary = VStage.STAGES[1].course
+	var w5: Dictionary = VStage.STAGES[41].course
+	check(w5.obs.size() > w0.obs.size() and w5.obs[1].u - w5.obs[0].u < w0.obs[1].u - w0.obs[0].u, "later worlds pack more obstacles closer together")
+
+	print("In the game")
+	vg = load("res://scenes/main.tscn").instantiate()
+	root.add_child(vg)
+	vg.set_physics_process(false)
+	vg.driven = true
+	vg.set_process(false)
+	await process_frame
+	for i in [1, 9, 17, 25, 33, 41]:
+		vg.start_stage(i, "lance")
+		for t in 30:
+			vg.P.inv = maxi(vg.P.inv, 2)
+			tick()
+		# jump to just before the run's mouth
+		var d: float = VStage.STAGES[i].run
+		vg.G.scroll = d - vg.top() - 60.0
+		var n := 0
+		while not vg.G.has("run") and n < 600:
+			n += 1
+			vg.P.inv = maxi(vg.P.inv, 2)
+			tick()
+		var started: bool = vg.G.has("run")
+		vg.P.inv = 0
+		var in_rock := 0
+		while vg.G.has("run") and n < 5000:
+			n += 1
+			var R: Dictionary = vg.G.run
+			var tgt := VRun.line(R.d + 6.0)
+			var g := lerpf(1.0, VRun.GAIN, R.k)
+			tick(clampf((tgt.x - vg.P.x) / g, -4.0, 4.0), clampf((tgt.y - vg.P.z) / VRun.GAIN, -4.0, 4.0))
+			if vg.G.has("run"):
+				var cr: Dictionary = vg.G.run
+				if cr.k > 0.99 and cr.has("cam_x") and VRun.hit(cr.cam_x, cr.cz, cr.d - 38.5, cr.d - 37.5, 0.5) != "":
+					in_rock += 1
+		check(started and vg.G.get("run_medal", -2) == 0 and in_rock == 0,
+			"stage %d (%s): the run starts, the racing line earns gold, the camera stays out of rock" % [i + 1, VStage.STAGES[i].name])
+
+	print("FAILED: %d" % fails if fails else "ALL PASSED")
+	quit(1 if fails else 0)

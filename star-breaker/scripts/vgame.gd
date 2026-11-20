@@ -696,6 +696,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	script_list = VStage.build(i)
 	_build_islands()
 	if sd.has("run"):
+		VRun.use(sd.course)
 		run_b = VRun.Builder.new(look, {ground = _terrain_mats.ground, lip = _lip_mat, glow = _terrain_mats.fissure_b})
 		run_b.node.visible = false
 		world.add_child(run_b.node)

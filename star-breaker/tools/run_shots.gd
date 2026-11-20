@@ -2,7 +2,8 @@ extends SceneTree
 ## Frames of the canyon run for reviews: stage 1 from just before the canyon's mouth to the
 ## top-down view after it, flown along the racing line (every `EVERY` ticks a PNG), plus a few
 ## named stills. Make a GIF from the frames with ffmpeg.
-## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/run_shots.gd -- OUT_DIR
+## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/run_shots.gd -- OUT_DIR [STAGE]
+## Any other stage (0-based index) shows its generated run, with a still before each obstacle.
 
 const EVERY := 3
 var vg: Node3D
@@ -25,6 +26,7 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		out = args[0]
+	var si := int(args[1]) if args.size() > 1 else 0
 	DirAccess.make_dir_recursive_absolute(out.path_join("frames"))
 	vg = load("res://scenes/main.tscn").instantiate()
 	root.add_child(vg)
@@ -33,11 +35,11 @@ func _initialize() -> void:
 	vg.pause_on_focus_out = false
 	for i in 20:
 		await process_frame
-	vg.start_stage(0, "lance")
+	vg.start_stage(si, "lance")
 	for i in 150:
 		await tick()
 	# jump to a little before the canyon's mouth
-	var d0: float = VStage.STAGES[0].run
+	var d0: float = VStage.STAGES[si].run
 	vg.G.scroll = d0 - vg.top() - 10.0 - 70.0
 	vg.G.si = 0
 	while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll + vg.top() and vg.script_list[vg.G.si].type != "run":
@@ -48,6 +50,10 @@ func _initialize() -> void:
 	var t := 0
 	var after := 0
 	var stills := {"run_swing": -40.0, "run_pillars": 190.0, "run_pillars2": 310.0, "run_arch": 570.0, "run_spine": 690.0, "run_basin": 1120.0, "run_fork": 1200.0, "run_window": 1495.0, "run_arch3": 1610.0, "run_window2": 1715.0, "run_window3": 1920.0}
+	if si > 0:
+		stills = {"run_swing": -40.0}
+		for o in VRun.OBS:
+			stills["run_%s_%d" % [o.k, int(o.u)]] = o.u - 45.0
 	while after < 150:
 		var dx := 0.0
 		var dy := 0.0
