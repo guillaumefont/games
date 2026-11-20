@@ -229,8 +229,18 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   rises and dips (`rim_z`). Each facet gets its own shade (`_facet`). Concretions are kept to the
   edges of the gaps. The Builder does one slice or one obstacle per frame (its worst frame is
   about 16 ms on a desktop). Keep it that way.
-  Holes: the aim frame (`_aim_frame`) sits on the next wall's face where the ship will cross. It
-  turns pink when that spot is rock. Transitions: the ship swoops in (`VRun.dive`) and pulls up
+  No aim frame: Guillaume found it made the run too easy (2026-11-20). He wants more movement and
+  less precision, so the gaps are big but each one sits across the canyon or up/down from the
+  last (`OBS`).
+  Natural, alien rock: obstacle collision follows the rock's shapes, and the mesh never goes past
+  it.
+  - Spires (`pillar`): an oval footprint, r across and `half()` along the canyon.
+  - Bridges: their underside arches up mid-canyon (`under`).
+  - Ridges: a saddle crest (`crest`).
+  - Windows: an oval hole (`oval`, mesh `_eroded`).
+  The walls lean back into a V (`_crag`). Mountains replace the flat plateaus beside the canyon
+  (`MOUNT`, `_mount`, `_ridge`). Glowing crystal outcrops sit in the rock, never in the passage
+  (`_crystals`). Transitions: the ship swoops in (`VRun.dive`) and pulls up
   on the way out (`VRun.lift`), and the camera rolls and widens mid-swing. The ship must stay in
   sight throughout, and run_test checks that.
   Don't run two Godot instances at once for shots: they share the game's settings file, and a

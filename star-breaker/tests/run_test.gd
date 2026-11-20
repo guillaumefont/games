@@ -141,8 +141,6 @@ func _initialize() -> void:
 	var vp: Vector2 = vg.get_viewport().get_visible_rect().size
 	var off_screen := 0.0
 	var in_rock := 0
-	var aimed := 0
-	var aim_wrong := 0
 	while vg.G.has("run"):
 		var R: Dictionary = vg.G.run
 		var tgt := VRun.line(R.d + 6.0)
@@ -163,11 +161,6 @@ func _initialize() -> void:
 			if vg.camera.is_position_behind(vg.ship_m.global_position):
 				edge = 1.0
 			off_screen = maxf(off_screen, edge)
-			if cr.has("aim") and (cr.aim as Node3D).visible:
-				aimed += 1
-				var gate := VRun.next_gate(cr.d)
-				var pink: bool = ((cr.aim as Node3D).get_meta("mat") as StandardMaterial3D).albedo_color.r > 0.9
-				aim_wrong += int(pink != (VRun.hit(vg.P.x, vg.P.z, gate.u - 0.5, gate.u + 0.5, VRun.PAD) != ""))
 			if cr.k > 0.99 and cr.has("cam_x") and VRun.hit(cr.cam_x, cr.cz, cr.d - 38.5, cr.d - 37.5, 0.5) != "":
 				in_rock += 1
 		if vg.G.has("run") and vg.G.run.k > 0.99:
@@ -176,7 +169,6 @@ func _initialize() -> void:
 			looked = looked or (-vg.camera.global_transform.basis.z).dot(Vector3.UP) > 0.9
 			climbed = climbed or absf(vg.P.z) > 8.0
 	check(off_screen <= 0.0, "the ship stays in sight, at least a tenth of the screen from its edges, through the whole run (worst %.2f past)" % off_screen)
-	check(aimed > 0 and aim_wrong == 0, "the aim frame marks where the ship crosses the next wall, pink only on rock (%d ticks shown)" % aimed)
 	check(in_rock == 0, "the camera never flies into rock behind the ship (%d ticks)" % in_rock)
 	check(swung and looked, "the camera swings down behind the ship and looks along the canyon")
 	check(climbed, "the thumb flies the ship up and down in the canyon")
