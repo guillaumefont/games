@@ -172,7 +172,31 @@ func _initialize() -> void:
 	vg.hud.back()
 	vg.hud._btn_medals.pressed.emit()
 	check(vg.hud.medals_scr.visible, "tapping the ship on home opens the hangar")
-	vg.hud._ship_btns["warden"].pressed.emit()
+	var car: VHud.ShipCarousel = vg.hud.carousel
+	car.size = Vector2(520, 250)
+	var drag_by := func(dx: float):
+		var dn := InputEventMouseButton.new()
+		dn.button_index = MOUSE_BUTTON_LEFT
+		dn.pressed = true
+		dn.position = Vector2(260, 120)
+		car._gui_input(dn)
+		for k in 6:
+			var mv := InputEventMouseMotion.new()
+			mv.position = Vector2(260 + dx * (k + 1) / 6.0, 120)
+			car._gui_input(mv)
+		var up := InputEventMouseButton.new()
+		up.button_index = MOUSE_BUTTON_LEFT
+		up.pressed = false
+		up.position = Vector2(260 + dx, 120)
+		car._gui_input(up)
+	drag_by.call(-60.0)
+	check(vg.hud.ship == "lance", "a short drag in the hangar keeps the ship")
+	drag_by.call(-240.0)
+	check(vg.hud.ship == "warden", "swiping the hangar's ship left switches to the next ship")
+	drag_by.call(240.0)
+	check(vg.hud.ship == "lance", "swiping right switches back")
+	drag_by.call(240.0)
+	check(vg.hud.ship == "warden", "ships wrap around")
 	check(vg.hud.ship == "warden" and vg.hud._ship_secs["warden"].visible and not vg.hud._ship_secs["lance"].visible, "the hangar picks the ship and shows only its level and colours")
 	check(vg.hud._btn_medals.text.contains("WARDEN"), "home shows the chosen ship")
 	vg.hud.select_ship("lance")
