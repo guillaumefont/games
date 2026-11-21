@@ -478,7 +478,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	if S.mission: toast(S.mission.title, "gold")
 	else:
 		toast("Two fingers move the map · drag one finger to box-select" if PAN_FINGERS == 2 else "Drag to move the map · hold, then drag to box-select", "gold")
-		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast("Build a Reactor, then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name, "gold"))
+		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast("Build a " + D.BLD[S.tr_t(0, "power")].name + ", then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name, "gold"))
 	A.music_start()
 
 func open_menu() -> void:
@@ -720,6 +720,9 @@ func cmd_btn(k: String) -> void:
 					u.path = []; u.order = "none"; u.target = null; u.guard = Vector2(u.x, u.y); u.face = null
 					if u.d.harv: u.hs = "idle"
 		"desel": S.set_sel([])
+		"muster":
+			if S.muster(0) == 0: toast("The Hearths have already answered this battle", "warn")
+			update_cmd()
 		"upgrade":
 			var b: Ent = S.sel[0] if S.sel.size() else null
 			if b == null or b.kind != "b" or b.team != 0: return
@@ -759,6 +762,7 @@ func update_cmd() -> void:
 	U.btn.repair.visible = sb != null; U.btn.sell.visible = sb != null and sb.type != "hq"
 	if sb: U.set_on(U.btn.repair, sb.repairing)
 	_upg_btn()
+	U.btn.muster.visible = sb != null and sb.d.get("muster", 0) > 0 and not S.teams[0].get("mustered", false)
 	U.set_on(U.btn.amove, amove)
 	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
 	for k in ["all", "inf", "veh", "air", "idle"]:
@@ -771,8 +775,8 @@ func update_cmd() -> void:
 		if S.sel.size() == 1:
 			var e: Ent = S.sel[0]; var d := e.d
 			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + " · upgrade: " + D.UPG[e.type].say
-			elif e.kind == "b": U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (e.type == "barracks" or e.type == "factory") else (" · park vehicles beside it" if e.type == "repair" else ""))
-			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else ""))))
+			elif e.kind == "b": U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
+			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else "")))))
 		else: U.selinfo.text = "%d units" % S.sel.size()
 	else: U.selinfo.visible = false
 
@@ -847,7 +851,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 		else: S.set_sel([])
 		return
 	if hit != null and hit.team == 0:
-		if hit.kind == "b" and hit.type == "refinery" and sel_u.any(func(u): return u.d.harv):
+		if hit.kind == "b" and hit.d.get("dock", false) and sel_u.any(func(u): return u.d.harv):
 			for u in sel_u:
 				if u.d.harv: u.hs = "ret"
 			ring(hit.x, hit.y, Color("f0b93f")); return
@@ -872,7 +876,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 	if sel_u.size():
 		command(hit, wx, wy, sel_u); return
 	var sb: Ent = S.sel[0] if S.sel.size() else null
-	if sb and sb.kind == "b" and (sb.type == "barracks" or sb.type == "factory"):
+	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.type == "mast"):
 		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); return
 	S.set_sel([])
 
@@ -881,6 +885,15 @@ func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width :=
 	var harvs := units.filter(func(u): return u.d.harv)
 	var engs := units.filter(func(u): return u.d.eng)
 	var others := units.filter(func(u): return u.d.dmg == 0 and not u.d.harv and not (u.d.eng and hit != null and hit.kind == "b" and hit.team != 0))
+	var scr := units.filter(func(u): return u.d.scrap)
+	var wk = S.wreck_at(wx, wy) if hit == null and scr.size() else null
+	if wk != null:
+		# Scrappers sent to a wreck: rebuild it while it holds together, otherwise strip it for aurite
+		S.scrap_order(scr, wk); ring(wk.x, wk.y, Color("f0b93f")); sfx("click")
+		toast("Reviving the " + D.UN[wk.type].name if wk.intact >= D.WRECK.revive else "Stripping the wreck")
+		units = units.filter(func(u): return not u.d.scrap)
+		if units.is_empty(): update_cmd(); return
+		combat = units.filter(func(u): return u.d.dmg > 0); harvs = units.filter(func(u): return u.d.harv); others = others.filter(func(u): return not u.d.scrap)
 	if hit != null and hit.team != 0:
 		if combat.size(): S.attack_order(combat, hit); ring(hit.x, hit.y, Color("ff5a52")); sfx("click")
 		if hit.kind == "b" and engs.size(): S.eng_order(engs, hit); ring(hit.x, hit.y, Color("7fd68e")); sfx("click")
@@ -1344,6 +1357,8 @@ func _autotest(dir: String) -> void:
 		await _bld_test(dir); get_tree().quit(); return
 	elif mode == "choir":
 		await _choir_shots(dir); get_tree().quit(); return
+	elif mode == "pact":
+		await _pact_shots(dir); get_tree().quit(); return
 	elif mode == "up":
 		await _upgrade_shots(dir); get_tree().quit(); return
 	else:
@@ -1761,6 +1776,77 @@ func _upgrade_shots(dir: String) -> void:
 		S.set_sel([fr]); update_cmd()
 		await get_tree().create_timer(.3).timeout
 		await _shot(dir + "/button.png")
+
+## AF_MODE=pact: the Ashen Pact's base, every Pact unit in rows, a boar charge, a wreck being revived by a Scrapper,
+## and the HUD with the unit cap and the Hearth's MUSTER button.
+func _pact_shots(dir: String) -> void:
+	play({"fac": "ashen", "enemy": "vanguard", "diff": "normal", "seed": 4242})
+	paused = true
+	S.teams[0].credits = 9000.0
+	var hq: Ent = S.find_hq(0)
+	var bs: Array = []
+	for t in ["kiln", "kiln", "smelter", "muster", "hearth", "workshop", "works", "mast", "hammer", "hearth", "pylon", "rift"]:
+		var sp = S.ai_spot(0, t, hq)
+		if sp == null: continue
+		var b := S.add_building(0, t, sp.x, sp.y); b.born = -9.0; bs.append(b)
+		S.update_vision()
+	S.update_vision(); V.fog_clear(true)
+	V.cam_z = 1.1; V.center_on(hq.x + T * 2, hq.y - T * 2)
+	await get_tree().create_timer(.6).timeout
+	await _shot(dir + "/p1_base.png")
+	var seen := {}
+	for b in [hq] + bs:
+		if seen.has(b.type): continue
+		seen[b.type] = true
+		V.cam_z = 2.4; V.center_on(b.x, b.y)
+		await get_tree().create_timer(.25).timeout
+		await _shot(dir + "/p_b_%s.png" % b.type)
+	var x0: float = (hq.tx + 6) * T; var y0: float = (hq.ty - 14) * T
+	var rows := [["militia", "brute", "grenadier", "pyro", "scrapper", "boars", "boars", "boars"],
+		["raider", "scorpion", "anvilf", "anvila", "kettle", "howler", "crawler"], ["jugg", "arcc", "gyro", "zeppelin"]]
+	for ri in rows.size():
+		var row: Array = rows[ri]
+		for i in row.size():
+			var u := S.spawn_unit(0, row[i], x0 + i * T * (1.1 if ri == 0 else 1.7), y0 + ri * T * 2.2); u.ang = PI * .75; u.tang = u.ang
+	S.update_vision()
+	V.cam_z = 3.4; V.center_on(x0 + T * 4, y0)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/p2_infantry.png")
+	V.cam_z = 2.6; V.center_on(x0 + T * 5, y0 + T * 2.2)
+	await get_tree().create_timer(.3).timeout
+	await _shot(dir + "/p3_vehicles.png")
+	V.cam_z = 2.4; V.center_on(x0 + T * 3, y0 + T * 4.4)
+	await get_tree().create_timer(.3).timeout
+	await _shot(dir + "/p4_heavy_air.png")
+	# a boar charge into a Vanguard squad, and a wreck a Scrapper is reviving
+	var ex: float = x0 + T * 2; var ey: float = y0 - T * 6
+	var foes: Array = []
+	for i in 4:
+		var f := S.spawn_unit(1, "rifle", ex + i * T, ey); f.hp *= 4; f.max_hp *= 4; foes.append(f)
+	var tk := S.spawn_unit(1, "tank", ex + T * 6, ey + T * 2)
+	S.kill(tk)
+	var boars := S.ents.filter(func(e): return e.alive and e.type == "boars")
+	S.attack_order(boars, foes[1])
+	var sc: Ent = S.ents.filter(func(e): return e.alive and e.type == "scrapper")[0]
+	S.scrap_order([sc], S.wrecks[0])
+	S.update_vision(); paused = false
+	for i in 20 * 3: S.step(.05)
+	paused = true
+	V.cam_z = 1.9; V.center_on(ex + T * 3, ey + T * 1)
+	await get_tree().create_timer(.5).timeout
+	await _shot(dir + "/p5_charge_wreck.png")
+	# the HUD: unit cap and the Hearth's MUSTER button
+	var hearth: Ent = bs.filter(func(e): return e.type == "hearth")[0]
+	S.set_sel([hearth]); update_cmd()
+	V.cam_z = 1.6; V.center_on(hearth.x, hearth.y)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/p6_hud_muster.png")
+	cmd_btn("muster")
+	paused = false
+	for i in 20 * 2: S.step(.05)
+	paused = true
+	await get_tree().create_timer(.3).timeout
+	await _shot(dir + "/p7_mustered.png")
 
 ## AF_MODE=choir: the Hollow Choir's skirmish pick, buildings, units, a burrowing sapper, shard fields, the Cantor's aura and the Chorus Well.
 func _choir_shots(dir: String) -> void:

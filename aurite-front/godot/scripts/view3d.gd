@@ -33,6 +33,8 @@ var fog_tex: ImageTexture
 var world := Node3D.new()
 var ents_root := Node3D.new()
 var recs := {}
+var wrecks_n := {}   # Pact salvage: wreck id -> its burnt model
+var burnt_mat: StandardMaterial3D
 var decor := {}
 var ore_mm: MultiMeshInstance3D
 var ore_list: Array = []
@@ -286,7 +288,8 @@ func _flush(b: Dictionary) -> void:
 func build_world() -> void:
 	for c in world.get_children(): c.queue_free()
 	for id in recs: recs[id].n.queue_free()
-	recs.clear(); scorches.clear()
+	for id in wrecks_n: wrecks_n[id].queue_free()
+	recs.clear(); scorches.clear(); wrecks_n.clear()
 	var sd: int = S.seed
 	var JX := PackedFloat32Array(); JX.resize(HN * HN); var JZ := PackedFloat32Array(); JZ.resize(HN * HN)
 	for j in range(1, HN - 1):
@@ -813,7 +816,7 @@ func _bld_idle(e: Ent, r: Dictionary, t: float) -> void:
 		r.holo.rotation.y = t * 1.4; r.holo.position.y = 1.15 + sin(t * 2) * .05
 	if r.has("rune"): r.rune.rotation.y = -t * .5
 	if r.has("trolley"): r.trolley.position.x = sin(t * .45 + e.id) * .75
-	var unloading: bool = e.type == "refinery" and t - e.unload_t < .3
+	var unloading: bool = e.d.get("dock", false) and t - e.unload_t < .3
 	if r.has("bl"):
 		for i in r.bl.size():
 			var q: float = fmod(t * 1.3 + i / 3.0, 1.0)
@@ -830,7 +833,7 @@ func _bld_idle(e: Ent, r: Dictionary, t: float) -> void:
 		var gy: float = r.n.position.y; var ox: float = r.n.position.x * T; var oz: float = r.n.position.z * T
 		for v in r.steam:
 			S.parts.append({"k": "smoke", "x": ox + v.x * T, "y": oz + v.z * T, "vx": 4.0, "vy": -2.0, "life": 1.4, "max": 1.4, "s": 3.2, "c": Color8(215, 222, 226), "h0": gy + v.y})
-		if e.type != "refinery" or unloading or randf() < .4:
+		if not e.d.get("dock", false) or unloading or randf() < .4:
 			for v in r.stacks:
 				S.parts.append({"k": "smoke", "x": ox + v.x * T, "y": oz + v.z * T, "vx": 5.0, "vy": -3.0, "life": 1.3, "max": 1.3, "s": 3.0, "c": Color8(105, 100, 94), "h0": gy + v.y})
 	if e.type == "repair" and e.busy and r.has("arm") and frame_no % 2 == 0:
@@ -1002,9 +1005,33 @@ func upd_preview(slots: Array, from, to) -> void:
 			_put(preview, p.x / T, S.h_at(p.x, p.y) + .07, p.y / T, .07, 1, .07, 0, 0, 0, Color("f0b93f"))
 	_flush(preview)
 
+## Wrecks left by destroyed vehicles: the unit's own model, charred and slumped, smoking while it can still be revived.
+func sync_wrecks() -> void:
+	if burnt_mat == null:
+		burnt_mat = StandardMaterial3D.new(); burnt_mat.vertex_color_use_as_albedo = true
+		burnt_mat.albedo_color = Color(.34, .31, .29); burnt_mat.roughness = 1.0
+	var live := {}
+	for w in S.wrecks:
+		live[w.id] = true
+		var n: Node3D = wrecks_n.get(w.id)
+		if n == null:
+			n = Models.get_model("u", w.type, w.team, S.teams[w.team].fac)
+			for k in ["sel", "flash"]:
+				var c := n.find_child(k, true, false)
+				if c: c.visible = false
+			for mi in n.find_children("*", "MeshInstance3D", true, false): mi.material_override = burnt_mat
+			n.position = Vector3(w.x / T, S.h_at(w.x, w.y) - .03, w.y / T)
+			n.rotation = Vector3(.08, -w.ang, -.1); n.scale = Vector3(1, .8, 1)
+			ents_root.add_child(n); wrecks_n[w.id] = n
+		n.visible = S.vis[S.t_idx(w)] == 2
+		if n.visible and w.intact >= D.WRECK.revive and frame_no % 9 == w.id % 9:
+			S.parts.append({"k": "smoke", "x": w.x + randf() * 6 - 3, "y": w.y + randf() * 6 - 3, "vx": 3.0, "vy": -3.0, "life": 1.6, "max": 1.6, "s": 3.4, "c": Color8(70, 66, 62), "h0": S.h_at(w.x, w.y) + .25})
+	for id in wrecks_n.keys():
+		if not live.has(id): wrecks_n[id].queue_free(); wrecks_n.erase(id)
+
 func render(dt: float, placing, preview_slots: Array, pv_from, pv_to) -> void:
 	update_cam()
 	if S == null: return
-	sync_ents(S.time); draw_parts(); upd_marks(); upd_ghost(placing); upd_rally(); upd_preview(preview_slots, pv_from, pv_to)
+	sync_ents(S.time); sync_wrecks(); draw_parts(); upd_marks(); upd_ghost(placing); upd_rally(); upd_preview(preview_slots, pv_from, pv_to)
 	ore_t -= dt
 	if ore_t <= 0: ore_t = .3; upd_ore()
