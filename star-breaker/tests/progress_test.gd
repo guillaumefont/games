@@ -92,43 +92,85 @@ func _initialize() -> void:
 	await process_frame
 	vg.prog = Progress.new()
 	vg.hud.prog = vg.prog
-	vg.hud.select_tier(1)
-	check(not vg.hud.map.is_open(0) and vg.hud.stage_label(0).contains("LOCKED"), "on the Nova tab a stage not yet cleared is locked")
+	vg.hud.refresh_progress()
 	var tapped: Array = []
 	vg.hud.stage_chosen.connect(func(i, _s): tapped.append(i))
-	vg.hud.map.tap_stage(0)
-	check(tapped.is_empty() and vg.hud.map._note.to_upper().contains("NORMAL"), "tapping a locked stage says what to clear instead of starting it")
-	vg.hud.select_tier(0)
-	check(vg.hud.map.is_open(0) and not vg.hud.map.is_open(1), "on the Normal tab stage 1 is open and stage 2 is locked")
-	check(vg.hud.stage_label(0).contains("NEXT"), "the map marks the next stage")
-	vg.hud.map.tap_stage(1)
-	check(tapped.is_empty() and vg.hud.map._note.to_upper().contains("SPORE FIELDS"), "a locked stage names the stage to clear first")
-	vg.hud.map.tap(vg.hud.map.node_pos(0))
-	check(tapped == [0], "tapping an open stage on the map starts it")
-	# the menu's screens: home -> worlds -> levels, the hangar, and back
-	vg.to_menu()
-	check(vg.hud.screen == "levels" and vg.hud.levels_scr.visible and not vg.hud.menu_scr.visible, "leaving a stage shows its world's levels")
-	vg.hud.back()
-	vg.hud.back()
-	check(vg.hud.screen == "menu" and vg.hud.menu_scr.visible, "back twice reaches the home screen")
+	# the level map: one trail of every stage, bottom up
 	check(vg.hud._home_next.text.contains("SPORE FIELDS"), "home names the next stage")
 	vg.hud._btn_play.pressed.emit()
-	check(vg.hud.worlds_scr.visible and not vg.hud.menu_scr.visible, "Play opens the world screen")
-	vg.hud.worlds.tap(vg.hud.worlds.card(3).get_center())
-	check(vg.hud.levels_scr.visible and vg.hud.world_sel == 3 and vg.hud.map.world == 3, "tapping a world opens its levels")
-	check(vg.hud.back() and vg.hud.worlds_scr.visible, "back from the levels goes to the worlds")
-	check(vg.hud.back() and vg.hud.menu_scr.visible, "back from the worlds goes home")
+	await process_frame
+	check(vg.hud.levels_scr.visible and not vg.hud.menu_scr.visible, "Play opens the level map")
+	var vm: VMap = vg.hud.map
+	check(vm.is_open(0) and not vm.is_open(1), "stage 1 is open and stage 2 is locked")
+	check(vg.hud.stage_label(0).contains("NEXT"), "the map marks the next stage")
+	for i in range(1, VStage.STAGES.size()):
+		if not (VMap.stage_u(i) > VMap.stage_u(i - 1)):
+			check(false, "stage %d sits above stage %d" % [i + 1, i])
+	check(VMap.stage_u(8) - VMap.stage_u(7) > VMap.stage_u(7) - VMap.stage_u(6), "the trail climbs through every stage, with room for a banner between worlds")
+	# a tactical map, not a zigzag: uneven steps and swings, every label inside the column
+	var xs := {}
+	var steps := {}
+	var fits := true
+	for i in VStage.STAGES.size():
+		xs[snappedf(VMap.stage_x(i), 0.01)] = true
+		if i > 0 and VStage.STAGES[i].j > 0:
+			steps[snappedf(VMap.stage_u(i) - VMap.stage_u(i - 1), 1.0)] = true
+			if absf(VMap.stage_x(i) - VMap.stage_x(i - 1)) < 0.05 and VStage.STAGES[i].j != VStage.PER_WORLD - 1:
+				fits = false
+		var lr: Rect2 = vm._label_rect(i)
+		if lr.size.x < 120.0 or lr.position.x < vm._x0() - 1 or lr.end.x > vm._x0() + vm._col_w() + 1:
+			fits = false
+	check(xs.size() > 20 and steps.size() > 20, "stages sit at uneven places and spacings")
+	check(fits, "every leg of the route moves sideways and every label fits on the map")
+	check(vm.sky(VMap.stage_u(2)) != vm.sky(VMap.stage_u(10)) and vm.sky(VMap.banner_u(1)) != vm.sky(VMap.stage_u(2)), "the sky changes colour from world to world, blending across the banner")
+	vm.tap_stage(1)
+	check(tapped.is_empty() and vm._note.to_upper().contains("SPORE FIELDS") and vg.hud.sheet_stage == -1, "a locked stage names the stage to clear first and opens nothing")
+	vm.focus(0, true)
+	vm.tap(vm.node_pos(0))
+	check(vg.hud.sheet.visible and vg.hud.sheet_stage == 0 and tapped.is_empty(), "tapping an open stage opens its panel, it doesn't start yet")
+	check(vg.hud._sheet_tiers[1].text.contains("LOCKED") and vg.hud._sheet_tiers[2].text.contains("LOCKED"), "the panel shows Nova and Supernova locked on a new stage")
+	vg.hud.pick_tier(1)
+	check(vg.hud.tier == 0 and vg.hud._sheet_note.text.contains("NORMAL"), "picking a locked tier says what opens it and keeps Normal")
+	check(vg.hud.back() and not vg.hud.sheet.visible and vg.hud.levels_scr.visible, "back closes the stage panel first")
+	# a player with world 1 cleared on Normal and two stages on Nova
+	for k in 8:
+		vg.prog.stages["w1s%d" % (k + 1)] = {m = [0, 0, 0], c = 3 if k < 2 else 1}
+	vg.hud.refresh_progress()
+	vg.hud.focus_next()
+	check(vg.hud.world_sel == 1 and vm.world == 1 and vm.next_stage() == 8, "the map opens on the next stage, in world 2")
+	check(vm.world_cleared(0, 0) == 8 and vm.world_cleared(0, 1) == 2 and not vm.world_open(2), "world banners count each tier; world 3 is locked")
+	vg.hud.open_stage(2)
+	check(vg.hud.tier == 0 and vg.hud._sheet_play.text == "PLAY ON NORMAL" and not vg.hud._sheet_tiers[1].text.contains("LOCKED"), "a stage's panel starts on the tier picked last and shows Nova open")
+	vg.hud.pick_tier(1)
+	check(vg.hud.tier == 1 and vg.hud._sheet_play.text == "PLAY ON NOVA", "the tier is picked on the panel")
+	vg.hud.open_stage(5)
+	check(vg.hud.tier == 0, "a stage not open on that tier falls back to the highest one it has")
+	vg.hud.pick_tier(1)
+	check(vg.hud.tier == 0, "and Nova stays shut there")
+	vg.hud.open_stage(2)
+	vg.hud.pick_tier(1)
+	vg.hud._sheet_play.pressed.emit()
+	check(tapped == [2] and vg.mode == "play" and vg.G.stage == 2 and vg.G.tier == 1, "Play on the panel starts that stage on the picked tier")
+	vg.to_menu()
+	check(vg.hud.screen == "levels" and vg.hud.levels_scr.visible and not vg.hud.menu_scr.visible, "leaving a stage shows the map at that stage")
+	check(vg.hud.back() and vg.hud.menu_scr.visible, "back from the map goes home")
 	check(not vg.hud.back() and vg.hud.menu_scr.visible, "back on the home screen is left to the app (it quits)")
-	vg.hud._btn_medals.pressed.emit()
-	check(vg.hud.medals_scr.visible and vg.hud._btn_medals.text.contains("LANCE"), "the ship button opens the hangar")
+	# the ship: on the map, tap it for the hangar
+	vg.hud._btn_play.pressed.emit()
+	check(vg.hud._map_ship.text.contains("LANCE"), "the map shows the ship you fly")
+	vg.hud._map_ship.pressed.emit()
+	check(vg.hud.medals_scr.visible, "tapping the ship on the map opens the hangar")
 	vg.hud._ship_btns["warden"].pressed.emit()
 	check(vg.hud.ship == "warden" and vg.hud._ship_secs["warden"].visible and not vg.hud._ship_secs["lance"].visible, "the hangar picks the ship and shows only its level and colours")
-	check(vg.hud._btn_medals.text.contains("WARDEN"), "home shows the chosen ship")
+	check(vg.hud._map_ship.text.contains("WARDEN") and vg.hud._btn_medals.text.contains("WARDEN"), "the map and home show the chosen ship")
+	check(vg.hud.back() and vg.hud.levels_scr.visible, "back from the hangar returns to the map it was opened from")
 	vg.hud.select_ship("lance")
-	check(vg.hud.back() and vg.hud.menu_scr.visible, "back from the hangar goes home")
-	vg.hud.select_world(3)
-	check(not vg.hud.map.world_open(3) and vg.hud.map.world_cleared(0) == 0, "a world not reached is locked")
-	vg.to_menu()
+	vg.hud.back()
+	vg.hud._btn_medals.pressed.emit()
+	check(vg.hud.back() and vg.hud.menu_scr.visible, "the hangar opened from home goes back home")
+	vg.prog.stages = {}
+	vg.hud.tier = 0
+	vg.hud.refresh_progress()
 	vg.start_stage(0, "lance", 2)
 	check(vg.G.tier == 0, "starting a closed tier plays the highest open one")
 	vg.update()
