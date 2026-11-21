@@ -1412,6 +1412,18 @@ func _autotest(dir: String) -> void:
 		await _bld_test(dir); get_tree().quit(); return
 	elif mode == "choir":
 		await _choir_shots(dir); get_tree().quit(); return
+	elif mode == "cards":
+		# AF_MODE=cards: field manual pages for a few cards of each army (AF_KEYS=key,key overrides the list)
+		var ks := OS.get_environment("AF_KEYS")
+		var keys: Array = ks.split(",") if ks != "" else ["tank", "sigmast", "walker", "l_signal", "thrall", "garden", "carillon", "knot", "e:drill", "e:scorpion"]
+		for k in keys: tut.seen[k] = true
+		tut.open_manual("menu")
+		for k in keys:
+			var tab: int = 1 if k.begins_with("e:") else (2 if k.begins_with("l_") else 0)
+			tut.man_tab = tab; tut.man_sel = k; tut._fill_manual(); U._seg_pick("tut_tab", str(tab))
+			await get_tree().create_timer(.5).timeout
+			await _shot(dir + "/card_%s.png" % k.replace(":", "_"))
+		get_tree().quit(); return
 	elif mode == "pact":
 		await _pact_shots(dir); get_tree().quit(); return
 	elif mode == "vanguard":

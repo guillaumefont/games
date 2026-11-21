@@ -79,6 +79,27 @@ func _ready():
 				var emiss: Array = (m.ebase as Array).filter(func(t): return s.count(1, t) == 0)
 				print(C.num, ".", m.idx + 1, " dark ", dk, " missing ", miss, " enemy missing ", emiss, " masts ", s.count(0, "sigmast"), "/", s.count(1, "sigmast"))
 		get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "cards":
+		# what each mission gives the player (owned from the start in capitals) and whether it has a tutorial card
+		for C in D.CAMPAIGNS:
+			var known := {}
+			for i in C.missions.size():
+				s.new_game("normal", {"mission": C.missions[i]})
+				var types := {}
+				for t in D.UN.keys() + D.BLD.keys():
+					if s.avail(0, t) and s.mission.tech != null: types[t] = false
+				for e in s.ents:
+					if e.team == 0: types[e.type] = true
+				var fresh: Array = []
+				for t in types:
+					if known.has(t): continue
+					known[t] = true
+					fresh.append((t.to_upper() if types[t] else t) + ("" if TD.CARDS.has(t) else "?"))
+				var foes := {}
+				for e in s.ents:
+					if e.team == 1: foes[e.type] = true
+				print(C.id, " ", i + 1, " ", C.missions[i].title, ": ", fresh, " | enemy ", foes.keys())
+		get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "duel":
 		# AI against AI, for balance: AF_A and AF_B are the factions, AF_N the number of games, AF_MIN the length, AF_LOG=1 a line a minute
 		var fa := OS.get_environment("AF_A"); var fb := OS.get_environment("AF_B")

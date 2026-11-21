@@ -165,7 +165,6 @@ func _build_manual() -> void:
 
 func open_manual(back: String) -> void:
 	man_back = back
-	D.set_team_colors("ashen", "vanguard")   # cards show the Pact in red and its enemy in blue
 	_fill_manual()
 	U.show_overlay("units")
 
@@ -173,7 +172,7 @@ func _manual_keys(tab: int) -> Array:
 	var keys: Array = []
 	match tab:
 		0: keys = TD.CARDS.keys().filter(func(k): return not k.begins_with("l_"))
-		1: keys = TD.ENEMY.ashen.keys().map(func(k): return "e:" + k)
+		1: keys = TD.enemy_types().map(func(k): return "e:" + k)
 		2: keys = TD.CARDS.keys().filter(func(k): return k.begins_with("l_"))
 	return keys
 
@@ -198,7 +197,7 @@ func _fill_manual() -> void:
 func _entry_name(k: String) -> String:
 	if k.begins_with("e:"):
 		var t := k.substr(2)
-		return TD.ENEMY.ashen[t].get("name", D.def_of(t).name)
+		return TD.enemy_card(t).get("name", D.def_of(t).name)
 	return TD.card_name(k)
 
 # ---------------- mission flow ----------------
@@ -361,7 +360,7 @@ func close_card() -> void:
 	if S != null and S.mission != null: last_card = S.time
 
 func _show_enemy(key: String) -> void:
-	var t := key.substr(2); var e: Dictionary = TD.ENEMY[camp][t]
+	var t := key.substr(2); var e: Dictionary = TD.enemy_card(t, camp)
 	seen[key] = true; save_state()
 	enemy_name.text = e.get("name", D.def_of(t).name).to_upper()
 	enemy_text.text = e.text
@@ -395,6 +394,7 @@ func _when(w: String) -> bool:
 	match w:
 		"enemy_seen": return S.ents.any(func(e): return e.alive and e.team == 1 and e.kind == "u" and S.visible_to_player(e))
 		"bld_ready": return S.teams[0].prod.bld.ready
+		_ when w.begins_with("has:"): return S.count(0, w.substr(4)) > 0
 		"sw_ready": return S.ents.any(func(e): return e.alive and e.team == 0 and e.kind == "b" and e.rdy)
 	return true
 
@@ -465,6 +465,7 @@ func _ptr_of(p: Dictionary):
 		var c: Control = null
 		match p.ui:
 			"power": c = U.power_box
+			"cap": c = U.cap_parts[2] if U.cap_parts[2].visible else U.power_box
 			"place": c = U.place_bar.get_child(1) if U.place_bar.visible else null
 			"sw": c = U.btn.sw if U.btn.sw.visible else null
 		return ["r", c.get_global_rect()] if c != null and c.is_visible_in_tree() else null
@@ -540,7 +541,11 @@ class Turntable extends SubViewportContainer:
 		for ch in pivot.get_children(): ch.queue_free()
 	func show_model(kind: String, type: String, team: int, fac: String, dark: bool) -> void:
 		clear()
-		var m := Models.get_model(kind, type, team, fac)
+		# a card shows its army's own colours whatever match is on, so it is built outside the game's model cache
+		var keep: Array = D.TEAMC.duplicate()
+		D.TEAMC[team] = D.FCOL[fac]
+		var m: Node3D = Models.unit_model(type, team, fac) if kind == "u" else Models.bld_model(type, team, fac)
+		D.TEAMC = keep
 		pivot.add_child(m); pivot.rotation.y = 0.6
 		var black := StandardMaterial3D.new(); black.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED; black.albedo_color = Color(0.09, 0.1, 0.075)
 		var bb := AABB(); var first := true
@@ -615,19 +620,20 @@ class CardBody extends HBoxContainer:
 		var enemy := key.begins_with("e:")
 		var t := key.substr(2) if enemy else key
 		var lesson := t.begins_with("l_")
-		var c: Dictionary = TD.ENEMY.ashen[t] if enemy else TD.CARDS[t]
+		var c: Dictionary = TD.enemy_card(t, ui.main.tut.camp) if enemy else TD.CARDS[t]
+		var fac: String = TD.fac_of(t) if enemy else (c.home[0] if not lesson else "ashen")
 		tt.visible = not lesson; glyph.get_parent().visible = lesson
 		if lesson: glyph.kind = c.get("glyph", "info"); glyph.queue_redraw()
 		else:
 			var kind := "u" if D.UN.has(t) else "b"
-			tt.show_model(kind, t, 1 if enemy else 0, "vanguard" if enemy else "ashen", locked)
+			tt.show_model(kind, t, 1 if enemy else 0, fac, locked)
 		for l in [job, good, weak, extra, tip, who, say]: l.visible = not locked
 		face.visible = not locked
 		if locked:
 			eye.text = TD.TXT.locked.to_upper(); nm.text = "? ? ?"
 			return
 		var pal := {"u": TD.TXT.new_unit, "b": TD.TXT.new_bld}
-		eye.text = (TD.TXT.enemy if enemy else (TD.TXT.lesson if lesson else pal["u" if D.UN.has(t) else "b"] + "  //  " + D.FACS.ashen.name)).to_upper()
+		eye.text = (TD.TXT.enemy if enemy else (TD.TXT.lesson if lesson else pal["u" if D.UN.has(t) else "b"] + "  //  " + D.FACS[fac].name)).to_upper()
 		nm.text = (c.get("name", D.def_of(t).name) if enemy else TD.card_name(t)).to_upper()
 		job.text = c.text if enemy else c.job
 		var gw: Array = TD.gw_of(t) if enemy else TD.good_weak(t)
