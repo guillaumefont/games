@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshots of the portrait game (vertical slice) for reviews: the stage menu, Lance in
-## open ground charging, the Nova, Warden with its pod flung out, a fortress barrier, the Storm,
+## open ground charging, the Nova, Warden with its shield up, a fortress barrier, the Storm,
 ## Shatter stored and fired and the Bloom Mother, plus a canyon and an island.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- OUT_DIR
 
@@ -57,21 +57,16 @@ func _initialize() -> void:
 	await play(6, false)
 	await snap("v_nova")
 	vg.start_stage(1, "warden")
-	await play(500, true, 0.5)
-	await play(1, false)
-	await play(50, true, 0.4)
-	await snap("v_warden_pod")
+	await play(550, true, 0.5)
+	await snap("v_warden_shield")
 	vg.G.scroll = 1180.0
 	vg.G.si = 0
 	while vg.G.si < vg.script_list.size() and vg.script_list[vg.G.si].d < vg.G.scroll + 60:
 		vg.G.si += 1
 	await play(260, true, 0.5)
 	await snap("v_fortress")
-	# Shatter: the pod's work fills the meter (topped up here), recalling the pod fires it
-	if vg.pod.state != "out":
-		await play(1, false)
-		await play(40, true, 0.3)
-	vg.P.shat = vg.SHATTER_FULL
+	# Shatter: bullets the shield eats fill the meter (topped up here), the next lift fires it
+	vg.kit.meter = 1.0
 	await play(20, true, 0.3)
 	await snap("v_shatter_ready")
 	await play(1, false)
