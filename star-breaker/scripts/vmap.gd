@@ -1,80 +1,102 @@
 class_name VMap
 extends Control
-## The level screen's map: the chosen world's route, eight stages climbing up a panel in the
-## world's colours from stage 1 to the boss, the cleared stretch lit in the tier's colour, the
-## next stage pulsing, the rest locked. Tap an open stage to play it; a locked one says what to
-## clear first. Drawn in code, no child nodes. The world screen (VWorlds) uses its helpers.
+## The level map: all 48 stages on one trail climbing from the bottom of the screen to the top,
+## world after world. Drag to scroll. The sky shifts from one world's colours to the next, and a
+## banner (planet, name, progress) marks the way into each world. Each stage shows which tiers
+## it is cleared on (three pips); the trail is lit up to the next stage, where your ship waits.
+## Tap an open stage to open its panel (VHud picks the tier and plays it); a locked stage says
+## what to clear first. Drawn in code, no child nodes. The stage order follows Normal: a stage
+## is on the map once it is open on Normal, and its panel shows which harder tiers are open.
 
 signal stage_tapped(stage: int)
 
-const PANEL_H := 700.0
-const R := 20.0
-const R_BOSS := 27.0
+const R := 21.0
+const R_BOSS := 28.0
+## Content layout, in pixels up from the bottom of the trail.
+const BOTTOM := 150.0
+const STEP := 104.0
+const BANNER := 250.0
+const TOP_PAD := 240.0
+## The screen bands the menu's own controls cover (top bar, bottom bar).
+const TOP_H := 150.0
+const BOT_H := 130.0
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
 const C_INK := Color("0b0830")
 const C_GLASS := Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.7)
 
 var hud: VHud
+## The world in the middle of the view.
 var world := 0
-## The footer line: a hint, or why a tapped stage is locked (for `_note_t` frames).
+## How far the view has scrolled up the trail (content y at the bottom edge), and where it is
+## gliding to (-1: nowhere, it coasts on `_vel`).
+var scroll := 0.0
+var _target := -1.0
+var _vel := 0.0
+## The stage whose panel is open (-1: none); it is ringed on the map.
+var picked := -1
+## A line over the bottom bar: why a tapped stage is locked (for `_note_t` frames).
 var _note := ""
 var _note_t := 0
 var _press := Vector2(-1, -1)
+var _drag := 0.0
 var _flash := {}
 
 
 func _init(h: VHud) -> void:
 	hud = h
-	custom_minimum_size = Vector2(VHud.COL_W, PANEL_H)
-	size = custom_minimum_size
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	clip_contents = false
+	clip_contents = true
 
 
-func _process(_d: float) -> void:
-	if is_visible_in_tree():
-		if _note_t > 0:
-			_note_t -= 1
-		queue_redraw()
+func _process(d: float) -> void:
+	if not is_visible_in_tree():
+		return
+	if _note_t > 0:
+		_note_t -= 1
+	if _target >= 0.0:
+		scroll = lerpf(scroll, _target, minf(1.0, d * 9.0))
+		if absf(scroll - _target) < 0.5:
+			scroll = _target
+			_target = -1.0
+	elif absf(_vel) > 1.0 and _press.x < 0:
+		scroll += _vel * d
+		_vel *= pow(0.04, d)
+	_clamp()
+	world = world_at_view()
+	queue_redraw()
 
 
-func tier() -> int:
-	return hud.tier
-
+# ---------- progress ----------
 
 func prog() -> Progress:
 	return hud.prog
 
 
-func stage_index(w: int, j: int) -> int:
-	return w * VStage.PER_WORLD + j
+func is_open(i: int, t := 0) -> bool:
+	return prog() == null or prog().open(i, t)
 
 
-func is_open(i: int) -> bool:
-	return prog() == null or prog().open(i, tier())
+func is_cleared(i: int, t := 0) -> bool:
+	return prog() != null and prog().cleared(Progress.stage_id(i), t)
 
 
-func is_cleared(i: int) -> bool:
-	return prog() != null and prog().cleared(Progress.stage_id(i), tier())
-
-
-## How many of world `w`'s stages are cleared on the shown tier.
-func world_cleared(w: int) -> int:
+## How many of world `w`'s stages are cleared on tier `t`.
+func world_cleared(w: int, t := 0) -> int:
 	var n := 0
 	for j in VStage.PER_WORLD:
-		if is_cleared(stage_index(w, j)):
+		if is_cleared(w * VStage.PER_WORLD + j, t):
 			n += 1
 	return n
 
 
 func world_open(w: int) -> bool:
-	return is_open(stage_index(w, 0))
+	return is_open(w * VStage.PER_WORLD)
 
 
-## The stage to play next on the shown tier (-1 when none is open yet).
+## The next stage on the trail (Normal): where the ship waits.
 func next_stage() -> int:
-	return 0 if prog() == null else prog().next_stage(tier())
+	return 0 if prog() == null else maxi(0, prog().next_stage(0))
 
 
 ## What a stage's label says: its number and name, then its best score, NEXT or LOCKED.
@@ -98,11 +120,10 @@ func _sub(i: int) -> String:
 	return best if best != "" else boss
 
 
-## Why stage `i` is closed on the shown tier, for the footer.
-func lock_reason(i: int) -> String:
-	var t := tier()
+## Why stage `i` is closed on tier `t`.
+func lock_reason(i: int, t := 0) -> String:
 	var tn: String = Progress.tier(t).name
-	if i > 0 and not is_open_prev(i):
+	if i > 0 and prog() and prog().reach(t) + 1 < i:
 		var p: Dictionary = VStage.STAGES[i - 1]
 		if p.world != VStage.STAGES[i].world:
 			return "Clear %s on %s to reach %s" % [p.name, tn, Worlds.LIST[VStage.STAGES[i].world].name]
@@ -112,8 +133,100 @@ func lock_reason(i: int) -> String:
 	return "Locked"
 
 
-func is_open_prev(i: int) -> bool:
-	return prog() == null or prog().reach(tier()) + 1 >= i
+# ---------- layout ----------
+
+func _col_w() -> float:
+	return minf(size.x, 600.0)
+
+
+func _x0() -> float:
+	return (size.x - _col_w()) / 2.0
+
+
+## Where stage `i` sits on the trail, in pixels up from the bottom.
+static func stage_u(i: int) -> float:
+	return BOTTOM + BANNER * (VStage.world_of(i) + 1) + STEP * i
+
+
+## The middle of world `w`'s banner (just below its first stage).
+static func banner_u(w: int) -> float:
+	return stage_u(w * VStage.PER_WORLD) - (STEP + BANNER) / 2.0 - 10.0
+
+
+static func total_u() -> float:
+	return stage_u(VStage.STAGES.size() - 1) + TOP_PAD
+
+
+func _y(u: float) -> float:
+	return size.y - (u - scroll)
+
+
+func max_scroll() -> float:
+	return maxf(0.0, total_u() - size.y)
+
+
+func _clamp() -> void:
+	scroll = clampf(scroll, 0.0, max_scroll())
+
+
+## Screen position of stage `i`: the trail swings left and right, bosses in the middle.
+func node_pos(i: int) -> Vector2:
+	var st: Dictionary = VStage.STAGES[i]
+	var x := 0.34 if i % 2 == 0 else 0.66
+	if st.j == VStage.PER_WORLD - 1:
+		x = 0.5
+	return Vector2(_x0() + _col_w() * x, _y(stage_u(i)))
+
+
+func _radius(i: int) -> float:
+	return R_BOSS if VStage.STAGES[i].j == VStage.PER_WORLD - 1 else R
+
+
+func _label_left(i: int) -> bool:
+	return i % 2 == 0 and VStage.STAGES[i].j != VStage.PER_WORLD - 1
+
+
+func _label_rect(i: int) -> Rect2:
+	var c := node_pos(i)
+	var w := minf(190.0, _col_w() * 0.34 - _radius(i) - 6)
+	if _label_left(i):
+		return Rect2(c.x - _radius(i) - 14 - w, c.y - 22, w, 46)
+	return Rect2(c.x + _radius(i) + 14, c.y - 22, w, 46)
+
+
+## The world whose stretch of trail is in the middle of the view.
+func world_at_view() -> int:
+	var u := scroll + size.y * 0.5
+	var w := 0
+	for k in VStage.WORLDS.size():
+		if u >= banner_u(k) - BANNER * 0.5:
+			w = k
+	return w
+
+
+## Scrolls so stage `i` sits `at` of the way up the view (a little below the middle by default).
+func focus(i: int, instant := false, at := 0.42) -> void:
+	var t := clampf(stage_u(clampi(i, 0, VStage.STAGES.size() - 1)) - size.y * at, 0.0, max_scroll())
+	_vel = 0.0
+	if instant or size.y <= 0.0:
+		scroll = t
+		_target = -1.0
+		world = world_at_view()
+	else:
+		_target = t
+
+
+func focus_world(w: int, instant := false) -> void:
+	var i := w * VStage.PER_WORLD
+	var nx := next_stage()
+	if VStage.world_of(nx) == w:
+		i = nx
+	focus(i, instant)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and _target < 0.0:
+		_clamp()
 
 
 # ---------- input ----------
@@ -122,69 +235,53 @@ func _gui_input(e: InputEvent) -> void:
 	if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
 		if e.pressed:
 			_press = e.position
+			_drag = 0.0
+			_vel = 0.0
+			_target = -1.0
 		elif _press.x >= 0:
-			if _press.distance_to(e.position) < 40:
+			if _drag < 14.0:
 				tap(_press)
+				_vel = 0.0
 			_press = Vector2(-1, -1)
+		accept_event()
+	elif e is InputEventMouseMotion and _press.x >= 0:
+		var dy: float = e.relative.y
+		_drag += absf(dy) + absf(e.relative.x)
+		scroll += dy
+		_clamp()
+		_vel = lerpf(_vel, dy * 60.0, 0.5)
+		accept_event()
+	elif e is InputEventMouseButton and e.pressed and e.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		scroll += 60.0 if e.button_index == MOUSE_BUTTON_WHEEL_UP else -60.0
+		_target = -1.0
+		_clamp()
 		accept_event()
 
 
-## Handles a tap at `p` (local position) on the route.
+## Handles a tap at `p` (local position): the stage under it, if any.
 func tap(p: Vector2) -> void:
-	for j in VStage.PER_WORLD:
-		var c := node_pos(j)
-		if p.distance_to(c) < _radius(j) + 14 or _label_rect(j).has_point(p):
-			tap_stage(j)
+	if p.y < TOP_H or p.y > size.y - BOT_H:
+		return
+	for i in VStage.STAGES.size():
+		var c := node_pos(i)
+		if c.y < -60 or c.y > size.y + 60:
+			continue
+		if p.distance_to(c) < _radius(i) + 16 or _label_rect(i).has_point(p):
+			tap_stage(i)
 			return
 
 
-func tap_stage(j: int) -> void:
-	var i := stage_index(world, j)
-	_flash[j] = 12
+func tap_stage(i: int) -> void:
+	_flash[i] = 12
 	if is_open(i):
+		picked = i
 		stage_tapped.emit(i)
 	else:
 		_note = lock_reason(i)
 		_note_t = 150
 
 
-# ---------- layout ----------
-
-func panel() -> Rect2:
-	return Rect2(0, 0, size.x, size.y)
-
-
-func _radius(j: int) -> float:
-	return R_BOSS if j == VStage.PER_WORLD - 1 else R
-
-
-## Where stage `j` of the shown world sits: a trail climbing from the bottom of the panel to the
-## boss at the top, swinging left and right.
-func node_pos(j: int) -> Vector2:
-	var pr := panel()
-	var y0 := pr.end.y - 80.0
-	var y1 := pr.position.y + 150.0
-	var y := lerpf(y0, y1, float(j) / float(VStage.PER_WORLD - 1))
-	var x := 0.35 if j % 2 == 0 else 0.65
-	if j == VStage.PER_WORLD - 1:
-		x = 0.5
-	return Vector2(pr.position.x + pr.size.x * x, y)
-
-
-## Labels sit outside the trail: left of the left nodes, right of the right ones (and the boss).
-func _label_left(j: int) -> bool:
-	return j % 2 == 0 and j != VStage.PER_WORLD - 1
-
-
-func _label_rect(j: int) -> Rect2:
-	var c := node_pos(j)
-	var w := 170.0
-	if _label_left(j):
-		return Rect2(c.x - _radius(j) - 12 - w, c.y - 22, w, 46)
-	return Rect2(c.x + _radius(j) + 12, c.y - 22, w, 46)
-
-
-# ---------- drawing ----------
+# ---------- drawing helpers ----------
 
 func _font(w: int) -> Font:
 	return hud.fonts[w] if hud and hud.fonts.has(w) else ThemeDB.fallback_font
@@ -206,13 +303,8 @@ func _text(p: Vector2, s: String, sz: int, col: Color, w := 800, align := HORIZO
 	ci.draw_string(f, Vector2(x, p.y), s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz, col)
 
 
-func tier_col() -> Color:
-	return Color(String(Progress.tier(tier()).color))
-
-
-func _draw() -> void:
-	_draw_panel()
-	_draw_route()
+static func tier_color(t: int) -> Color:
+	return Color(String(Progress.tier(t).color))
 
 
 ## A low poly planet: dark side, lit face, a highlight and a tilted ring.
@@ -222,7 +314,6 @@ func _planet(c: Vector2, r: float, pal: Dictionary, a: float, ci: CanvasItem = n
 	var body := Color(pal.planet)
 	var dark := Color(pal.planet_e)
 	var ring := Color(pal.ring)
-	# the back half of the ring, behind the planet
 	ci.draw_set_transform(c, -0.35, Vector2(1.0, 0.32))
 	ci.draw_arc(Vector2.ZERO, r * 1.55, PI, TAU, 32, Color(ring, 0.55 * a), 3.0, true)
 	ci.draw_set_transform(Vector2.ZERO)
@@ -247,59 +338,26 @@ func _lock(c: Vector2, k: float, col: Color, ci: CanvasItem = null) -> void:
 	ci.draw_circle(c + Vector2(0, 3.2) * k, 1.6 * k, C_INK)
 
 
-## The world's panel: a sky in the world's colours, its planet rising in a corner, stars, and
-## the world's name with how much of it is cleared.
-func _draw_panel() -> void:
-	var pr := panel()
-	var pal: Dictionary = Worlds.LIST[world].pal
-	var top := Color(pal.top)
-	var bot := Color(pal.bot)
-	var pts := _rounded(pr, 26.0)
-	var cols := PackedColorArray()
-	for p in pts:
-		var k := (p.y - pr.position.y) / pr.size.y
-		cols.append(Color(top.lerp(bot, k), 0.92))
-	draw_polygon(pts, cols)
-	# stars: fixed per world
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 991 + world * 17
-	for s in 46:
-		var p := Vector2(rng.randf_range(pr.position.x + 14, pr.end.x - 14), rng.randf_range(pr.position.y + 14, pr.end.y - 14))
-		var col := Color(pal.star_b if rng.randf() < 0.3 else pal.star_a)
-		draw_circle(p, rng.randf_range(0.8, 1.9), Color(col, rng.randf_range(0.25, 0.7)))
-	# the world's planet, big and faint, in the top right corner
-	var pc := Vector2(pr.end.x - 62, pr.position.y + 54)
-	draw_circle(pc, 40, Color(Color(pal.planet_e), 0.6))
-	draw_circle(pc + Vector2(-7, -7), 32, Color(Color(pal.planet), 0.32))
-	draw_set_transform(pc, -0.35, Vector2(1.0, 0.3))
-	draw_arc(Vector2.ZERO, 64, PI * 0.08, PI * 0.92, 40, Color(Color(pal.ring), 0.45), 2.5, true)
-	draw_set_transform(Vector2.ZERO)
-	# border
-	var outline := pts.duplicate()
-	outline.append(pts[0])
-	draw_polyline(outline, Color(Color(pal.ring), 0.35), 1.5, true)
-	# title
-	var wd: Dictionary = Worlds.LIST[world]
-	var x := pr.position.x + 24
-	_text(Vector2(x, pr.position.y + 34), String(wd.sub).to_upper(), 14, Color(Color(pal.light), 0.9), 800)
-	_text(Vector2(x, pr.position.y + 64), String(wd.name).to_upper(), 26, C_TEXT, 800, HORIZONTAL_ALIGNMENT_LEFT, pr.size.x - 60)
-	var done := world_cleared(world)
-	var tn: String = Progress.tier(tier()).name
-	var line := "%d / %d CLEARED ON %s" % [done, VStage.PER_WORLD, tn.to_upper()]
-	if not world_open(world):
-		line = "LOCKED ON %s" % tn.to_upper()
-	_text(Vector2(x, pr.position.y + 88), line, 13, tier_col() if done > 0 else C_MUTED, 700)
-	# footer: why a stage is locked, or a hint
-	var foot := _note if _note_t > 0 else ""
-	if foot == "":
-		if done == VStage.PER_WORLD:
-			foot = "World cleared on %s" % tn
-		elif world_open(world):
-			foot = "Tap a stage to play"
-		else:
-			foot = lock_reason(stage_index(world, 0))
-	_text(Vector2(pr.get_center().x, pr.end.y - 18), foot.to_upper(), 13,
-			Color(VHud.C_AMBER, 0.95) if _note_t > 0 else Color(C_MUTED, 0.85), 700, HORIZONTAL_ALIGNMENT_CENTER, pr.size.x - 40)
+## A top-down ship in its paint: a dart with swept wings, a canopy and an engine glow.
+static func draw_ship(ci: CanvasItem, c: Vector2, k: float, paint: Dictionary, kind: String) -> void:
+	var hull := Color(String(paint.get("hull", "dfe8f2")))
+	var dark := Color(String(paint.get("dark", "56607a")))
+	var glow := Color(String(paint.get("glow", "4fe3d6")))
+	var flame := Color(String(paint.get("flame", ""))) if String(paint.get("flame", "")) != "" else Color("ff9a40")
+	ci.draw_circle(c + Vector2(0, 17) * k, 7 * k, Color(flame, 0.35))
+	ci.draw_circle(c + Vector2(0, 15) * k, 4 * k, flame)
+	var wing := PackedVector2Array([c + Vector2(0, -6) * k, c + Vector2(17, 10) * k, c + Vector2(14, 14) * k, c + Vector2(0, 9) * k,
+		c + Vector2(-14, 14) * k, c + Vector2(-17, 10) * k])
+	ci.draw_colored_polygon(wing, dark)
+	var body := PackedVector2Array([c + Vector2(0, -22) * k, c + Vector2(6, -4) * k, c + Vector2(5, 13) * k, c + Vector2(-5, 13) * k, c + Vector2(-6, -4) * k])
+	ci.draw_colored_polygon(body, hull)
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -14) * k, c + Vector2(3, -6) * k, c + Vector2(0, -2) * k, c + Vector2(-3, -6) * k]), glow)
+	if kind == "warden":
+		# the pod rides ahead of the Warden
+		ci.draw_circle(c + Vector2(0, -32) * k, 6 * k, Color(glow, 0.3))
+		ci.draw_circle(c + Vector2(0, -32) * k, 4 * k, glow)
+	else:
+		ci.draw_line(c + Vector2(0, -22) * k, c + Vector2(0, -30) * k, glow, 2.5 * k, true)
 
 
 func _rounded(r: Rect2, rad: float) -> PackedVector2Array:
@@ -317,10 +375,96 @@ func _rounded(r: Rect2, rad: float) -> PackedVector2Array:
 	return pts
 
 
-## The trail between stage `j` and `j + 1`, as points.
-func _seg(j: int) -> PackedVector2Array:
-	var a := node_pos(j)
-	var b := node_pos(j + 1)
+# ---------- drawing ----------
+
+## World `w`'s colour on the map: its sky, pulled towards its ring colour so worlds tell apart.
+static func world_color(w: int) -> Color:
+	var pal: Dictionary = Worlds.LIST[w].pal
+	return Color(pal.top).lerp(Color(pal.ring), 0.28)
+
+
+## The sky colour at trail height `u`: each world's colour around its own stretch, blending into
+## the next world's across the banner between them.
+func sky(u: float) -> Color:
+	var n: int = VStage.WORLDS.size()
+	var keys: Array = []
+	for w in n:
+		var pal: Dictionary = Worlds.LIST[w].pal
+		var a := stage_u(w * VStage.PER_WORLD)
+		var b := stage_u(w * VStage.PER_WORLD + VStage.PER_WORLD - 1)
+		# the world's own colour holds across its whole stretch (a touch lighter at its top) and
+		# only changes across the banner into the next world
+		var col := world_color(w)
+		keys.append([a - STEP * 0.4, col])
+		keys.append([b + STEP * 0.4, col.lightened(0.06)])
+	if u <= keys[0][0]:
+		return Color(Worlds.LIST[0].pal.bot).lerp(keys[0][1], clampf(u / keys[0][0], 0.0, 1.0))
+	for k in keys.size() - 1:
+		if u <= keys[k + 1][0]:
+			var f := (u - float(keys[k][0])) / (float(keys[k + 1][0]) - float(keys[k][0]))
+			return (keys[k][1] as Color).lerp(keys[k + 1][1], smoothstep(0.0, 1.0, f))
+	return keys[keys.size() - 1][1]
+
+
+func _draw() -> void:
+	_draw_sky()
+	_draw_trail()
+	for w in VStage.WORLDS.size():
+		_draw_banner(w)
+	_draw_stages()
+	_draw_ship()
+	_draw_fades()
+
+
+func _draw_sky() -> void:
+	var band := 24.0
+	var y := size.y
+	while y > -band:
+		var u0 := scroll + (size.y - y)
+		var u1 := u0 + band
+		var pts := PackedVector2Array([Vector2(0, y), Vector2(size.x, y), Vector2(size.x, y - band), Vector2(0, y - band)])
+		var c0 := sky(u0)
+		var c1 := sky(u1)
+		draw_polygon(pts, PackedColorArray([c0, c0, c1, c1]))
+		y -= band
+	# stars, fixed to the trail so they scroll with it
+	var cell := 140.0
+	var k0 := int(floor(scroll / cell))
+	var k1 := int(ceil((scroll + size.y) / cell))
+	for k in range(k0, k1 + 1):
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7741 + k * 131
+		var pal: Dictionary = Worlds.LIST[_world_of_u(k * cell)].pal
+		for s in 9:
+			var p := Vector2(rng.randf_range(0, size.x), _y(k * cell + rng.randf_range(0, cell)))
+			var col := Color(pal.star_b if rng.randf() < 0.3 else pal.star_a)
+			draw_circle(p, rng.randf_range(0.8, 2.0), Color(col, rng.randf_range(0.25, 0.75)))
+	# each world's planet, big and faint, beside its stretch of trail
+	for w in VStage.WORLDS.size():
+		var pal: Dictionary = Worlds.LIST[w].pal
+		var u := (stage_u(w * VStage.PER_WORLD + 3) + stage_u(w * VStage.PER_WORLD + 4)) / 2.0
+		var pc := Vector2(size.x * (0.92 if w % 2 == 0 else 0.08), _y(u))
+		if pc.y < -200 or pc.y > size.y + 200:
+			continue
+		draw_circle(pc, 120, Color(Color(pal.planet_e), 0.45))
+		draw_circle(pc + Vector2(-18, -18), 98, Color(Color(pal.planet), 0.18))
+		draw_set_transform(pc, -0.35, Vector2(1.0, 0.3))
+		draw_arc(Vector2.ZERO, 190, 0, PI, 48, Color(Color(pal.ring), 0.25), 4.0, true)
+		draw_set_transform(Vector2.ZERO)
+
+
+func _world_of_u(u: float) -> int:
+	var w := 0
+	for k in VStage.WORLDS.size():
+		if u >= banner_u(k):
+			w = k
+	return w
+
+
+## The trail between stage `i` and `i + 1`, as points.
+func _seg(i: int) -> PackedVector2Array:
+	var a := node_pos(i)
+	var b := node_pos(i + 1)
 	var dy := a.y - b.y
 	var c0 := a + Vector2(0, -dy * 0.55)
 	var c1 := b + Vector2(0, dy * 0.55)
@@ -332,37 +476,83 @@ func _seg(j: int) -> PackedVector2Array:
 	return pts
 
 
-func _draw_route() -> void:
-	var tc := tier_col()
-	var base := stage_index(world, 0)
-	var nxt := next_stage()
+func _draw_trail() -> void:
+	var tc := tier_color(0)
 	var ms := Time.get_ticks_msec()
-	var pulse := 0.5 + 0.5 * sin(ms / 260.0)
-	# the trail
-	for j in VStage.PER_WORLD - 1:
-		var pts := _seg(j)
-		var i := base + j
+	var nxt := next_stage()
+	for i in VStage.STAGES.size() - 1:
+		var ya := _y(stage_u(i))
+		var yb := _y(stage_u(i + 1))
+		if ya < -40 or yb > size.y + 40:
+			continue
+		var pts := _seg(i)
 		if is_cleared(i) and is_open(i + 1):
-			draw_polyline(pts, Color(tc, 0.22), 11.0, true)
+			draw_polyline(pts, Color(tc, 0.22), 12.0, true)
 			draw_polyline(pts, tc, 4.0, true)
 		elif is_open(i + 1) or i + 1 == nxt:
 			_dashes(pts, Color(tc, 0.85), 3.0, ms / 40.0)
 		else:
 			_dashes(pts, Color(1, 1, 1, 0.22), 2.0, 0.0)
-	# the stages
-	for j in VStage.PER_WORLD:
-		var i := base + j
-		var c := node_pos(j)
-		var r := _radius(j)
+
+
+## The way into world `w`: a glass plate with its planet, name, boss and progress on each tier.
+func _draw_banner(w: int) -> void:
+	var cy := _y(banner_u(w))
+	if cy < -120 or cy > size.y + 120:
+		return
+	var wd: Dictionary = Worlds.LIST[w]
+	var pal: Dictionary = wd.pal
+	var open := world_open(w)
+	var a := 1.0 if open else 0.6
+	var bw := minf(_col_w() - 40, 440.0)
+	var r := Rect2(size.x / 2.0 - bw / 2.0, cy - 64, bw, 128)
+	var pts := _rounded(r, 24.0)
+	draw_colored_polygon(pts, Color(Color(pal.bg), 0.82))
+	var ring := pts.duplicate()
+	ring.append(pts[0])
+	draw_polyline(ring, Color(Color(pal.ring), 0.6 * a), 2.0, true)
+	var pc := r.position + Vector2(62, 64)
+	_planet(pc, 32, pal, a)
+	if not open:
+		_lock(pc, 1.4, Color(C_TEXT, 0.9))
+	var x := r.position.x + 124
+	_text(Vector2(x, r.position.y + 34), String(wd.sub).to_upper(), 14, Color(Color(pal.light), 0.9 * a), 800)
+	_text(Vector2(x, r.position.y + 66), String(wd.name).to_upper(), 26, Color(C_TEXT, a), 800, HORIZONTAL_ALIGNMENT_LEFT, r.end.x - x - 16)
+	if not open:
+		_text(Vector2(x, r.position.y + 100), "LOCKED", 14, Color(C_MUTED, 0.8), 800)
+		return
+	# one short bar per tier: how much of the world is cleared on it
+	var bwid := (r.end.x - x - 24) / 3.0
+	for t in Progress.TIERS.size():
+		var n := world_cleared(w, t)
+		var bx := x + t * (bwid + 6)
+		var col := tier_color(t)
+		draw_rect(Rect2(bx, r.position.y + 88, bwid - 6, 6), Color(1, 1, 1, 0.12))
+		if n > 0:
+			draw_rect(Rect2(bx, r.position.y + 88, (bwid - 6) * n / float(VStage.PER_WORLD), 6), col)
+		_text(Vector2(bx, r.position.y + 114), "%s %d/8" % [String(Progress.TIERS[t].name).to_upper(), n], 11, Color(col, 0.95 if n > 0 else 0.5), 800, HORIZONTAL_ALIGNMENT_LEFT, bwid - 6)
+
+
+func _draw_stages() -> void:
+	var tc := tier_color(0)
+	var nxt := next_stage()
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
+	for i in VStage.STAGES.size():
+		var c := node_pos(i)
+		if c.y < -60 or c.y > size.y + 60:
+			continue
+		var r := _radius(i)
 		var open := is_open(i)
 		var done := is_cleared(i)
-		var boss := j == VStage.PER_WORLD - 1
-		var fl: int = _flash.get(j, 0)
+		var boss: bool = VStage.STAGES[i].j == VStage.PER_WORLD - 1
+		var fl: int = _flash.get(i, 0)
 		if fl > 0:
-			_flash[j] = fl - 1
+			_flash[i] = fl - 1
 		if i == nxt and open and not done:
 			draw_circle(c, r + 10 + 6 * pulse, Color(tc, 0.12 + 0.1 * pulse))
 			draw_arc(c, r + 6 + 6 * pulse, 0, TAU, 40, Color(tc, 0.7 - 0.4 * pulse), 2.0, true)
+		if i == picked:
+			draw_arc(c, r + 9, 0, TAU, 40, C_TEXT, 3.0, true)
 		var shape := _node_shape(c, r, boss)
 		if done:
 			draw_colored_polygon(shape, tc)
@@ -377,11 +567,18 @@ func _draw_route() -> void:
 		if fl > 0:
 			draw_polyline(ring, Color(1, 1, 1, fl / 12.0), 5.0, true)
 		if open:
-			var num := str(j + 1)
-			_text(c + Vector2(0, 8 if not boss else 9), num, 22 if boss else 20, C_INK if done else C_TEXT, 800, HORIZONTAL_ALIGNMENT_CENTER)
+			_text(c + Vector2(0, 8 if not boss else 9), str(VStage.STAGES[i].j + 1), 22 if boss else 20, C_INK if done else C_TEXT, 800, HORIZONTAL_ALIGNMENT_CENTER)
+			# which tiers it's cleared on: three pips under the node
+			for t in Progress.TIERS.size():
+				var pc := c + Vector2((t - 1) * 11, r + 9)
+				var col := tier_color(t)
+				if is_cleared(i, t):
+					draw_circle(pc, 4.2, col)
+				else:
+					draw_arc(pc, 3.6, 0, TAU, 12, Color(col, 0.45), 1.4, true)
 		else:
 			_lock(c, 1.0 if not boss else 1.25, Color(1, 1, 1, 0.45))
-		_draw_label(j, i, open, done)
+		_draw_label(i, open, done)
 
 
 func _node_shape(c: Vector2, r: float, boss: bool) -> PackedVector2Array:
@@ -401,6 +598,8 @@ func _dashes(pts: PackedVector2Array, col: Color, w: float, phase: float) -> voi
 		var a := pts[k]
 		var b := pts[k + 1]
 		var l := a.distance_to(b)
+		if l <= 0.0:
+			continue
 		var s := 0.0
 		while s < l:
 			var pos := along + s
@@ -414,35 +613,49 @@ func _dashes(pts: PackedVector2Array, col: Color, w: float, phase: float) -> voi
 		along += l
 
 
-func _draw_label(j: int, i: int, open: bool, done: bool) -> void:
+func _draw_label(i: int, open: bool, done: bool) -> void:
 	var st: Dictionary = VStage.STAGES[i]
-	var rect := _label_rect(j)
-	var left := _label_left(j)
+	var rect := _label_rect(i)
+	var left := _label_left(i)
 	var al := HORIZONTAL_ALIGNMENT_RIGHT if left else HORIZONTAL_ALIGNMENT_LEFT
 	var x := rect.end.x if left else rect.position.x
-	var tc := tier_col()
 	var name_col := C_TEXT if open else Color(C_MUTED, 0.55)
 	_text(Vector2(x, rect.position.y + 17), String(st.name).to_upper(), 18, name_col, 800, al, rect.size.x)
 	var sub := _sub(i).to_upper()
 	var sub_col := Color(C_MUTED, 0.9)
 	if open and i == next_stage() and not done:
-		sub_col = tc
+		sub_col = tier_color(0)
 	elif not open:
 		sub_col = Color(C_MUTED, 0.45)
-	# medal pips beside the second line once the stage is cleared on this tier
-	var pip_w := 0.0
-	if done and prog():
-		pip_w = 4 * 11.0
-		var m := prog().medals(Progress.stage_id(i), tier())
-		var px := (x - pip_w) if left else x
-		for k in Progress.MEDALS.size():
-			var col := Color(String(Progress.MEDAL_INFO[Progress.MEDALS[k]].color))
-			var pc := Vector2(px + 5 + k * 11, rect.position.y + 34)
-			if m & (1 << k):
-				draw_circle(pc, 4.0, col)
-			else:
-				draw_arc(pc, 3.5, 0, TAU, 12, Color(col, 0.5), 1.4, true)
-		pip_w += 8
 	if sub != "":
-		var sx := (x - pip_w) if left else (x + pip_w)
-		_text(Vector2(sx, rect.position.y + 40), sub, 14, sub_col, 700, al, rect.size.x - pip_w)
+		_text(Vector2(x, rect.position.y + 40), sub, 14, sub_col, 700, al, rect.size.x)
+
+
+## Your ship, bobbing beside the next stage.
+func _draw_ship() -> void:
+	var i := next_stage()
+	var c := node_pos(i)
+	if c.y < -60 or c.y > size.y + 60:
+		return
+	var side := -1.0 if not _label_left(i) else 1.0
+	if VStage.STAGES[i].j == VStage.PER_WORLD - 1:
+		side = -1.0
+	var p := c + Vector2(side * (_radius(i) + 34), 4 + 4 * sin(Time.get_ticks_msec() / 300.0))
+	var paint: Dictionary = prog().paint_of(hud.ship) if prog() else {}
+	draw_ship(self, p, 1.0, paint, hud.ship)
+
+
+## The top and bottom bars fade the trail out under the menu's controls; the bottom one carries
+## the note on a locked stage.
+func _draw_fades() -> void:
+	var dark := Color(5 / 255.0, 4 / 255.0, 26 / 255.0)
+	var clear := Color(dark, 0.0)
+	draw_rect(Rect2(0, 0, size.x, TOP_H - 20), Color(dark, 0.9))
+	draw_polygon(PackedVector2Array([Vector2(0, TOP_H - 20), Vector2(size.x, TOP_H - 20), Vector2(size.x, TOP_H + 50), Vector2(0, TOP_H + 50)]),
+		PackedColorArray([Color(dark, 0.9), Color(dark, 0.9), clear, clear]))
+	var y := size.y - BOT_H - 50
+	draw_polygon(PackedVector2Array([Vector2(0, y), Vector2(size.x, y), Vector2(size.x, size.y), Vector2(0, size.y)]),
+		PackedColorArray([clear, clear, Color(dark, 0.95), Color(dark, 0.95)]))
+	if _note_t > 0:
+		_text(Vector2(size.x / 2.0, size.y - BOT_H - 14), _note.to_upper(), 15, Color(VHud.C_AMBER, minf(1.0, _note_t / 20.0)), 700,
+			HORIZONTAL_ALIGNMENT_CENTER, _col_w() - 40)
