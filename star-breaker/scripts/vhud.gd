@@ -70,7 +70,7 @@ var _home_next: Label
 var _ship_secs := {}
 var pause_scr: Control
 var result_scr: Control
-var _ship_btns := {}
+var carousel: ShipCarousel
 ## The level map (see VMap) and the world in view.
 var map: VMap
 var world_sel := 0
@@ -605,8 +605,8 @@ static func _fmt(n: int) -> String:
 
 func select_ship(k: String) -> void:
 	ship = k
-	for key in _ship_btns:
-		_style_button(_ship_btns[key], key == k)
+	if carousel:
+		carousel.queue_redraw()
 	for key in _ship_secs:
 		_ship_secs[key].visible = key == k
 	_update_how()
@@ -626,6 +626,8 @@ func _update_home() -> void:
 	_btn_medals.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, l2]
 	if _home_ship:
 		_home_ship.queue_redraw()
+	if carousel:
+		carousel.queue_redraw()
 	if _home_next:
 		var n := prog.next_stage(0) if prog else 0
 		if n < 0:
@@ -896,8 +898,8 @@ func set_report(r: Dictionary) -> void:
 			sb.shadow_color = Color(col, 0.35)
 
 
-## The hangar: flux in the bank and the medal count, then the ship you fly (Lance or Warden, with
-## what it does), its level with a level-up button, and its colours (locked ones say how many
+## The hangar: flux in the bank and the medal count, then the ship you fly drawn big (swipe it
+## for the other ship; Guillaume, 2026-11-21) with what it does, its level with a level-up button, and its colours (locked ones say how many
 ## medals they need).
 func _build_medals() -> Control:
 	var v := _screen()
@@ -921,18 +923,11 @@ func _build_medals() -> Control:
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 10
 	v.add_child(gap)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 16)
-	for k in VShips.ORDER:
-		var b := Button.new()
-		b.text = String(VShips.KITS[k].name).to_upper()
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2((COL_W - 16) / 2.0, 76)
-		b.pressed.connect(func(): select_ship(k))
-		row.add_child(b)
-		_ship_btns[k] = b
-	v.add_child(row)
+	# the ship you fly, drawn big: swipe it (or tap an arrow) for the other ship
+	carousel = ShipCarousel.new()
+	carousel.hud = self
+	carousel.custom_minimum_size = Vector2(COL_W, 300)
+	v.add_child(_center(carousel))
 	var how := _label("", 16, 500, C_MUTED)
 	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1013,6 +1008,120 @@ func _style_swatch(b: Button, k: String) -> void:
 
 ## Four medal pips in a row (Sweep, Untouched, Breaker, Swift): filled in the medal's colour
 ## when held, an empty ring when not. The big version names each medal and rings the new ones.
+## The hangar's ship picker: the ship you fly drawn big in its paint with its name and a dot per
+## ship. Drag it sideways and let go past a third of the way (or flick it) to slide to the next
+## or previous ship; the arrows at the sides do the same with a tap. Ships wrap around.
+class ShipCarousel:
+	extends Control
+	var hud: VHud
+	var drag := 0.0      # how far the finger has pulled the ship sideways
+	var slide := 0.0     # what's left of the slide after a switch, eased back to 0
+	var _down := false
+	var _moved := false
+	var _start := 0.0
+	var _last := 0.0
+	var _vel := 0.0
+	var _t := 0.0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		clip_contents = true
+		set_process(true)
+
+	func _index() -> int:
+		return maxi(0, VShips.ORDER.find(hud.ship))
+
+	func _ship_at(d: int) -> String:
+		var n: int = VShips.ORDER.size()
+		return VShips.ORDER[posmod(_index() + d, n)]
+
+	## Moves to the ship `d` steps along (+1 = next) and slides it in from that side.
+	func swipe(d: int) -> void:
+		if d == 0 or VShips.ORDER.size() < 2:
+			return
+		var k := _ship_at(d)
+		slide = d * size.x + drag
+		drag = 0.0
+		hud.select_ship(k)
+
+	func _process(delta: float) -> void:
+		_t += delta
+		if not _down:
+			drag = lerpf(drag, 0.0, minf(1.0, delta * 14.0))
+		slide = lerpf(slide, 0.0, minf(1.0, delta * 10.0))
+		if absf(slide) < 0.5:
+			slide = 0.0
+		queue_redraw()
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT or e is InputEventScreenTouch:
+			if e.pressed:
+				_down = true
+				_moved = false
+				_start = e.position.x
+				_last = e.position.x
+				_vel = 0.0
+			elif _down:
+				_down = false
+				if _moved:
+					if drag < -size.x / 3.0 or _vel < -900.0:
+						swipe(1)
+					elif drag > size.x / 3.0 or _vel > 900.0:
+						swipe(-1)
+				elif e.position.x < 70:
+					swipe(-1)
+				elif e.position.x > size.x - 70:
+					swipe(1)
+			accept_event()
+		elif (e is InputEventMouseMotion or e is InputEventScreenDrag) and _down:
+			var x: float = e.position.x
+			var dt := maxf(get_process_delta_time(), 1.0 / 120.0)
+			_vel = lerpf(_vel, (x - _last) / dt, 0.5)
+			_last = x
+			drag = x - _start
+			if absf(drag) > 12:
+				_moved = true
+			accept_event()
+
+	func _draw() -> void:
+		if hud == null:
+			return
+		var w := size.x
+		var cy := 124.0
+		var off := drag + slide
+		# the pad the ship sits on
+		draw_circle(Vector2(w / 2, cy + 6), 112, Color(1, 1, 1, 0.04))
+		draw_arc(Vector2(w / 2, cy + 6), 112, 0, TAU, 64, Color(1, 1, 1, 0.12), 2.0, true)
+		for d: int in [-1, 0, 1]:
+			var x: float = w / 2 + d * w + off
+			if x < -w * 0.6 or x > w * 1.6:
+				continue
+			var k: String = hud.ship if d == 0 else _ship_at(d)
+			if d != 0 and off == 0.0:
+				continue
+			var paint: Dictionary = hud.prog.paint_of(k) if hud.prog else {}
+			var bob := 5.0 * sin(_t * 2.2)
+			var fade := clampf(1.0 - absf(x - w / 2) / w, 0.0, 1.0)
+			var c := Vector2(x, cy + bob)
+			VMap.draw_ship(self, c, 3.5, paint, k)
+			var f: Font = hud.fonts[800]
+			var name := String(VShips.KITS[k].name).to_upper()
+			var fs := 30
+			var tw := f.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_string(f, Vector2(x - tw / 2, 268), name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.35 + 0.65 * fade))
+		# arrows and a dot per ship
+		var ac := Color(1, 1, 1, 0.5)
+		for sgn in [-1.0, 1.0]:
+			var ax: float = w / 2 + sgn * (w / 2 - 26)
+			var pts := PackedVector2Array([Vector2(ax - sgn * 8, cy - 18), Vector2(ax + sgn * 8, cy), Vector2(ax - sgn * 8, cy + 18)])
+			draw_polyline(pts, ac, 4.0, true)
+		var n: int = VShips.ORDER.size()
+		for i in n:
+			var dx := (i - (n - 1) / 2.0) * 22.0
+			var on := i == _index()
+			draw_circle(Vector2(w / 2 + dx, 290), 6.0 if on else 4.0, Color(1, 1, 1, 0.9 if on else 0.3))
+
+
 class Pips:
 	extends Control
 	const WIDTH := 4 * 22.0
