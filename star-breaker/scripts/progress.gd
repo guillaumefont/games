@@ -52,6 +52,16 @@ const SCHEMES := {
 	],
 }
 
+## Schemes of the ships without a list of their own, and the medals each one needs.
+const COMMON := [
+	{id = "stock", name = "Stock", hull = "dfe8f2", dark = "56607a", glow = "4fe3d6", flame = ""},
+	{id = "ember", name = "Ember", hull = "f2d6c4", dark = "7a3a2e", glow = "ff8a3d", flame = "ff6a2a"},
+	{id = "moss", name = "Moss", hull = "d2e6c8", dark = "3e5a3a", glow = "a6ff5a", flame = "c8ff6a"},
+	{id = "obsidian", name = "Obsidian", hull = "3a3648", dark = "1c1a26", glow = "ff4fa3", flame = "ff4fa3"},
+	{id = "prism", name = "Prism", hull = "f4f2ff", dark = "8c7bff", glow = "3ff0e0", flame = "3ff0e0"},
+]
+const COMMON_AT := {ember = 8, moss = 24, obsidian = 40, prism = 72}
+
 ## The medal track: a reward unlocks once you hold `at` medals in total.
 const TRACK := [
 	{at = 2, ship = "lance", scheme = "ember"},
@@ -67,10 +77,16 @@ const TRACK := [
 ## stage id -> {m = [medal bits per tier], c = cleared tiers as bits}
 var stages: Dictionary = {}
 ## ship -> chosen scheme id
-var paint: Dictionary = {lance = "stock", warden = "stock"}
+var paint: Dictionary = {}
 ## Flux (soft currency) in the bank, and each ship's level (1 to MAX_LEVEL).
 var flux := 0
-var levels: Dictionary = {lance = 1, warden = 1}
+var levels: Dictionary = {}
+
+
+func _init() -> void:
+	for k in VShips.ORDER:
+		paint[k] = "stock"
+		levels[k] = 1
 
 ## Ship levels: each one adds the same share of damage, up to double at MAX_LEVEL, so a
 ## levelled ship clears faster but Supernova still needs skill.
@@ -168,6 +184,20 @@ func open(i: int, t: int) -> bool:
 	if t <= 0:
 		return i <= reach(0) + 1
 	return cleared(stage_id(i), t) or cleared(stage_id(i), t - 1)
+
+
+## How many stages are cleared on Normal.
+func cleared_count() -> int:
+	var n := 0
+	for i in VStage.STAGES.size():
+		if cleared(stage_id(i), 0):
+			n += 1
+	return n
+
+
+## A ship opens once `VShips.KITS[ship].unlock` stages are cleared on Normal.
+func ship_open(ship: String) -> bool:
+	return cleared_count() >= int(VShips.KITS[ship].get("unlock", 0))
 
 
 func unlocked(id: String, t: int) -> bool:
@@ -275,11 +305,16 @@ func record(id: String, t: int, is_cleared: bool, got: Array) -> Dictionary:
 
 # ---------- the medal track and paint ----------
 
+## A ship's colour schemes: its own list, or the shared one (`COMMON`) for the newer ships.
+static func schemes(ship: String) -> Array:
+	return SCHEMES.get(ship, COMMON)
+
+
 static func scheme(ship: String, id: String) -> Dictionary:
-	for s in SCHEMES.get(ship, []):
+	for s in schemes(ship):
 		if s.id == id:
 			return s
-	return SCHEMES.get(ship, [{}])[0]
+	return schemes(ship)[0]
 
 
 static func reward_name(r: Dictionary) -> String:
@@ -291,6 +326,8 @@ static func scheme_at(ship: String, id: String) -> int:
 	for r in TRACK:
 		if r.ship == ship and r.scheme == id:
 			return int(r.at)
+	if not SCHEMES.has(ship):
+		return int(COMMON_AT.get(id, 0))
 	return 0
 
 
