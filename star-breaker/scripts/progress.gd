@@ -1,8 +1,9 @@
 class_name Progress
 extends RefCounted
 ## Replay progress of the portrait game: each stage is played on three tiers (Normal, Nova,
-## Supernova), clearing a tier unlocks the next one for that stage, and each tier of each stage
-## holds four medals. Medals add up on a track of rewards (ship colour schemes for now).
+## Supernova). On each tier the stages open one by one (clear a stage to open the next one on
+## that tier), and a tier above Normal also needs the stage cleared on the tier below. Each tier
+## of each stage holds four medals. Medals add up on a track of rewards (ship colour schemes for now).
 ## Saved in the game's save file, keyed by a stage's `id` ("w1s1"), so adding or reordering
 ## stages never mixes up progress.
 
@@ -140,9 +141,51 @@ func cleared(id: String, t: int) -> bool:
 	return stages.has(id) and int(stages[id].c) & (1 << t) != 0
 
 
-## Normal is always open; a higher tier opens once the tier below it is cleared.
+## Index of stage `id` in VStage.STAGES, or -1.
+static func index_of(id: String) -> int:
+	for i in VStage.STAGES.size():
+		if stage_id(i) == id:
+			return i
+	return -1
+
+
+## The furthest stage (index) cleared on tier `t`, or -1. Every stage up to the one after it is
+## open on that tier: for a new save that is exactly "clear the previous stage", and a save from
+## before the rule (stages could be played in any order) keeps every stage it has already reached.
+func reach(t: int) -> int:
+	for i in range(VStage.STAGES.size() - 1, -1, -1):
+		if cleared(stage_id(i), t):
+			return i
+	return -1
+
+
+## Stage `i` is open on tier `t` once the stage before it is cleared on that same tier (stage 1
+## of world 1 is always open), and, above Normal, once this stage is cleared on the tier below.
+## Cleared means finished with ships left; medals don't matter.
+func open(i: int, t: int) -> bool:
+	t = clampi(t, 0, TIERS.size() - 1)
+	if i > reach(t) + 1:
+		return false
+	return t <= 0 or cleared(stage_id(i), t - 1)
+
+
 func unlocked(id: String, t: int) -> bool:
-	return t <= 0 or cleared(id, t - 1)
+	var i := index_of(id)
+	if i < 0:
+		return t <= 0 or cleared(id, t - 1)
+	return open(i, t)
+
+
+## The stage to play next on tier `t`: the first open stage not yet cleared there (the last
+## stage once everything is cleared). -1 when nothing on that tier is open yet.
+func next_stage(t: int) -> int:
+	var first_open := -1
+	for i in VStage.STAGES.size():
+		if open(i, t):
+			if not cleared(stage_id(i), t):
+				return i
+			first_open = i
+	return first_open
 
 
 ## The highest tier of stage `id` that is open, at most `want`.
@@ -199,12 +242,15 @@ static func par_ticks(end: String, t: int, boss_scale := 1.0) -> int:
 
 
 ## Records a run of stage `id` on tier `t`: `got` is the medal list from `judge`. Returns what
-## changed: new medals, the tier it unlocked (-1 if none) and the rewards it unlocked.
+## changed: new medals, the tier it unlocked (-1 if none), the stage it opened on this tier
+## (-1 if none) and the rewards it unlocked.
 func record(id: String, t: int, is_cleared: bool, got: Array) -> Dictionary:
-	var out := {new_medals = [], unlocked_tier = -1, rewards = []}
+	var out := {new_medals = [], unlocked_tier = -1, unlocked_next = -1, rewards = []}
 	if not is_cleared:
 		return out
 	var before := total()
+	var i := index_of(id)
+	var next_was_open := i < 0 or i + 1 >= VStage.STAGES.size() or open(i + 1, t)
 	var e := _entry(id)
 	var m := int(e.m[t])
 	for g in got:
@@ -217,6 +263,8 @@ func record(id: String, t: int, is_cleared: bool, got: Array) -> Dictionary:
 		e.c = int(e.c) | (1 << t)
 		if t + 1 < TIERS.size():
 			out.unlocked_tier = t + 1
+	if not next_was_open and open(i + 1, t):
+		out.unlocked_next = i + 1
 	var after := total()
 	for r in TRACK:
 		if before < int(r.at) and after >= int(r.at):
