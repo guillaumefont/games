@@ -45,6 +45,7 @@ func _initialize() -> void:
 	var crashed := []
 	var bends := []
 	var still := []
+	var biggest := []
 	var shortest := 99.0
 	var longest := 0.0
 	for i in VStage.STAGES.size():
@@ -76,7 +77,7 @@ func _initialize() -> void:
 		if i > 0:
 			shortest = minf(shortest, secs)
 			longest = maxf(longest, secs)
-			if secs < 11.0 or secs > 15.5:
+			if secs < 16.0 or secs > 22.0:
 				long.append("%d: %.1f s" % [i, secs])
 		# the racing line flies clean
 		var what := fly()
@@ -91,6 +92,11 @@ func _initialize() -> void:
 			if VRun.swing(ub) < 0.99:
 				bent_swing = maxf(bent_swing, absf(VRun.heading(ub)))
 			ub += 1.0
+		var most := 0.0
+		for tk in VRun.TURN:
+			most = maxf(most, absf(float(tk[1])))
+		if i > 0:
+			biggest.append(most)
 		if 1.0 / tight < 220.0 or bent_swing > 0.0:
 			bends.append("%d: radius %.0f, %.2f rad while swinging" % [i, 1.0 / tight, bent_swing])
 		# movement over precision: no two obstacles in a row ask for the same thing
@@ -98,9 +104,11 @@ func _initialize() -> void:
 			if i > 0 and VRun.OBS[k].k == VRun.OBS[k + 1].k:
 				still.append("%d: two %ss in a row" % [i, VRun.OBS[k].k])
 	check(unfair.is_empty(), "every stage has a run, and every obstacle leaves a way through %s" % str(unfair))
-	check(long.is_empty(), "the generated runs last about 15 s at most (%.1f to %.1f s) %s" % [shortest, longest, str(long)])
+	check(long.is_empty(), "the generated runs last about 20 s (%.1f to %.1f s) %s" % [shortest, longest, str(long)])
 	check(crashed.is_empty(), "every racing line flies clean %s" % str(crashed))
 	check(bends.is_empty(), "every bend is gentle and the canyon is straight while the camera swings %s" % str(bends))
+	biggest.sort()
+	check(biggest[biggest.size() / 2] >= 40.0, "the canyons really turn (median biggest bend %.0f degrees, %.0f to %.0f)" % [biggest[biggest.size() / 2], biggest[0], biggest[-1]])
 	check(still.is_empty(), "no two obstacles in a row are the same kind %s" % str(still))
 	var a: Dictionary = VStage.STAGES[1].course
 	var b: Dictionary = VStage.STAGES[2].course
@@ -116,7 +124,7 @@ func _initialize() -> void:
 	vg.driven = true
 	vg.set_process(false)
 	await process_frame
-	for i in [1, 9, 17, 25, 33, 41]:
+	for i in range(1, VStage.STAGES.size()):
 		vg.start_stage(i, "lance")
 		for t in 30:
 			vg.P.inv = maxi(vg.P.inv, 2)
@@ -132,6 +140,10 @@ func _initialize() -> void:
 		var started: bool = vg.G.has("run")
 		vg.P.inv = 0
 		var in_rock := 0
+		var off_screen := 0.0
+		var worst_at := ""
+		var rock_at := ""
+		var vp: Vector2 = vg.get_viewport().get_visible_rect().size
 		while vg.G.has("run") and n < 5000:
 			n += 1
 			var R: Dictionary = vg.G.run
@@ -142,8 +154,17 @@ func _initialize() -> void:
 				var cr: Dictionary = vg.G.run
 				if cr.k > 0.99 and cr.has("cam_x") and VRun.hit(cr.cam_x, cr.cz, cr.d - 38.5, cr.d - 37.5, 0.5) != "":
 					in_rock += 1
-		check(started and vg.G.get("run_medal", -2) == 0 and in_rock == 0,
-			"stage %d (%s): the run starts, the racing line earns gold, the camera stays out of rock" % [i + 1, VStage.STAGES[i].name])
+					if rock_at == "":
+						rock_at = " %s at cam u %.0f (%.1f, %.1f)" % [VRun.hit(cr.cam_x, cr.cz, cr.d - 38.5, cr.d - 37.5, 0.5), cr.d - 38.0, cr.cam_x, cr.cz]
+				var sp: Vector2 = vg.camera.unproject_position(vg.ship_m.global_position) / vp
+				var edge := maxf(maxf(0.1 - sp.x, sp.x - 0.9), maxf(0.1 - sp.y, sp.y - 0.9))
+				if vg.camera.is_position_behind(vg.ship_m.global_position):
+					edge = 1.0
+				if edge > off_screen:
+					worst_at = "d %.0f k %.2f sp %s heading %.0f" % [cr.d, cr.k, str(sp), rad_to_deg(VRun.heading(cr.d))]
+				off_screen = maxf(off_screen, edge)
+		check(started and vg.G.get("run_medal", -2) == 0 and in_rock == 0 and off_screen <= 0.0,
+			"stage %d (%s): the run starts, the racing line earns gold, the camera stays out of rock, the ship stays in sight (%.3f at %s; medal %d, rock %d%s)" % [i + 1, VStage.STAGES[i].name, off_screen, worst_at, vg.G.get("run_medal", -2), in_rock, rock_at])
 
 	print("Built a little per frame")
 	# every stage builds its run while you fly its first stretch (Guillaume, 2026-11-21: "the game
