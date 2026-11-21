@@ -193,7 +193,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   back, and quits only on home); leaving a stage lands on its world's levels.
   Screens: `tools/map_shots.gd`. Each world has
   its own colours (`LOOKS` in `vgame.gd`, applied by `apply_world()`) and song. Stage 8 ends with
-  the world boss, stages 1-7 with mid-bosses made of big flyers (`_spawn_end`). The Bloom Mother
+  the world boss, stages 1-7 with mid-bosses made of big flyers (`_spawn_end`). The scroll keeps going
+  through every boss fight (Guillaume, 2026-11-21): bosses live in screen units on the play
+  plane, so the ground just moves on under them, past the stage's `length` (terrain is endless;
+  no rock or props are placed beyond `length - 320`). Only the canyon run stops `G.scroll`. The Bloom Mother
   has its own code (`spawn_boss`); the bosses of worlds 2-6 share one parts system
   (`spawn_gboss`, `_update_gboss`, `_sync_gboss`), ported from the landscape game and turned a
   quarter turn: their models are rotated, so part positions go through `_bl()`. Best score per stage is

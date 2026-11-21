@@ -804,8 +804,10 @@ func step() -> void:
 	G.t += 1
 	if G.t % 60 == 0:
 		Diag.note("TICK", "t=%d scroll=%d fps=%d enemies=%d eb=%d fx=%d" % [G.t, G.scroll, Engine.get_frames_per_second(), G.enemies.size(), G.eb.size(), fx.size()])
-	# the stage holds still while the canyon run streams past
-	if not G.ended and not G.has("run"):
+	# the stage holds still while the canyon run streams past; it keeps going through the boss
+	# fights (Guillaume, 2026-11-21): bosses fly on the play plane in screen units, so the ground
+	# moves on under them, and the terrain is endless past the stage's length
+	if not G.has("run"):
 		G.scroll += SCROLL
 	# what stands on the ground is built well ahead, out of sight (it scrolls in with the
 	# ground); the rest is sent when its turn comes (`si`, which tools and tests may move on)
