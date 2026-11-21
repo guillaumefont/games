@@ -321,7 +321,7 @@ func _initialize() -> void:
 	await world_boss_checks()
 	await fortress_checks()
 	vg.hud.menu_pressed.emit()
-	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
+	check(vg.mode == "menu" and vg.G.is_empty() and vg.hud.levels_scr.visible, "Stages goes back to the level screen")
 
 	await rock_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")

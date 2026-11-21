@@ -1,6 +1,7 @@
 extends SceneTree
-## Screenshots of the stage map for reviews: a new save, a player part way through (Normal in
-## world 2, Nova behind in world 1), a locked world, and a locked stage tapped.
+## Screenshots of the menu's screens for reviews: home, hangar, worlds and levels for a new save
+## and for a player part way through (Normal in world 2, Nova behind in world 1), a locked world,
+## and a locked stage tapped.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/map_shots.gd -- OUT_DIR
 
 var vg: Node3D
@@ -39,7 +40,12 @@ func _initialize() -> void:
 	vg.hud.set_bests(bs)
 	vg.hud.select_tier(0)
 	use(Progress.new())
-	await snap("m_new")
+	vg.hud.show_screen("menu")
+	await snap("m_new_home")
+	vg.hud.show_screen("worlds")
+	await snap("m_new_worlds")
+	vg.hud.show_screen("levels")
+	await snap("m_new_levels")
 	# world 1 done on Normal, world 2 up to stage 3, Nova through world 1 stage 2
 	var p := Progress.new()
 	var meds := [15, 11, 7, 13, 3, 15, 9, 5, 7, 14, 1]
@@ -51,16 +57,28 @@ func _initialize() -> void:
 			m[1] = [5, 1][i]
 		p.stages[Progress.stage_id(i)] = {m = m, c = c}
 		bs[i] = 90000 + i * 13370
+	p.flux = 1840
+	p.levels = {lance = 7, warden = 3}
+	p.paint = {lance = "ember", warden = "stock"}
 	vg.hud.set_bests(bs)
 	use(p)
-	await snap("m_normal_w2")
+	vg.hud.show_screen("menu")
+	await snap("m_home")
+	vg.hud.show_screen("hangar")
+	await snap("m_hangar")
+	vg.hud.show_screen("worlds")
+	await snap("m_worlds")
+	vg.hud.show_screen("levels")
+	await snap("m_levels_w2")
 	vg.hud.select_world(0)
-	await snap("m_normal_w1")
+	await snap("m_levels_w1")
 	vg.hud.select_tier(1)
-	await snap("m_nova_w1")
+	vg.hud.show_screen("worlds")
+	await snap("m_worlds_nova")
 	vg.hud.select_tier(0)
 	vg.hud.select_world(2)
-	await snap("m_locked_w3")
+	vg.hud.show_screen("levels")
+	await snap("m_levels_locked")
 	vg.hud.select_world(1)
 	vg.hud.map.tap_stage(5)
 	await snap("m_tap_locked")
