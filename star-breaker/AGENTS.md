@@ -40,6 +40,19 @@ lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced is i
 - Vortex: holding grows a well at the nose that swallows bullets; a lift leaves it there (it never
   moves or follows): it drags small fliers and bullets in, then implodes, harder the more it ate.
   The Event Horizon is one huge well mid-screen.
+- Siphon: holding latches a drain beam by itself onto the nearest enemy ahead (never aimed);
+  every `HEAL` drained mends a hull point (the only heal in the game) and fills a reserve that a
+  lift fires as one bolt. Thin gun on purpose. The Leech drains everything and refills the hull.
+- Echo: the last 2.5 s of held flight are taped; a lift leaves a ghost that flies and fires that
+  tape again (two at most, never steered, gone when the tape ends). Echo shots are marked
+  `kit = true` so `on_hit()` loads the Chorus (four ghosts).
+- Wraith: a lift phases the ship out (`P.inv` held up: bullets, enemies and rock pass through,
+  no gun) while the gauge lasts; touching again bursts, bigger for each thing that passed
+  through. It cancels the lift slow-mo. The Possession is phased and firing at once.
+- Forge: the gun speeds up and heats while held; a lift vents the heat as a ring (damage goes
+  with heat squared), full heat jams the gun instead. The Meltdown is full rate with no heat.
+- Twelve ships is the roster Guillaume asked for (2026-11-21). A thirteenth needs a hold and a
+  lift that none of these already has: a new weapon alone is a reskin.
 - Kits hit things through `targets()`, `strike()`, `blast()`, `wipe()` in shipkit.gd. A boss part
   is known by its `o`: the game rebuilds `G.bparts` every tick, so never keep a part dictionary.
 - Unlocks: `VShips.KITS[ship].unlock` Normal stages cleared (`Progress.ship_open()`). The hangar

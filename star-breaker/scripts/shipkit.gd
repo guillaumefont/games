@@ -61,6 +61,11 @@ func eats(_b: Dictionary) -> bool:
 	return false
 
 
+## One of the kit's own shots (marked `kit = true`) hit something.
+func on_hit(_b: Dictionary) -> void:
+	pass
+
+
 ## The ship blew up (or a new one is flying in).
 func reset() -> void:
 	held = 0

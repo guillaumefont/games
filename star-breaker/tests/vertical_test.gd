@@ -499,6 +499,164 @@ func _initialize() -> void:
 	tick(260, false)
 	check(vk.wells.is_empty(), "which implodes in turn")
 
+	# --- Siphon: the drain beam ---
+	vg.start_stage(1, "siphon")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var sk = vg.kit
+	var s_side: Dictionary = vg.E("shell", vg.P.x + 55.0, vg.P.y + 20.0, {hold = vg.P.y + 20.0})
+	var s_in: Dictionary = vg.E("shell", vg.P.x + 14.0, vg.P.y + 40.0, {hold = vg.P.y + 40.0})
+	s_side.hp = 500.0
+	s_in.hp = 500.0
+	tick(30, true)
+	check(not sk.tgt.is_empty() and is_same(sk.tgt.e, s_in) and s_in.hp < 500.0 and s_side.hp == 500.0,
+		"holding latches the beam onto the nearest enemy ahead and drains it, not one off to the side")
+	check(sk.reserve > 0.0 and sk.meter > 0.0, "what it drains fills the reserve and loads the Leech")
+	vg.P.hull = vg.HULL - 1
+	sk.healed = sk.HEAL - 0.1
+	tick(sk.EVERY, true)
+	check(vg.P.hull == vg.HULL, "draining mends the hull")
+	sk.reserve = 30.0
+	var sh0: float = s_in.hp
+	tick(1, false)
+	check(s_in.hp <= sh0 - 30.0 * sk.BOLT and sk.reserve == 0.0, "lifting fires the reserve at the latched enemy as one bolt")
+	tick(40, false)
+	sk.meter = 1.0
+	vg.P.hull = 1
+	tick(3, true)
+	var ss0: float = s_in.hp
+	tick(1, false)
+	tick(60, false)
+	check(sk.leech > 0 and vg.P.hull == vg.HULL and s_in.hp < ss0, "a full meter and a lift starts the Leech: the hull is whole and everything on screen is drained")
+	s_in.dead = true
+	s_side.dead = true
+
+	# --- Echo: the replay ---
+	vg.start_stage(1, "echo")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var ek = vg.kit
+	var e_from := Vector2(vg.P.x, vg.P.y)
+	for k in 60:
+		tick(1, true, 0.5, 0.0)
+	var e_to := Vector2(vg.P.x, vg.P.y)
+	tick(1, false)
+	check(ek.echoes.size() == 1 and ek.echoes[0].tape.size() == 60 and ek.echoes[0].tape[0].distance_to(e_from) < 1.0 and ek.echoes[0].tape[59].distance_to(e_to) < 0.01,
+		"lifting leaves an echo holding the path the ship just flew")
+	vg.G.pb.clear()
+	var e_tgt: Dictionary = vg.E("shell", e_from.x + 10.0, e_from.y + 50.0, {hold = e_from.y + 50.0})
+	e_tgt.hp = 500.0
+	tick(40, false, -40.0, 0.0)
+	var e_kit := 0
+	for b in vg.G.pb:
+		if b.get("kit", false):
+			e_kit += 1
+	check(e_kit > 0 and ek.echoes[0].i > 10, "the echo flies it again, firing, with the thumb up and the ship elsewhere")
+	tick(60, false)
+	check(ek.echoes.is_empty() and e_tgt.hp < 500.0 and ek.meter > 0.0, "it fades when its tape runs out, and its hits load the Chorus")
+	e_tgt.dead = true
+	tick(5, true)
+	tick(1, false)
+	check(ek.echoes.is_empty(), "a quick tap leaves no echo")
+	tick(40, false)
+	for k in 3:
+		tick(40, true, 0.2, 0.0)
+		tick(1, false)
+		tick(40, false)
+	check(ek.echoes.size() <= ek.MAX_ECHOES, "two echoes at most")
+	ek.meter = 1.0
+	tick(40, true)
+	tick(1, false)
+	check(ek.echoes.size() == ek.CHORUS, "a full meter and a lift starts the Chorus: four echoes")
+
+	# --- Wraith: the phase ---
+	vg.start_stage(1, "wraith")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(60, true)
+	var wrk = vg.kit
+	vg.P.inv = 0
+	tick(1, false, 0, 0, false, false)
+	check(wrk.phased, "lifting phases the ship out")
+	vg.G.pb.clear()
+	vg.G.eb.clear()
+	var w_hull: int = vg.P.hull
+	for k in 3:
+		vg.bullet(vg.P.x, vg.P.y, 0, 0)
+		tick(4, false, 0, 0, false, false)
+		vg.G.eb.clear()
+	check(vg.P.hull == w_hull and vg.G.pb.is_empty(), "phased, bullets pass through and the gun is silent")
+	check(wrk.passed == 3 and wrk.meter > 0.0, "each one that passes through is counted and loads the Possession")
+	var w_tgt: Dictionary = vg.E("shell", vg.P.x + 12.0, vg.P.y + 8.0, {hold = vg.P.y + 8.0})
+	w_tgt.hp = 500.0
+	tick(1, true, 0, 0, false, false)
+	check(not wrk.phased and w_tgt.hp <= 500.0 - wrk.BURST_DMG - 3 * wrk.BURST_DMG_PASS, "touching again ends the phase with a burst that grows with what passed through")
+	w_tgt.dead = true
+	tick(2, true)
+	wrk.gauge = wrk.PHASE
+	tick(1, false)
+	tick(int(wrk.PHASE) + 5, false)
+	check(not wrk.phased and wrk.gauge == 0.0, "the phase ends by itself when the gauge runs out")
+	tick(1, true)
+	tick(1, false)
+	check(not wrk.phased, "an empty gauge cannot phase")
+	tick(60, true)
+	check(wrk.gauge > 20.0, "the gauge refills while the thumb is down")
+	tick(1, false)
+	tick(40, true)
+	wrk.meter = 1.0
+	tick(1, false)
+	vg.G.pb.clear()
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y, 0, 0)
+	tick(8, true, 0, 0, false, false)
+	check(wrk.possess > 0 and vg.P.hull == w_hull and not vg.G.pb.is_empty(), "a full meter and a lift starts the Possession: untouchable and firing at once")
+
+	# --- Forge: the heat gun ---
+	vg.start_stage(1, "forge")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var fk = vg.kit
+	check(fk.fire_every() == fk.SLOW_EVERY, "cold, the gun is slow")
+	tick(80, true)
+	check(fk.heat > 0.5 and fk.fire_every() < fk.SLOW_EVERY - 2, "holding heats it and speeds it up")
+	var f_tgt: Dictionary = vg.E("shell", vg.P.x + 14.0, vg.P.y + 10.0, {hold = vg.P.y + 10.0})
+	var f_far: Dictionary = vg.E("shell", vg.P.x + 50.0, vg.P.y + 60.0, {hold = vg.P.y + 60.0})
+	f_tgt.hp = 500.0
+	f_far.hp = 500.0
+	tick(1, false)
+	check(f_tgt.hp < 498.0 and f_far.hp == 500.0 and fk.heat == 0.0 and fk.meter > 0.0, "lifting vents the heat as a ring that burns what is near and loads the Meltdown")
+	f_tgt.dead = true
+	f_far.dead = true
+	tick(40, false)
+	tick(5, true)
+	tick(1, false)
+	check(fk.vent_t == 0, "a cool gun has nothing to vent")
+	tick(40, false)
+	tick(140, true)
+	check(fk.jam > 0 and fk.heat == 0.0, "held too long, the gun overheats and jams")
+	vg.G.pb.clear()
+	tick(20, true)
+	check(vg.G.pb.is_empty(), "jammed, it does not fire")
+	tick(fk.JAM, false)
+	check(fk.jam == 0, "the jam clears")
+	fk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	tick(60, true)
+	check(fk.melt > 0 and fk.heat == 0.0 and fk.fire_every() == fk.FAST_EVERY, "a full meter and a lift starts the Meltdown: full fire rate, no heat")
+
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
 	for st in VStage.STAGES.size():

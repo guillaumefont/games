@@ -26,8 +26,16 @@ const KITS := {
 		fire_every = 8, shot_speed = 6.0, kit = "halo", loads = "Bullets the blades cut load the Sawstorm", unlock = 11},
 	vortex = {name = "Vortex", sub = "Hold to grow a gravity well at the nose, lift to leave it there: it drags enemies in and implodes", ult = "horizon", ult_name = "Event Horizon",
 		fire_every = 7, shot_speed = 6.0, kit = "vortex", loads = "What the wells swallow loads the Event Horizon", unlock = 14},
+	siphon = {name = "Siphon", sub = "Hold and a beam latches onto the nearest enemy, draining it and mending your hull. Lift to fire what you drained", ult = "leech", ult_name = "Leech",
+		fire_every = 7, shot_speed = 6.0, kit = "siphon", loads = "Draining loads the Leech", unlock = 17},
+	echo = {name = "Echo", sub = "Lift and an echo of the ship flies your last seconds again, firing as you did", ult = "chorus", ult_name = "Chorus",
+		fire_every = 6, shot_speed = 6.5, kit = "echo", loads = "Echo shots that land load the Chorus", unlock = 20},
+	wraith = {name = "Wraith", sub = "Lift to phase out: nothing can touch you, and you don't fire. Touch again to burst", ult = "possession", ult_name = "Possession",
+		fire_every = 7, shot_speed = 6.0, kit = "wraith", loads = "What passes through you loads the Possession", unlock = 24},
+	forge = {name = "Forge", sub = "The gun speeds up and heats as you hold. Lift to vent the heat as a ring of fire, before it jams", ult = "meltdown", ult_name = "Meltdown",
+		fire_every = 9, shot_speed = 6.5, kit = "forge", loads = "Vent hits load the Meltdown", unlock = 28},
 }
-const ORDER := ["lance", "warden", "hornet", "weaver", "anvil", "gemini", "halo", "vortex"]
+const ORDER := ["lance", "warden", "hornet", "weaver", "anvil", "gemini", "halo", "vortex", "siphon", "echo", "wraith", "forge"]
 
 
 ## Turns a model built for the side-scroller (nose along +X, top along +Y) so that, seen by the
@@ -106,6 +114,14 @@ static func model(kind: String) -> Node3D:
 			return halo()
 		"vortex":
 			return vortex()
+		"siphon":
+			return siphon()
+		"echo":
+			return echo()
+		"wraith":
+			return wraith()
+		"forge":
+			return forge()
 	return Models.ship()
 
 
@@ -279,4 +295,69 @@ static func vortex() -> Node3D:
 	lens.scale = Vector3.ONE * 1.5
 	body.add_child(lens)
 	body.add_child(Models.mesh(Geo.cached("vorRing", func(): return Geo.build_wound(Geo.xf(Geo.torus(1.9, 0.25, 12, 4), Geo.rot(Vector3.RIGHT, PI / 2)))), M.crystal_m, Vector3(6.8, -0.1, 0)))
+	return g
+
+
+## Siphon: a swollen, rounded body with two glowing mandibles reaching past the nose (the beam
+## comes from between them) and stubby fins.
+static func siphon() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "sip", hull = [[-6.0, 1.2, 1.4, 0.0], [-4.0, 2.2, 2.6, 0.1], [-0.5, 2.6, 3.0, 0.2], [2.6, 2.0, 2.3, 0.1], [4.4, 1.0, 1.2, -0.1]],
+		canopy = [0.6, 2.0, 2.0, 1.2, 1.4],
+		wings = [{pts = [[-5.0, 0], [-1.4, 0], [-3.6, 3.2], [-5.4, 3.4]], th = 0.6, y = -0.4, z = 2.2, droop = 0.25}],
+		engines = [[-6.4, 0.0, 0.0, 1.2]]})
+	var body: Node3D = g.get_meta("body")
+	for z in [1.8, -1.8]:
+		var m := Models.mesh(Models.geo("sipJaw", func(): return Geo.prism([[0, -0.4], [5.6, 0.0], [0, 0.6]], 0.6)), M.lance, Vector3(3.6, -0.3, z))
+		m.rotation.y = -0.16 * signf(z)
+		body.add_child(m)
+	return g
+
+
+## Echo: a flat dart with three pairs of swept fins one behind the other, like the same wing
+## drawn three times.
+static func echo() -> Node3D:
+	var g := craft({id = "ech", hull = [[-7.0, 0.5, 0.9, 0.0], [-5.0, 0.9, 1.5, 0.05], [0.0, 1.0, 1.6, 0.05], [5.0, 0.7, 1.0, -0.05], [8.0, 0.2, 0.3, -0.15]],
+		canopy = [2.8, 0.8, 2.0, 0.8, 0.8],
+		wings = [{pts = [[1.4, 0], [3.6, 0], [0.6, 4.0], [-0.2, 4.0]], th = 0.3, y = 0.0, z = 1.2, mat = "lance"},
+			{pts = [[-2.2, 0], [0.4, 0], [-3.0, 5.6], [-4.0, 5.6]], th = 0.35, y = 0.0, z = 1.4},
+			{pts = [[-6.2, 0], [-3.4, 0], [-7.0, 7.2], [-8.2, 7.2]], th = 0.4, y = 0.0, z = 1.2, mat = "hull"}],
+		engines = [[-7.4, 0.0, 0.0, 0.8]]})
+	return g
+
+
+## Wraith: a dark crescent, all wing: the tips sweep forward past a small body with a single
+## violet eye.
+static func wraith() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "wra", hull = [[-4.4, 0.5, 1.0, 0.0], [-2.6, 1.0, 1.6, 0.1], [0.6, 1.0, 1.5, 0.1], [3.0, 0.5, 0.8, 0.0], [4.2, 0.15, 0.2, -0.1]],
+		hull_mat = "hull_dark",
+		wings = [{pts = [[-4.0, 0], [0.4, 0], [3.0, 4.6], [6.4, 8.6], [1.4, 6.6], [-2.4, 3.6]], th = 0.4, y = 0.0, z = 1.0, mat = "hull_dark"}],
+		engines = [[-4.8, 0.0, 0.0, 0.7]]})
+	var body: Node3D = g.get_meta("body")
+	var eye := Models.mesh(Models.geo("wraEye", func(): return Geo.octa(1.0)), M.lance, Vector3(1.2, 1.0, 0))
+	eye.scale = Vector3(1.4, 0.6, 0.7)
+	body.add_child(eye)
+	for z in [8.2, -8.2]:
+		_box(body, "wraTip", Vector3(1.6, 0.4, 0.4), Vector3(5.4, 0.0, z), M.lance)
+	return g
+
+
+## Forge: a blunt block of a ship with three engines, heat vents along its back and a wide
+## barrel under the nose.
+static func forge() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "for", hull = [[-6.4, 1.7, 2.6, 0.0], [-5.0, 2.1, 3.0, 0.1], [2.0, 2.1, 3.0, 0.1], [4.6, 1.6, 2.2, 0.0], [5.6, 1.0, 1.4, -0.1]], seg = 4,
+		canopy = [3.2, 1.9, 1.4, 0.8, 1.4],
+		wings = [{pts = [[-5.6, 0], [-0.6, 0], [-2.0, 3.0], [-5.6, 3.4]], th = 1.0, y = -0.6, z = 2.8}],
+		engines = [[-6.8, 0.2, 0.0, 1.0], [-6.8, -0.2, 2.2, 0.8], [-6.8, -0.2, -2.2, 0.8]]})
+	var body: Node3D = g.get_meta("body")
+	for x in [-3.6, -1.6, 0.4]:
+		_box(body, "forVent", Vector3(1.0, 0.5, 3.6), Vector3(x, 2.2, 0), M.pod)
+	var barrel := Models.mesh(Models.geo("forBarrel", func(): return Geo.cyl(0.9, 1.1, 4.0, 8)), M.hull_dark, Vector3(5.6, -0.8, 0))
+	barrel.rotation.z = -PI / 2
+	body.add_child(barrel)
+	var mouth := Models.mesh(Models.geo("forMouth", func(): return Geo.cyl(0.7, 0.7, 0.3, 8)), M.nozzle, Vector3(7.6, -0.8, 0))
+	mouth.rotation.z = PI / 2
+	body.add_child(mouth)
 	return g

@@ -34,7 +34,8 @@ func _initialize() -> void:
 	var frame := 0
 	var total := 60 * 14
 	for i in total + 90:
-		var cyc := i % (hold_n + 14)
+		var gap := 45 if ship == "wraith" else 14
+		var cyc := i % (hold_n + gap)
 		var hold := cyc < hold_n
 		var dx := sin(i * 0.035) * 0.9
 		var dy := sin(i * 0.021) * 0.25
