@@ -59,6 +59,17 @@
   (`field_dead`): grey stumps in `View3D.upd_ore`, grey on the minimap. `AF_MODE=fields` shoots fresh, tired and dead fields.
 - `groundwork_tests()` in `tests/sim_test.gd` flips the rules on a match (power off, cap, producer override) and checks
   drain, death and regrowth. It restores `D.RULES` and `D.BLD` after itself; do the same in new tests.
+- Ashen Pact (phase 3): `RULES.ashen` has `cap` (Hearths +10, the Yard +20) and `swap`. With `swap` on, the shared type
+  names (`rifle`, `barracks`, `refinery`, `harv`, ...) mean the faction's own (`FACS.ashen.sub`) everywhere: `Sim.tr_t`
+  translates in `spawn_unit`, `add_building`, `count` and mission tech lists, and `req_of` drops a requirement the faction
+  has no stand-in for (`""`). So missions and the AI can keep saying "barracks". Use `d.dock` (ore drop-off) and `d.door`
+  (units roll out) instead of literal type names. Mechanics: Furnace `burn` (aurite per second; a cold one makes no
+  power, `Sim.fuel_reserve` keeps `D.FUEL_KEEP` seconds of fuel out of spending), Hearth `muster` (`Sim.muster`, once a
+  match), unit `tough` (less bullet damage), `pack` (trained as several), `charge` (boars: x3 first hit, knockdown via
+  `e.stun`), `ram` (Ram Bike runs infantry over), `bldOnly` (Kettle Ram), `salvo`, `w2` (second weapon with its own
+  target and `cd2`). Wrecks: `Sim.wrecks` (`D.WRECK`), left by destroyed ground vehicles, drawn charred by
+  `View3D.sync_wrecks`; a Scrapper (`scrap`) revives one above `revive` or strips it for aurite. `pact_tests()` checks all
+  of it plus a 10 minute Pact AI game. `AF_MODE=pact` shoots the base, every unit, a charge, a wreck and the MUSTER button.
 
 ## Building upgrades (Guillaume 2026-11-14: "allow structure upgrade, for example the reactor to a superreactor")
 
