@@ -24,6 +24,7 @@ const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
 const C_INK := Color("0b0830")
 const C_GLASS := Color(22 / 255.0, 17 / 255.0, 50 / 255.0, 0.7)
+const C_SPORE := Color("ff4fa3")
 
 var hud: VHud
 ## The world in the middle of the view.
@@ -143,14 +144,56 @@ func _x0() -> float:
 	return (size.x - _col_w()) / 2.0
 
 
+## Where each stage sits, like a tactical map rather than a zigzag: [height up the trail, x as a
+## share of the column]. Seeded, so the map is always the same. Steps between stages vary, the
+## route swings by uneven amounts and sometimes keeps going the same way, and bosses sit near
+## the middle.
+static var _LAYOUT: Array = _make_layout()
+
+
+static func _make_layout() -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 90210
+	var out: Array = []
+	var u := BOTTOM
+	var x := 0.3
+	var dir := 1.0
+	for i in VStage.STAGES.size():
+		var j: int = VStage.STAGES[i].j
+		if j == 0:
+			u += BANNER if i == 0 else BANNER + STEP
+		else:
+			u += STEP * rng.randf_range(0.72, 1.45) + (18.0 if j == VStage.PER_WORLD - 1 else 0.0)
+		if j == VStage.PER_WORLD - 1:
+			x = 0.5 + rng.randf_range(-0.07, 0.07)
+		elif i > 0:
+			if rng.randf() < 0.55:
+				dir = -dir
+			var nx := x + dir * rng.randf_range(0.12, 0.5)
+			if nx < 0.12 or nx > 0.88:
+				dir = -dir
+				nx = x + dir * rng.randf_range(0.15, 0.4)
+			x = clampf(nx, 0.12, 0.88)
+		out.append([u, x])
+	return out
+
+
 ## Where stage `i` sits on the trail, in pixels up from the bottom.
 static func stage_u(i: int) -> float:
-	return BOTTOM + BANNER * (VStage.world_of(i) + 1) + STEP * i
+	return float(_LAYOUT[i][0])
 
 
-## The middle of world `w`'s banner (just below its first stage).
+## Stage `i`'s place across the column (0 left, 1 right).
+static func stage_x(i: int) -> float:
+	return float(_LAYOUT[i][1])
+
+
+## The middle of world `w`'s banner (between the last stage before it and its first).
 static func banner_u(w: int) -> float:
-	return stage_u(w * VStage.PER_WORLD) - (STEP + BANNER) / 2.0 - 10.0
+	var first := w * VStage.PER_WORLD
+	if first == 0:
+		return stage_u(0) - BANNER * 0.6
+	return (stage_u(first - 1) + stage_u(first)) / 2.0
 
 
 static func total_u() -> float:
@@ -169,26 +212,24 @@ func _clamp() -> void:
 	scroll = clampf(scroll, 0.0, max_scroll())
 
 
-## Screen position of stage `i`: the trail swings left and right, bosses in the middle.
+## Screen position of stage `i` (see `_LAYOUT`).
 func node_pos(i: int) -> Vector2:
-	var st: Dictionary = VStage.STAGES[i]
-	var x := 0.34 if i % 2 == 0 else 0.66
-	if st.j == VStage.PER_WORLD - 1:
-		x = 0.5
-	return Vector2(_x0() + _col_w() * x, _y(stage_u(i)))
+	return Vector2(_x0() + _col_w() * stage_x(i), _y(stage_u(i)))
 
 
 func _radius(i: int) -> float:
 	return R_BOSS if VStage.STAGES[i].j == VStage.PER_WORLD - 1 else R
 
 
+## A label goes on the roomier side of its stage.
 func _label_left(i: int) -> bool:
-	return i % 2 == 0 and VStage.STAGES[i].j != VStage.PER_WORLD - 1
+	return stage_x(i) > 0.5
 
 
 func _label_rect(i: int) -> Rect2:
 	var c := node_pos(i)
-	var w := minf(190.0, _col_w() * 0.34 - _radius(i) - 6)
+	var room := (c.x - _x0()) if _label_left(i) else (_x0() + _col_w() - c.x)
+	var w := minf(190.0, room - _radius(i) - 20)
 	if _label_left(i):
 		return Rect2(c.x - _radius(i) - 14 - w, c.y - 22, w, 46)
 	return Rect2(c.x + _radius(i) + 14, c.y - 22, w, 46)
@@ -408,6 +449,7 @@ func sky(u: float) -> Color:
 
 func _draw() -> void:
 	_draw_sky()
+	_draw_tactical()
 	_draw_trail()
 	for w in VStage.WORLDS.size():
 		_draw_banner(w)
@@ -435,7 +477,7 @@ func _draw_sky() -> void:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7741 + k * 131
 		var pal: Dictionary = Worlds.LIST[_world_of_u(k * cell)].pal
-		for s in 9:
+		for s in 5:
 			var p := Vector2(rng.randf_range(0, size.x), _y(k * cell + rng.randf_range(0, cell)))
 			var col := Color(pal.star_b if rng.randf() < 0.3 else pal.star_a)
 			draw_circle(p, rng.randf_range(0.8, 2.0), Color(col, rng.randf_range(0.25, 0.75)))
@@ -453,6 +495,63 @@ func _draw_sky() -> void:
 		draw_set_transform(Vector2.ZERO)
 
 
+## The tactical layer: a survey grid with sector numbers, and terrain contours (nested rings of
+## uneven hills and craters) in each world's colour. All fixed to the trail, so they scroll.
+const GRID := 48.0
+
+
+func _draw_tactical() -> void:
+	var w0 := _world_of_u(scroll + size.y * 0.5)
+	var lc := world_color(w0).lightened(0.45)
+	var x := fposmod(size.x / 2.0, GRID)
+	var n := 0
+	while x < size.x:
+		var major := int(round((x - size.x / 2.0) / GRID)) % 4 == 0
+		draw_line(Vector2(x, 0), Vector2(x, size.y), Color(lc, 0.17 if major else 0.07), 1.0)
+		x += GRID
+		n += 1
+	var k0 := int(floor(scroll / GRID))
+	var k1 := int(ceil((scroll + size.y) / GRID))
+	for k in range(k0, k1 + 1):
+		var y := _y(k * GRID)
+		var major := k % 4 == 0
+		draw_line(Vector2(0, y), Vector2(size.x, y), Color(lc, 0.17 if major else 0.07), 1.0)
+		if major and k >= 0:
+			_text(Vector2(8, y - 5), "%03d" % (k / 4), 11, Color(lc, 0.35), 700)
+			_text(Vector2(size.x - 8, y - 5), "%s-%02d" % [char(65 + _world_of_u(k * GRID)), (k / 4) % 100], 11, Color(lc, 0.35), 700, HORIZONTAL_ALIGNMENT_RIGHT)
+	# contours: a few features per world
+	for w in VStage.WORLDS.size():
+		var lo := banner_u(w)
+		var hi := banner_u(w + 1) if w + 1 < VStage.WORLDS.size() else total_u()
+		if _y(hi) > size.y + 200 or _y(lo) < -200:
+			continue
+		var col := world_color(w).lightened(0.4)
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 3301 + w * 977
+		for f in 6:
+			var cu := rng.randf_range(lo, hi)
+			var cx := rng.randf_range(-0.05, 1.05) * size.x
+			var base := rng.randf_range(70.0, 160.0)
+			var rings := rng.randi_range(3, 5)
+			var p1 := rng.randf() * TAU
+			var p2 := rng.randf() * TAU
+			var stretch := rng.randf_range(0.6, 1.0)
+			var c := Vector2(cx, _y(cu))
+			if c.y < -base - 20 or c.y > size.y + base + 20:
+				continue
+			for k in rings:
+				var r := base * (1.0 - 0.2 * k)
+				var pts := PackedVector2Array()
+				for a in 49:
+					var t := TAU * a / 48.0
+					var rr := r * (1.0 + 0.16 * sin(3.0 * t + p1 + k * 0.4) + 0.09 * sin(5.0 * t + p2))
+					pts.append(c + Vector2(cos(t) * rr, sin(t) * rr * stretch))
+				draw_polyline(pts, Color(col, 0.13 + 0.05 * k), 1.6 if k == rings - 1 else 1.2, true)
+			# a survey mark on the summit
+			draw_line(c + Vector2(-4, 0), c + Vector2(4, 0), Color(col, 0.3), 1.0)
+			draw_line(c + Vector2(0, -4), c + Vector2(0, 4), Color(col, 0.3), 1.0)
+
+
 func _world_of_u(u: float) -> int:
 	var w := 0
 	for k in VStage.WORLDS.size():
@@ -466,8 +565,10 @@ func _seg(i: int) -> PackedVector2Array:
 	var a := node_pos(i)
 	var b := node_pos(i + 1)
 	var dy := a.y - b.y
-	var c0 := a + Vector2(0, -dy * 0.55)
-	var c1 := b + Vector2(0, dy * 0.55)
+	# a seeded sideways kick so each leg of the route bends its own way
+	var wob := (fposmod(sin(i * 12.9898) * 43758.5453, 1.0) - 0.5) * 90.0
+	var c0 := a + Vector2(wob, -dy * 0.5)
+	var c1 := b + Vector2(-wob * 0.6, dy * 0.45)
 	var pts := PackedVector2Array()
 	for k in 17:
 		var t := k / 16.0
@@ -549,8 +650,21 @@ func _draw_stages() -> void:
 		if fl > 0:
 			_flash[i] = fl - 1
 		if i == nxt and open and not done:
-			draw_circle(c, r + 10 + 6 * pulse, Color(tc, 0.12 + 0.1 * pulse))
-			draw_arc(c, r + 6 + 6 * pulse, 0, TAU, 40, Color(tc, 0.7 - 0.4 * pulse), 2.0, true)
+			# a target reticle: corner brackets closing in, cross hairs
+			draw_circle(c, r + 8, Color(tc, 0.1 + 0.08 * pulse))
+			var e := r + 14 + 5 * pulse
+			for q in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+				var corner: Vector2 = c + q * e
+				draw_line(corner, corner - Vector2(q.x * 9, 0), tc, 2.5)
+				draw_line(corner, corner - Vector2(0, q.y * 9), tc, 2.5)
+			for q in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+				draw_line(c + q * (r + 3), c + q * (r + 10), Color(tc, 0.8), 2.0)
+		if boss:
+			# a danger ring round the world boss
+			var ph := Time.get_ticks_msec() / 2000.0
+			for d in 12:
+				var a0 := ph + TAU * d / 12.0
+				draw_arc(c, r + 7, a0, a0 + TAU / 24.0, 4, Color(C_SPORE, 0.75 if open else 0.3), 2.0, true)
 		if i == picked:
 			draw_arc(c, r + 9, 0, TAU, 40, C_TEXT, 3.0, true)
 		var shape := _node_shape(c, r, boss)
