@@ -197,8 +197,11 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   The menu (Guillaume, 2026-11-21): home (Play, the ship button with level/flux/medals, the
   device row), the level map (`scripts/vmap.gd`) and the hangar (`medals_scr`: pick the ship,
   level it, paint it, the medal legend). The map is one trail of all 48 stages climbing bottom up
-  (drag to scroll; `VMap.stage_u()` places stages, a banner sits between worlds, `sky()` blends
-  each world's colours into the next). It follows the Normal chain; three pips under a stage show
+  (drag to scroll; a banner sits between worlds, `sky()` blends each world's colours into the next).
+  It reads as a tactical map (Guillaume, 2026-11-21: "more irregular"): stages sit at seeded, uneven
+  places (`VMap._LAYOUT`, `stage_u()` / `stage_x()`), each leg of the route bends its own way, and a
+  survey grid with sector numbers and terrain contours sits under the trail; the next stage gets a
+  target reticle, world bosses a danger ring. Labels go on the roomier side of a stage. It follows the Normal chain; three pips under a stage show
   its cleared tiers. Your ship waits by the next stage, and the top bar's ship button opens the
   hangar (its Back returns to where it came from). The tier is picked after the stage, on the
   stage panel (`VHud.open_stage()`, `pick_tier()`, `play_picked()`), which shows only open tiers

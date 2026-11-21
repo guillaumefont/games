@@ -107,6 +107,21 @@ func _initialize() -> void:
 		if not (VMap.stage_u(i) > VMap.stage_u(i - 1)):
 			check(false, "stage %d sits above stage %d" % [i + 1, i])
 	check(VMap.stage_u(8) - VMap.stage_u(7) > VMap.stage_u(7) - VMap.stage_u(6), "the trail climbs through every stage, with room for a banner between worlds")
+	# a tactical map, not a zigzag: uneven steps and swings, every label inside the column
+	var xs := {}
+	var steps := {}
+	var fits := true
+	for i in VStage.STAGES.size():
+		xs[snappedf(VMap.stage_x(i), 0.01)] = true
+		if i > 0 and VStage.STAGES[i].j > 0:
+			steps[snappedf(VMap.stage_u(i) - VMap.stage_u(i - 1), 1.0)] = true
+			if absf(VMap.stage_x(i) - VMap.stage_x(i - 1)) < 0.05 and VStage.STAGES[i].j != VStage.PER_WORLD - 1:
+				fits = false
+		var lr: Rect2 = vm._label_rect(i)
+		if lr.size.x < 120.0 or lr.position.x < vm._x0() - 1 or lr.end.x > vm._x0() + vm._col_w() + 1:
+			fits = false
+	check(xs.size() > 20 and steps.size() > 20, "stages sit at uneven places and spacings")
+	check(fits, "every leg of the route moves sideways and every label fits on the map")
 	check(vm.sky(VMap.stage_u(2)) != vm.sky(VMap.stage_u(10)) and vm.sky(VMap.banner_u(1)) != vm.sky(VMap.stage_u(2)), "the sky changes colour from world to world, blending across the banner")
 	vm.tap_stage(1)
 	check(tapped.is_empty() and vm._note.to_upper().contains("SPORE FIELDS") and vg.hud.sheet_stage == -1, "a locked stage names the stage to clear first and opens nothing")
