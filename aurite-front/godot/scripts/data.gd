@@ -21,7 +21,7 @@ var BLD := {
 	"power": {"name": "Reactor", "no": ["ashen", "vanguard", "choir"], "w": 2, "h": 2, "hp": 600, "cost": 300, "time": 7, "pwr": 100, "sight": 4, "req": ["hq"]},
 	"refinery": {"name": "Refinery", "no": ["choir", "ashen", "vanguard"], "dock": true, "w": 3, "h": 3, "hp": 1000, "cost": 1400, "time": 13, "pwr": -30, "sight": 5, "req": ["power"]},
 	# Hollow Choir: no refinery or harvesters. A Garden sings the field beside it into growing and is paid for it.
-	"garden": {"name": "Garden", "fac": "choir", "w": 2, "h": 2, "hp": 850, "cost": 1000, "time": 11, "pwr": 0, "sight": 5, "req": ["hq"], "grow": true, "drain": -8.0, "hum": 5.0, "rate": 15.0, "field": true},
+	"garden": {"name": "Garden", "fac": "choir", "w": 2, "h": 2, "hp": 850, "cost": 1000, "time": 11, "pwr": 0, "sight": 5, "req": ["hq"], "grow": true, "drain": -8.0, "hum": 5.0, "rate": 18.0, "field": true},
 	"barracks": {"name": "Barracks", "no": ["ashen", "choir"], "door": true, "w": 2, "h": 2, "hp": 700, "cost": 400, "time": 8, "pwr": -20, "sight": 5, "req": ["power"]},
 	"factory": {"name": "War Factory", "no": ["ashen", "vanguard", "choir"], "door": true, "w": 3, "h": 3, "hp": 1100, "cost": 1600, "time": 15, "pwr": -30, "sight": 5, "req": ["refinery"]},
 	"turret": {"name": "Sentry Gun", "no": ["ashen", "vanguard", "choir"], "w": 1, "h": 1, "hp": 500, "cost": 500, "time": 8, "pwr": -15, "sight": 7, "req": ["barracks"], "weapon": "shell", "dmg": 30, "range": 6.0, "rof": 1.3},
@@ -34,7 +34,7 @@ var BLD := {
 	"tech": {"name": "Tech Lab", "no": ["ashen", "vanguard", "choir"], "w": 2, "h": 2, "hp": 800, "cost": 1500, "time": 14, "pwr": -60, "sight": 5, "req": ["factory", "comms"]},
 	"bastion": {"name": "Bastion Rail Cannon", "fac": "vanguard", "w": 2, "h": 2, "hp": 1250, "cost": 1400, "time": 8, "pwr": -50, "sight": 9, "req": ["tech"], "weapon": "shell", "dmg": 80, "range": 9.0, "rof": 2.4, "sh": 300},
 	"pylon": {"name": "Arc Pylon", "fac": "ashen", "w": 1, "h": 1, "hp": 700, "cost": 1200, "time": 12, "pwr": -75, "sight": 7, "req": ["works"], "weapon": "arc", "dmg": 62, "range": 5.5, "rof": 1.9, "needPower": true},
-	"spire": {"name": "Shard Spire", "fac": "choir", "w": 1, "h": 1, "hp": 650, "cost": 900, "time": 10, "pwr": 0, "sight": 7, "req": ["garden"], "weapon": "shard", "dmg": 24, "range": 6.5, "rof": 0.5},
+	"spire": {"name": "Shard Spire", "fac": "choir", "w": 1, "h": 1, "hp": 650, "cost": 850, "time": 10, "pwr": 0, "sight": 7, "req": ["garden"], "weapon": "shard", "dmg": 24, "range": 6.5, "rof": 0.5},
 	# Hollow Choir (alien mutant): no Yard work, no power, nothing is built. Gardens sing a field into growing, give off the
 	# Hum (the only ground the Choir can sprout on, where its forms heal and hurry) and ripen the Pods every form hatches from.
 	# A Garden ages: Sprout, Bloom, Cathedral ("bloom" and "cathedral" below are not buildings, only what an aged Garden counts as).
@@ -73,7 +73,7 @@ var BLD := {
 var UPG := {
 	"power": {"name": "Super Reactor", "cost": 450, "time": 12, "req": ["refinery"], "hp": 1000, "pwr": 250, "say": "+150 power"},
 	"refinery": {"name": "Deep Refinery", "cost": 1000, "time": 15, "req": ["comms"], "hp": 1400, "yield": 1.25, "say": "+25% aurite per load"},
-	"garden": {"name": "Bloom Garden", "cost": 900, "time": 60, "req": ["garden"], "hp": 1150, "hum": 7.0, "rate": 20.0, "say": "wider Hum, more aurite, new forms"},
+	"garden": {"name": "Bloom Garden", "cost": 900, "time": 60, "req": ["garden"], "hp": 1150, "hum": 7.0, "rate": 23.0, "say": "wider Hum, more aurite, new forms"},
 	"barracks": {"name": "Drill Hall", "cost": 600, "time": 10, "req": ["factory"], "hp": 950, "speed": 1.35, "say": "infantry trains 35% faster"},
 	"factory": {"name": "Heavy Works", "cost": 1200, "time": 16, "req": ["comms"], "hp": 1500, "speed": 1.3, "pwr": -40, "say": "vehicles build 30% faster"},
 	"turret": {"name": "Heavy Sentry", "cost": 400, "time": 8, "req": ["factory"], "hp": 750, "dmg": 44, "range": 6.5, "say": "harder hitting, longer reach"},
@@ -90,7 +90,7 @@ var UPG := {
 }
 ## A second step for buildings that age twice (the Garden's Cathedral): applies to the upgraded def, giving BLD3.
 var UPG3 := {
-	"garden": {"name": "Cathedral Garden", "cost": 1800, "time": 90, "req": ["garden"], "hp": 1600, "hum": 9.0, "rate": 25.0, "say": "the widest Hum, the Carillon and the Cantor"},
+	"garden": {"name": "Cathedral Garden", "cost": 1800, "time": 90, "req": ["garden"], "hp": 1600, "hum": 9.0, "rate": 28.0, "say": "the widest Hum, the Carillon and the Cantor"},
 }
 var BLD3 := {}
 ## Upgraded building defs, built from BLD + UPG in _init. Their "cost" is base + upgrade (selling refunds half of both).
@@ -104,7 +104,7 @@ var UN := {
 	"ranger": {"name": "Ranger", "fac": "vanguard", "cat": "inf", "cost": 450, "time": 7, "hp": 55, "spd": 1.1, "range": 7.5, "sight": 8, "dmg": 55, "rof": 2.4, "weapon": "snipe", "armor": "inf", "r": 6, "cloak": 3.0, "req": ["barracks", "comms"]},
 	"pyro": {"name": "Pyro", "fac": "ashen", "cat": "inf", "cost": 300, "time": 6, "hp": 110, "spd": 1.0, "range": 2.3, "sight": 5, "dmg": 15, "rof": 0.3, "weapon": "flame", "armor": "inf", "r": 6, "req": ["muster"]},
 	"raider": {"name": "Ram Bike", "fac": "ashen", "cat": "veh", "cost": 350, "time": 6, "hp": 160, "spd": 3.6, "range": 3.0, "sight": 7, "dmg": 10, "rof": 0.35, "weapon": "bullet", "armor": "light", "r": 9, "ram": 40.0, "req": ["workshop"]},
-	"scorpion": {"name": "Anvil Tank", "kit": "cannon", "fac": "ashen", "cat": "veh", "cost": 850, "time": 12, "hp": 520, "spd": 1.5, "range": 4.2, "sight": 6, "dmg": 52, "rof": 1.8, "weapon": "shell", "armor": "heavy", "r": 13, "turret": true, "req": ["workshop"]},
+	"scorpion": {"name": "Anvil Tank", "kit": "cannon", "fac": "ashen", "cat": "veh", "cost": 850, "time": 12, "hp": 550, "spd": 1.5, "range": 4.2, "sight": 6, "dmg": 53, "rof": 1.8, "weapon": "shell", "armor": "heavy", "r": 13, "turret": true, "req": ["workshop"]},
 	"anvilf": {"name": "Anvil Tank", "kit": "flamer", "fac": "ashen", "cat": "veh", "cost": 850, "time": 12, "hp": 520, "spd": 1.5, "range": 2.8, "sight": 6, "dmg": 22, "rof": 0.35, "weapon": "flame", "armor": "heavy", "r": 13, "turret": true, "req": ["workshop"]},
 	"anvila": {"name": "Anvil Tank", "kit": "arc coil", "fac": "ashen", "cat": "veh", "cost": 850, "time": 12, "hp": 520, "spd": 1.5, "range": 3.8, "sight": 6, "dmg": 36, "rof": 1.4, "weapon": "arc", "armor": "heavy", "r": 13, "turret": true, "req": ["workshop", "works"]},
 	"bulwark": {"name": "Bulwark Tank", "fac": "vanguard", "retired": true, "cat": "veh", "cost": 1600, "time": 18, "hp": 850, "spd": 1.15, "range": 5.2, "sight": 6, "dmg": 58, "rof": 1.5, "weapon": "shell", "armor": "heavy", "r": 15, "turret": true, "req": ["factory", "tech"]},
@@ -131,7 +131,7 @@ var UN := {
 	"dropship": {"name": "Kite Dropship", "fac": "vanguard", "cat": "air", "cost": 0, "time": 1, "hp": 600, "spd": 4.2, "sight": 4, "armor": "light", "r": 16, "air": true, "ship": true, "capCost": 0, "req": ["never"]},
 	# Hollow Choir: cheap, quick and fragile. No heavy armour; crystal weapons; the Cantor is their one hero, trained once at a time.
 	"thrall": {"name": "Hollow Thralls", "fac": "choir", "cat": "inf", "pack": 3, "cost": 210, "time": 4, "hp": 45, "spd": 1.35, "range": 3.4, "sight": 5, "dmg": 7, "rof": 0.6, "weapon": "shard", "armor": "inf", "r": 5, "fuse": "knot", "mut": {"hp": 1.4}, "req": ["garden"]},
-	"wretch": {"name": "Wretch", "fac": "choir", "cat": "inf", "cost": 0, "time": 3, "hp": 35, "spd": 0.9, "range": 0.7, "sight": 5, "dmg": 6, "rof": 1.0, "weapon": "gore", "armor": "inf", "r": 5, "wither": 1.0, "free": true, "retired": true, "req": ["never"]},
+	"wretch": {"name": "Wretch", "fac": "choir", "cat": "inf", "cost": 0, "time": 3, "hp": 60, "spd": 1.0, "range": 0.7, "sight": 5, "dmg": 10, "rof": 1.0, "weapon": "gore", "armor": "inf", "r": 5, "wither": 1.0, "free": true, "retired": true, "req": ["never"]},
 	"knot": {"name": "Knot", "fac": "choir", "cat": "inf", "cost": 0, "time": 10, "hp": 700, "spd": 1.0, "range": 0.9, "sight": 5, "dmg": 35, "rof": 1.2, "weapon": "crush", "splash": 32, "armor": "light", "r": 11, "mut": {"range": 4.0, "weapon": "shard", "splash": 0.0}, "retired": true, "req": ["never"]},
 	"keener": {"name": "Keener", "fac": "choir", "cat": "inf", "cost": 350, "time": 6, "hp": 70, "spd": 1.1, "range": 5.0, "sight": 7, "dmg": 5, "rof": 1.0, "weapon": "shard", "armor": "inf", "r": 6, "cry": 2.5, "mut": {"cry": 3.5}, "req": ["garden", "bloom"]},
 	"sapper": {"name": "Burster", "fac": "choir", "cat": "inf", "cost": 300, "time": 6, "hp": 70, "spd": 1.25, "range": 1.1, "sight": 5, "dmg": 180, "rof": 2.6, "weapon": "charge", "armor": "inf", "r": 6, "burrow": true, "suicide": true, "mut": {"shards": 1}, "req": ["garden"]},
@@ -166,14 +166,14 @@ var UN := {
 }
 
 const MOD := {
-	"snipe": {"inf": 1.6, "light": 0.3, "heavy": 0.1, "bld": 0.05}, "flame": {"inf": 1.4, "light": 0.7, "heavy": 0.35, "bld": 0.9},
+	"snipe": {"inf": 1.6, "light": 0.3, "heavy": 0.1, "bld": 0.05}, "flame": {"inf": 1.25, "light": 0.7, "heavy": 0.35, "bld": 0.9},
 	"arc": {"inf": 1.1, "light": 1.05, "heavy": 0.85, "bld": 0.7}, "flak": {"inf": 0.25, "light": 1.2, "heavy": 0.8, "bld": 0.1},
 	"sw": {"inf": 1, "light": 1, "heavy": 1, "bld": 1}, "arty": {"inf": 0.9, "light": 0.8, "heavy": 0.6, "bld": 1.1},
 	"bullet": {"inf": 1, "light": 0.6, "heavy": 0.22, "bld": 0.25}, "rocket": {"inf": 0.35, "light": 1.1, "heavy": 1.15, "bld": 0.75},
 	"shell": {"inf": 0.45, "light": 0.9, "heavy": 1, "bld": 1}, "rail": {"inf": 1.4, "light": 0.9, "heavy": 0.5, "bld": 0.55},
 	"shard": {"inf": 1.15, "light": 1.0, "heavy": 0.3, "bld": 0.35}, "spine": {"inf": 0.4, "light": 1.1, "heavy": 1.05, "bld": 0.6},
 	"geode": {"inf": 1.0, "light": 0.85, "heavy": 0.45, "bld": 0.9}, "charge": {"inf": 0.3, "light": 0.8, "heavy": 0.9, "bld": 1.6},
-	"rivet": {"inf": 1.0, "light": 0.8, "heavy": 0.5, "bld": 0.5}, "grenade": {"inf": 1.2, "light": 0.6, "heavy": 0.3, "bld": 1.3},
+	"rivet": {"inf": 1.0, "light": 0.8, "heavy": 0.65, "bld": 0.5}, "grenade": {"inf": 1.0, "light": 0.6, "heavy": 0.3, "bld": 1.3},
 	"gore": {"inf": 1.4, "light": 0.8, "heavy": 0.3, "bld": 0.1}, "ram": {"inf": 0.0, "light": 0.0, "heavy": 0.0, "bld": 1.0},
 	"bomb": {"inf": 1.0, "light": 1.0, "heavy": 0.9, "bld": 1.2},
 	"crush": {"inf": 1.3, "light": 0.9, "heavy": 0.5, "bld": 0.6}, "toll": {"inf": 1.0, "light": 0.0, "heavy": 0.0, "bld": 0.0},
@@ -198,15 +198,16 @@ const FACS := {
 		"ai_air": ["skyhawk", "skyhawk", "hornets", "spotter"], "ai_sea": ["hydrofoil"],
 		"sub": {"power": "sigmast", "refinery": "drill", "factory": "lz", "helipad": "lz", "comms": "", "repair": "", "tech": "uplink", "turret": "sentry", "flak": "pdl",
 			"harv": "", "arty": "railtank", "bulwark": "railtank", "wasp": "hornets"}},
-	"ashen": {"name": "Ashen Pact", "cap_bld": "hearth", "lv": "raider", "mt": "scorpion", "ht": "arcc", "air": "gyro", "inf": "pyro", "def": "pylon", "sw": "rift",
-		"ai_inf": ["militia", "militia", "brute", "brute", "grenadier", "pyro", "boars"], "ai_veh": ["raider", "scorpion", "scorpion", "anvilf", "anvila", "kettle", "howler", "arcc", "arcc", "jugg"],
+	"ashen": {"name": "Ashen Pact", "cap_bld": "hearth",
+		"ai_order": ["power", "refinery", "barracks", "refinery", "factory", "turret", "NAVAL", "flak", "power", "DEF", "turret", "helipad", "power", "tech", "DEF", "power", "flak", "SW", "power", "DEF", "turret", "power"], "lv": "raider", "mt": "scorpion", "ht": "arcc", "air": "gyro", "inf": "pyro", "def": "pylon", "sw": "rift",
+		"ai_inf": ["militia", "militia", "brute", "brute", "grenadier", "pyro", "boars"], "ai_veh": ["raider", "scorpion", "scorpion", "scorpion", "anvilf", "anvila", "scorpion", "howler", "arcc", "arcc", "jugg", "kettle"],
 		"ai_air": ["gyro", "gyro", "zeppelin"], "naval": "slipway", "ai_sea": ["ironclad"],
 		"sub": {"rifle": "militia", "lancer": "grenadier", "medic": "", "engineer": "scrapper", "arty": "howler", "harv": "crawler", "refinery": "smelter",
 			"power": "kiln", "barracks": "muster", "factory": "workshop", "helipad": "mast", "comms": "", "repair": "", "tech": "works", "turret": "hammer",
 			"wasp": "gyro"}},
 	"choir": {"name": "Hollow Choir", "lv": "skitter", "mt": "mantis", "ht": "geode", "air": "moth", "inf": "sapper", "def": "spire", "sw": "chorus", "tun": "burrow", "hero": "cantor",
 		"ai_order": ["garden", "garden", "spire", "TUN", "spire", "TUN", "garden", "spire", "SW", "garden", "spire", "TUN", "spire"],
-		"ai_inf": ["thrall", "thrall", "thrall", "sapper", "keener", "keener"], "ai_veh": ["skitter", "mantis", "mantis", "mantis", "geode", "geode", "carillon"], "ai_air": ["moth"], "ai_sea": ["undertow"],
+		"ai_inf": ["thrall", "thrall", "sapper", "sapper", "keener", "keener"], "ai_veh": ["skitter", "mantis", "mantis", "mantis", "geode", "geode", "carillon"], "ai_air": ["moth"], "ai_sea": ["undertow"],
 		"sub": {"refinery": "garden", "power": "", "barracks": "garden", "factory": "garden", "helipad": "garden", "comms": "", "repair": "", "tech": "", "turret": "spire", "flak": "spire",
 			"wall": "thorn", "rifle": "thrall", "lancer": "keener", "medic": "", "engineer": "", "arty": "geode", "harv": "", "wasp": "moth"}},
 }
@@ -241,7 +242,7 @@ const FUEL_KEEP := 20.0
 ## Hollow Choir. Pods: each Garden ripens one every "pod" seconds and holds "hold". In the Hum its forms heal "heal" of their
 ## hp a second and move "haste" faster; living crystal cuts human infantry for "cut" hp a second; human infantry killed in
 ## the Hum rise as Wretches after "rise" seconds. A form mutates after "mut" kills. A Keener's cry lasts "jam" seconds, every "cry".
-const HUM := {"pod": 15.0, "hold": 3, "heal": 0.02, "haste": 1.15, "cut": 3.0, "rise": 3.0, "mut": 3, "jam": 4.0, "cry": 15.0, "fuse": 4, "spread": 60.0}
+const HUM := {"pod": 15.0, "hold": 3, "heal": 0.02, "haste": 1.15, "cut": 6.0, "rise": 3.0, "mut": 3, "jam": 4.0, "cry": 15.0, "fuse": 4, "spread": 60.0}
 const AEGIS := {"regen": 0.10, "rest": 6.0, "arc": 2.0, "beacon": 30.0, "hold": 5.0, "back": 0.4, "prefab": 8.0, "mark": 1.25, "lost": 0.5}
 const WRECK := {"start": 0.6, "decay": 0.006, "revive": 0.3, "revive_t": 12.0, "strip_t": 8.0, "strip": 0.4, "fix": 25.0}
 const FIELD := {"tick": 2.0, "rest": 30.0, "ore": 0.02, "vit": 0.2}
