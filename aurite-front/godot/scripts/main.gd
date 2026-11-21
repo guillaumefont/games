@@ -538,8 +538,8 @@ func click_item(cat: String, type: String) -> void:
 			toast("Already building" if q.cur == type else "Busy building " + D.BLD[q.cur].name); return
 		q.cur = type; q.prog = 0.0; q.paid = 0.0; q.ready = false; sfx("click"); tut.ev("order", type)
 	else:
-		if S.count(0, S.producer(0, cat)) == 0:
-			toast("Requires " + D.BLD[S.producer(0, cat)].name, "warn"); return
+		if S.count(0, S.unit_from(0, type)) == 0:
+			toast("Requires " + D.BLD[S.unit_from(0, type)].name, "warn"); return
 		if q.queue.size() + (1 if q.cur != "" else 0) >= 9: return
 		q.queue.append(type); sfx("click")
 	refresh_panel(true)
@@ -565,7 +565,7 @@ func refresh_panel(_force := false) -> void:
 	var tm: Dictionary = S.teams[0]
 	for k in U.items:
 		var it = U.items[k]; var q: Dictionary = tm.prod[it.cat]; var d: Dictionary = D.def_of(it.type)
-		var locked: bool = not S.has_req(0, d.req) or (it.cat != "bld" and S.count(0, S.producer(0, it.cat)) == 0) or (d.lim > 0 and S.count(0, it.type) >= d.lim)
+		var locked: bool = not S.has_req(0, d.req) or (it.cat != "bld" and S.count(0, S.unit_from(0, it.type)) == 0) or (d.lim > 0 and S.count(0, it.type) >= d.lim)
 		var n := 0; var prog := 0.0; var ready := false
 		if it.cat == "bld":
 			if q.cur == it.type: prog = q.prog; ready = q.ready
@@ -775,7 +775,7 @@ func update_cmd() -> void:
 		if S.sel.size() == 1:
 			var e: Ent = S.sel[0]; var d := e.d
 			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + " · upgrade: " + D.UPG[e.type].say
-			elif e.kind == "b": U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
+			elif e.kind == "b": U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or d.get("yard", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
 			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else "")))))
 		else: U.selinfo.text = "%d units" % S.sel.size()
 	else: U.selinfo.visible = false
@@ -876,7 +876,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 	if sel_u.size():
 		command(hit, wx, wy, sel_u); return
 	var sb: Ent = S.sel[0] if S.sel.size() else null
-	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.type == "mast"):
+	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.d.get("yard", false) or sb.type == "mast"):
 		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); return
 	S.set_sel([])
 
@@ -1835,6 +1835,35 @@ func _pact_shots(dir: String) -> void:
 	V.cam_z = 1.9; V.center_on(ex + T * 3, ey + T * 1)
 	await get_tree().create_timer(.5).timeout
 	await _shot(dir + "/p5_charge_wreck.png")
+	# the river: a Slipway on the shore and a River Ironclad afloat
+	var best := -1; var bd := 1e9
+	for i in S.MW * S.MH:
+		if S.terr[i] == D.WATER:
+			var dd := Vector2(i % S.MW - hq.tx, i / S.MW - hq.ty).length()
+			if dd < bd: bd = dd; best = i
+	if best >= 0:
+		var wx: int = best % S.MW; var wy: int = best / S.MW
+		for v in S.vis.size(): S.vis[v] = 2
+		for r in range(1, 6):
+			var placed := false
+			for oy in range(-r, r + 1):
+				for ox in range(-r, r + 1):
+					if not placed and S.can_place(0, "slipway", wx + ox, wy + oy, false):
+						var sw := S.add_building(0, "slipway", wx + ox, wy + oy); sw.born = -9.0; placed = true
+			if placed: break
+		var deep := Vector2i(wx, wy); var dn := 0
+		for oy in range(-4, 5):
+			for ox in range(-4, 5):
+				var n := 0
+				for ay in range(-2, 3):
+					for ax in range(-2, 3):
+						if S.passable(1, wx + ox + ax, wy + oy + ay): n += 1
+				if n > dn and S.passable(1, wx + ox, wy + oy): dn = n; deep = Vector2i(wx + ox, wy + oy)
+		var ic := S.spawn_unit(0, "ironclad", deep.x * T + 16, deep.y * T + 16); ic.ang = PI * .75; ic.tang = ic.ang
+		S.update_vision(); V.fog_clear(true)
+		V.cam_z = 3.0; V.center_on((wx + deep.x) * T / 2.0, (wy + deep.y) * T / 2.0)
+		await get_tree().create_timer(.4).timeout
+		await _shot(dir + "/p8_river.png")
 	# the HUD: unit cap and the Hearth's MUSTER button
 	var hearth: Ent = bs.filter(func(e): return e.type == "hearth")[0]
 	S.set_sel([hearth]); update_cmd()

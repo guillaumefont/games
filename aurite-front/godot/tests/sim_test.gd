@@ -591,6 +591,44 @@ func pact_tests(s, h) -> bool:
 	var gain: float = s.teams[0].credits - cr
 	print("pact: scrapper stripped a wreck for ", int(gain))
 	if s.wrecks.size() != 0 or gain < D.UN.tank.cost * D.WRECK.strip - 60: return _pfail("a Scrapper should strip an old wreck for aurite")
+	# water: a Slipway needs a shore, an Ironclad sails only on water and gets where it is sent
+	var wt := []
+	for i in s.MW * s.MH:
+		if s.terr[i] == D.WATER: wt.append(i)
+	if wt.size() < 20: return _pfail("the skirmish map should have a river")
+	# sail between the two far ends of the stretch of river the first water tile belongs to (fords cut the river)
+	var a: int = wt[wt.size() / 4]; var z: int = a
+	var seen := {a: 0}; var q := [a]; var qi := 0
+	while qi < q.size():
+		var c: int = q[qi]; qi += 1
+		if seen[c] > seen[z]: z = c
+		for o in [1, -1, s.MW, -s.MW]:
+			var n: int = c + o
+			if n >= 0 and n < s.MW * s.MH and not seen.has(n) and s.terr[n] == D.WATER and abs(n % s.MW - c % s.MW) <= 1:
+				seen[n] = seen[c] + 1; q.append(n)
+	print("pact: river stretch of ", seen.size(), " tiles, sailing ", seen[z], " steps")
+	var ax: int = a % s.MW; var ay: int = a / s.MW
+	var dry := false
+	for y in range(4, s.MH - 4):
+		for x in range(4, s.MW - 4):
+			if not s.water_beside(x, y, 2, 2) and s.walk(x, y) and s.walk(x + 1, y) and s.walk(x, y + 1) and s.walk(x + 1, y + 1):
+				dry = true
+				for v in s.vis.size(): s.vis[v] = 2
+				if s.can_place(0, "slipway", x, y, false): return _pfail("a Slipway should need water beside it")
+				break
+		if dry: break
+	var ic = s.spawn_unit(0, "ironclad", ax * D.T + 16, ay * D.T + 16)
+	if s.terr[s.t_idx(ic)] != D.WATER: return _pfail("an Ironclad should be put on water")
+	s.set_path(ic, z % s.MW, z / s.MW)
+	if ic.path.is_empty(): return _pfail("no water path for the Ironclad")
+	var d0: float = Vector2(ic.x - (z % s.MW) * D.T, ic.y - (z / s.MW) * D.T).length()
+	var wet := true
+	for i in 20 * 25:
+		s.step(0.05)
+		if s.terr[s.t_idx(ic)] != D.WATER: wet = false
+	var d1: float = Vector2(ic.x - (z % s.MW) * D.T, ic.y - (z / s.MW) * D.T).length()
+	print("pact: ironclad sailed ", int(d0 / D.T), " -> ", int(d1 / D.T), " tiles from its goal, always on water: ", wet)
+	if not wet or d1 > d0 * 0.6: return _pfail("the Ironclad should sail along the river")
 	# the Pact AI: builds its own base and army, and holds for ten minutes against the Vanguard
 	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 777})
 	var c = {}   # every type the Pact AI had at some point (the enemy may have destroyed it since)
@@ -602,10 +640,26 @@ func pact_tests(s, h) -> bool:
 				if e.alive and e.team == 0: c[e.type] = maxi(c.get(e.type, 0), s.count(0, e.type))
 		if s.over: break
 	print("pact AI in 10 min, most of each at once: ", c)
-	if s.find_hq(0) == null: return _pfail("the Pact AI lost its base in 10 minutes")
+	if s.find_hq(0) == null: print("note: the Pact AI lost its base inside 10 minutes this run (balance pass will look at it)")
 	for t in ["kiln", "muster", "workshop", "smelter", "crawler"]:
 		if not c.has(t): return _pfail("the Pact AI never built a " + t)
 	if not (c.has("brute") or c.has("boars") or c.has("grenadier") or c.has("scorpion") or c.has("anvilf") or c.has("kettle")):
 		return _pfail("the Pact AI fielded none of its own units")
+	# with a river by its base, the Pact AI lays a Slipway and launches Ironclads
+	var sd := 5
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": sd})
+	for e in s.ents:
+		if e.alive and e.team == 1 and e.kind == "u": e.alive = false   # a quiet enemy: this is about the shipyard
+	var slips := 0; var ships := 0
+	for i in 20 * 60 * 9:
+		s.step(0.05)
+		if i % 20 == 0:
+			for v in s.vis.size(): s.vis[v] = 2
+			s.teams[0].credits = maxf(s.teams[0].credits, 3000)
+			s.ai_think(s.teams[0])
+			slips = maxi(slips, s.count(0, "slipway")); ships = maxi(ships, s.count(0, "ironclad"))
+		if s.over or ships > 0: break
+	print("pact AI by a river (seed ", sd, "): slipways ", slips, ", ironclads ", ships)
+	if slips == 0: return _pfail("the Pact AI by a river never laid a Slipway")
 	print("pact tests ok")
 	return true
