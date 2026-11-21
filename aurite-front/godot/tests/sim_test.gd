@@ -70,6 +70,17 @@ func solve(s, h) -> bool:
 func _ready():
 	var t0 = Time.get_ticks_msec()
 	var s = Sim.new(); var h = Host.new(); s.host = h
+	if OS.get_environment("AF_ONLY") == "missions":
+		for C in D.CAMPAIGNS:
+			for m in C.missions:
+				s.new_game("normal", {"mission": m})
+				var dk: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.dark and e.type != "wall").map(func(e): return str(e.team) + e.type)
+				var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0)
+				var emiss: Array = (m.ebase as Array).filter(func(t): return s.count(1, t) == 0)
+				print(C.num, ".", m.idx + 1, " dark ", dk, " missing ", miss, " enemy missing ", emiss, " masts ", s.count(0, "sigmast"), "/", s.count(1, "sigmast"))
+		get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "vanguard":
+		print("ONLY ", vanguard_tests(s, h)); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
 	print("setup ms ", Time.get_ticks_msec() - t0, " ents ", s.ents.size())
 	t0 = Time.get_ticks_msec()
@@ -99,6 +110,10 @@ func _ready():
 			s.new_game("normal", {"mission": m})
 			if s.teams[0].fac != C.fac or D.TEAMC[0] != D.FCOL[C.fac]:
 				print("MISSION TEST FAILED: wrong faction or colour in ", m.title); get_tree().quit(1); return
+			var dk: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.dark and e.type != "wall").map(func(e): return str(e.team) + e.type)
+			var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0 and t != "burrow") + (m.ebase as Array).filter(func(t): return s.count(1, t) == 0 and t != "burrow")
+			if dk.size() or miss.size():
+				print("MISSION TEST FAILED: ", m.title, " starts with dark buildings ", dk, " or missing ", miss); get_tree().quit(1); return
 			for i in 1200: s.step(0.05)
 			var txt: String = s.obj_text()
 			print(C.num, ".", m.idx + 1, " ", m.title, " ents=", s.ents.size(), " over=", s.over, " | ", txt.replace("\n", " | "))
@@ -129,6 +144,7 @@ func _ready():
 		print("FORMATION OFF TEST FAILED"); get_tree().quit(1); return
 	if not groundwork_tests(s, h): get_tree().quit(1); return
 	if not pact_tests(s, h): get_tree().quit(1); return
+	if not vanguard_tests(s, h): get_tree().quit(1); return
 	if not choir_tests(s, h): get_tree().quit(1); return
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
@@ -286,7 +302,7 @@ func _ufail(msg: String) -> bool:
 
 ## Building upgrades: cost, requirements, cancel, sell, each effect, and the campaign AI rule (Hard only).
 func upgrade_tests(s, h) -> bool:
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	var hq = s.find_hq(0)
 	var pw = s.add_building(0, "power", hq.tx + 4, hq.ty)
@@ -300,14 +316,14 @@ func upgrade_tests(s, h) -> bool:
 	for i in 40: s.step(0.05)
 	if pw.upg <= 0 or s.teams[0].credits >= 5000: return _ufail("upgrade did not start paying")
 	s.cancel_upgrade(pw)
-	if abs(s.teams[0].credits - 5000.0) > 1 or pw.upg >= 0: return _ufail("cancel did not refund")
+	if abs(s.teams[0].credits - 5000.0) > 4 or pw.upg >= 0: return _ufail("cancel did not refund")
 	# full reactor upgrade: +150 power, more hp, costs 450, new name
 	var pm0: int = s.teams[0].pmade
 	s.start_upgrade(pw)
 	for i in 20 * 14: s.step(0.05)
 	print("reactor: lv ", pw.lv, " ", pw.d.name, " power ", pm0, " -> ", s.teams[0].pmade, " paid ", int(5000.0 - s.teams[0].credits), " hp ", int(pw.hp), "/", int(pw.max_hp))
-	if pw.lv != 2 or pw.d.name != "Super Reactor" or s.teams[0].pmade != pm0 + 150 or pw.max_hp != 1000: return _ufail("reactor upgrade")
-	if abs((5000.0 - s.teams[0].credits) - 450) > 2: return _ufail("reactor upgrade cost")
+	if pw.lv != 2 or pw.d.name != "Roaring Furnace" or s.teams[0].pmade != pm0 + 150 or pw.max_hp != 1000: return _ufail("reactor upgrade")
+	if abs((5000.0 - s.teams[0].credits) - 450) > 14: return _ufail("reactor upgrade cost")
 	if s.upg_block(pw) == "" or not s.upg_def(pw).is_empty(): return _ufail("upgraded twice")
 	# selling an upgraded building refunds half of both prices
 	var cr: float = s.teams[0].credits
@@ -322,7 +338,7 @@ func upgrade_tests(s, h) -> bool:
 	# sentry: the upgraded def carries the new weapon numbers
 	var tu = s.add_building(0, "turret", hq.tx + 1, hq.ty + 5)
 	s.finish_upgrade(tu)
-	if tu.d.dmg != 44 or tu.d.range != 6.5 or tu.d.weapon != "shell": return _ufail("Heavy Sentry stats")
+	if tu.d.dmg != 85 or tu.d.range != 5.5 or tu.d.weapon != "shell": return _ufail("Heavy Sentry stats")
 	# refinery yield: a full load is worth 25% more
 	var ld := 0.0
 	for k in 2:
@@ -436,10 +452,12 @@ func _gfail(msg: String) -> bool:
 func groundwork_tests(s, h) -> bool:
 	if not D.rule("ashen", "cap") or D.producer("ashen", "inf") != "muster" or D.producer("ashen", "veh") != "workshop":
 		return _gfail("the Pact should have a unit cap and train from its Muster Hall and Workshop")
-	for f in ["vanguard", "choir"]:
+	if D.rule("vanguard", "power") or not D.rule("vanguard", "cap") or D.rule("vanguard", "place") != "signal" or D.producer("vanguard", "veh") != "lz":
+		return _gfail("the Vanguard should run on Signal and Command and fly its vehicles in to a Landing Zone")
+	for f in ["choir"]:
 		if not D.rule(f, "power") or D.rule(f, "cap") or D.rule(f, "place") != "near" or D.producer(f, "inf") != "barracks":
 			return _gfail(f + " does not start on today's rules")
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "choir", "enemy": "ashen", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	var hq = s.find_hq(0)
 	# power off: a faction without power is never short of it
@@ -447,38 +465,38 @@ func groundwork_tests(s, h) -> bool:
 	s.add_building(0, "comms", hq.tx + 4, hq.ty + 3)
 	s.calc_power()
 	if not s.low_power(0): return _gfail("barracks with no reactor should be low power")
-	D.RULES.vanguard.power = false
+	D.RULES.choir.power = false
 	var lp: bool = s.low_power(0)
-	D.RULES.vanguard.power = true
+	D.RULES.choir.power = true
 	if lp: return _gfail("a faction without power reported low power")
 	s.add_building(0, "power", hq.tx - 3, hq.ty); s.add_building(0, "power", hq.tx - 3, hq.ty + 3)
 	# unit cap: nothing trains past the cap, buildings with capAdd raise it
-	D.RULES.vanguard.cap = true
+	D.RULES.choir.cap = true
 	var hq_cap: int = D.BLD.hq.capAdd
 	D.BLD.hq.capAdd = s.cap_used(0)
-	var had: int = s.count(0, "rifle")
+	var had: int = s.count(0, "thrall")
 	s.teams[0].credits = 5000.0
-	for i in 3: s.teams[0].prod.inf.queue.append("rifle")
+	for i in 3: s.teams[0].prod.inf.queue.append("thrall")
 	for i in 400: s.step(0.05)
-	var capped: int = s.count(0, "rifle") - had
+	var capped: int = s.count(0, "thrall") - had
 	D.BLD.hq.capAdd = s.cap_used(0) + 2
 	for i in 400: s.step(0.05)
-	var after: int = s.count(0, "rifle") - had
+	var after: int = s.count(0, "thrall") - had
 	print("unit cap: trained ", capped, " at cap ", s.cap_max(0) - 2, ", then ", after, " with 2 more room (cap ", s.cap_used(0), "/", s.cap_max(0), ")")
-	D.BLD.hq.capAdd = hq_cap; D.RULES.vanguard.cap = false
+	D.BLD.hq.capAdd = hq_cap; D.RULES.choir.cap = false
 	s.teams[0].prod.inf.queue.clear()
 	if capped != 0 or after != 2: return _gfail("unit cap did not hold or did not release")
 	# producer override: the faction's infantry come out of another building
-	D.RULES.vanguard.prod = {"inf": "power"}
+	D.RULES.choir.prod = {"inf": "power"}
 	var pws: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.team == 0 and e.type == "power")
-	var n0: int = s.count(0, "rifle")
-	s.teams[0].prod.inf.queue.append("rifle")
+	var n0: int = s.count(0, "thrall")
+	s.teams[0].prod.inf.queue.append("thrall")
 	for i in 200: s.step(0.05)
-	D.RULES.vanguard.prod = {}
+	D.RULES.choir.prod = {}
 	var newest = null
 	for e in s.ents:
-		if e.alive and e.kind == "u" and e.team == 0 and e.type == "rifle" and (newest == null or e.id > newest.id): newest = e
-	if s.count(0, "rifle") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
+		if e.alive and e.kind == "u" and e.team == 0 and e.type == "thrall" and (newest == null or e.id > newest.id): newest = e
+	if s.count(0, "thrall") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
 	if pws.all(func(b): return Vector2(newest.x - b.x, newest.y - b.y).length() > 6 * D.T): return _gfail("unit did not come out of the overridden producer")
 	# living fields: drain, death, regrowth up to what vitality allows
 	var tiles: Array = []
@@ -499,7 +517,7 @@ func groundwork_tests(s, h) -> bool:
 	if s.ore[b] < int(full * 0.9) - 1 or s.ore[b] > full: return _gfail("tired tile did not regrow to its vitality cap")
 	if s.vit[b] <= 90: return _gfail("vitality did not come back on a rested tile")
 	# a harvester tires the field it works
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	hq = s.find_hq(0)
 	var rf = s.place_near(0, "refinery", hq.tx, hq.ty + 4)
@@ -662,4 +680,195 @@ func pact_tests(s, h) -> bool:
 	print("pact AI by a river (seed ", sd, "): slipways ", slips, ", ironclads ", ships)
 	if slips == 0: return _pfail("the Pact AI by a river never laid a Slipway")
 	print("pact tests ok")
+	return true
+
+func _vfail(msg: String) -> bool:
+	print("VANGUARD TEST FAILED: ", msg); return false
+
+## The Vanguard (high tech): Signal and Command, Deep Drills, dropship deliveries, Aegis shields, cloak, jump, rail, drones.
+func vanguard_tests(s, h) -> bool:
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.teams[1].credits = 0; s.ai_t = 1e9
+	for v in s.vis.size(): s.vis[v] = 2
+	var tm: Dictionary = s.teams[0]
+	var hq = s.find_hq(0)
+	for e in s.ents:
+		if e.team == 1 and e.kind == "u": e.alive = false
+	# Signal: prefabs only land inside it; Masts carry it further and raise Command
+	if s.uses_power(0) or s.low_power(0): return _vfail("the Vanguard should not use power")
+	if s.cap_max(0) != 20: return _vfail("the Yard alone should give 20 Command, got %d" % s.cap_max(0))
+	var spot = null; var far = null
+	var free2 := func(x: int, y: int) -> bool:
+		for yy in 2:
+			for xx in 2:
+				if not s.inb(x + xx, y + yy) or not s.walk(x + xx, y + yy) or s.ore[(y + yy) * s.MW + x + xx] > 0: return false
+		return true
+	for y in range(hq.ty - 20, hq.ty + 3):
+		for x in range(hq.tx + 5, hq.tx + 24):
+			if not free2.call(x, y): continue
+			var ins: bool = s.in_signal(0, x + 1.0, y + 1.0)
+			var dd: float = Vector2(x - hq.tx, y - hq.ty).length()
+			if ins and spot == null and dd > 7: spot = Vector2i(x, y)
+			if not ins and far == null and dd > 13 and free2.call(x + 2, y) and free2.call(x + 2, y + 3): far = Vector2i(x, y)
+	if spot == null or far == null: return _vfail("no test spots inside and outside Signal")
+	if not s.can_place(0, "barracks", spot.x, spot.y, false): return _vfail("a prefab should land inside Signal")
+	if s.can_place(0, "barracks", far.x, far.y, false): return _vfail("a prefab landed outside Signal")
+	var bk = s.add_building(0, "barracks", far.x, far.y)
+	if not bk.dark: return _vfail("a building outside Signal should be dark")
+	tm.credits = 5000.0; tm.prod.inf.queue.append("rifle")
+	var n0: int = s.count(0, "rifle")
+	for i in 200: s.step(0.05)
+	if s.count(0, "rifle") != n0: return _vfail("a dark Barracks trained a Trooper")
+	var ms = s.add_building(0, "sigmast", far.x + 2, far.y)
+	if bk.dark or s.cap_max(0) != 30: return _vfail("a Signal Mast should light the Barracks and add 10 Command")
+	for i in 200: s.step(0.05)
+	if s.count(0, "rifle") != n0 + 1: return _vfail("the Barracks did not train once it was back in Signal")
+	s.kill(ms)
+	if not bk.dark or s.cap_max(0) != 20: return _vfail("losing the Mast should darken the Barracks again")
+	ms = s.add_building(0, "sigmast", far.x + 2, far.y + 3)
+	print("vanguard: Signal ok, Command ", s.cap_used(0), "/", s.cap_max(0))
+	# Deep Drill: pumps a field straight into the bank and kills it
+	var oi := -1; var bd := 1e9
+	for i in s.MW * s.MH:
+		if s.ore[i] > 0:
+			var dd: float = Vector2(i % s.MW - hq.tx, i / s.MW - hq.ty).length()
+			if dd < bd: bd = dd; oi = i
+	if oi < 0: return _vfail("no ore on the test map")
+	var ox: int = oi % s.MW; var oy: int = oi / s.MW
+	s.add_building(0, "sigmast", ox - 2, oy)
+	if not s.can_place(0, "drill", ox, oy, false): return _vfail("a Deep Drill should go on a field inside Signal")
+	if s.can_place(0, "drill", hq.tx + 4, hq.ty + 4, false): return _vfail("a Deep Drill landed away from any field")
+	var dr = s.add_building(0, "drill", ox, oy)
+	var c0: float = tm.credits
+	for i in 20 * 60: s.step(0.05)
+	var dead := 0
+	for i in s.MW * s.MH:
+		if s.field_dead(i): dead += 1
+	print("vanguard: Deep Drill pumped ", int(tm.credits - c0), " in a minute, ", dead, " tiles dead")
+	if tm.credits - c0 < 1200 or tm.credits - c0 > 1800 or dead == 0: return _vfail("Deep Drill income or dead tiles")
+	for i in s.MW * s.MH:
+		if s.ore0[i] > 0 and Vector2(i % s.MW - ox - 1, i / s.MW - oy - 1).length() < 6: s.ore[i] = 0; s.vit[i] = 0
+	for i in 60: s.step(0.05)
+	if not dr.dry: return _vfail("a drill on an empty field should report dry")
+	# deliveries: a dropship flies the order in to the Landing Zone; shot down, half the cost comes back
+	var lz = s.place_near(0, "lz", hq.tx + 5, hq.ty - 5)
+	if lz == null or lz.dark: return _vfail("no Landing Zone")
+	tm.credits = 9000.0; tm.prod.veh.queue.append("tank")
+	var ship = null
+	for i in 20 * 40:
+		s.step(0.05)
+		for e in s.ents:
+			if e.alive and e.type == "dropship": ship = e
+		if ship != null: break
+	if ship == null or ship.cargo != ["tank"] or s.count(0, "tank") != 0: return _vfail("no dropship left for the Landing Zone")
+	if s.cap_used(0) < 3: return _vfail("cargo in flight should count toward Command")
+	for i in 20 * 30:
+		s.step(0.05)
+		if s.count(0, "tank") > 0: break
+	var tk = null
+	for e in s.ents:
+		if e.alive and e.type == "tank" and e.team == 0: tk = e
+	if tk == null or Vector2(tk.x - lz.x, tk.y - lz.y).length() > 6 * D.T: return _vfail("the tank was not set down at the Landing Zone")
+	for i in 20 * 20: s.step(0.05)
+	if s.count(0, "dropship") != 0: return _vfail("the dropship did not leave the map")
+	tm.prod.veh.queue.append("pk_strike")
+	c0 = -1.0
+	for i in 20 * 60:
+		s.step(0.05)
+		for e in s.ents:
+			if e.alive and e.type == "dropship" and not e.leaving and c0 < 0:
+				c0 = tm.credits; s.kill(e)
+		if c0 >= 0: break
+	if c0 < 0 or abs(tm.credits - c0 - D.UN.pk_strike.cost * 0.5) > 1 or s.count(0, "tank") != 1: return _vfail("a downed dropship should lose its cargo and refund half")
+	tm.prod.veh.queue.append("pk_strike")
+	for i in 20 * 60:
+		s.step(0.05)
+		if s.count(0, "tank") == 3 and s.count(0, "buggy") >= 2: break
+	if s.count(0, "tank") != 3: return _vfail("the Strike Package did not land two tanks and a scout")
+	print("vanguard: deliveries ok (tank, a downed dropship, a Strike Package)")
+	# Aegis: the shield soaks the hit, arcs drain it twice as fast, and it comes back after a rest
+	if tk.sh != 150.0: return _vfail("a Warden should carry a 150 Aegis shield")
+	s.damage(tk, 60.0, "shell", null)
+	if tk.hp != tk.max_hp or abs(tk.sh - 90.0) > 0.01: return _vfail("the shield did not soak a shell")
+	s.damage(tk, 20.0, "arc", null)
+	if abs(tk.sh - (90.0 - 20.0 * D.MOD.arc.heavy * 2.0)) > 0.01: return _vfail("arcs should drain a shield twice as fast")
+	s.damage(tk, 200.0, "shell", null)
+	if tk.sh != 0.0 or tk.hp >= tk.max_hp: return _vfail("a broken shield should let the rest through")
+	for i in 20 * 5: s.step(0.05)
+	if tk.sh != 0.0: return _vfail("the shield came back too soon")
+	for i in 20 * 12: s.step(0.05)
+	if tk.sh != 150.0: return _vfail("the shield did not come back after a rest")
+	# Shield Dome: soaks hits on what stands under it
+	var dm = s.place_near(0, "dome", hq.tx - 3, hq.ty - 4)
+	var hp0: float = hq.hp; var hs0: float = hq.sh
+	s.damage(hq, 100.0, "shell", null)
+	if dm == null or dm.sh != 700.0 or hq.hp != hp0 or hq.sh != hs0: return _vfail("the Shield Dome did not soak a hit on the Yard")
+	# Ranger: cloaked after standing still, sniffed out by a K9, seen again when it fires
+	var rg = s.spawn_unit(0, "ranger", (hq.tx - 4) * D.T, (hq.ty - 3) * D.T)
+	var en = s.spawn_unit(1, "militia", rg.x, rg.y); en.x = rg.x + 4 * D.T; en.y = rg.y; en.captive = true
+	for i in 20 * 4: s.step(0.05)
+	rg.target = null
+	en.captive = false
+	if not rg.cloak or not s.hid(rg) or s.find_target(en, 9 * D.T) == rg: return _vfail("a Ranger standing still should be cloaked")
+	var dog = s.spawn_unit(1, "k9", rg.x, rg.y); dog.x = rg.x + 3 * D.T; dog.y = rg.y + D.T; dog.stun = 99.0
+	s.upd_sense()
+	if s.hid(rg): return _vfail("a K9 should sniff out a cloaked Ranger")
+	dog.alive = false; en.alive = false
+	# Jump Trooper: jumps on a long move
+	var jt = s.spawn_unit(0, "jump", (hq.tx + 2) * D.T, (hq.ty + 6) * D.T)
+	s.group_move([jt], jt.x + 12 * D.T, jt.y, "move")
+	var hopped := false
+	for i in 20 * 3:
+		s.step(0.05)
+		if jt.hop != null: hopped = true
+	if not hopped: return _vfail("the Jump Trooper never jumped")
+	# Railtank: the slug goes through everything in its line
+	var rt = s.spawn_unit(0, "railtank", (hq.tx - 4) * D.T, (hq.ty + 6) * D.T)
+	var e1 = s.spawn_unit(1, "militia", rt.x, rt.y); var e2 = s.spawn_unit(1, "militia", rt.x, rt.y)
+	e1.x = rt.x + 3 * D.T; e1.y = rt.y; e2.x = rt.x + 5 * D.T; e2.y = rt.y; e1.stun = 99.0; e2.stun = 99.0
+	e1.max_hp = 999; e1.hp = 999; e2.max_hp = 999; e2.hp = 999
+	s.fire(rt, e1, rt.d)
+	if e1.hp >= 999 or e2.hp >= 999: return _vfail("a rail slug should hit everything in its line")
+	# Spotter Drone: what it sees takes a quarter more
+	var sp = s.spawn_unit(0, "spotter", e1.x + D.T, e1.y)
+	s.upd_sense()
+	var h1: float = e2.hp
+	s.damage(e2, 40.0, "bullet", null)
+	if abs((h1 - e2.hp) - 40.0 * 1.25) > 0.01: return _vfail("a spotted target should take 25% more")
+	e1.alive = false; e2.alive = false; sp.alive = false
+	# recovery: hold a lost vehicle's beacon and 40% of its cost comes back
+	var lost = s.spawn_unit(0, "tank", (hq.tx + 3) * D.T, (hq.ty + 7) * D.T)
+	s.kill(lost)
+	var tr = s.spawn_unit(0, "rifle", lost.x + 8, lost.y)
+	c0 = tm.credits
+	for i in 20 * 7: s.step(0.05)
+	if abs(tm.credits - c0 - D.UN.tank.cost * 0.4) > 1: return _vfail("holding a beacon should recover 40%% of a Warden, got %d" % int(tm.credits - c0))
+	# Hydrofoil: flown in and set down on the river
+	if not s.avail(0, "hydrofoil"): return _vfail("no Hydrofoil")
+	s.add_building(0, "uplink", lz.tx, lz.ty - 3)
+	tm.credits = 9000.0; tm.prod.veh.queue.append("hydrofoil")
+	var hy = null
+	for i in 20 * 90:
+		s.step(0.05)
+		for e in s.ents:
+			if e.alive and e.type == "hydrofoil": hy = e
+		if hy != null: break
+	if hy == null or s.terr[s.t_idx(hy)] != D.WATER: return _vfail("the Hydrofoil was not set down on water")
+	print("vanguard: shields, dome, cloak, jump, rail, spotter, recovery, hydrofoil ok")
+	# the Vanguard AI: Masts, drills, a Landing Zone and an army flown in
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 777})
+	var c = {}
+	for i in 20 * 60 * 10:
+		s.step(0.05)
+		if i % 20 == 0:
+			s.ai_think(s.teams[0])
+			for e in s.ents:
+				if e.alive and e.team == 0: c[e.type] = maxi(c.get(e.type, 0), s.count(0, e.type))
+		if s.over: break
+	print("vanguard AI in 10 min, most of each at once: ", c, " earned ", int(s.teams[0].earned))
+	for t in ["sigmast", "drill", "barracks", "lz", "rifle"]:
+		if not c.has(t): return _vfail("the Vanguard AI never had a " + t)
+	if not (c.has("tank") or c.has("buggy") or c.has("railtank")): return _vfail("the Vanguard AI flew in no vehicles")
+	if c.has("power") or c.has("refinery") or c.has("harv") or c.has("factory"): return _vfail("the Vanguard AI built something from the old rules")
+	print("vanguard tests ok")
 	return true

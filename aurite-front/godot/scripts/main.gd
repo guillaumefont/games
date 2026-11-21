@@ -668,7 +668,12 @@ func confirm_place() -> void:
 	if placing == null: return
 	var q: Dictionary = S.teams[0].prod.bld
 	if not S.can_place(0, placing.type, placing.tx, placing.ty, false):
-		toast("Can't build there. Stay close to your base, off rock, water and aurite.", "warn"); return
+		var pd: Dictionary = D.BLD[placing.type]
+		if pd.onore: toast("A Deep Drill lands on an aurite field, inside Signal (the blue rings).", "warn")
+		elif pd.shore: toast("It needs open water beside it.", "warn")
+		elif D.rule(S.fac_of(0), "place") == "signal": toast("Can't land there. Stay inside Signal (the blue rings): a Signal Mast carries it further.", "warn")
+		else: toast("Can't build there. Stay close to your base, off rock, water and aurite.", "warn")
+		return
 	var b := S.add_building(0, placing.type, placing.tx, placing.ty)
 	tut.ev("made", placing.type)
 	for k in 8: S.parts.append({"k": "smoke", "x": b.tx * T + randf() * b.w * T, "y": (b.ty + b.h) * T - 4, "vx": (randf() - .5) * 30, "vy": -randf() * 10, "life": .8, "max": .8, "s": 5.0, "c": Color8(150, 140, 120)})
@@ -775,8 +780,13 @@ func update_cmd() -> void:
 		if S.sel.size() == 1:
 			var e: Ent = S.sel[0]; var d := e.d
 			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + " · upgrade: " + D.UPG[e.type].say
-			elif e.kind == "b": U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or d.get("yard", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
-			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else "")))))
+			elif e.kind == "b":
+				U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
+				if e.dark: U.selinfo.text = d.name + " · NO SIGNAL: build a Signal Mast near it"
+				elif e.dry: U.selinfo.text = d.name + " · field pumped dry: sell it and drill another"
+				elif d.get("signal", 0.0) > 0 and S.fac_of(0) == "vanguard": U.selinfo.text = d.name + " · sends Signal %d tiles%s" % [int(d.signal), (", +%d Command" % d.capAdd) if e.type != "hq" else ""]
+				elif d.get("dome", 0.0) > 0: U.selinfo.text = d.name + " · shield %d / %d over everything near it" % [int(e.sh), int(e.sh_max)]
+			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else (" · cloaks when it stands still" if d.cloak > 0 else (" · jumps on long moves" if d.jump > 0 else (" · sniffs out hidden units" if d.detect > 0 else (" · what it sees takes +25%" if d.mark > 0 else (" · slug goes through a whole line" if d.pierce else ""))))))))))
 		else: U.selinfo.text = "%d units" % S.sel.size()
 	else: U.selinfo.visible = false
 
@@ -876,7 +886,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 	if sel_u.size():
 		command(hit, wx, wy, sel_u); return
 	var sb: Ent = S.sel[0] if S.sel.size() else null
-	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.d.get("yard", false) or sb.type == "mast"):
+	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.d.get("yard", false) or sb.d.get("pad", false) or sb.type == "mast"):
 		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); return
 	S.set_sel([])
 
@@ -1097,12 +1107,24 @@ func key_pan(dt: float) -> void:
 	if keys.get("s", false) or keys.get("down", false): V.cam_y += s; mv = true
 	if mv: V.clamp_cam()
 
+## While a Vanguard prefab is being placed: the edge of every Signal source, so the player sees where it may land.
+func _draw_signal(c: Control) -> void:
+	for b in S.ents:
+		if not (b.alive and b.kind == "b" and b.team == 0 and b.d.signal > 0): continue
+		var pts := PackedVector2Array(); var gh: float = S.h_at(b.x, b.y) + .08
+		for i in 49:
+			var a := TAU * i / 48.0
+			var q := V.w2s(b.x + cos(a) * b.d.signal * T, b.y + sin(a) * b.d.signal * T, gh)
+			if q.z < 0: pts = PackedVector2Array(); break
+			pts.append(Vector2(q.x, q.y))
+		if pts.size() > 2: c.draw_polyline(pts, Color(0.5, 0.9, 1.0, 0.55), 2.0, true)
+
 # ---------------- HUD drawing ----------------
 func draw_hud(c: Control) -> void:
 	if S.teams.is_empty() or U.overlays.start.visible: return
 	var f: Font = U.f_disp
 	for e in S.ents:
-		if not e.alive or not (e.sel or e.hit_t > 0 or (e.kind == "b" and (e.repairing or (e.upg >= 0 and e.team == 0)))): continue
+		if not e.alive or not (e.sel or e.hit_t > 0 or (e.sh_max > 0 and e.sh < e.sh_max) or (e.kind == "b" and (e.repairing or (e.upg >= 0 and e.team == 0)))): continue
 		if e.team != 0 and not S.visible_to_player(e): continue
 		var is_b: bool = e.kind == "b"
 		var top: float = D.BH[e.type] + .25 if is_b else D.UH[e.type] + .15 + (D.ALT if e.d.air else 0.0)
@@ -1112,12 +1134,18 @@ func draw_hud(c: Control) -> void:
 		var w: float = max(24.0, e.w * ppt * .85) if is_b else max(18.0, e.r / T * 2 * ppt + 8)
 		var x := p.x - w / 2; var y := p.y - 4; var fr: float = max(0.0, e.hp / e.max_hp)
 		_hp_bar(c, Rect2(x, y, w, 4 if is_b else 3), fr, D.MINI_COL[e.team] if e.team < D.MINI_COL.size() else Color.WHITE, is_b)
+		if e.sh_max > 0:
+			# Aegis shield: a thin bright bar over the hull bar
+			c.draw_rect(Rect2(x - 1, y - 4, w + 2, 4), Color(0, 0, 0, .75)); c.draw_rect(Rect2(x, y - 3, w * e.sh / e.sh_max, 2), Color("9ff3ff"))
+		if is_b and e.dark and e.team == 0 and sin(S.time * 5) > -0.3:
+			c.draw_string(U.f_disp7, Vector2(p.x - 28, y - 8), "NO SIGNAL", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("ff6a5a"))
 		if e.kind == "u" and e.d.harv and e.sel:
 			c.draw_rect(Rect2(x - 1, y + 4, w + 2, 4), Color(0, 0, 0, .75)); c.draw_rect(Rect2(x, y + 5, w * e.load / D.HARV_CAP, 2), Color("f0b93f"))
 		if is_b and e.upg >= 0 and (e.team == 0 or e.sel):
 			c.draw_rect(Rect2(x - 1, y + 5, w + 2, 4), Color(0, 0, 0, .75)); c.draw_rect(Rect2(x, y + 6, w * e.upg, 2), Color("f0b93f"))
 		if is_b and e.repairing:
 			c.draw_string(U.f_disp7, Vector2(p.x - 5, y - 5 + sin(S.time * 6) * 2), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("7fd68e"))
+	if placing != null and D.rule(S.fac_of(0), "place") == "signal": _draw_signal(c)
 	_draw_mission_marks(c)
 	# floating "+N" aurite numbers (refinery deliveries, sales)
 	for p in S.parts:
@@ -1359,6 +1387,8 @@ func _autotest(dir: String) -> void:
 		await _choir_shots(dir); get_tree().quit(); return
 	elif mode == "pact":
 		await _pact_shots(dir); get_tree().quit(); return
+	elif mode == "vanguard":
+		await _vanguard_shots(dir); get_tree().quit(); return
 	elif mode == "up":
 		await _upgrade_shots(dir); get_tree().quit(); return
 	else:
@@ -1779,6 +1809,65 @@ func _upgrade_shots(dir: String) -> void:
 
 ## AF_MODE=pact: the Ashen Pact's base, every Pact unit in rows, a boar charge, a wreck being revived by a Scrapper,
 ## and the HUD with the unit cap and the Hearth's MUSTER button.
+## AF_MODE=vanguard: the Vanguard base inside its Signal, each prefab, the roster, a delivery landing and the HUD.
+func _vanguard_shots(dir: String) -> void:
+	play({"fac": "vanguard", "enemy": "ashen", "diff": "normal", "seed": 4242})
+	paused = true
+	S.teams[0].credits = 9000.0
+	for v in S.vis.size(): S.vis[v] = 2
+	var hq: Ent = S.find_hq(0)
+	var bs: Array = []
+	for t in ["sigmast", "barracks", "lz", "drill", "uplink", "sentry", "pdl", "dome", "sigmast", "bastion", "skyfall"]:
+		var sp = S.ai_spot(0, t, hq)
+		if sp == null: print("no spot for ", t); continue
+		var b := S.add_building(0, t, sp.x, sp.y); b.born = -9.0; bs.append(b)
+	S.update_vision(); V.fog_clear(true)
+	V.cam_z = 1.1; V.center_on(hq.x + T * 2, hq.y - T * 2)
+	await get_tree().create_timer(.6).timeout
+	await _shot(dir + "/v1_base.png")
+	var seen := {}
+	for b in bs:
+		if seen.has(b.type): continue
+		seen[b.type] = true
+		V.cam_z = 2.6; V.center_on(b.x, b.y)
+		await get_tree().create_timer(.25).timeout
+		await _shot(dir + "/v_b_%s.png" % b.type)
+	var x0: float = (hq.tx + 6) * T; var y0: float = (hq.ty - 14) * T
+	var rows := [["rifle", "lancer", "ranger", "medic", "jump", "k9", "engineer"], ["buggy", "tank", "railtank", "walker"], ["spotter", "hornets", "hornets", "skyhawk", "dropship"]]
+	for ri in rows.size():
+		var row: Array = rows[ri]
+		for i in row.size():
+			var u := S.spawn_unit(0, row[i], x0 + i * T * (1.1 if ri == 0 else 2.0), y0 + ri * T * 2.4); u.ang = PI * .75; u.tang = u.ang
+			if row[i] == "dropship": u.captive = true
+	V.cam_z = 3.4; V.center_on(x0 + T * 3.4, y0)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/v2_infantry.png")
+	V.cam_z = 2.6; V.center_on(x0 + T * 3, y0 + T * 2.4)
+	await get_tree().create_timer(.3).timeout
+	await _shot(dir + "/v3_vehicles.png")
+	V.cam_z = 2.2; V.center_on(x0 + T * 4, y0 + T * 3.4)
+	await get_tree().create_timer(.3).timeout
+	await _shot(dir + "/v4_air.png")
+	# a delivery on its way in, shields under fire
+	var lz: Ent = bs.filter(func(e): return e.type == "lz")[0]
+	var ship := S.send_dropship(S.teams[0], "pk_strike", lz)
+	ship.x = lz.x - T * 4; ship.y = lz.y - T * 2
+	var tk: Ent = S.ents.filter(func(e): return e.alive and e.type == "tank")[0]
+	S.damage(tk, 90.0, "shell", null); S.set_sel([tk, S.ents.filter(func(e): return e.alive and e.type == "walker")[0]])
+	paused = false
+	for i in 12: S.step(.05)
+	paused = true
+	V.cam_z = 1.7; V.center_on(lz.x, lz.y)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/v5_delivery.png")
+	# placing a prefab: the Signal rings
+	S.teams[0].prod.bld.cur = "sentry"; S.teams[0].prod.bld.ready = true; S.teams[0].prod.bld.prog = 1.0
+	start_placing("sentry")
+	V.cam_z = 0.9; V.center_on(hq.x + T * 3, hq.y - T * 3)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/v6_signal.png")
+	end_placing()
+
 func _pact_shots(dir: String) -> void:
 	play({"fac": "ashen", "enemy": "vanguard", "diff": "normal", "seed": 4242})
 	paused = true

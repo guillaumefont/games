@@ -351,6 +351,17 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 		B.box(M.fire, .01, .012, .012, .2, .17, .035, b); B.box(M.fire, .01, .012, .012, .2, .17, -.035, b)
 		B.flash_mesh(b, .24, .12, 0, .05, M.fire)
 		return
+	if type == "k9":
+		# K9 Team: a lean war dog in a blue sensor vest, ears up
+		b.scale = Vector3.ONE * 1.4
+		var lf := B.solo("legL", b, .09, .07, 0); B.box(M.dark, .03, .13, .03, 0, 0, -.04, lf); B.box(M.dark, .03, .13, .03, -.2, 0, .04, lf)
+		var rf := B.solo("legR", b, .09, .07, 0); B.box(M.dark, .03, .13, .03, 0, 0, .04, rf); B.box(M.dark, .03, .13, .03, -.2, 0, -.04, rf)
+		B.box(M.olive2, .3, .09, .09, -.01, .17, 0, b); B.box(tm.col, .14, .1, .1, -.02, .175, 0, b); B.box(M.cyan, .03, .02, .06, -.02, .235, 0, b)
+		B.box(M.olive2, .1, .08, .08, .17, .24, 0, b); B.box(M.dark, .07, .04, .05, .24, .225, 0, b)
+		for z in [-.03, .03]: B.box(M.dark, .02, .05, .02, .15, .3, z, b)
+		B.box(M.olive2, .1, .02, .02, -.19, .2, 0, b, Vector3(0, 0, .6))
+		B.flash_mesh(b, .28, .22, 0, .04)
+		return
 	var lg := B.solo("legL", b, 0, .065, -.045); B.box(M.dark, .07, .13, .06, 0, 0, 0, lg)
 	var rg := B.solo("legR", b, 0, .065, .045); B.box(M.dark, .07, .13, .06, 0, 0, 0, rg)
 	var torso: Color = M.white if type == "medic" else tm.col
@@ -370,6 +381,12 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 			B.box(M.white, .12, .045, .12, 0, .37, 0, b); B.box(M.white, .09, .14, .13, -.1, .22, 0, b); B.box(M.green, .004, .09, .03, -.147, .23, 0, b); B.box(M.green, .004, .03, .09, -.147, .23, 0, b); B.box(M.green, .004, .02, .06, .07, .375, 0, b); B.flash_mesh(b, .08, .2, .1, .06, M.heal)
 		"engineer":
 			B.box(M.gold, .14, .045, .14, 0, .37, 0, b); B.box(M.gold, .1, .02, .16, .02, .355, 0, b); B.box(M.orange, .08, .07, .11, .02, .13, .14, b); B.box(M.metal, .03, .03, .16, .1, .2, -.1, b); B.flash_mesh(b, .12, .2, .12, .05)
+		"jump":
+			# Jump Trooper: white armour, a visor, a twin-thruster jump pack with blue burners
+			B.box(M.white, .13, .06, .13, 0, .37, 0, b); B.box(M.cyan, .012, .025, .1, .066, .345, 0, b)
+			B.box(M.white, .09, .17, .17, -.1, .25, 0, b)
+			for z in [-.06, .06]: B.cyl(P.metal2, .03, .04, .12, 6, -.13, .16, z, b); B.cyl(M.cyan, .025, .025, .02, 6, -.13, .095, z, b)
+			B.box(M.dark, .22, .035, .035, .1, .22, .08, b); B.flash_mesh(b, .23, .22, .08, .06)
 		"ranger":
 			B.box(M.olive2, .13, .06, .14, -.01, .37, 0, b); B.box(M.olive2, .1, .16, .18, -.03, .22, 0, b); B.box(M.dark, .36, .025, .025, .14, .23, .07, b); B.cyl(M.dark, .018, .018, .08, 5, .1, .26, .07, b, Vector3(0, 0, PI / 2)); B.flash_mesh(b, .33, .23, .07, .06)
 		"vey":
@@ -438,7 +455,7 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 		for x in [-L / 2 + .08, L / 2 - .08]:
 			for zz in [z, -z]: B.cyl(M.dark, .06, .06, .15, 6, x, .07, zz, body, Vector3(PI / 2, 0, 0))
 	match type:
-		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor", "militia", "brute", "grenadier", "scrapper", "boars":
+		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor", "militia", "brute", "grenadier", "scrapper", "boars", "jump", "k9":
 			infantry(B, body, type)
 		"skitter":
 			# six-legged crystal crawler with a shard gun under its chin
@@ -532,12 +549,12 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			B.box(tm.col, .2, .2, .3, .25, .27, 0, body); B.box(M.glass, .03, .09, .26, .355, .32, 0, body)
 			B.box(M.sandbag, .44, .24, .32, -.12, .32, 0, body); B.box(tm.dk, .45, .03, .33, -.12, .45, 0, body)
 		"buggy":
-			B.box(tm.col, .5, .1, .3, 0, .17, 0, body); B.box(tm.dk, .52, .04, .32, 0, .11, 0, body); B.box(M.glass, .03, .09, .24, .13, .26, 0, body)
-			for z in [-.13, .13]:
-				B.box(M.dark, .03, .16, .03, .12, .29, z, body); B.box(M.dark, .03, .16, .03, -.12, .29, z, body); B.box(M.dark, .27, .03, .03, 0, .37, z, body)
-			for w in [[.17, .18], [-.17, .18], [.17, -.18], [-.17, -.18]]: B.cyl(M.tire, .095, .095, .08, 7, w[0], .095, w[1], body, Vector3(PI / 2, 0, 0))
-			var t := B.grp(body, "tur", Vector3(-.12, .24, 0))
-			B.cyl(M.dark, .05, .06, .08, 6, 0, .04, 0, t); B.box(M.dark, .24, .035, .035, .12, .07, 0, t); B.flash_mesh(t, .26, .07, 0, .07)
+			# Hover Scout: a wedge on four lift pods, no wheels, a light gun on top
+			B.prism(tm.col, .56, .1, .3, 0, .2, 0, body); B.box(tm.dk, .5, .05, .32, -.02, .13, 0, body); B.box(M.glass, .14, .07, .2, .08, .26, 0, body)
+			for w in [[.2, .17], [-.2, .17], [.2, -.17], [-.2, -.17]]:
+				B.cyl(P.metal2, .07, .08, .06, 7, w[0], .1, w[1], body); B.cyl(M.cyan, .05, .05, .015, 7, w[0], .065, w[1], body)
+			var t := B.grp(body, "tur", Vector3(-.14, .27, 0))
+			B.cyl(M.dark, .045, .055, .07, 6, 0, .035, 0, t); B.box(M.dark, .24, .03, .03, .12, .06, 0, t); B.flash_mesh(t, .26, .06, 0, .07)
 		"raider":
 			B.box(tm.col, .42, .07, .09, 0, .18, 0, body); B.box(M.ashM2, .18, .06, .1, -.05, .24, 0, body)
 			B.cyl(M.tire, .1, .1, .05, 8, .2, .1, 0, body, Vector3(PI / 2, 0, 0)); B.cyl(M.tire, .11, .11, .06, 8, -.19, .11, 0, body, Vector3(PI / 2, 0, 0))
@@ -597,12 +614,12 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			B.flash_mesh(t, .96, .1, 0, .16)
 		"ironclad":
 			# River Ironclad: a flat armoured hull, a squat mortar turret, twin stacks and bow flamers
-			B.prism(M.iron, .95, .14, .46, .0, .22, 0, body); B.box(M.rust, .9, .1, .44, -.02, .29, 0, body); B.box(M.dark, .9, .03, .42, -.02, .345, 0, body); B.box(tm.col, .92, .04, .08, -.02, .36, 0, body)
-			B.prism(M.rust, .24, .1, .42, .5, .26, 0, body)
+			B.prism(M.iron, .95, .14, .46, 0, .1, 0, body); B.box(M.rust, .9, .1, .44, -.02, .17, 0, body); B.box(M.dark, .9, .03, .42, -.02, .225, 0, body); B.box(tm.col, .92, .04, .08, -.02, .24, 0, body)
+			B.prism(M.rust, .24, .1, .42, .5, .14, 0, body)
 			for z in [-.1, .1]:
-				B.cyl(M.iron, .05, .06, .3, 6, -.3, .52, z, body); B.cyl(M.fire, .04, .04, .02, 6, -.3, .68, z, body)
-			for z in [-.16, .16]: B.box(M.dark, .14, .04, .04, .5, .36, z, body)
-			var t := B.grp(body, "tur", Vector3(.08, .4, 0))
+				B.cyl(M.iron, .05, .06, .3, 6, -.3, .4, z, body); B.cyl(M.fire, .04, .04, .02, 6, -.3, .56, z, body)
+			for z in [-.16, .16]: B.box(M.dark, .14, .04, .04, .5, .24, z, body)
+			var t := B.grp(body, "tur", Vector3(.08, .28, 0))
 			B.cyl(M.iron, .15, .18, .12, 8, 0, .05, 0, t)
 			var tube := B.solo("tube", t, .02, .16, 0, Vector3(0, 0, -.9)); B.cyl(M.rust, .07, .09, .34, 7, 0, 0, 0, tube)
 			B.flash_mesh(t, .2, .33, 0, .13, M.fire)
@@ -654,6 +671,51 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			B.box(M.dark, .38, .03, .38, -.1, .36, 0, body)
 			var cargo := B.solo("cargo", body, -.1, .37, 0); B.box(M.goldGlow, .34, 1, .34, 0, 0, 0, cargo)
 			var scoop := B.solo("scoop", body, .42, .1, 0); B.box(M.metal, .08, .12, .52, 0, 0, 0, scoop)
+		"railtank":
+			# Railtank: a long low hull and a rail gun as long as the tank, with blue coils down the barrel
+			tracks.call(.76, .22, .12); B.box(tm.col, .68, .1, .36, 0, .19, 0, body); B.prism(tm.dk, .2, .08, .36, .36, .18, 0, body); B.box(P.metal2, .7, .04, .08, 0, .19, .23, body); B.box(P.metal2, .7, .04, .08, 0, .19, -.23, body)
+			var t := B.grp(body, "tur", Vector3(-.1, .25, 0))
+			B.box(tm.col, .3, .1, .26, 0, .05, 0, t); B.box(M.white, .22, .03, .2, -.02, .11, 0, t)
+			B.box(P.metal2, .74, .04, .03, .42, .07, .035, t); B.box(P.metal2, .74, .04, .03, .42, .07, -.035, t)
+			for k in 5: B.box(M.cyan, .03, .055, .1, .16 + k * .13, .07, 0, t)
+			B.flash_mesh(t, .82, .07, 0, .1, M.glowC)
+		"walker":
+			# Sentinel Walker: a tall two-legged machine, a white armoured pod, twin lasers
+			var l1 := B.solo("legL", body, 0, 0, -.2); var l2 := B.solo("legR", body, 0, 0, .2)
+			for lg in [l1, l2]:
+				B.box(P.metal2, .1, .34, .1, .05, .5, 0, lg, Vector3(0, 0, .35)); B.box(P.metal, .09, .36, .09, .03, .2, 0, lg, Vector3(0, 0, -.3)); B.box(M.dark, .26, .05, .16, .04, .03, 0, lg)
+				B.cyl(M.cyan, .04, .04, .11, 6, -.01, .36, 0, lg, Vector3(PI / 2, 0, 0))
+			var t := B.grp(body, "tur", Vector3(0, .66, 0))
+			B.box(tm.col, .42, .2, .34, 0, .1, 0, t); B.prism(M.white, .44, .1, .36, 0, .24, 0, t); B.box(M.glass, .04, .08, .22, .21, .12, 0, t); B.box(tm.dk, .14, .14, .3, -.26, .1, 0, t)
+			for z in [-.22, .22]:
+				B.box(P.metal2, .16, .1, .08, .06, .1, z, t); B.cyl(M.cyan, .022, .022, .34, 6, .3, .1, z, t, Vector3(0, 0, PI / 2))
+			B.flash_mesh(t, .5, .1, .22, .08, M.glowC)
+		"hydrofoil":
+			# Hydrofoil Monitor: a slim white hull riding high on two foils, a rail gun forward
+			B.prism(M.white, .8, .09, .22, 0, .17, 0, body); B.box(tm.col, .5, .06, .2, -.08, .23, 0, body); B.box(M.glass, .12, .06, .16, .06, .28, 0, body)
+			for x in [-.28, .26]:
+				B.box(P.metal2, .04, .14, .03, x, .08, .14, body); B.box(P.metal2, .04, .14, .03, x, .08, -.14, body); B.box(M.cyan, .1, .015, .4, x, .02, 0, body)
+			var t := B.grp(body, "tur", Vector3(.2, .28, 0))
+			B.cyl(tm.col, .08, .1, .07, 6, 0, .035, 0, t); B.box(P.metal2, .5, .03, .03, .26, .06, 0, t); B.box(M.cyan, .3, .02, .045, .26, .06, 0, t); B.flash_mesh(t, .54, .06, 0, .09, M.glowC)
+		"spotter":
+			# Spotter Drone: a small disc with one big blue eye underneath
+			B.cyl(M.white, .16, .2, .05, 8, 0, 0, 0, body); B.cyl(tm.col, .1, .12, .04, 8, 0, .04, 0, body); B.ico(M.cyan, .06, .06, -.05, 0, body)
+			B.box(M.dark, .01, .14, .01, -.1, .1, 0, body); B.rotor(body, "rot", 0, .08, 0, .5)
+		"hornets":
+			# Hornet Drone: a palm-sized dart with two rotors and a needle gun
+			B.prism(tm.col, .2, .04, .09, 0, 0, 0, body); B.box(M.cyan, .03, .02, .05, .06, .02, 0, body); B.box(M.dark, .12, .015, .015, .12, -.02, 0, body)
+			B.rotor(body, "rot0", 0, .04, .09, .16, tm.dk); B.rotor(body, "rot1", 0, .04, -.09, .16, tm.dk); B.flash_mesh(body, .2, -.02, 0, .04)
+		"dropship", "pk_wing":
+			# Kite Dropship: a broad lifting body on four tilt fans with a cargo pod slung under it
+			B.box(tm.col, .7, .12, .34, 0, .02, 0, body); B.prism(M.white, .3, .1, .34, .42, .02, 0, body); B.box(M.glass, .08, .06, .26, .46, .07, 0, body); B.box(tm.dk, .2, .16, .1, -.38, .1, 0, body)
+			var i := 0
+			for xz in [[.26, .34], [.26, -.34], [-.26, .34], [-.26, -.34]]:
+				B.box(P.metal2, .08, .04, .2, xz[0], .03, xz[1] * .75, body); B.cyl(P.metal2, .13, .13, .05, 8, xz[0], .03, xz[1], body)
+				B.rotor(body, "rot%d" % i, xz[0], .07, xz[1], .24, tm.dk); i += 1
+			B.box(M.olive2, .4, .16, .24, 0, -.14, 0, body); B.box(M.gold, .42, .03, .26, 0, -.14, 0, body)
+		"pk_strike":
+			# a package: crates on a pallet (only ever seen as a build button)
+			B.box(M.olive2, .3, .26, .3, -.14, .15, 0, body); B.box(M.olive2, .24, .2, .24, .18, .12, .05, body); B.box(M.gold, .32, .03, .32, -.14, .2, 0, body); B.box(tm.col, .26, .03, .26, .18, .16, .05, body)
 		"skyhawk":
 			B.box(tm.col, .5, .14, .17, 0, 0, 0, body); B.box(M.glass, .14, .1, .15, .25, -.01, 0, body); B.box(tm.dk, .5, .04, .18, 0, -.07, 0, body)
 			B.box(tm.col, .42, .05, .05, -.42, .03, 0, body); B.box(tm.dk, .03, .14, .1, -.62, .07, 0, body); B.rotor(body, "tr", -.62, .07, .06, .16, null, Vector3(PI / 2, 0, 0))
@@ -725,6 +787,56 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			B.box(M.dark, 1.4, .62, .05, 0, .41, .61, body)
 			for k in 5: B.box(M.gold, .1, .62, .06, -.56 + k * .28, .41, .62, body)
 			B.box(M.dark, 1.4, .03, .6, 0, .135, 1.1, body)
+		"sigmast":
+			# Signal Mast: a thin lattice mast, three dishes, a light on top
+			B.box(P.metal2, .5, .2, .5, 0, .22, 0, body); B.box(tm.col, .52, .05, .52, 0, .3, 0, body)
+			B.cyl(P.metal, .04, .07, 1.7, 5, 0, 1.15, 0, body)
+			for k in 3: B.box(M.dark, .3 - k * .06, .02, .02, 0, .8 + k * .4, 0, body, Vector3(0, k * 1.05, 0))
+			for k in 3: B.cone(M.white, 6, .16, .08, .16, cos(k * 2.1) * .12, 1.25 + k * .22, sin(k * 2.1) * .12, body, Vector3(sin(k * 2.1) * 1.3, 0, -cos(k * 2.1) * 1.3))
+			var bl := B.solo("blink", body, 0, 2.06, 0); B.ico(M.cyan, .06, 0, 0, 0, bl); B.nshadow[bl] = true
+		"drill":
+			# Deep Drill: a derrick over the bore, a pump house and a tank that fills with aurite
+			B.box(P.metal, .7, .5, .8, -.5, .37, -.3, body); B.box(tm.col, .72, .07, .82, -.5, .63, -.3, body)
+			B.cyl(M.tank, .3, .3, .7, 8, -.5, .47, .5, body); B.cyl(M.goldGlow, .26, .26, .04, 8, -.5, .84, .5, body)
+			for xz in [[.15, -.35], [.85, -.35], [.15, .35], [.85, .35]]: B.pipe(P.metal2, Vector3(xz[0], .12, xz[1]), Vector3(.5 + (xz[0] - .5) * .25, 1.5, xz[1] * .25), .03, body)
+			B.box(P.metal2, .5, .04, .5, .5, .75, 0, body); B.box(M.dark, .22, .1, .22, .5, 1.52, 0, body)
+			var bit := B.solo("spin", body, .5, .62, 0); B.cyl(M.dark, .05, .05, 1.0, 6, 0, 0, 0, bit); B.cone(M.gold, 6, .1, .16, .1, 0, -.52, 0, bit, Vector3(PI, 0, 0))
+			B.pipe(M.pipe, Vector3(.4, .2, 0), Vector3(-.2, .2, .5), .04, body)
+		"lz":
+			# Landing Zone: a marked pad, corner lights, a small control hut
+			B.box(M.dark, 2.6, .04, 2.6, 0, .14, 0, body)
+			var hg := B.grp(body, "h", Vector3(0, .165, 0))
+			B.torus(M.hmark, .95, .04, 4, 20, B.grp(hg, "ring", Vector3.ZERO, Vector3(PI / 2, 0, 0)))
+			B.box(M.hmark, .1, .012, .8, -.3, 0, 0, hg); B.box(M.hmark, .1, .012, .8, .3, 0, 0, hg); B.box(M.hmark, .6, .012, .1, 0, 0, 0, hg)
+			for xz in [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]: B.lamp(body, xz[0], .2, xz[1], M.cyan)
+			B.box(P.metal, .5, .4, .5, -1.05, .34, -1.05, body); B.box(tm.col, .52, .06, .52, -1.05, .56, -1.05, body); B.box(M.dark, .02, .5, .02, -1.2, .8, -1.2, body)
+			B.stripes(body, 0, 1.25, 2.4, .165); B.stripes(body, 0, -1.25, 2.4, .165)
+		"uplink":
+			# Uplink: a big dish that tracks the sky over a low bunker
+			B.box(P.metal, 1.5, .5, 1.2, 0, .37, -.1, body); B.box(tm.col, 1.52, .07, 1.22, 0, .62, -.1, body); B.box(M.glass, .8, .12, .02, 0, .42, .51, body)
+			B.cyl(P.metal2, .1, .14, .6, 6, .2, .95, -.1, body)
+			var dish := B.grp(body, "spin", Vector3(.2, 1.35, -.1)); B.cone(M.white, 8, 1.1, .3, 1.1, .1, .1, 0, dish, Vector3(0, 0, -1.0)); B.box(M.dark, .5, .02, .02, .28, .3, 0, dish, Vector3(0, 0, .57)); B.ico(M.cyan, .06, .5, .46, 0, dish)
+			var bl := B.solo("blink", body, -.6, .75, -.5); B.ico(M.cyan, .05, 0, 0, 0, bl); B.nshadow[bl] = true
+		"sentry":
+			# Auto-Sentry: a slim white turret with twin guns and one blue eye
+			B.cyl(P.metal, .22, .32, .3, 6, 0, .25, 0, body)
+			var t := B.grp(body, "tur", Vector3(0, .42, 0))
+			B.box(M.white, .3, .16, .24, 0, .08, 0, t); B.box(tm.col, .12, .17, .25, -.1, .08, 0, t); B.box(M.cyan, .02, .05, .08, .155, .1, 0, t)
+			for z in [-.15, .15]: B.box(M.dark, .34, .045, .045, .2, .07, z, t)
+			B.flash_mesh(t, .4, .07, .15, .08)
+		"pdl":
+			# Point-Defence Laser: a ball mount with a long lens
+			B.cyl(P.metal, .24, .34, .34, 6, 0, .27, 0, body); B.box(tm.col, .5, .05, .5, 0, .14, 0, body)
+			var t := B.grp(body, "tur", Vector3(0, .5, 0))
+			B.ico(M.white, .19, 0, .08, 0, t); B.cyl(P.metal2, .05, .07, .4, 6, .2, .22, 0, t, Vector3(0, 0, -1.0)); B.cyl(M.cyan, .045, .045, .03, 6, .37, .33, 0, t, Vector3(0, 0, -1.0))
+			B.flash_mesh(t, .42, .36, 0, .09, M.glowC)
+		"dome":
+			# Shield Dome: a ring of emitters round a glowing core
+			B.cyl(P.metal, .5, .62, .34, 8, 0, .29, 0, body); B.cyl(tm.col, .52, .52, .05, 8, 0, .48, 0, body)
+			for k in 6: B.box(P.metal2, .08, .5, .08, cos(k * TAU / 6) * .72, .37, sin(k * TAU / 6) * .72, body); 
+			for k in 6: B.ico(M.cyan, .05, cos(k * TAU / 6) * .72, .66, sin(k * TAU / 6) * .72, body)
+			var orb := B.solo("blink", body, 0, .72, 0); B.ico(M.glowC, .2, 0, 0, 0, orb); B.nshadow[orb] = true
+			B.ico(M.cyan, .16, 0, .72, 0, body)
 		"turret":
 			B.cyl(P.metal, .3, .38, .32, 6, 0, .26, 0, body)
 			var t := B.grp(body, "tur", Vector3(0, .42, 0))

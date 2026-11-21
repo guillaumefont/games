@@ -50,8 +50,8 @@ static func ashen() -> Array:
 	var t2 := _plus(ASH_EARLY, ["factory", "raider", "boars"])
 	var t3 := _plus(t2, ["scorpion", "anvilf", "brute", "kettle", "flak", "arty", "engineer"])
 	var t4 := _plus(t3, ["helipad", "wasp", "tech", "pylon", "arcc", "anvila"])
-	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv"]
-	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk"])
+	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv", "k9"]
+	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk", "jump", "hornets", "spotter"])
 	return [
 		# ---- 1: no base, the hero reaches a hilltop and holds it
 		{"title": "Smoke on the River", "tag": "Light the warning fire", "seed": 1101, "diff": "easy", "credits": [0, 0],
@@ -197,9 +197,9 @@ static func ashen() -> Array:
 # Campaign II: Iron Tide (Vanguard)
 # =====================================================================================
 static func vanguard() -> Array:
-	var t1 := _plus(VAN_EARLY, ["factory", "buggy", "tank"])
-	var t2 := _plus(t1, ["flak", "repair", "arty", "engineer", "comms"])
-	var t3 := _plus(t2, ["helipad", "skyhawk", "tech", "bulwark", "bastion"])
+	var t1 := _plus(VAN_EARLY, ["factory", "buggy", "tank", "k9"])
+	var t2 := _plus(t1, ["flak", "repair", "arty", "engineer", "comms", "jump", "spotter", "hornets", "pk_strike"])
+	var t3 := _plus(t2, ["helipad", "skyhawk", "tech", "bulwark", "bastion", "walker", "dome", "pk_wing", "hydrofoil"])
 	var ash_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "pyro", "raider", "scorpion", "harv", "comms"]
 	var ash_ai2 := _plus(ash_ai, ["flak", "repair", "arty", "helipad", "wasp", "tech", "arcc", "pylon"])
 	return [
@@ -351,8 +351,8 @@ static func choir() -> Array:
 	var t2 := _plus(CHO_EARLY, ["factory", "skitter", "mantis"])
 	var t3 := _plus(t2, ["flak", "repair", "comms", "sapper", "engineer", "helipad", "moth"])
 	var t4 := _plus(t3, ["tech", "geode", "spire", "cantor"])
-	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv"]
-	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk"])
+	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv", "k9"]
+	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk", "jump", "hornets", "spotter"])
 	var ash_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "pyro", "raider", "scorpion", "harv", "comms"]
 	var ash_ai2 := _plus(ash_ai, ["flak", "repair", "arty", "helipad", "wasp", "tech", "arcc", "pylon"])
 	return [
