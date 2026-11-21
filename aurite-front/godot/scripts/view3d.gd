@@ -455,15 +455,19 @@ func refresh_decor() -> void:
 func upd_ore() -> void:
 	if ore_mm == null: return
 	var mm := ore_mm.multimesh; var n := 0; var gc := Color("f2c443").srgb_to_linear(); gc.a = 0.75
+	var dull := Color("8a8478").srgb_to_linear(); dull.a = 0.75   # tired crystal fades toward this; dead crystal is grey stumps
 	for i in ore_list:
 		var a: int = S.ore[i]
-		if a == 0 or S.vis[i] == 0: continue
+		var dead := S.field_dead(i)
+		if (a == 0 and not dead) or S.vis[i] == 0: continue
+		if dead: a = 60   # two small grey stumps
+		var c := dull if dead else gc.lerp(dull, (100 - S.vit[i]) / 140.0)
 		var tx: int = i % MW; var ty: int = i / MW; var cnt := mini(5, 1 + a / 110)
 		for k in cnt:
 			var h1 := Sim.hash2(tx, ty, k * 3 + 1); var h2 := Sim.hash2(tx, ty, k * 3 + 2); var h3 := Sim.hash2(tx, ty, k * 3 + 3)
 			var x := tx + .15 + h1 * .7; var z := ty + .15 + h2 * .7; var s: float = .05 + h3 * .045 + min(1.0, a / 400.0) * .04
 			mm.set_instance_transform(n, _xf(x, S.h_at(x * T, z * T) + s * .9, z, s, s * 2.1, s, (h1 - .5) * .6, h3 * 6, (h2 - .5) * .6))
-			mm.set_instance_color(n, gc); n += 1
+			mm.set_instance_color(n, c); n += 1
 	mm.visible_instance_count = n
 
 func add_scorch(x: float, y: float, r: float) -> void:

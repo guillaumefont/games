@@ -127,6 +127,7 @@ func _ready():
 	s.formation = true
 	if paced.size():
 		print("FORMATION OFF TEST FAILED"); get_tree().quit(1); return
+	if not groundwork_tests(s, h): get_tree().quit(1); return
 	if not choir_tests(s, h): get_tree().quit(1); return
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
@@ -425,4 +426,82 @@ func tutorial_tests(s, h) -> bool:
 	if late.size(): return _tfail("cards come too late: " + ", ".join(late))
 	print("tutorial: ", TD.CARDS.size(), " cards, ", seen.size(), " met in play, ", TD.LESSONS.size(), " lessons")
 	print("tutorial tests ok")
+	return true
+
+func _gfail(msg: String) -> bool:
+	print("GROUNDWORK TEST FAILED: ", msg); return false
+
+## Faction redesign groundwork: per-faction rules (power, unit cap, producers) and living fields.
+func groundwork_tests(s, h) -> bool:
+	for f in D.FAC_ORDER:
+		if not D.rule(f, "power") or D.rule(f, "cap") or D.rule(f, "place") != "near" or D.producer(f, "inf") != "barracks":
+			return _gfail(f + " does not start on today's rules")
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.teams[1].credits = 0; s.ai_t = 1e9
+	var hq = s.find_hq(0)
+	# power off: a faction without power is never short of it
+	s.add_building(0, "barracks", hq.tx + 4, hq.ty)
+	s.add_building(0, "comms", hq.tx + 4, hq.ty + 3)
+	s.calc_power()
+	if not s.low_power(0): return _gfail("barracks with no reactor should be low power")
+	D.RULES.vanguard.power = false
+	var lp: bool = s.low_power(0)
+	D.RULES.vanguard.power = true
+	if lp: return _gfail("a faction without power reported low power")
+	s.add_building(0, "power", hq.tx - 3, hq.ty); s.add_building(0, "power", hq.tx - 3, hq.ty + 3)
+	# unit cap: nothing trains past the cap, buildings with capAdd raise it
+	D.RULES.vanguard.cap = true
+	var had: int = s.count(0, "rifle")
+	s.teams[0].credits = 5000.0
+	for i in 3: s.teams[0].prod.inf.queue.append("rifle")
+	for i in 400: s.step(0.05)
+	var capped: int = s.count(0, "rifle") - had
+	D.BLD.hq.capAdd = s.cap_used(0) + 2
+	for i in 400: s.step(0.05)
+	var after: int = s.count(0, "rifle") - had
+	print("unit cap: trained ", capped, " at cap ", s.cap_max(0) - 2, ", then ", after, " with 2 more room (cap ", s.cap_used(0), "/", s.cap_max(0), ")")
+	D.BLD.hq.capAdd = 0; D.RULES.vanguard.cap = false
+	s.teams[0].prod.inf.queue.clear()
+	if capped != 0 or after != 2: return _gfail("unit cap did not hold or did not release")
+	# producer override: the faction's infantry come out of another building
+	D.RULES.vanguard.prod = {"inf": "power"}
+	var pws: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.team == 0 and e.type == "power")
+	var n0: int = s.count(0, "rifle")
+	s.teams[0].prod.inf.queue.append("rifle")
+	for i in 200: s.step(0.05)
+	D.RULES.vanguard.prod = {}
+	var newest = null
+	for e in s.ents:
+		if e.alive and e.kind == "u" and e.team == 0 and e.type == "rifle" and (newest == null or e.id > newest.id): newest = e
+	if s.count(0, "rifle") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
+	if pws.all(func(b): return Vector2(newest.x - b.x, newest.y - b.y).length() > 6 * D.T): return _gfail("unit did not come out of the overridden producer")
+	# living fields: drain, death, regrowth up to what vitality allows
+	var tiles: Array = []
+	for i in D.MW * D.MH:
+		if s.ore[i] >= 200: tiles.append(i)
+	if tiles.size() < 2: return _gfail("no ore on the test map")
+	var a: int = tiles[0]; var b: int = tiles[1]
+	s.take_ore(a, s.ore[a], 100.0)
+	if not s.field_dead(a) or s.ore[a] != 0: return _gfail("a full drain did not kill the tile")
+	var full: int = s.ore0[b]
+	s.take_ore(b, full / 2, 20.0)
+	if s.vit[b] != 90: return _gfail("half a tile at drain 20 should leave 90 vitality, got %d" % s.vit[b])
+	s.take_ore(b, 0, 20.0)
+	s.time += 31.0
+	for i in 200: s.field_t = 0.0; s.upd_field_life(0.05)
+	print("living fields: dead tile ore ", s.ore[a], ", tired tile ", s.ore[b], "/", full, " vitality ", s.vit[b])
+	if s.ore[a] != 0: return _gfail("a dead tile regrew")
+	if s.ore[b] < int(full * 0.9) - 1 or s.ore[b] > full: return _gfail("tired tile did not regrow to its vitality cap")
+	if s.vit[b] <= 90: return _gfail("vitality did not come back on a rested tile")
+	# a harvester tires the field it works
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.teams[1].credits = 0; s.ai_t = 1e9
+	hq = s.find_hq(0)
+	var rf = s.place_near(0, "refinery", hq.tx, hq.ty + 4)
+	for i in 1200: s.step(0.05)
+	var tired := 0
+	for i in D.MW * D.MH:
+		if s.ore0[i] > 0 and s.vit[i] < 100: tired += 1
+	print("harvester tired ", tired, " tiles")
+	if rf == null or tired == 0: return _gfail("harvesting did not touch any field's vitality")
 	return true
