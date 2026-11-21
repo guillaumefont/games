@@ -38,6 +38,19 @@ func _initialize() -> void:
 		var hold := cyc < hold_n
 		var dx := sin(i * 0.035) * 0.9
 		var dy := sin(i * 0.021) * 0.25
+		if ship == "weaver":
+			# loops round the nearest enemy, lifting as each one closes
+			var c := Vector2(63.0, 80.0)
+			var cd := 70.0
+			for e in vg.G.enemies:
+				var ed: float = Vector2(e.x - vg.P.x, e.y - vg.P.y).length()
+				if e.y < 150 and e.y > 30 and ed < cd:
+					cd = ed
+					c = Vector2(e.x, e.y - 3.0)
+			var want := c + Vector2(cos(i * 0.14), sin(i * 0.14)) * 15.0
+			dx = clampf(want.x - vg.P.x, -3.5, 3.5)
+			dy = clampf(want.y - vg.P.y, -3.5, 3.5)
+			hold = vg.kit.loop.is_empty() or vg.kit.loom > 0
 		if i == total / 2 and vg.kit:
 			vg.kit.meter = 1.0
 		vg.inp = {hold = hold, fire = hold, dx = dx, dy = dy, ult = false, pause = false}

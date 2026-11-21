@@ -259,6 +259,122 @@ func _initialize() -> void:
 	tick(200, false)
 	check(vg.G.shards.is_empty() and vg.G.ult_t == 0, "Shatter ends")
 
+	# --- Hornet: locks while holding under enemies, a missile per lock on lift ---
+	vg.prog.stages = {}
+	check(not vg.prog.ship_open("hornet") and vg.prog.ship_open("warden"), "new ships start locked, Lance and Warden are open")
+	vg.start_stage(1, "hornet")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var hk = vg.kit
+	var h1: Dictionary = vg.E("shell", vg.P.x, vg.P.y + 60, {hold = 0.0})
+	var h2: Dictionary = vg.E("drifter", vg.P.x + 50, vg.P.y + 60, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.P.x + 50})
+	h1.hp = 500.0
+	h2.hp = 500.0
+	tick(8, true)
+	check(hk.locks.size() == 1 and is_same(hk.locks[0].t.e, h1), "holding under an enemy locks it, and not one off to the side")
+	tick(hk.STACK + hk.LOCK_EVERY + 2, true)
+	check(hk.locks.size() == 2, "staying under a big target stacks another lock")
+	var hp1: float = h1.hp
+	tick(1, false)
+	check(hk.missiles.size() == 2 and hk.locks.is_empty(), "lifting fires one missile per lock")
+	tick(60, false)
+	check(h1.hp <= hp1 - 2 * hk.DMG and hk.missiles.is_empty() and hk.meter > 0.0, "the missiles home in, hit and load the Hive")
+	hk.meter = 1.0
+	tick(5, true)
+	tick(1, false)
+	tick(30, false)
+	check(vg.G.ult_t > 0 and hk.missiles.size() > 4 and hk.meter == 0.0, "a full meter and a lift lets the Hive loose")
+	tick(200, false)
+
+	# --- Weaver: the thread, and a loop that cuts ---
+	vg.start_stage(1, "weaver")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var wk = vg.kit
+	tick(1, true, 63.0 - vg.P.x, 60.0 - vg.P.y)
+	var w_in: Dictionary = vg.E("shell", 63.0, 75.0, {hold = 75.0})
+	var w_out: Dictionary = vg.E("drifter", 110.0, 75.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = 110.0})
+	w_in.hp = 500.0
+	w_out.hp = 500.0
+	vg.bullet(63.0, 78.0, 0, 0)
+	# fly a circle of radius 16 round (63, 76)
+	var ang := -PI / 2
+	for k in 44:
+		var na := ang + TAU / 40.0
+		tick(1, true, 16.0 * (cos(na) - cos(ang)), 16.0 * (sin(na) - sin(ang)))
+		ang = na
+	check(wk.pts.size() > 30 and not wk.loop.is_empty(), "holding trails a thread, and flying a circle closes a loop")
+	check(vg.hud.kit_hint.contains("LOOP"), "the HUD says the loop is closed")
+	var win: float = w_in.hp
+	var wout: float = w_out.hp
+	tick(1, false)
+	check(w_in.hp <= win - wk.CUT and w_out.hp == wout, "lifting cuts what is inside the loop, and nothing outside")
+	check(vg.G.eb.is_empty() and wk.meter > 0.0 and wk.pts.is_empty(), "the cut wipes bullets inside, loads the Loom and uses up the thread")
+	tick(40, false)
+	tick(30, true, 0.0, 0.0)
+	tick(1, false)
+	check(w_in.hp > 0.0 and wk.loop.is_empty(), "a straight thread closes no loop")
+	tick(40, false)
+	wk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(wk.loom > 0, "a full meter and a lift starts the Loom")
+	tick(40, false)
+	w_in.dead = true
+	w_in = vg.E("shell", 63.0, 75.0, {hold = 75.0})
+	w_in.hp = 500.0
+	win = w_in.hp
+	tick(1, true, 63.0 - vg.P.x, 60.0 - vg.P.y)
+	ang = -PI / 2
+	for k in 44:
+		var na2 := ang + TAU / 40.0
+		tick(1, true, 16.0 * (cos(na2) - cos(ang)), 16.0 * (sin(na2) - sin(ang)))
+		ang = na2
+	check(w_in.hp <= win - wk.CUT * 2.0, "in the Loom a loop cuts on its own, twice as hard")
+
+	# --- Anvil: the reticle runs ahead, a lift bombs it ---
+	vg.start_stage(1, "anvil")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var ak = vg.kit
+	tick(4, true)
+	tick(1, false)
+	check(ak.bombs.is_empty(), "a quick tap drops no bomb")
+	tick(40, false)
+	tick(ak.MIN_HOLD + 20, true)
+	var aim1: Vector2 = ak.aim()
+	tick(20, true)
+	var aim2: Vector2 = ak.aim()
+	check(aim1.y > vg.P.y + ak.START and aim2.y > aim1.y + 20.0 and absf(aim2.x - vg.P.x) < 0.01, "holding runs the reticle up the screen ahead of the ship")
+	var a_in: Dictionary = vg.E("turret", aim2.x + 8.0, aim2.y + 4.0)
+	var a_out: Dictionary = vg.E("shell", aim2.x, aim2.y - 60.0, {hold = aim2.y - 60.0})
+	a_out.hp = 500.0
+	vg.bullet(aim2.x - 5.0, aim2.y, 0, 0)
+	var held_at: Vector2 = ak.aim()
+	tick(1, false)
+	check(ak.bombs.size() == 1 and absf(ak.bombs[0].y - held_at.y) < 2.0, "lifting drops a bomb on the reticle")
+	tick(60, false)
+	check(a_in.get("dead", false) and a_out.hp == 500.0, "the blast kills the ground target in it, and spares what is outside")
+	check(vg.G.eb.is_empty() and ak.meter > 0.0, "it wipes bullets too, and a bombed ground target loads the Barrage")
+	ak.meter = 1.0
+	tick(12, true)
+	tick(1, false)
+	var dropped := 0
+	for k in 140:
+		tick(1, false)
+		dropped = maxi(dropped, ak.bombs.size())
+	check(ak.barrage == 0 and dropped >= 2 and a_out.hp < 500.0, "the Barrage walks bombs up the whole screen")
+	tick(60, false)
+
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
 	for st in VStage.STAGES.size():

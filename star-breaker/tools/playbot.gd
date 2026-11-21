@@ -107,12 +107,26 @@ func play(st: int, ship: String) -> void:
 			var ty := 45.0
 			if ship == "warden" and (not vg.G.boss.is_empty() or vg.G.get("mid_boss", false)):
 				ty = 60.0
+			var wy := 0.15
+			if ship == "weaver":
+				# fly loops round the nearest enemy in reach
+				var cd := 60.0
+				var cc := Vector2(vg.P.x, 55.0)
+				for e in vg.G.enemies:
+					var ed: float = Vector2(e.x - vg.P.x, e.y - vg.P.y).length()
+					if e.y < 150 and e.y > 20 and ed < cd:
+						cd = ed
+						cc = Vector2(e.x, e.y - 4.0)
+				if cd < 60.0:
+					tx = cc.x + cos(n * 0.14) * 14.0
+					ty = cc.y + sin(n * 0.14) * 14.0
+					wy = 0.3
 			var bestc := 1e9
 			for cx in [-3.0, -1.5, 0.0, 1.5, 3.0]:
-				for cy in [-2.0, 0.0, 2.0]:
+				for cy in [-3.0, -1.5, 0.0, 1.5, 3.0]:
 					var nx: float = clampf(vg.P.x + cx, 5, vg.W - 5)
 					var ny: float = clampf(vg.P.y + cy, 8, vg.H - 30)
-					var c := danger_at(nx, ny, 12) * 10.0 + absf(nx - tx) * 0.3 + absf(ny - ty) * 0.15
+					var c := danger_at(nx, ny, 12) * 10.0 + absf(nx - tx) * 0.3 + absf(ny - ty) * wy
 					if c < bestc:
 						bestc = c
 						dx = cx
@@ -124,6 +138,10 @@ func play(st: int, ship: String) -> void:
 			if ship == "lance" and hold_t > 110:
 				hold = false
 				hold_t = 0
+			if ship == "weaver":
+				# fly loops round the dodging path, and lift the moment one closes
+				if not vg.kit.loop.is_empty() and vg.kit.loom == 0:
+					hold = false
 			if vg.kit and lift_cd == 0 and (vg.kit.ready() or hold_t > 90 or ("stored" in vg.kit and vg.kit.stored >= 8)):
 				if vg.kit.ready():
 					shat_fired += 1

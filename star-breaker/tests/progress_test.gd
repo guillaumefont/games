@@ -195,8 +195,20 @@ func _initialize() -> void:
 	check(vg.hud.ship == "warden", "swiping the hangar's ship left switches to the next ship")
 	drag_by.call(240.0)
 	check(vg.hud.ship == "lance", "swiping right switches back")
+	# a locked ship can be looked at but not flown
+	vg.prog.stages = {}
 	drag_by.call(240.0)
-	check(vg.hud.ship == "warden", "ships wrap around")
+	var last_ship: String = VShips.ORDER[VShips.ORDER.size() - 1]
+	check(vg.hud.view_ship == last_ship and vg.hud.ship == "lance", "ships wrap around, and a locked ship is shown without being picked")
+	check(vg.hud._lock_lbl.visible and vg.hud._lock_lbl.text.contains("CLEAR %d STAGES" % int(VShips.KITS[last_ship].unlock)) and not vg.hud._ship_secs[last_ship].visible,
+		"a locked ship says what opens it and hides its level and colours")
+	for k in int(VShips.KITS[last_ship].unlock):
+		vg.prog.stages[Progress.stage_id(k)] = {m = [0, 0, 0], c = 1}
+	check(vg.prog.ship_open(last_ship), "clearing that many stages on Normal opens it")
+	vg.hud.select_ship(last_ship)
+	check(vg.hud.ship == last_ship and not vg.hud._lock_lbl.visible and vg.hud._ship_secs[last_ship].visible, "once open it can be picked")
+	vg.prog.stages = {}
+	vg.hud.select_ship("warden")
 	check(vg.hud.ship == "warden" and vg.hud._ship_secs["warden"].visible and not vg.hud._ship_secs["lance"].visible, "the hangar picks the ship and shows only its level and colours")
 	check(vg.hud._btn_medals.text.contains("WARDEN"), "home shows the chosen ship")
 	vg.hud.select_ship("lance")

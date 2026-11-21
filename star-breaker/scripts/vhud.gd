@@ -17,6 +17,7 @@ signal ult_pressed
 signal tier_pressed(tier: int)
 signal paint_chosen(ship: String, id: String)
 signal level_pressed(ship: String)
+signal ship_chosen(ship: String)
 
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
@@ -29,6 +30,9 @@ const COL_W := 520.0
 
 var fonts := {}
 var ship := "lance"
+## The ship the hangar shows: the one you fly, or a locked one you are looking at.
+var view_ship := "lance"
+var _lock_lbl: Label
 var score := "0"
 var hull := 3
 var ships := 3
@@ -589,12 +593,22 @@ static func _fmt(n: int) -> String:
 	return s + out
 
 
+## Shows ship `k` in the hangar, and flies it from now on if it is open.
 func select_ship(k: String) -> void:
-	ship = k
+	view_ship = k
+	var open := prog == null or prog.ship_open(k)
+	if open and ship != k:
+		ship = k
+		ship_chosen.emit(k)
 	if carousel:
 		carousel.queue_redraw()
 	for key in _ship_secs:
-		_ship_secs[key].visible = key == k
+		_ship_secs[key].visible = key == k and open
+	if _lock_lbl:
+		_lock_lbl.visible = not open
+		if not open:
+			var need := int(VShips.KITS[k].unlock)
+			_lock_lbl.text = "LOCKED  ·  CLEAR %d STAGES ON NORMAL (%d SO FAR)" % [need, prog.cleared_count()]
 	_update_how()
 	_update_home()
 
@@ -627,13 +641,12 @@ func _update_how() -> void:
 	var how: Label = medals_scr.find_child("how", true, false) if medals_scr else null
 	if not how:
 		return
-	var k := ship
-	var t := "%s: %s. Drag to fly, it fires on its own." % [VShips.KITS[k].name, VShips.KITS[k].sub]
+	var k := view_ship
+	var t := "%s. Drag to fly, the guns fire on their own." % VShips.KITS[k].sub
 	if VShips.KITS[k].ult == "storm":
 		t += " Keep charging past the Nova and lift for the %s: lightning on every enemy." % VShips.KITS[k].ult_name
 	else:
-		t += " Hold until the bar fills and lift for %s." % VShips.KITS[k].ult_name
-	t += " Rock hurts; skim it for points."
+		t += " %s: once the bar is full, your next lift fires it." % VShips.KITS[k].loads
 	how.text = t
 
 
@@ -937,6 +950,10 @@ func _build_medals() -> Control:
 	how.custom_minimum_size.x = COL_W
 	how.name = "how"
 	v.add_child(_center(how))
+	_lock_lbl = _label("", 16, 800, C_AMBER, 2.0)
+	_lock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lock_lbl.visible = false
+	v.add_child(_lock_lbl)
 	for k in VShips.ORDER:
 		var sec := VBoxContainer.new()
 		sec.add_theme_constant_override("separation", 14)
@@ -960,7 +977,7 @@ func _build_medals() -> Control:
 		prow.alignment = BoxContainer.ALIGNMENT_CENTER
 		prow.add_theme_constant_override("separation", 10)
 		_paint_btns[k] = []
-		for sc in Progress.SCHEMES[k]:
+		for sc in Progress.schemes(k):
 			var b := Button.new()
 			b.focus_mode = Control.FOCUS_NONE
 			b.custom_minimum_size = Vector2(88, 70)
@@ -1039,7 +1056,7 @@ class ShipCarousel:
 			views[k] = v
 
 	func _index() -> int:
-		return maxi(0, VShips.ORDER.find(hud.ship))
+		return maxi(0, VShips.ORDER.find(hud.view_ship))
 
 	func _ship_at(d: int) -> String:
 		var n: int = VShips.ORDER.size()
@@ -1075,7 +1092,7 @@ class ShipCarousel:
 		for k in views:
 			var v: ShipView = views[k]
 			var x := w / 2
-			if k == hud.ship:
+			if k == hud.view_ship:
 				x += off
 			elif off != 0.0 and k == _ship_at(side):
 				x += side * w + off
@@ -1083,6 +1100,7 @@ class ShipCarousel:
 				v.visible = false
 				continue
 			v.visible = true
+			v.modulate = Color(0.25, 0.25, 0.4) if hud.prog and not hud.prog.ship_open(k) else Color.WHITE
 			v.size = Vector2(w, VIEW_H)
 			v.position = Vector2(x - v.size.x / 2, 0)
 		queue_redraw()
@@ -1132,10 +1150,12 @@ class ShipCarousel:
 			if d != 0 and off == 0.0:
 				continue
 			var x: float = w / 2 + d * w + off
-			var k: String = hud.ship if d == 0 else _ship_at(d)
+			var k: String = hud.view_ship if d == 0 else _ship_at(d)
 			var fade := clampf(1.0 - absf(x - w / 2) / w, 0.0, 1.0)
 			var f: Font = hud.fonts[800]
 			var name := String(VShips.KITS[k].name).to_upper()
+			if hud.prog and not hud.prog.ship_open(k):
+				fade *= 0.45
 			var fs := 30
 			var tw := f.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			draw_string(f, Vector2(x - tw / 2, 268), name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.35 + 0.65 * fade))
@@ -1147,7 +1167,7 @@ class ShipCarousel:
 			draw_polyline(pts, ac, 4.0, true)
 		var n: int = VShips.ORDER.size()
 		for i in n:
-			var dx := (i - (n - 1) / 2.0) * 22.0
+			var dx := (i - (n - 1) / 2.0) * minf(22.0, 300.0 / n)
 			var on := i == _index()
 			draw_circle(Vector2(w / 2 + dx, 290), 6.0 if on else 4.0, Color(1, 1, 1, 0.9 if on else 0.3))
 
