@@ -228,14 +228,17 @@ func _initialize() -> void:
 	# Shatter: its own mechanic, filled by the pod's work and fired by recalling the pod
 	vg.P.shat = 0.0
 	tick(vg.ULT_AT + 20, true)
-	check(vg.P.charge == 0 and vg.P.shat < vg.SHATTER_FULL, "holding loads nothing on Warden (only the pod's work fills Shatter)")
+	check(vg.P.charge == 0 and vg.G.ult_t == 0, "holding loads nothing on Warden (only the pod's work fills Shatter)")
 	tick(1, false)
 	check(vg.pod.state == "out" and vg.G.ult_t == 0, "so a lift after a long hold is just a pod fling")
 	tick(40, false)
+	# (the docked pod may have earned some Shatter during that hold: start from empty)
+	vg.P.shat = 0.0
 	var s0: float = vg.P.shat
 	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
 	tick(1, false)
 	check(vg.P.shat == s0 + vg.SHAT_BLOCK, "a bullet the pod blocks fills the Shatter meter")
+	vg.P.shat = 0.0
 	s0 = vg.P.shat
 	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
 	tick(1, false)
