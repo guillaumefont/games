@@ -61,7 +61,7 @@ var _sheet_tiers: Array = []
 var _sheet_pips: Pips
 var _sheet_note: Label
 var _sheet_play: Button
-var _map_ship: Button
+var _home_ship: Control
 var screen := "menu"
 ## Where the hangar's Back goes: the screen it was opened from.
 var _hangar_from := "menu"
@@ -207,8 +207,30 @@ func _build_menu() -> Control:
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 60
+	gap.custom_minimum_size.y = 36
 	v.add_child(gap)
+	# the ship you fly, drawn big, with its level, flux and medals: tap it for the hangar
+	_btn_medals = _button("", false, 280)
+	_btn_medals.add_theme_font_size_override("font_size", 20)
+	for st in ["normal", "hover", "pressed", "focus"]:
+		var sb: StyleBoxFlat = _btn_medals.get_theme_stylebox(st)
+		sb.content_margin_top = 196
+	_btn_medals.pressed.connect(func(): show_screen("hangar"))
+	_home_ship = ShipBadge.new()
+	_home_ship.hud = self
+	_home_ship.k = 2.7
+	_home_ship.position = Vector2(COL_W / 2.0, 104)
+	_btn_medals.add_child(_home_ship)
+	var tag := _label("GARAGE  ›", 14, 800, C_MUTED, 2.0)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.position = Vector2(COL_W - 150, 18)
+	tag.size = Vector2(128, 20)
+	_btn_medals.add_child(tag)
+	v.add_child(_center(_btn_medals))
+	var gap2 := Control.new()
+	gap2.custom_minimum_size.y = 28
+	v.add_child(gap2)
 	_btn_play = _button("Play", true, 104)
 	_btn_play.add_theme_font_size_override("font_size", 34)
 	_btn_play.pressed.connect(func():
@@ -218,14 +240,6 @@ func _build_menu() -> Control:
 	_home_next = _label("", 16, 700, C_MUTED, 2.0)
 	_home_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_home_next)
-	var gap2 := Control.new()
-	gap2.custom_minimum_size.y = 18
-	v.add_child(gap2)
-	# the ship you fly, its level, flux and medals: opens the hangar
-	_btn_medals = _button("", false, 104)
-	_btn_medals.add_theme_font_size_override("font_size", 20)
-	_btn_medals.pressed.connect(func(): show_screen("hangar"))
-	v.add_child(_center(_btn_medals))
 	var gap3 := Control.new()
 	gap3.custom_minimum_size.y = 40
 	v.add_child(gap3)
@@ -233,8 +247,8 @@ func _build_menu() -> Control:
 	return v.get_parent()
 
 
-## The level screen: the map of every stage (see VMap) filling the screen, a top bar with Back
-## and the ship you fly (tap it for the hangar), and the panel of the stage you pick.
+## The level screen: the map of every stage (see VMap) filling the screen, a Back button, and the
+## panel of the stage you pick. The ship lives on the home screen, not here.
 func _build_levels() -> Control:
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -260,21 +274,6 @@ func _build_levels() -> Control:
 	back.add_theme_font_size_override("font_size", 40)
 	back.pressed.connect(func(): back())
 	bar.add_child(back)
-	_map_ship = Button.new()
-	_map_ship.focus_mode = Control.FOCUS_NONE
-	_map_ship.custom_minimum_size = Vector2(COL_W - 84 - 14, 84)
-	_style_button(_map_ship, false, 26)
-	_map_ship.add_theme_font_size_override("font_size", 18)
-	_map_ship.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	for st in ["normal", "hover", "pressed", "focus"]:
-		var sb: StyleBoxFlat = _map_ship.get_theme_stylebox(st)
-		sb.content_margin_left = 96
-	_map_ship.pressed.connect(func(): show_screen("hangar"))
-	var badge := ShipBadge.new()
-	badge.hud = self
-	badge.position = Vector2(48, 42)
-	_map_ship.add_child(badge)
-	bar.add_child(_map_ship)
 	sheet = _build_sheet()
 	root.add_child(sheet)
 	return root
@@ -425,10 +424,11 @@ func _update_sheet() -> void:
 		sb.shadow_color = Color(col, 0.35)
 
 
-## A ship drawn top-down in its paint (for the level map's ship button).
+## A ship drawn top-down in its paint, `k` times its map size (for the home screen's ship card).
 class ShipBadge:
 	extends Control
 	var hud: VHud
+	var k := 1.25
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -436,7 +436,7 @@ class ShipBadge:
 	func _draw() -> void:
 		if hud:
 			var paint: Dictionary = hud.prog.paint_of(hud.ship) if hud.prog else {}
-			VMap.draw_ship(self, Vector2.ZERO, 1.25, paint, hud.ship)
+			VMap.draw_ship(self, Vector2.ZERO, k, paint, hud.ship)
 
 
 ## Shows world `w` on the stage map.
@@ -624,10 +624,8 @@ func _update_home() -> void:
 	if prog:
 		l2 = "%s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
 	_btn_medals.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, l2]
-	if _map_ship:
-		_map_ship.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, (_fmt(prog.flux) + " FLUX  ·  CHANGE OR UPGRADE") if prog else "HANGAR"]
-		for c in _map_ship.get_children():
-			c.queue_redraw()
+	if _home_ship:
+		_home_ship.queue_redraw()
 	if _home_next:
 		var n := prog.next_stage(0) if prog else 0
 		if n < 0:
