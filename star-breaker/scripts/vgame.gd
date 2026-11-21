@@ -2376,8 +2376,9 @@ func _add_chunk(c: int, g: Node3D) -> void:
 func start_run() -> void:
 	if run_b == null:
 		return
-	while not _run_built:
-		_run_built = run_b.step()
+	if not _run_built:
+		run_b.finish()
+		_run_built = true
 	for e in G.enemies:
 		if not e.get("boss", false):
 			e.dead = true

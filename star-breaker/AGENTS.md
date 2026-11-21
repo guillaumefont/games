@@ -59,7 +59,7 @@ godot --headless --path . --script tests/update_test.gd  # self-update: pack dow
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher icon layers
 godot --headless --path . --script tests/visuals_test.gd # shadows, ground chunks, laser strands, explosions
 godot --headless --path . --script tests/run_test.gd     # canyon run: course is fair, racing line earns gold, camera swings back
-godot --headless --path . --script tests/runs_test.gd    # a canyon run in every stage: all 48 courses fair and flyable, gold in one stage per world
+godot --headless --path . --script tests/runs_test.gd    # a canyon run in every stage: all 48 courses fair and flyable, gold in one stage per world, built a little per frame
 godot --headless --path . --script tests/popin_test.gd   # every stage on a tall phone: no model or shadow appears inside the screen (-- <stages> vp=WxH)
 godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours, flux, ship levels
 ```
@@ -146,6 +146,15 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   new model or material to it so its first appearance in a stage doesn't hitch.
 - The game fills any screen (base canvas 720 x 1280, stretch aspect `expand`); the camera
   always fits the whole 126-unit stage width (`_on_resize`).
+
+- Frame budget (2026-11-21, "the game recently started lagging"): anything built ahead of time
+  during play goes in small units under a time budget (`VRun.Builder.step()`, `BUDGET_MS`), never
+  a whole slice per frame. Every stage builds its canyon run over its first seconds, and a whole
+  slice or obstacle per frame cost 5-13 ms on a desktop. Check with `tools/perf_bench.gd`
+  (per-stretch CPU, draw calls, primitives; command at its top), comparing against a worktree of
+  an older commit.
+- Don't write into another object's packed array element by element (`acc.v[i] = ...`): GDScript
+  copies the whole array on each write. Take a local copy, change it, assign it back (`VRun._bend`).
 
 - UI is built in code: use `set_anchors_and_offsets_preset()`; plain `set_anchors_preset()`
   keeps the old (zero) size.
