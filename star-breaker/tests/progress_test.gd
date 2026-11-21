@@ -1,6 +1,7 @@
 extends SceneTree
-## Replay tiers, medals and the medal track: Normal is open and clearing a tier opens the next
-## one for that stage, Nova and Supernova make enemies tougher (faster bullets, more fire, more
+## Replay tiers, medals and the medal track: stages open one by one on each tier (clear the
+## previous stage, medals not needed; old saves keep what they reached), the stage map shows and
+## enforces it, clearing a tier opens the next one for that stage, Nova and Supernova make enemies tougher (faster bullets, more fire, more
 ## hit points, two ships on Supernova), the four medals are judged from a run, medals are
 ## counted once and saved, the medal track unlocks ship colours that repaint the ship, runs bank
 ## flux, and flux buys ship levels that raise damage.
@@ -56,6 +57,32 @@ func _initialize() -> void:
 	check(q.total() == 3 and q.unlocked("w1s1", 1) and q.paint_of("lance").id == "ember", "progress and colours survive a save and load")
 	check(Progress.max_total() == VStage.STAGES.size() * 12, "each stage holds 12 medals (4 on each of 3 tiers)")
 
+	# --- stage order: a stage opens once the one before it is cleared, on each tier ---
+	var o := Progress.new()
+	check(o.open(0, 0) and not o.open(1, 0), "a new save has only the first stage open")
+	check(o.next_stage(0) == 0 and o.next_stage(1) == -1, "the next stage is the first one; nothing is open on Nova yet")
+	r = o.record("w1s1", 0, false, [])
+	check(not o.open(1, 0) and r.unlocked_next == -1, "losing every ship doesn't open the next stage")
+	r = o.record("w1s1", 0, true, [])
+	check(o.open(1, 0) and r.unlocked_next == 1, "clearing a stage without medals opens the next one")
+	check(o.open(0, 1) and not o.open(1, 1), "Nova: stage 1 opens, stage 2 still needs Normal stage 2")
+	o.record("w1s2", 0, true, [])
+	check(not o.open(1, 1), "Nova stage 2 also needs Nova stage 1")
+	o.record("w1s1", 1, true, [])
+	check(o.open(1, 1) and not o.open(2, 1) and o.next_stage(1) == 1, "Nova stage 2 opens after Nova stage 1 and Normal stage 2")
+	check(not o.open(2, 2), "Supernova follows its own chain")
+	for k in range(2, 8):
+		o.record("w1s%d" % (k + 1), 0, true, [])
+	check(o.open(8, 0) and not o.open(9, 0) and o.next_stage(0) == 8, "clearing world 1's boss opens world 2")
+	r = o.record("w1s8", 0, true, [])
+	check(r.unlocked_next == -1, "a replay doesn't announce an unlock again")
+	# saves from before the rule could clear stages in any order: everything they reached stays open
+	var old := Progress.new()
+	old.stages = {w1s1 = {m = [0, 0, 0], c = 1}, w1s5 = {m = [0, 0, 0], c = 1}}
+	check(old.open(3, 0) and old.open(4, 0) and old.open(5, 0) and not old.open(6, 0), "an old save keeps every stage up to its furthest clear and the one after it")
+	check(old.next_stage(0) == 1, "an old save's next stage is the first gap")
+	check(not old.open(4, 1), "but Nova still needs the stage cleared on Normal")
+
 	# --- in the game ---
 	vg = load("res://scenes/main.tscn").instantiate()
 	root.add_child(vg)
@@ -66,10 +93,22 @@ func _initialize() -> void:
 	vg.prog = Progress.new()
 	vg.hud.prog = vg.prog
 	vg.hud.select_tier(1)
-	var b0: Button = vg.hud._stage_btns[0]
-	check(b0.disabled and b0.text.contains("LOCKED"), "on the Nova tab a stage not yet cleared is locked")
+	check(not vg.hud.map.is_open(0) and vg.hud.stage_label(0).contains("LOCKED"), "on the Nova tab a stage not yet cleared is locked")
+	var tapped: Array = []
+	vg.hud.stage_chosen.connect(func(i, _s): tapped.append(i))
+	vg.hud.map.tap_stage(0)
+	check(tapped.is_empty() and vg.hud.map._note.to_upper().contains("NORMAL"), "tapping a locked stage says what to clear instead of starting it")
 	vg.hud.select_tier(0)
-	check(not vg.hud._stage_btns[0].disabled, "on the Normal tab it is open")
+	check(vg.hud.map.is_open(0) and not vg.hud.map.is_open(1), "on the Normal tab stage 1 is open and stage 2 is locked")
+	check(vg.hud.stage_label(0).contains("NEXT"), "the map marks the next stage")
+	vg.hud.map.tap_stage(1)
+	check(tapped.is_empty() and vg.hud.map._note.to_upper().contains("SPORE FIELDS"), "a locked stage names the stage to clear first")
+	vg.hud.map.tap(vg.hud.map.node_pos(0))
+	check(tapped == [0], "tapping an open stage on the map starts it")
+	vg.hud.map.tap(Vector2(vg.hud.map.size.x * (3.5 / 6.0), 40))
+	check(vg.hud.world_sel == 3 and vg.hud.map.world == 3, "tapping a world in the strip shows its route")
+	check(not vg.hud.map.world_open(3) and vg.hud.map.world_cleared(0) == 0, "a world not reached is locked")
+	vg.to_menu()
 	vg.start_stage(0, "lance", 2)
 	check(vg.G.tier == 0, "starting a closed tier plays the highest open one")
 	vg.update()
@@ -91,6 +130,8 @@ func _initialize() -> void:
 	vg.G.clear_t = 1
 	vg.finish(true)
 	check(vg.prog.cleared("w1s1", 0) and vg.prog.unlocked("w1s1", 1), "clearing a stage saves the clear and opens Nova")
+	check(vg.prog.open(1, 0) and vg.hud._result_lines.text.contains("STAGE 2 CRYSTAL GATE UNLOCKED"), "and opens the next stage, which the result screen says")
+	check(vg.hud._result_next.visible, "Next is offered once the next stage is open")
 	check(vg.hud._result_tier.visible and vg.hud._result_tier.text == "REPLAY ON NOVA", "the result screen offers to replay on Nova")
 	check(vg.hud._result_lines.text.contains("NOVA UNLOCKED"), "the result screen says Nova is unlocked")
 	vg.hud._result_tier.pressed.emit()
