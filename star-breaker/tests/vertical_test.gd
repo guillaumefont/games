@@ -282,6 +282,9 @@ func _initialize() -> void:
 		t += 1
 		tick(1, true)
 	check(vg.G.ended and vg.G.get("mid_boss", false), "stage 1 scrolls to the Shell Matriarch (%d ticks)" % t)
+	var sc0: float = vg.G.scroll
+	tick(120, true)
+	check(absf(vg.G.scroll - sc0 - 120 * vg.SCROLL) < 0.01, "the landscape keeps advancing during the mid-boss fight")
 	for e2 in vg.G.enemies:
 		if e2.get("boss", false):
 			vg.dmg_e(e2, 999)
@@ -321,7 +324,7 @@ func _initialize() -> void:
 	await world_boss_checks()
 	await fortress_checks()
 	vg.hud.menu_pressed.emit()
-	check(vg.mode == "menu" and vg.G.is_empty(), "Stages goes back to the stage menu")
+	check(vg.mode == "menu" and vg.G.is_empty() and vg.hud.levels_scr.visible, "Stages goes back to the level screen")
 
 	await rock_checks()
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
@@ -394,11 +397,17 @@ func world_boss_checks() -> void:
 		var B: Dictionary = vg.G.boss
 		check(not B.enter and B.y < 224.0 and B.y > 140.0 and B.x > 20.0 and B.x < 106.0, "the %s settles at the top of the screen (%.0f, %.0f)" % [kind, B.x, B.y])
 		var fired := false
+		var sc0: float = vg.G.scroll
+		var y0: float = B.y
 		for k in 300:
 			tick(1, false)
 			if not vg.G.eb.is_empty():
 				fired = true
 		check(fired, "the %s attacks" % kind)
+		check(absf(vg.G.scroll - sc0 - 300 * vg.SCROLL) < 0.01 and vg.G.scroll > VStage.STAGES[i].length, "the landscape keeps advancing under the %s, past the stage's length" % kind)
+		check(B.y < 224.0 and B.y > 140.0 and absf(B.y - y0) < 40.0, "the %s holds its place at the top while the ground moves (%.0f)" % [kind, B.y])
+		var top_c := floori((vg.G.scroll + vg.G.get("foff", 0.0) + vg.H / 2.0 + vg.view.size.y * 0.75) / vg.CHUNK)
+		check(vg.chunks.has(top_c) and vg.chunks.has(top_c - 3), "the ground never runs out during the %s fight" % kind)
 		var c: Dictionary = B.parts.core
 		if c.armour:
 			var hp0: float = c.hp

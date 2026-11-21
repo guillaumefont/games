@@ -1,19 +1,15 @@
 class_name VMap
 extends Control
-## The stage map on the menu: a strip of the six worlds (each a small planet in its own colours,
-## ringed by how much of it is cleared on the chosen tier, locked ones padlocked), and under it
-## the chosen world's route: eight stages climbing up the panel from stage 1 to the boss, the
-## cleared stretch lit in the tier's colour, the next stage pulsing, the rest locked.
-## Tap a world to look at it, tap an open stage to play it. Drawn in code, no child nodes.
+## The level screen's map: the chosen world's route, eight stages climbing up a panel in the
+## world's colours from stage 1 to the boss, the cleared stretch lit in the tier's colour, the
+## next stage pulsing, the rest locked. Tap an open stage to play it; a locked one says what to
+## clear first. Drawn in code, no child nodes. The world screen (VWorlds) uses its helpers.
 
 signal stage_tapped(stage: int)
-signal world_tapped(world: int)
 
-const STRIP_H := 94.0
-const GAP := 12.0
-const PANEL_H := 440.0
-const R := 17.0
-const R_BOSS := 23.0
+const PANEL_H := 700.0
+const R := 20.0
+const R_BOSS := 27.0
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
 const C_INK := Color("0b0830")
@@ -30,7 +26,7 @@ var _flash := {}
 
 func _init(h: VHud) -> void:
 	hud = h
-	custom_minimum_size = Vector2(VHud.COL_W, STRIP_H + GAP + PANEL_H)
+	custom_minimum_size = Vector2(VHud.COL_W, PANEL_H)
 	size = custom_minimum_size
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = false
@@ -133,21 +129,13 @@ func _gui_input(e: InputEvent) -> void:
 		accept_event()
 
 
-## Handles a tap at `p` (local position): a world in the strip, or a stage on the route.
+## Handles a tap at `p` (local position) on the route.
 func tap(p: Vector2) -> void:
-	if p.y < STRIP_H:
-		var w := clampi(int(p.x / (size.x / VStage.WORLDS.size())), 0, VStage.WORLDS.size() - 1)
-		tap_world(w)
-		return
 	for j in VStage.PER_WORLD:
 		var c := node_pos(j)
 		if p.distance_to(c) < _radius(j) + 14 or _label_rect(j).has_point(p):
 			tap_stage(j)
 			return
-
-
-func tap_world(w: int) -> void:
-	world_tapped.emit(w)
 
 
 func tap_stage(j: int) -> void:
@@ -163,7 +151,7 @@ func tap_stage(j: int) -> void:
 # ---------- layout ----------
 
 func panel() -> Rect2:
-	return Rect2(0, STRIP_H + GAP, size.x, PANEL_H)
+	return Rect2(0, 0, size.x, size.y)
 
 
 func _radius(j: int) -> float:
@@ -174,8 +162,8 @@ func _radius(j: int) -> float:
 ## boss at the top, swinging left and right.
 func node_pos(j: int) -> Vector2:
 	var pr := panel()
-	var y0 := pr.end.y - 66.0
-	var y1 := pr.position.y + 122.0
+	var y0 := pr.end.y - 80.0
+	var y1 := pr.position.y + 150.0
 	var y := lerpf(y0, y1, float(j) / float(VStage.PER_WORLD - 1))
 	var x := 0.35 if j % 2 == 0 else 0.65
 	if j == VStage.PER_WORLD - 1:
@@ -192,8 +180,8 @@ func _label_rect(j: int) -> Rect2:
 	var c := node_pos(j)
 	var w := 170.0
 	if _label_left(j):
-		return Rect2(c.x - _radius(j) - 12 - w, c.y - 20, w, 40)
-	return Rect2(c.x + _radius(j) + 12, c.y - 20, w, 40)
+		return Rect2(c.x - _radius(j) - 12 - w, c.y - 22, w, 46)
+	return Rect2(c.x + _radius(j) + 12, c.y - 22, w, 46)
 
 
 # ---------- drawing ----------
@@ -202,7 +190,9 @@ func _font(w: int) -> Font:
 	return hud.fonts[w] if hud and hud.fonts.has(w) else ThemeDB.fallback_font
 
 
-func _text(p: Vector2, s: String, sz: int, col: Color, w := 800, align := HORIZONTAL_ALIGNMENT_LEFT, max_w := -1.0) -> void:
+func _text(p: Vector2, s: String, sz: int, col: Color, w := 800, align := HORIZONTAL_ALIGNMENT_LEFT, max_w := -1.0, ci: CanvasItem = null) -> void:
+	if ci == null:
+		ci = self
 	var f := _font(w)
 	var tw := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
 	if max_w > 0 and tw > max_w:
@@ -213,7 +203,7 @@ func _text(p: Vector2, s: String, sz: int, col: Color, w := 800, align := HORIZO
 		x -= tw
 	elif align == HORIZONTAL_ALIGNMENT_CENTER:
 		x -= tw / 2.0
-	draw_string(f, Vector2(x, p.y), s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz, col)
+	ci.draw_string(f, Vector2(x, p.y), s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz, col)
 
 
 func tier_col() -> Color:
@@ -221,70 +211,40 @@ func tier_col() -> Color:
 
 
 func _draw() -> void:
-	_draw_strip()
 	_draw_panel()
 	_draw_route()
 
 
-## The six worlds as small planets with a ring of progress on the shown tier.
-func _draw_strip() -> void:
-	var n: int = VStage.WORLDS.size()
-	var cw := size.x / n
-	var tc := tier_col()
-	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
-	for w in n:
-		var pal: Dictionary = Worlds.LIST[w].pal
-		var sel := w == world
-		var c := Vector2(cw * (w + 0.5), 40)
-		var r := 25.0 if sel else 20.0
-		var open := world_open(w)
-		var done := world_cleared(w)
-		var a := 1.0 if open else 0.45
-		if sel:
-			draw_circle(c, r + 15, Color(Color(pal.ring), 0.16))
-		_planet(c, r, pal, a)
-		# the progress ring: dim track, then the cleared share in the tier's colour
-		var rr := r + 7.0
-		draw_arc(c, rr, 0, TAU, 48, Color(1, 1, 1, 0.12 if open else 0.06), 3.0, true)
-		if done > 0:
-			var f := float(done) / VStage.PER_WORLD
-			draw_arc(c, rr, -PI / 2, -PI / 2 + TAU * f, maxi(6, int(48 * f)), tc, 4.0, true)
-		if done == VStage.PER_WORLD:
-			draw_arc(c, rr + 4, 0, TAU, 48, Color(tc, 0.35 + 0.25 * pulse), 2.0, true)
-		if not open:
-			_lock(c, 1.0, Color(C_TEXT, 0.85))
-		var lbl := "%d/%d" % [done, VStage.PER_WORLD] if open else str(w + 1)
-		_text(Vector2(c.x, 87), lbl, 14 if sel else 13, (tc if done > 0 else C_TEXT) if sel else Color(C_MUTED, a), 800, HORIZONTAL_ALIGNMENT_CENTER)
-		if sel:
-			draw_line(Vector2(c.x - 14, 93), Vector2(c.x + 14, 93), Color(pal.ring), 3.0, true)
-
-
 ## A low poly planet: dark side, lit face, a highlight and a tilted ring.
-func _planet(c: Vector2, r: float, pal: Dictionary, a: float) -> void:
+func _planet(c: Vector2, r: float, pal: Dictionary, a: float, ci: CanvasItem = null) -> void:
+	if ci == null:
+		ci = self
 	var body := Color(pal.planet)
 	var dark := Color(pal.planet_e)
 	var ring := Color(pal.ring)
 	# the back half of the ring, behind the planet
-	draw_set_transform(c, -0.35, Vector2(1.0, 0.32))
-	draw_arc(Vector2.ZERO, r * 1.55, PI, TAU, 32, Color(ring, 0.55 * a), 3.0, true)
-	draw_set_transform(Vector2.ZERO)
-	draw_circle(c, r, Color(dark, a))
-	draw_circle(c + Vector2(-r * 0.18, -r * 0.18), r * 0.8, Color(body, a))
-	draw_circle(c + Vector2(-r * 0.36, -r * 0.36), r * 0.32, Color(body.lightened(0.35), a))
-	draw_arc(c, r, 0, TAU, 40, Color(ring.lightened(0.2), 0.5 * a), 1.5, true)
-	draw_set_transform(c, -0.35, Vector2(1.0, 0.32))
-	draw_arc(Vector2.ZERO, r * 1.55, 0, PI, 32, Color(ring, 0.9 * a), 3.0, true)
-	draw_set_transform(Vector2.ZERO)
+	ci.draw_set_transform(c, -0.35, Vector2(1.0, 0.32))
+	ci.draw_arc(Vector2.ZERO, r * 1.55, PI, TAU, 32, Color(ring, 0.55 * a), 3.0, true)
+	ci.draw_set_transform(Vector2.ZERO)
+	ci.draw_circle(c, r, Color(dark, a))
+	ci.draw_circle(c + Vector2(-r * 0.18, -r * 0.18), r * 0.8, Color(body, a))
+	ci.draw_circle(c + Vector2(-r * 0.36, -r * 0.36), r * 0.32, Color(body.lightened(0.35), a))
+	ci.draw_arc(c, r, 0, TAU, 40, Color(ring.lightened(0.2), 0.5 * a), 1.5, true)
+	ci.draw_set_transform(c, -0.35, Vector2(1.0, 0.32))
+	ci.draw_arc(Vector2.ZERO, r * 1.55, 0, PI, 32, Color(ring, 0.9 * a), 3.0, true)
+	ci.draw_set_transform(Vector2.ZERO)
 
 
 ## A padlock centred on `c`.
-func _lock(c: Vector2, k: float, col: Color) -> void:
+func _lock(c: Vector2, k: float, col: Color, ci: CanvasItem = null) -> void:
+	if ci == null:
+		ci = self
 	var body := Rect2(c + Vector2(-7, -2) * k, Vector2(14, 11) * k)
-	draw_arc(c + Vector2(0, -3) * k, 4.5 * k, PI, TAU, 12, col, 2.2 * k, true)
-	draw_line(c + Vector2(-4.5, -3) * k, c + Vector2(-4.5, -1) * k, col, 2.2 * k)
-	draw_line(c + Vector2(4.5, -3) * k, c + Vector2(4.5, -1) * k, col, 2.2 * k)
-	draw_rect(body, col)
-	draw_circle(c + Vector2(0, 3.2) * k, 1.6 * k, C_INK)
+	ci.draw_arc(c + Vector2(0, -3) * k, 4.5 * k, PI, TAU, 12, col, 2.2 * k, true)
+	ci.draw_line(c + Vector2(-4.5, -3) * k, c + Vector2(-4.5, -1) * k, col, 2.2 * k)
+	ci.draw_line(c + Vector2(4.5, -3) * k, c + Vector2(4.5, -1) * k, col, 2.2 * k)
+	ci.draw_rect(body, col)
+	ci.draw_circle(c + Vector2(0, 3.2) * k, 1.6 * k, C_INK)
 
 
 ## The world's panel: a sky in the world's colours, its planet rising in a corner, stars, and
@@ -418,7 +378,7 @@ func _draw_route() -> void:
 			draw_polyline(ring, Color(1, 1, 1, fl / 12.0), 5.0, true)
 		if open:
 			var num := str(j + 1)
-			_text(c + Vector2(0, 7 if not boss else 8), num, 20 if boss else 18, C_INK if done else C_TEXT, 800, HORIZONTAL_ALIGNMENT_CENTER)
+			_text(c + Vector2(0, 8 if not boss else 9), num, 22 if boss else 20, C_INK if done else C_TEXT, 800, HORIZONTAL_ALIGNMENT_CENTER)
 		else:
 			_lock(c, 1.0 if not boss else 1.25, Color(1, 1, 1, 0.45))
 		_draw_label(j, i, open, done)
@@ -462,7 +422,7 @@ func _draw_label(j: int, i: int, open: bool, done: bool) -> void:
 	var x := rect.end.x if left else rect.position.x
 	var tc := tier_col()
 	var name_col := C_TEXT if open else Color(C_MUTED, 0.55)
-	_text(Vector2(x, rect.position.y + 17), String(st.name).to_upper(), 16, name_col, 800, al, rect.size.x)
+	_text(Vector2(x, rect.position.y + 17), String(st.name).to_upper(), 18, name_col, 800, al, rect.size.x)
 	var sub := _sub(i).to_upper()
 	var sub_col := Color(C_MUTED, 0.9)
 	if open and i == next_stage() and not done:
@@ -477,7 +437,7 @@ func _draw_label(j: int, i: int, open: bool, done: bool) -> void:
 		var px := (x - pip_w) if left else x
 		for k in Progress.MEDALS.size():
 			var col := Color(String(Progress.MEDAL_INFO[Progress.MEDALS[k]].color))
-			var pc := Vector2(px + 5 + k * 11, rect.position.y + 30)
+			var pc := Vector2(px + 5 + k * 11, rect.position.y + 34)
 			if m & (1 << k):
 				draw_circle(pc, 4.0, col)
 			else:
@@ -485,4 +445,4 @@ func _draw_label(j: int, i: int, open: bool, done: bool) -> void:
 		pip_w += 8
 	if sub != "":
 		var sx := (x - pip_w) if left else (x + pip_w)
-		_text(Vector2(sx, rect.position.y + 36), sub, 13, sub_col, 700, al, rect.size.x - pip_w)
+		_text(Vector2(sx, rect.position.y + 40), sub, 14, sub_col, 700, al, rect.size.x - pip_w)
