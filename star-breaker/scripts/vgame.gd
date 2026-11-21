@@ -2,9 +2,10 @@ extends Node3D
 ## Star Breaker in portrait: the vertical slice. One thumb drags the ship (1:1 with the
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
 ## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
-## and every ship's ultimate is the last stage of its charge bar: hold for ULT_AT ticks and lift
-## (one finger plays it all). Lance charges through LV 1-3 and the Nova to the Storm, chain
-## lightning through every enemy on screen; Warden's bar runs straight to Shatter.
+## and each ship loads its ultimate its own way (one finger plays it all). Lance's is the last
+## stage of its charge bar: it charges through LV 1-3 and the Nova to the Storm at ULT_AT ticks,
+## chain lightning through every enemy on screen. Warden's Shatter fills from what the pod does
+## (see SHATTER_FULL) and fires when the pod is recalled.
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -24,7 +25,6 @@ const BEAM_DMG := [0, 4, 8, 14, 30]
 const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
 ## Lance's ultimate, the Storm: the charge bar's stage after the Nova. No kills needed
 ## (Guillaume's call, 2026-11-20): holding on past the Nova reaches it at ULT_AT ticks (7 s),
-## the same hold that loads Warden's Shatter (no gauge, no double tap for either ship),
 ## and lifting lets loose chain lightning that jumps from the ship through every enemy and boss
 ## part on screen, STORM_DMG each (two thirds of a Nova hit, once per target: it clears small
 ## flyers, leaves big ones and bosses hurt), within STORM_SPREAD ticks; the bolts crackle on
@@ -34,6 +34,17 @@ const ULT_AT := 420
 const STORM_DMG := 20
 const STORM_SPREAD := 24
 const STORM_LIFE := 70
+## Warden's ultimate, Shatter, has its own mechanic (Guillaume's call, 2026-11-21): holding loads
+## nothing, so a lift is always a pod command. The meter fills from the pod's work: SHAT_RAM per
+## ram, SHAT_BLOCK per enemy bullet it stops, SHAT_SHOT per pod shot that lands and SHAT_KILL more
+## for each enemy the pod finishes. Full at SHATTER_FULL, it stays stored (through lifts and lost
+## ships) until the pod is recalled while out: the pod then bursts into the homing shards where it
+## is. With the pod docked, fling it and recall it.
+const SHATTER_FULL := 60.0
+const SHAT_RAM := 5.0
+const SHAT_BLOCK := 3.0
+const SHAT_SHOT := 1.0
+const SHAT_KILL := 6.0
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
 const SLOW := 0.4
 const SLOW_TICKS := 24
@@ -642,7 +653,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
-		held = false, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
+		held = false, storm_rdy = false, shat = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
 	apply_world(sd.world)
 	script_list = VStage.build(i)
@@ -925,7 +936,7 @@ func release() -> void:
 			storm()
 		elif lv > 0:
 			fire_beam(lv)
-	elif kit.release == "pod" and P.charge >= ULT_AT and G.ult_t == 0:
+	elif kit.release == "pod" and pod.get("state", "") == "out" and shatter_full():
 		ultimate()
 	elif kit.release == "pod" and not pod.is_empty():
 		if pod.state == "dock":
@@ -977,29 +988,48 @@ func _beam_node(lv: int) -> Node3D:
 	return VFx.beam_node(lv)
 
 
-## How far the charge runs: to the ultimate (not while one is still going; Lance then stops at
-## the Nova, Warden just short of Shatter).
+## How far the charge runs: Lance's runs to the Storm (only to the Nova while an ultimate is
+## still going); Warden's hold loads nothing.
 func charge_cap() -> int:
-	if G.ult_t == 0:
-		return ULT_AT
-	return CHARGE_MAX if VShips.KITS[G.ship].release == "beam" else ULT_AT - 1
+	if VShips.KITS[G.ship].release != "beam":
+		return 0
+	return ULT_AT if G.ult_t == 0 else CHARGE_MAX
 
 
-## Warden's ultimate, Shatter, fired by lifting at the end of its charge bar. Lance's is the
+func shatter_full() -> bool:
+	return G.ship == "warden" and G.ult_t == 0 and P.get("shat", 0.0) >= SHATTER_FULL
+
+
+## The pod's work fills Warden's Shatter meter (not while Shatter is going).
+func shatter_gain(n: float) -> void:
+	if G.ship != "warden" or G.ult_t > 0 or not P.alive:
+		return
+	var was_full := shatter_full()
+	P.shat = minf(SHATTER_FULL, P.get("shat", 0.0) + n)
+	if shatter_full() and not was_full:
+		audio.play("ready", 4)
+		shake = maxf(shake, 3.0)
+
+
+## Warden's ultimate, Shatter, fired by recalling the pod with the meter full. Lance's is the
 ## Storm.
 func ultimate() -> void:
 	audio.play("ready", 4)
 	shake = maxf(shake, 6.0)
 	Diag.once("ult " + G.ship)
-	# Shatter: the pod bursts into eight homing shards that fly out of the ship; the ship is
-	# shielded until the pod reforms
+	# Shatter: the pod bursts where it is into eight homing shards; the ship is shielded until
+	# the pod reforms at its nose
 	G.ult_t = 180
+	P.shat = 0.0
+	var ox: float = pod.x
+	var oy: float = pod.y
 	pod.state = "shatter"
+	boom(ox, oy, 8, true)
 	for j in 8:
 		var a := TAU * j / 8.0
 		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_m)
 		world.add_child(m)
-		G.shards.append({x = P.x, y = P.y, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
+		G.shards.append({x = ox, y = oy, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
 
 
 ## The Storm: chain lightning from the ship's nose through every enemy and boss part on screen,
@@ -1200,26 +1230,30 @@ func _update_pod() -> void:
 		return
 	# the pod blocks bullets, rams enemies and fires straight up
 	for b in G.eb:
-		if Vector2(b.x - pod.x, b.y - pod.y).length() < 5.5:
+		if Vector2(b.x - pod.x, b.y - pod.y).length() < 5.5 and not b.get("dead", false):
 			b.dead = true
 			spark(b.x, b.y)
+			shatter_gain(SHAT_BLOCK)
 	if pod.ram_cd > 0:
 		pod.ram_cd -= 1
 	else:
 		for e in G.enemies:
 			if not e.ground and absf(e.x - pod.x) < e.hw + 4 and absf(e.y - pod.y) < e.hh + 4:
 				dmg_e(e, 1)
+				shatter_gain(SHAT_RAM + (SHAT_KILL if e.get("dead", false) else 0.0))
 				pod.ram_cd = 8
 				break
 		for p in G.bparts:
 			if p.kind != "shield" and Vector2(p.x - pod.x, p.y - pod.y).length() < p.r + 4:
 				boss_damage(p, 1)
+				shatter_gain(SHAT_RAM)
 				pod.ram_cd = 8
 				break
 	if pod.fire_cd > 0:
 		pod.fire_cd -= 1
 	elif inp.fire and P.alive:
 		shot(pod.x, pod.y + 5, 0, 5.5, Models.M.shot, 2)
+		G.pb.back().pod = true
 		pod.fire_cd = 10
 
 
@@ -1243,6 +1277,8 @@ func _update_shots() -> void:
 			if absf(e.x - b.x) < e.hw + 1.2 and absf(e.y - b.y) < e.hh + 2.5:
 				dmg_e(e, b.d)
 				b.dead = true
+				if b.get("pod", false):
+					shatter_gain(SHAT_SHOT + (SHAT_KILL if e.get("dead", false) else 0.0))
 				break
 		if b.get("dead", false):
 			continue
@@ -1254,6 +1290,8 @@ func _update_shots() -> void:
 					audio.play("tink")
 				else:
 					boss_damage(p, b.d)
+					if b.get("pod", false):
+						shatter_gain(SHAT_SHOT)
 				break
 		# shots break on the rock walls (after hitting what sits on the cliff edge)
 		if not b.get("dead", false) and in_rock(b.x, b.y, 0.0):
@@ -2647,7 +2685,8 @@ func _process(_delta: float) -> void:
 	hud.hull = P.hull if P.alive else 0
 	hud.ships = maxi(0, G.lives - 1) if P.alive else maxi(0, G.lives)
 	hud.ult_ready = G.ult_t == 0
-	hud.charge = float(P.charge) / ULT_AT
+	hud.charge = float(P.charge) / ULT_AT if G.ship != "warden" else P.get("shat", 0.0) / SHATTER_FULL
+	hud.pod_out = pod.get("state", "") == "out"
 	hud.charge_lv = charge_lv(P.charge)
 	hud.charge_marks = [float(CHARGE_AT[1]) / ULT_AT, float(CHARGE_AT[2]) / ULT_AT, float(CHARGE_AT[3]) / ULT_AT, float(CHARGE_MAX) / ULT_AT]
 	hud.queue_redraw()

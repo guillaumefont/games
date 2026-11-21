@@ -225,36 +225,40 @@ func _initialize() -> void:
 	check(vg.pod.state == "back", "lifting again calls the pod back")
 	tick(80, false)
 	check(vg.pod.state == "dock", "the pod docks again")
-	# Shatter: like Lance's Storm, the last stage of the charge bar (no kills needed)
-	tick(vg.ULT_AT - 30, true)
-	check(vg.hud.charge > 0.5 and vg.hud.charge < 1.0, "holding fills Warden's charge bar")
+	# Shatter: its own mechanic, filled by the pod's work and fired by recalling the pod
+	vg.P.shat = 0.0
+	tick(vg.ULT_AT + 20, true)
+	check(vg.P.charge == 0 and vg.P.shat < vg.SHATTER_FULL, "holding loads nothing on Warden (only the pod's work fills Shatter)")
 	tick(1, false)
-	check(vg.pod.state == "out" and vg.G.ult_t == 0, "lifting before the bar is full just flings the pod")
+	check(vg.pod.state == "out" and vg.G.ult_t == 0, "so a lift after a long hold is just a pod fling")
+	tick(40, false)
+	var s0: float = vg.P.shat
+	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
+	tick(1, false)
+	check(vg.P.shat == s0 + vg.SHAT_BLOCK, "a bullet the pod blocks fills the Shatter meter")
+	s0 = vg.P.shat
+	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
+	tick(1, false)
+	check(vg.P.shat >= s0 + vg.SHAT_RAM + vg.SHAT_KILL, "a ram that kills fills it more")
+	vg.P.shat = vg.SHATTER_FULL - 1.0
+	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
+	tick(1, false)
+	check(vg.shatter_full() and vg.hud.charge >= 1.0, "the meter fills up and the bar shows it")
 	tick(5, true)
+	check(vg.shatter_full() and vg.G.ult_t == 0, "a stored Shatter survives holding and doesn't fire on its own")
+	var px: float = vg.pod.x
+	var py: float = vg.pod.y
 	tick(1, false)
-	tick(80, false)
-	for i in 3:
-		vg.E("drifter", 30 + i * 30, 170, {move = "sine", amp = 0.0, ph = 0.0, x0 = 30.0 + i * 30})
-	# (stage 2's canyon run comes up about now: skip it, the ship doesn't charge in there)
-	var guard := 0
-	while vg.P.charge < vg.ULT_AT and guard < 3000:
-		if vg.G.has("run") and vg.G.run.abort == 0:
-			vg.G.run.abort = 1
-		tick(1, true)
-		guard += 1
-	tick(10, true)
-	check(not vg.G.has("run") and vg.P.charge == vg.ULT_AT and vg.hud.charge >= 1.0, "holding on fills the bar to Shatter")
-	tick(1, false)
-	check(vg.pod.state == "shatter" and vg.G.shards.size() == 8, "Shatter bursts the pod into eight shards")
-	var from_ship := true
+	check(vg.pod.state == "shatter" and vg.G.shards.size() == 8, "recalling the pod with the meter full fires Shatter")
+	var from_pod := true
 	for sh in vg.G.shards:
-		from_ship = from_ship and Vector2(sh.x - vg.P.x, sh.y - vg.P.y).length() < 4.0
-	check(from_ship, "Shatter's shards fly out of the ship")
+		from_pod = from_pod and Vector2(sh.x - px, sh.y - py).length() < 4.0
+	check(from_pod, "the shards burst out where the pod was")
+	check(vg.P.shat == 0.0, "firing empties the meter")
 	vg.P.inv = 0
 	vg.bullet(vg.P.x, vg.P.y, 0, 0)
 	tick(1, true, 0, 0, false, false)
 	check(vg.P.hull == 3, "the ship is shielded during Shatter")
-	check(vg.P.charge < vg.ULT_AT, "no second Shatter can load while one is going")
 	tick(200, false)
 	check(vg.pod.state == "dock" and vg.G.shards.is_empty(), "the pod reforms after Shatter")
 
