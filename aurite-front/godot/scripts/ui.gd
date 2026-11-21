@@ -52,6 +52,9 @@ var credits_l: Label
 var power_l: Label
 var power_bar: PowerMeter
 var power_box: PanelContainer
+var power_parts: Array = []   # separator, glyph and stat of the power readout (hidden for factions without power)
+var cap_parts: Array = []     # same for the unit cap readout (only for factions with a cap)
+var cap_l: Label
 var sw_box: Plate
 var sw_name: Label
 var sw_time: Label
@@ -207,6 +210,12 @@ func _build_hud() -> void:
 	power_box = res
 	var pv := _stat(rh, "POWER"); power_l = lbl("0 / 0", f_disp7, 18); pv.add_child(power_l)
 	power_bar = PowerMeter.new(); power_bar.custom_minimum_size = Vector2(92, 6); power_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE; pv.add_child(power_bar)
+	power_parts = [sep, rh.get_child(rh.get_child_count() - 2), pv]
+	var sep2 := Rule.new(); sep2.vertical = true; sep2.custom_minimum_size = Vector2(2, 0); rh.add_child(sep2)
+	var cg := _glyph_box("inf", 22, C_FG); rh.add_child(cg)
+	var kv := _stat(rh, "UNITS"); cap_l = lbl("0 / 0", f_disp7, 18); kv.add_child(cap_l)
+	cap_parts = [sep2, cg, kv]
+	for c in cap_parts: c.visible = false
 	sw_box = Plate.new(); sw_box.mouse_filter = Control.MOUSE_FILTER_IGNORE; sw_box.accent = C_ACC
 	sw_box.add_theme_stylebox_override("panel", plate_sb(8.0, Color(0.13, 0.05, 0.04, 0.9), Color("6a2a22"))); top.add_child(sw_box)
 	var sh := HBoxContainer.new(); sh.add_theme_constant_override("separation", 8); sh.mouse_filter = Control.MOUSE_FILTER_IGNORE; sw_box.add_child(sh)
