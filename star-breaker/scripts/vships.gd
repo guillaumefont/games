@@ -20,8 +20,14 @@ const KITS := {
 		fire_every = 6, shot_speed = 6.0, kit = "weaver", loads = "Loop cuts load the Loom", unlock = 4},
 	anvil = {name = "Anvil", sub = "Hold to run the reticle up the screen, lift to drop a bomb on it", ult = "barrage", ult_name = "Barrage",
 		fire_every = 11, shot_speed = 5.0, kit = "anvil", loads = "Bombed ground targets load the Barrage", unlock = 6},
+	gemini = {name = "Gemini", sub = "Hold and a twin mirrors you across the screen, lift to swap places with it", ult = "eclipse", ult_name = "Eclipse",
+		fire_every = 7, shot_speed = 6.5, kit = "gemini", loads = "What the swap's link hits loads the Eclipse", unlock = 8},
+	halo = {name = "Halo", sub = "Blades circle the ship. Hold to widen the ring, lift to burst it", ult = "sawstorm", ult_name = "Sawstorm",
+		fire_every = 8, shot_speed = 6.0, kit = "halo", loads = "Bullets the blades cut load the Sawstorm", unlock = 11},
+	vortex = {name = "Vortex", sub = "Hold to grow a gravity well at the nose, lift to leave it there: it drags enemies in and implodes", ult = "horizon", ult_name = "Event Horizon",
+		fire_every = 7, shot_speed = 6.0, kit = "vortex", loads = "What the wells swallow loads the Event Horizon", unlock = 14},
 }
-const ORDER := ["lance", "warden", "hornet", "weaver", "anvil"]
+const ORDER := ["lance", "warden", "hornet", "weaver", "anvil", "gemini", "halo", "vortex"]
 
 
 ## Turns a model built for the side-scroller (nose along +X, top along +Y) so that, seen by the
@@ -94,6 +100,12 @@ static func model(kind: String) -> Node3D:
 			return weaver()
 		"anvil":
 			return anvil()
+		"gemini":
+			return gemini()
+		"halo":
+			return halo()
+		"vortex":
+			return vortex()
 	return Models.ship()
 
 
@@ -111,7 +123,7 @@ static func craft(o: Dictionary) -> Node3D:
 	var g := Node3D.new()
 	var body := Node3D.new()
 	g.add_child(body)
-	body.add_child(Models.mesh(Geo.cached(id + "Hull", func(): return Geo.build_wound(Geo.loft(o.hull, int(o.get("seg", 8))))), M.hull))
+	body.add_child(Models.mesh(Geo.cached(id + "Hull", func(): return Geo.build_wound(Geo.loft(o.hull, int(o.get("seg", 8))))), M[o.get("hull_mat", "hull")]))
 	if o.has("canopy"):
 		var c: Array = o.canopy
 		var canopy := Models.mesh(Geo.cached("lCan", func(): return Geo.build(Geo.hemi(1.0, 8, 3), Vector3.ZERO)), M.lance, Vector3(c[0], c[1], 0))
@@ -216,4 +228,55 @@ static func anvil() -> Node3D:
 	body.add_child(bomb)
 	for z in [7.6, -7.6]:
 		_box(body, "anvTip", Vector3(3.0, 0.5, 0.5), Vector3(-4.0, -0.4, z), M.pod)
+	return g
+
+
+## Gemini: two slim hulls side by side, each with its own engine and canopy, clipped together by
+## a glowing bar (it is the pair that splits).
+static func gemini() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "gem", hull = [[-2.0, 0.4, 3.4, 0.0], [0.0, 0.5, 3.6, 0.0], [2.0, 0.4, 3.4, 0.0]], seg = 6,
+		wings = [{pts = [[-4.6, 0], [-0.6, 0], [-3.0, 3.4], [-4.6, 3.6]], th = 0.35, y = -0.1, z = 4.2}],
+		engines = [[-7.0, 0.0, 3.2, 0.75], [-7.0, 0.0, -3.2, 0.75]]})
+	var body: Node3D = g.get_meta("body")
+	var half := Geo.cached("gemHalf", func(): return Geo.build_wound(Geo.loft([
+			[-6.6, 0.8, 0.9, 0.0], [-5.0, 1.2, 1.3, 0.1], [0.0, 1.3, 1.4, 0.1], [4.0, 1.0, 1.1, 0.0], [7.0, 0.5, 0.6, -0.1], [8.8, 0.15, 0.2, -0.2]], 8)))
+	for z in [3.2, -3.2]:
+		body.add_child(Models.mesh(half, M.hull, Vector3(0, 0, z)))
+		var can := Models.mesh(Geo.cached("lCan", func(): return Geo.build(Geo.hemi(1.0, 8, 3), Vector3.ZERO)), M.lance, Vector3(2.0, 1.0, z))
+		can.scale = Vector3(2.0, 0.9, 0.9)
+		body.add_child(can)
+	_box(body, "gemBar", Vector3(1.0, 0.5, 5.0), Vector3(0.0, 0.5, 0), M.lance)
+	return g
+
+
+## Halo: a round saucer with a dome in the middle and a glowing ring round its rim.
+static func halo() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "hal", hull = [[-5.6, 0.3, 1.6, 0.0], [-4.2, 0.9, 3.9, 0.0], [-1.6, 1.3, 5.2, 0.1], [1.6, 1.3, 5.2, 0.1],
+			[4.2, 0.9, 3.9, 0.0], [5.6, 0.3, 1.6, 0.0]], seg = 10,
+		canopy = [0.0, 1.1, 2.4, 1.6, 2.4],
+		engines = [[-5.8, 0.0, 0.0, 1.0]]})
+	var body: Node3D = g.get_meta("body")
+	body.add_child(Models.mesh(Geo.cached("halRing", func(): return Geo.build_wound(Geo.xf(Geo.torus(5.9, 0.3, 16, 4), Geo.rot(Vector3.RIGHT, PI / 2)))), M.lance, Vector3(0, 0.2, 0)))
+	for a in 4:
+		var ang := PI / 4 + a * PI / 2
+		_box(body, "halNub", Vector3(1.0, 0.5, 1.0), Vector3(cos(ang) * 5.9, 0.2, sin(ang) * 5.9), M.hull_dark)
+	return g
+
+
+## Vortex: a dark angular wedge with swept-back blades for wings and a black lens ringed in pink
+## at the nose, where the well forms.
+static func vortex() -> Node3D:
+	var M := Models.M
+	var g := craft({id = "vor", hull = [[-6.4, 1.0, 2.6, 0.0], [-3.0, 1.5, 3.0, 0.1], [1.0, 1.3, 2.2, 0.0], [4.6, 0.8, 1.2, -0.1], [6.0, 0.5, 0.7, -0.2]], seg = 4,
+		hull_mat = "hull_dark",
+		canopy = [0.4, 1.2, 2.2, 0.9, 1.0],
+		wings = [{pts = [[-7.6, 0], [-1.0, 0], [-6.0, 5.6], [-9.0, 6.4]], th = 0.5, y = 0.0, z = 2.2, mat = "hull"}],
+		engines = [[-6.8, 0.0, 1.4, 0.8], [-6.8, 0.0, -1.4, 0.8]]})
+	var body: Node3D = g.get_meta("body")
+	var lens := Models.mesh(Models.geo("vorCore", func(): return Geo.ico(1.0, 1)), M.disc, Vector3(6.8, -0.1, 0))
+	lens.scale = Vector3.ONE * 1.5
+	body.add_child(lens)
+	body.add_child(Models.mesh(Geo.cached("vorRing", func(): return Geo.build_wound(Geo.xf(Geo.torus(1.9, 0.25, 12, 4), Geo.rot(Vector3.RIGHT, PI / 2)))), M.crystal_m, Vector3(6.8, -0.1, 0)))
 	return g

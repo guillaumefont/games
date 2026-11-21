@@ -80,6 +80,11 @@ func ready() -> bool:
 	return meter >= 1.0 and g.G.ult_t == 0
 
 
+## Is the thumb down in normal play (not flying in, not in the canyon run, not after the clear)?
+func holding() -> bool:
+	return g.inp.hold and g.P.alive and not g.P.entering and not g.G.has("run") and g.G.clear_t == 0
+
+
 ## Adds to the ultimate meter (not while an ultimate is going).
 func gain(x: float) -> void:
 	if g.G.ult_t > 0 or not g.P.alive or meter >= 1.0:

@@ -375,6 +375,130 @@ func _initialize() -> void:
 	check(ak.barrage == 0 and dropped >= 2 and a_out.hp < 500.0, "the Barrage walks bombs up the whole screen")
 	tick(60, false)
 
+	# --- Gemini: the mirror twin, and the swap ---
+	vg.start_stage(1, "gemini")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var gk = vg.kit
+	tick(1, true, 30.0 - vg.P.x, 0.0)
+	tick(gk.SPLIT + 2, true)
+	check(gk.split >= 1.0 and absf(gk.twin().x - (vg.W - 30.0)) < 0.01 and absf(gk.twin().y - vg.P.y) < 0.01, "holding splits the ship: the twin flies the mirror image")
+	vg.G.pb.clear()
+	tick(8, true)
+	var from_twin := 0
+	for b0 in vg.G.pb:
+		if absf(b0.x - gk.twin().x) < 3.0:
+			from_twin += 1
+	check(from_twin >= 2, "the twin fires too")
+	vg.P.inv = 0
+	vg.bullet(gk.twin().x, gk.twin().y, 0, 0)
+	tick(1, true, 0, 0, false, false)
+	check(vg.P.hull == 3, "nothing can hit the twin")
+	vg.G.eb.clear()
+	var g_in: Dictionary = vg.E("shell", 63.0, vg.P.y + 2.0, {hold = vg.P.y + 2.0})
+	g_in.hp = 500.0
+	vg.bullet(50.0, vg.P.y, 0, 0)
+	vg.bullet(50.0, vg.P.y + 40.0, 0, 0)
+	var gy: float = vg.P.y
+	tick(1, false, 0, 0, false, true)
+	check(absf(vg.P.x - (vg.W - 30.0)) < 0.01 and absf(vg.P.y - gy) < 0.01, "lifting swaps the ship with its twin")
+	check(vg.G.eb.size() == 1 and g_in.hp <= 500.0 - gk.LINK_DMG and gk.meter > 0.0, "the link wipes the bullets on it, hits what it crosses and loads the Eclipse")
+	g_in.dead = true
+	tick(40, false)
+	check(gk.split == 0.0, "with the thumb up the twin folds back in")
+	gk.meter = 1.0
+	tick(gk.SPLIT + 2, true)
+	tick(1, false)
+	var gx: float = vg.P.x
+	check(gk.eclipse > 0 and vg.P.x == gx, "a full meter and a lift starts the Eclipse instead of a swap")
+	tick(30, false)
+	var g2: Dictionary = vg.E("shell", 63.0, vg.P.y, {hold = vg.P.y})
+	g2.hp = 500.0
+	tick(20, false)
+	check(g2.hp < 500.0, "in the Eclipse the link burns what stands between the twins")
+	g2.dead = true
+
+	# --- Halo: the blade ring ---
+	vg.start_stage(1, "halo")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var hak = vg.kit
+	check(absf(hak.radius() - hak.R_MIN) < 0.01, "the blades circle close with the thumb up")
+	var bl0: Vector2 = hak.blade(0)
+	vg.bullet(bl0.x, bl0.y, 0, 0)
+	hak.ang -= hak.SPIN
+	tick(1, false)
+	check(vg.G.eb.is_empty() and hak.meter > 0.0, "a blade cuts the bullet it touches, which loads the Sawstorm")
+	tick(60, true)
+	check(hak.radius() > hak.R_MIN + 10.0, "holding widens the ring")
+	var ha_in: Dictionary = vg.E("shell", vg.P.x + 5.0, vg.P.y + 6.0, {hold = vg.P.y + 6.0})
+	var ha_out: Dictionary = vg.E("shell", vg.P.x + 50.0, vg.P.y + 50.0, {hold = vg.P.y + 50.0})
+	ha_in.hp = 500.0
+	ha_out.hp = 500.0
+	tick(1, false)
+	check(ha_in.hp <= 500.0 - hak.BURST and ha_out.hp == 500.0 and absf(hak.radius() - hak.R_MIN) < 0.01, "lifting bursts the ring on what is inside it and snaps it tight")
+	ha_in.dead = true
+	ha_out.dead = true
+	tick(40, false)
+	hak.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(hak.storm > 0 and hak.count() == hak.STORM_BLADES and hak.radius() > hak.R_MAX, "a full meter and a lift starts the Sawstorm: twelve blades, full width")
+	tick(hak.STORM_T + 30, false)
+	check(hak.storm == 0 and hak.count() == hak.BLADES, "the Sawstorm ends")
+
+	# --- Vortex: the gravity well ---
+	vg.start_stage(1, "vortex")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var vk = vg.kit
+	tick(30, true)
+	var vn: Vector2 = vk.nose()
+	vg.bullet(vn.x + 2.0, vn.y, 0, 0)
+	tick(1, true)
+	check(vg.G.eb.is_empty() and vk.fed == 1 and vk.meter > 0.0, "holding grows a well at the nose that swallows bullets")
+	tick(40, true)
+	vn = vk.nose()
+	tick(1, false)
+	check(vk.wells.size() == 1 and absf(vk.wells[0].x - vn.x) < 0.01 and absf(vk.wells[0].y - vn.y) < 0.01, "lifting leaves the well where it was")
+	var wl: Dictionary = vk.wells[0]
+	tick(1, false, 30.0, 0.0)
+	check(wl.x == vn.x, "the well stays put when the ship flies on")
+	var v_far: Dictionary = vg.E("drifter", wl.x + 30.0, wl.y + 10.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = wl.x + 30.0})
+	var v_big: Dictionary = vg.E("shell", wl.x - 30.0, wl.y + 20.0, {hold = wl.y + 20.0})
+	v_far.hp = 500.0
+	var d0: float = Vector2(v_far.x - wl.x, v_far.y - wl.y).length()
+	var bx0: float = v_big.x
+	var vt := 0
+	while not vk.wells.is_empty() and vt < 400:
+		vt += 1
+		tick(1, false)
+		if vt == 30:
+			check(Vector2(v_far.x - wl.x, v_far.y - wl.y).length() < d0 - 8.0 and absf(v_big.x - bx0) < 3.0, "the well drags small fliers in, not the big ones")
+	check(vt > 30 and v_far.hp < 500.0, "then it implodes on what it caught")
+	v_far.dead = true
+	v_big.dead = true
+	tick(2, false)
+	tick(5, true)
+	tick(1, false)
+	check(vk.wells.is_empty(), "a quick tap leaves no well")
+	tick(40, false)
+	vk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(vk.wells.size() == 1 and vk.wells[0].big, "a full meter and a lift opens the Event Horizon")
+	tick(260, false)
+	check(vk.wells.is_empty(), "which implodes in turn")
+
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
 	for st in VStage.STAGES.size():

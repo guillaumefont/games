@@ -351,7 +351,7 @@ func _warm_up() -> void:
 	w.scale = Vector3.ONE * 0.02
 	add_child(w)
 	var flashed := Models.drifter()
-	var list: Array = [VShips.lance(), Models.ship(), VShips.hornet(), VShips.weaver(), VShips.anvil(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
+	var list: Array = [VShips.lance(), Models.ship(), VShips.hornet(), VShips.weaver(), VShips.anvil(), VShips.gemini(), VShips.halo(), VShips.vortex(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
 		Models.generator(1), Models.block(Models.M.rock), Models.carrier("L"), Models.item("L"), Models.shard(), Models.flake(), Models.hulk(),
 		Models.drone(), Models.seeker(), Models.sentinel(), Models.wasp(), Models.nest(), Models.lancer(), Models.bulwark()]
 	for k in Models.M:

@@ -31,6 +31,15 @@ lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced is i
   touching it, bullets included. The Loom makes loops cut on their own for 8 s.
 - Anvil: holding runs a reticle up the screen ahead of the ship, a lift drops a bomb there
   (`blast()` hits ground targets and wipes bullets); bombed ground targets load the Barrage.
+- Gemini: holding splits off a twin that flies the mirror image across the screen's middle and
+  fires too (a ghost, nothing hits it); a lift swaps the ship with it (`P.x` jumps, a moment of
+  safety) and the link between the two places wipes bullets and hits what it crosses. No swap
+  into rock or a wall. The Eclipse keeps the link burning.
+- Halo: four blades always circle the ship, cutting bullets and enemies; holding widens the ring,
+  a lift bursts it and snaps it tight. Weak gun on purpose. The Sawstorm is twelve blades wide.
+- Vortex: holding grows a well at the nose that swallows bullets; a lift leaves it there (it never
+  moves or follows): it drags small fliers and bullets in, then implodes, harder the more it ate.
+  The Event Horizon is one huge well mid-screen.
 - Kits hit things through `targets()`, `strike()`, `blast()`, `wipe()` in shipkit.gd. A boss part
   is known by its `o`: the game rebuilds `G.bparts` every tick, so never keep a part dictionary.
 - Unlocks: `VShips.KITS[ship].unlock` Normal stages cleared (`Progress.ship_open()`). The hangar
