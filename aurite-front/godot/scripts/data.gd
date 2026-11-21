@@ -56,7 +56,7 @@ var BLD := {
 	"lz": {"name": "Landing Zone", "fac": "vanguard", "w": 3, "h": 3, "hp": 900, "cost": 800, "time": 8, "pwr": 0, "sight": 6, "req": ["barracks"], "pad": true},
 	"uplink": {"name": "Uplink", "fac": "vanguard", "w": 2, "h": 2, "hp": 800, "cost": 1500, "time": 8, "pwr": 0, "sight": 10, "req": ["lz"]},
 	"sentry": {"name": "Auto-Sentry", "fac": "vanguard", "w": 1, "h": 1, "hp": 450, "cost": 550, "time": 8, "pwr": 0, "sight": 7, "req": ["barracks"], "weapon": "bullet", "dmg": 28, "range": 5.5, "rof": 1.0, "sh": 150},
-	"pdl": {"name": "Point-Defence Laser", "fac": "vanguard", "w": 1, "h": 1, "hp": 400, "cost": 650, "time": 8, "pwr": 0, "sight": 8, "req": ["barracks"], "weapon": "laser", "dmg": 16, "range": 7.5, "rof": 0.35, "antiAir": true, "sh": 150},
+	"pdl": {"name": "Point Laser", "fac": "vanguard", "w": 1, "h": 1, "hp": 400, "cost": 650, "time": 8, "pwr": 0, "sight": 8, "req": ["barracks"], "weapon": "laser", "dmg": 16, "range": 7.5, "rof": 0.35, "antiAir": true, "sh": 150},
 	"dome": {"name": "Shield Dome", "fac": "vanguard", "w": 2, "h": 2, "hp": 700, "cost": 1200, "time": 8, "pwr": 0, "sight": 5, "req": ["uplink"], "dome": 5.0, "sh": 800},
 	"chorus": {"name": "Chorus Well", "fac": "choir", "w": 3, "h": 3, "hp": 1500, "cost": 3000, "time": 25, "pwr": -100, "sight": 5, "req": ["tech"], "sw": true, "charge": 240.0},
 }

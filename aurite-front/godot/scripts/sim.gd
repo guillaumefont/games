@@ -334,6 +334,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	init_astar()
 	if M and opt.get("bare", false): gi = 99   # a cutscene's own cast, no mission units or goal marks
 	elif M: mission_setup(M)
+	if M: light_up()
 	else:
 		for pair in [[0, D.P0], [1, A]]:
 			var tm: int = pair[0]; var p: Vector2i = pair[1]
@@ -434,6 +435,20 @@ func prebuild(team: int, list: Array) -> void:
 	if team == 0: update_vision()
 	for t in list:
 		var sp = ai_spot(team, t, hq)
+		if sp == null and D.rule(fac_of(team), "place") == "signal":
+			# a Vanguard outpost with no Signal for this prefab yet: Masts first (walking out to a field for a drill)
+			for k in 4:
+				var tt := tr_t(team, t)
+				if D.BLD[tt].pump > 0 and in_signal(team, hq.x / T, hq.y / T):
+					var aim = ai_ore(team, hq)
+					if aim != null: ai_aim[team] = aim
+				var ms = ai_spot(team, "sigmast", hq) if ai_aim.has(team) else null
+				var m: Ent = add_building(team, "sigmast", ms.x, ms.y) if ms != null else place_near(team, "sigmast", hq.tx + hq.w / 2, hq.ty + hq.h + 1)
+				ai_aim.erase(team)
+				if m == null: break
+				m.born = -9.0
+				sp = ai_spot(team, t, hq)
+				if sp != null: break
 		if sp != null:
 			var b := add_building(team, t, sp.x, sp.y)
 			b.born = -9.0
@@ -517,6 +532,17 @@ func calc_signal() -> void:
 		b.dark = D.rule(fac_of(b.team), "place") == "signal" and b.d.signal <= 0 and not in_signal(b.team, b.x / T, b.y / T)
 		if b.dark != was and time > 0.5 and b.team == 0 and host: host.toast(b.d.name + (" lost Signal" if b.dark else " back in Signal"), "warn" if b.dark else "")
 		if b.d.dome > 0 and b.team < 2: domes[b.team].append(b)
+
+## Mission start: any Vanguard building the map put outside Signal gets a Mast beside it, so nothing starts dark.
+func light_up() -> void:
+	for pass_n in 6:
+		var dark: Ent = null
+		for b in ents:
+			if b.alive and b.kind == "b" and b.dark and b.type != "wall": dark = b; break
+		if dark == null: return
+		var m := place_near(dark.team, "sigmast", dark.tx + dark.w / 2, dark.ty + dark.h / 2)
+		if m == null: return
+		m.born = -9.0
 
 ## True when this tile-space point is inside the team's Signal.
 func in_signal(team: int, cx: float, cy: float) -> bool:
@@ -2212,6 +2238,7 @@ func prod_speed(team: int, cat: String) -> float:
 
 func set_sel(list: Array) -> void:
 	for e in sel: e.sel = false
+	list = list.filter(func(e): return not (e.kind == "u" and e.d.ship))   # delivery dropships fly themselves
 	sel = list
 	for e in list: e.sel = true
 	host.on_sel_changed()

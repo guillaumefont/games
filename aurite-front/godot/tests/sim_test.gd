@@ -70,6 +70,15 @@ func solve(s, h) -> bool:
 func _ready():
 	var t0 = Time.get_ticks_msec()
 	var s = Sim.new(); var h = Host.new(); s.host = h
+	if OS.get_environment("AF_ONLY") == "missions":
+		for C in D.CAMPAIGNS:
+			for m in C.missions:
+				s.new_game("normal", {"mission": m})
+				var dk: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.dark and e.type != "wall").map(func(e): return str(e.team) + e.type)
+				var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0)
+				var emiss: Array = (m.ebase as Array).filter(func(t): return s.count(1, t) == 0)
+				print(C.num, ".", m.idx + 1, " dark ", dk, " missing ", miss, " enemy missing ", emiss, " masts ", s.count(0, "sigmast"), "/", s.count(1, "sigmast"))
+		get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "vanguard":
 		print("ONLY ", vanguard_tests(s, h)); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
@@ -101,6 +110,10 @@ func _ready():
 			s.new_game("normal", {"mission": m})
 			if s.teams[0].fac != C.fac or D.TEAMC[0] != D.FCOL[C.fac]:
 				print("MISSION TEST FAILED: wrong faction or colour in ", m.title); get_tree().quit(1); return
+			var dk: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.dark and e.type != "wall").map(func(e): return str(e.team) + e.type)
+			var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0 and t != "burrow") + (m.ebase as Array).filter(func(t): return s.count(1, t) == 0 and t != "burrow")
+			if dk.size() or miss.size():
+				print("MISSION TEST FAILED: ", m.title, " starts with dark buildings ", dk, " or missing ", miss); get_tree().quit(1); return
 			for i in 1200: s.step(0.05)
 			var txt: String = s.obj_text()
 			print(C.num, ".", m.idx + 1, " ", m.title, " ents=", s.ents.size(), " over=", s.over, " | ", txt.replace("\n", " | "))
