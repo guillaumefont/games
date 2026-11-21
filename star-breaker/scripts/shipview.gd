@@ -2,8 +2,7 @@ class_name ShipView
 extends SubViewportContainer
 ## The real in-game ship model (VShips.model, painted with Progress.apply_paint) rendered in its
 ## own little 3D world: lit by a key and a rim light, seen from a little above at a fixed
-## three-quarter angle (Guillaume, 2026-11-21: it doesn't need to turn). Used on the home screen's ship card and in the hangar's swipe picker. The Warden
-## shows its pod floating ahead of the nose. Call show_ship() after a ship or paint change.
+## three-quarter angle (Guillaume, 2026-11-21: it doesn't need to turn). Used on the home screen's ship card and in the hangar's swipe picker.  Call show_ship() after a ship or paint change.
 
 var kind := ""
 var paint_id := ""
@@ -66,18 +65,8 @@ func show_ship(k: String, paint: Dictionary) -> void:
 	if m.has_meta("flame"):
 		m.get_meta("flame").visible = false
 	_model.add_child(m)
-	if k == "warden":
-		var pod := Models.pod()
-		pod.position = Vector3(11.0, 0.5, 0)
-		pod.scale = Vector3.ONE * 0.8
-		_model.add_child(pod)
-		_model.position.x = -2.0
 	_turn.add_child(_model)
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_turn.rotation.y = yaw
-	if _model and kind == "warden":
-		var pod: Node3D = _model.get_child(1)
-		var sp: Node3D = pod.get_meta("spin")
-		sp.rotation.x += delta * 2.0

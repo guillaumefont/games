@@ -1,11 +1,10 @@
 extends Node3D
 ## Star Breaker in portrait: the vertical slice. One thumb drags the ship (1:1 with the
 ## thumb's movement) and the main weapon fires on its own while the thumb is down; lifting the
-## thumb triggers the ship's release (Lance: the charge beam, Warden: fling or recall the pod),
-## and each ship loads its ultimate its own way (one finger plays it all). Lance's is the last
-## stage of its charge bar: it charges through LV 1-3 and the Nova to the Storm at ULT_AT ticks,
-## chain lightning through every enemy on screen. Warden's Shatter fills from what the pod does
-## (see SHATTER_FULL) and fires when the pod is recalled.
+## thumb triggers the ship's release, and each ship loads its ultimate its own way (one finger
+## plays it all). Lance's is the last stage of its charge bar: it charges through LV 1-3 and the
+## Nova to the Storm at ULT_AT ticks, chain lightning through every enemy on screen. Every other
+## ship's hold, lift and ultimate meter live in its ShipKit (scripts/shipkit.gd, scripts/kits/).
 ##
 ## Logic runs at a fixed 60 ticks per second in stage units: a 126 x 224 playfield with y
 ## pointing UP (0 at the bottom). `X()` / `Y()` map stage units to 3D; the camera looks down
@@ -34,19 +33,6 @@ const ULT_AT := 420
 const STORM_DMG := 20
 const STORM_SPREAD := 24
 const STORM_LIFE := 70
-## Warden's ultimate, Shatter, has its own mechanic (Guillaume's call, 2026-11-21): holding loads
-## nothing, so a lift is always a pod command. The meter fills from the pod's work: SHAT_RAM per
-## ram, SHAT_SHOT per pod shot that lands and SHAT_KILL more for each enemy the pod finishes (the
-## pod no longer stops bullets). Each gain flashes the bar and pops a pink glint on the pod. Full at SHATTER_FULL, it stays stored (through lifts and lost
-## ships) until the pod is recalled while out: the pod then bursts into the homing shards where it
-## is. With the pod docked, fling it and recall it.
-const SHATTER_FULL := 60.0
-const SHAT_RAM := 5.0
-const SHAT_SHOT := 1.0
-const SHAT_KILL := 6.0
-## Flung, the pod flies up to POD_AHEAD units in front of the ship and then rides there, following
-## the ship (Guillaume, 2026-11-21: ahead of the ship, not parked on the screen).
-const POD_AHEAD := 55.0
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
 const SLOW := 0.4
 const SLOW_TICKS := 24
@@ -75,7 +61,8 @@ var mode := "menu"      ## menu, play, pause, result
 var paused := false
 var G: Dictionary = {}
 var P: Dictionary = {}
-var pod: Dictionary = {}
+## The ship's mechanic for every ship but Lance (null for Lance).
+var kit: ShipKit
 var tt := 0
 var shake := 0.0
 var script_list: Array = []
@@ -104,7 +91,6 @@ var camera: Camera3D
 var hud: VHud
 var audio: Sfx
 var ship_m: Node3D
-var pod_m: Node3D
 var charge_fx: Node3D
 var shield_m: Node3D
 var stars: Array = []
@@ -360,7 +346,7 @@ func _warm_up() -> void:
 	w.scale = Vector3.ONE * 0.02
 	add_child(w)
 	var flashed := Models.drifter()
-	var list: Array = [VShips.lance(), Models.ship(), Models.pod(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
+	var list: Array = [VShips.lance(), Models.ship(), Models.drifter(), Models.turret(1), Models.shell(), flashed,
 		Models.generator(1), Models.block(Models.M.rock), Models.carrier("L"), Models.item("L"), Models.shard(), Models.flake(), Models.hulk(),
 		Models.drone(), Models.seeker(), Models.sentinel(), Models.wasp(), Models.nest(), Models.lancer(), Models.bulwark()]
 	for k in Models.M:
@@ -656,8 +642,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 		power = Progress.power(prog.level(kind)), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
-		held = false, storm_rdy = false, shat = 0.0, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
-	pod = {state = "dock", x = P.x, y = P.y + 10, ram_cd = 0, fire_cd = 0} if kind == "warden" else {}
+		held = false, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
 	apply_world(sd.world)
 	script_list = VStage.build(i)
 	_build_islands()
@@ -672,13 +657,10 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	ship_m = VShips.upright(model)
 	ship_m.add_child(Models.glow("ff9a40", 8))
 	world.add_child(ship_m)
-	if kind == "warden":
-		pod_m = VShips.upright(Models.pod())
-		pod_m.add_child(Models.glow("3ff0e0", 9))
-		world.add_child(pod_m)
+	kit = VShips.make_kit(kind, self)
+	if kit:
+		kit.start()
 	P.y = _ship_entry_y()
-	if not pod.is_empty():
-		pod.y = P.y + 10
 	hud.ship = kind
 	hud.stage_name = sd.name if tr == 0 else "%s · %s" % [sd.name, td.name]
 	hud.boss = -1.0
@@ -709,11 +691,12 @@ func teardown() -> void:
 		c.queue_free()
 	chunks = {}
 	_building = {}
-	for n in [ship_m, pod_m]:
-		if is_instance_valid(n):
-			n.queue_free()
+	if is_instance_valid(ship_m):
+		ship_m.queue_free()
 	ship_m = null
-	pod_m = null
+	if kit:
+		kit.clear()
+	kit = null
 	if run_b != null:
 		run_b.node.queue_free()
 		run_b = null
@@ -722,7 +705,6 @@ func teardown() -> void:
 	shield_m.visible = false
 	G = {}
 	P = {}
-	pod = {}
 
 
 ## Back to the menu: the level screen after a stage (the world just played, or the next one when
@@ -837,7 +819,8 @@ func step() -> void:
 	if G.has("run"):
 		_update_run()
 	_update_player()
-	_update_pod()
+	if kit:
+		kit.update()
 	_update_shots()
 	_update_beams()
 	_update_enemies()
@@ -870,12 +853,12 @@ func _update_player() -> void:
 		if P.respawn <= 0 and G.fail_t == 0:
 			var rw := walls_at(40.0)
 			P.merge({alive = true, entering = true, x = clampf(W / 2.0, rw.x + 8, rw.y - 8), y = _ship_entry_y(), inv = 150, hull = HULL, charge = 0, ready_lv = 0, held = inp.hold}, true)
-			if not pod.is_empty():
-				pod.state = "dock"
+			if kit:
+				kit.reset()
 		return
 	if P.inv > 0:
 		P.inv -= 1
-	# Shatter shields the ship until the pod reforms
+	# Shatter shields the ship while its shards fly
 	if G.ult_t > 0 and G.ship == "warden":
 		P.inv = maxi(P.inv, 2)
 	if P.hit_t > 0:
@@ -899,13 +882,20 @@ func _update_player() -> void:
 		P.fire_cd -= 1
 	if inp.fire and P.fire_cd <= 0:
 		fire_main()
-		P.fire_cd = VShips.KITS[G.ship].fire_every
-	# the release: holding builds the charge (Lance's beam levels, then the ultimate for both
-	# ships); lifting triggers the ship's move
-	var kit: Dictionary = VShips.KITS[G.ship]
-	if inp.hold:
+		P.fire_cd = kit.fire_every() if kit else VShips.KITS[G.ship].fire_every
+	# the release: holding builds the charge (Lance's beam levels, then the Storm) or the kit's
+	# own build-up; lifting triggers the ship's move
+	if kit:
+		if inp.hold:
+			kit.held += 1
+			kit.hold()
+		elif P.held:
+			release()
+			kit.held = 0
+		P.held = inp.hold
+	elif inp.hold:
 		P.charge = mini(charge_cap(), P.charge + 1)
-		if kit.release == "beam":
+		if true:
 			var lv := charge_lv(P.charge)
 			if lv > P.ready_lv:
 				P.ready_lv = lv
@@ -919,7 +909,8 @@ func _update_player() -> void:
 		P.charge = 0
 		P.ready_lv = 0
 		P.storm_rdy = false
-	P.held = inp.hold
+	if not kit:
+		P.held = inp.hold
 	_rock_player()
 	# touching an enemy or a barrier costs a hull point
 	if P.inv <= 0:
@@ -938,29 +929,25 @@ func _update_player() -> void:
 
 
 func release() -> void:
-	var kit: Dictionary = VShips.KITS[G.ship]
 	G.slow = SLOW_TICKS
 	_slow_acc = 0.0
-	if kit.release == "beam":
-		var lv := charge_lv(P.charge)
-		if P.charge >= ULT_AT and G.ult_t == 0:
-			storm()
-		elif lv > 0:
-			fire_beam(lv)
-	elif kit.release == "pod" and pod.get("state", "") == "out" and shatter_full():
-		ultimate()
-	elif kit.release == "pod" and not pod.is_empty():
-		if pod.state == "dock":
-			pod.state = "out"
-			audio.play("pod")
-		elif pod.state == "out":
-			pod.state = "back"
-			audio.play("pod")
+	if kit:
+		if kit.ready():
+			kit.meter = 0.0
+			Diag.once("ult " + G.ship)
+			kit.ult()
+		else:
+			kit.lift()
+		return
+	var lv := charge_lv(P.charge)
+	if P.charge >= ULT_AT and G.ult_t == 0:
+		storm()
+	elif lv > 0:
+		fire_beam(lv)
 
 
 func fire_main() -> void:
-	var kit: Dictionary = VShips.KITS[G.ship]
-	var sp: float = kit.shot_speed
+	var sp: float = VShips.KITS[G.ship].shot_speed
 	if G.ship == "lance":
 		var xs := [[-2.4, 0.0], [2.4, 0.0]]
 		if P.laser >= 1:
@@ -969,16 +956,15 @@ func fire_main() -> void:
 			xs.append_array([[-4.5, -0.6], [4.5, 0.6]])
 		for o in xs:
 			shot(P.x + o[0], P.y + 8, o[1], sp, Models.M.shot, 1)
-	else:
-		var n := 3 + 2 * mini(P.laser, 2)
-		for j in n:
-			var a := (j - (n - 1) / 2.0) * 0.16
-			shot(P.x, P.y + 7, sin(a) * sp, cos(a) * sp, Models.M.pod_shot, 1)
+	elif kit:
+		kit.fire()
 	audio.play("rapid")
 
 
-func shot(x: float, y: float, vx: float, vy: float, mat: Material, d: int) -> void:
-	var m := VFx.bolt(mat, "ffb547" if mat == Models.M.pod_shot else "3ff0e0")
+func shot(x: float, y: float, vx: float, vy: float, mat: Material, d: int, glow := "") -> void:
+	if glow == "":
+		glow = "ffb547" if mat == Models.M.pod_shot else ("ff5fd2" if mat == Models.M.crystal_m else "3ff0e0")
+	var m := VFx.bolt(mat, glow)
 	m.rotation.z = atan2(-vx, vy)
 	world.add_child(m)
 	G.pb.append({x = x, y = y, vx = vx, vy = vy, d = d, m = m})
@@ -999,53 +985,25 @@ func _beam_node(lv: int) -> Node3D:
 
 
 ## How far the charge runs: Lance's runs to the Storm (only to the Nova while an ultimate is
-## still going); Warden's hold loads nothing.
+## still going). Other ships have no charge (their kit holds its own build-up).
 func charge_cap() -> int:
-	if VShips.KITS[G.ship].release != "beam":
+	if kit:
 		return 0
 	return ULT_AT if G.ult_t == 0 else CHARGE_MAX
 
 
-func shatter_full() -> bool:
-	return G.ship == "warden" and G.ult_t == 0 and P.get("shat", 0.0) >= SHATTER_FULL
-
-
-## The pod's work fills Warden's Shatter meter (not while Shatter is going).
-func shatter_gain(n: float) -> void:
-	if G.ship != "warden" or G.ult_t > 0 or not P.alive:
-		return
-	var was_full := shatter_full()
-	if was_full:
-		return
-	P.shat = minf(SHATTER_FULL, P.get("shat", 0.0) + n)
-	P.shat_fx = 14
-	P.shat_last = n
-	if not pod.is_empty():
-		glow_fx("ff5fd2", pod.x, pod.y, 6, 5.0 + n * 0.6, 14)
-	if shatter_full() and not was_full:
-		audio.play("ready", 4)
-		shake = maxf(shake, 3.0)
-
-
-## Warden's ultimate, Shatter, fired by recalling the pod with the meter full. Lance's is the
-## Storm.
-func ultimate() -> void:
+## Shatter (Warden's ultimate): eight homing shards burst from the ship, which is shielded
+## while they fly.
+func shatter() -> void:
 	audio.play("ready", 4)
 	shake = maxf(shake, 6.0)
-	Diag.once("ult " + G.ship)
-	# Shatter: the pod bursts where it is into eight homing shards; the ship is shielded until
-	# the pod reforms at its nose
 	G.ult_t = 180
-	P.shat = 0.0
-	var ox: float = pod.x
-	var oy: float = pod.y
-	pod.state = "shatter"
-	boom(ox, oy, 8, true)
+	boom(P.x, P.y + 8, 8, true)
 	for j in 8:
 		var a := TAU * j / 8.0
 		var m := Models.mesh(Models.geo("vshard", func(): return Geo.octa(1.6)), Models.M.crystal_m)
 		world.add_child(m)
-		G.shards.append({x = ox, y = oy, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
+		G.shards.append({x = P.x, y = P.y + 8, vx = cos(a) * 2.5, vy = sin(a) * 2.5, m = m, cd = 0})
 
 
 ## The Storm: chain lightning from the ship's nose through every enemy and boss part on screen,
@@ -1135,10 +1093,6 @@ func _update_ult() -> void:
 			for s in G.shards:
 				s.m.queue_free()
 			G.shards = []
-			if pod.get("state", "") == "shatter":
-				pod.state = "dock"
-				pod.x = P.x
-				pod.y = P.y + 10
 	for s in G.shards:
 		var tgt := _nearest_enemy(s.x, s.y)
 		if not tgt.is_empty():
@@ -1212,65 +1166,12 @@ func kill_player() -> void:
 	audio.play("die")
 	shake = 14.0
 	charge_fx.visible = false
-	if not pod.is_empty() and pod.state != "shatter":
-		pod.state = "dock"
+	if kit:
+		kit.reset()
 	if G.lives <= 0:
 		G.fail_t = 1
 	if G.has("run") and G.run.abort == 0:
 		G.run.abort = 1
-
-
-# ---------- pod (Warden) ----------
-
-func _update_pod() -> void:
-	if pod.is_empty():
-		return
-	match pod.state:
-		"dock":
-			pod.x = P.x
-			pod.y = P.y + 10
-		"out":
-			# fly up to its spot ahead of the ship, then ride there as the ship moves
-			var ty := minf(H - 30, P.y + POD_AHEAD)
-			var pw := walls_at(ty)
-			var tx := clampf(P.x, maxf(6, pw.x + 5), minf(W - 6, pw.y - 5))
-			pod.x = lerpf(pod.x, tx, 0.3)
-			pod.y = move_toward(pod.y, ty, maxf(3.2, absf(ty - pod.y) * 0.3))
-		"back":
-			var d := Vector2(P.x - pod.x, P.y + 10 - pod.y)
-			if d.length() < 4.5:
-				pod.state = "dock"
-				audio.play("dock")
-			else:
-				var v := d.normalized() * 4.0
-				pod.x += v.x
-				pod.y += v.y
-	if pod.state == "shatter" or not P.alive:
-		return
-	# the pod rams enemies (bullets fly through it) and fires straight up
-	if P.get("shat_fx", 0) > 0:
-		P.shat_fx -= 1
-	if pod.ram_cd > 0:
-		pod.ram_cd -= 1
-	else:
-		for e in G.enemies:
-			if not e.ground and absf(e.x - pod.x) < e.hw + 4 and absf(e.y - pod.y) < e.hh + 4:
-				dmg_e(e, 1)
-				shatter_gain(SHAT_RAM + (SHAT_KILL if e.get("dead", false) else 0.0))
-				pod.ram_cd = 8
-				break
-		for p in G.bparts:
-			if p.kind != "shield" and Vector2(p.x - pod.x, p.y - pod.y).length() < p.r + 4:
-				boss_damage(p, 1)
-				shatter_gain(SHAT_RAM)
-				pod.ram_cd = 8
-				break
-	if pod.fire_cd > 0:
-		pod.fire_cd -= 1
-	elif inp.fire and P.alive:
-		shot(pod.x, pod.y + 5, 0, 5.5, Models.M.shot, 2)
-		G.pb.back().pod = true
-		pod.fire_cd = 10
 
 
 # ---------- shots, beams, bullets ----------
@@ -1293,8 +1194,8 @@ func _update_shots() -> void:
 			if absf(e.x - b.x) < e.hw + 1.2 and absf(e.y - b.y) < e.hh + 2.5:
 				dmg_e(e, b.d)
 				b.dead = true
-				if b.get("pod", false):
-					shatter_gain(SHAT_SHOT + (SHAT_KILL if e.get("dead", false) else 0.0))
+				if b.get("kit", false) and kit:
+					kit.on_hit(b)
 				break
 		if b.get("dead", false):
 			continue
@@ -1306,8 +1207,8 @@ func _update_shots() -> void:
 					audio.play("tink")
 				else:
 					boss_damage(p, b.d)
-					if b.get("pod", false):
-						shatter_gain(SHAT_SHOT)
+					if b.get("kit", false) and kit:
+						kit.on_hit(b)
 				break
 		# shots break on the rock walls (after hitting what sits on the cliff edge)
 		if not b.get("dead", false) and in_rock(b.x, b.y, 0.0):
@@ -1405,6 +1306,9 @@ func _update_eb() -> void:
 			if bar_solid(bar, b.x, b.y, 0.5):
 				walled = true
 		if walled or b.x < view.position.x - 8 or b.x > view.end.x + 8 or b.y < view.position.y - 8 or b.y > view.end.y + 8 or in_rock(b.x, b.y, -1.0):
+			b.dead = true
+			continue
+		if kit and kit.eats(b):
 			b.dead = true
 			continue
 		if P.alive and P.inv <= 0 and Vector2(b.x - P.x, b.y - P.y).length() < HITBOX + 0.8:
@@ -2425,8 +2329,8 @@ func start_run() -> void:
 	P.vz = 0.0
 	P.charge = 0
 	P.ready_lv = 0
-	if pod.get("state", "") == "out":
-		pod.state = "back"
+	if kit:
+		kit.reset()
 	hud.banner("Canyon run", "Drag up and down to climb and dive", 130)
 	audio.play("alarm")
 	Diag.note("RUN", "start")
@@ -2729,10 +2633,11 @@ func _process(_delta: float) -> void:
 	hud.hull = P.hull if P.alive else 0
 	hud.ships = maxi(0, G.lives - 1) if P.alive else maxi(0, G.lives)
 	hud.ult_ready = G.ult_t == 0
-	hud.charge = float(P.charge) / ULT_AT if G.ship != "warden" else P.get("shat", 0.0) / SHATTER_FULL
-	hud.pod_out = pod.get("state", "") == "out"
-	hud.shat_flash = P.get("shat_fx", 0) / 14.0 if G.ship == "warden" else 0.0
-	hud.shat_last = int(P.get("shat_last", 0.0))
+	hud.charge = kit.meter if kit else float(P.charge) / ULT_AT
+	hud.kit_hint = kit.hint() if kit else ""
+	hud.shat_flash = kit.flash / 14.0 if kit else 0.0
+	if kit:
+		kit.tick_hud()
 	hud.charge_lv = charge_lv(P.charge)
 	hud.charge_marks = [float(CHARGE_AT[1]) / ULT_AT, float(CHARGE_AT[2]) / ULT_AT, float(CHARGE_AT[3]) / ULT_AT, float(CHARGE_MAX) / ULT_AT]
 	hud.queue_redraw()
@@ -2773,11 +2678,8 @@ func _process(_delta: float) -> void:
 	shield_m.visible = P.alive and G.ult_t > 0 and G.ship == "warden"
 	if shield_m.visible:
 		shield_m.position = Vector3(X(P.x), Y(P.y), 4)
-	if pod_m:
-		pod_m.visible = not pod.is_empty() and pod.state != "shatter" and P.alive
-		pod_m.position = Vector3(X(pod.x), Y(pod.y), 1 + P.get("z", 0.0))
-		var pmdl: Node3D = pod_m.get_meta("model")
-		(pmdl.get_meta("spin") as Node3D).rotation.x += 0.08 if pod.state == "dock" else 0.25
+	if kit:
+		kit.sync()
 	for e in G.enemies:
 		_sync_e(e)
 	for b in G.bars:
@@ -2938,11 +2840,9 @@ func _beside_x(box: Array, z: float, side: float) -> float:
 	return x + 2.0 * side
 
 
-## Where the ship comes in from: below the screen, with its pod.
+## Where the ship comes in from: below the screen.
 func _ship_entry_y() -> float:
 	var y := _below_y(_box(ship_m, true), 0.0)
-	if pod_m != null and is_instance_valid(pod_m) and pod_m.is_inside_tree():
-		y = minf(y, _below_y(_box(pod_m, true), 0.0) - 10.0)
 	return minf(-12.0, y)
 
 
