@@ -377,6 +377,12 @@ func _rounded(r: Rect2, rad: float) -> PackedVector2Array:
 
 # ---------- drawing ----------
 
+## World `w`'s colour on the map: its sky, pulled towards its ring colour so worlds tell apart.
+static func world_color(w: int) -> Color:
+	var pal: Dictionary = Worlds.LIST[w].pal
+	return Color(pal.top).lerp(Color(pal.ring), 0.28)
+
+
 ## The sky colour at trail height `u`: each world's colour around its own stretch, blending into
 ## the next world's across the banner between them.
 func sky(u: float) -> Color:
@@ -386,8 +392,11 @@ func sky(u: float) -> Color:
 		var pal: Dictionary = Worlds.LIST[w].pal
 		var a := stage_u(w * VStage.PER_WORLD)
 		var b := stage_u(w * VStage.PER_WORLD + VStage.PER_WORLD - 1)
-		keys.append([a, Color(pal.top).lerp(Color(pal.ring), 0.12)])
-		keys.append([b, Color(pal.top).lerp(Color(pal.mid), 0.25)])
+		# the world's own colour holds across its whole stretch (a touch lighter at its top) and
+		# only changes across the banner into the next world
+		var col := world_color(w)
+		keys.append([a - STEP * 0.4, col])
+		keys.append([b + STEP * 0.4, col.lightened(0.06)])
 	if u <= keys[0][0]:
 		return Color(Worlds.LIST[0].pal.bot).lerp(keys[0][1], clampf(u / keys[0][0], 0.0, 1.0))
 	for k in keys.size() - 1:
