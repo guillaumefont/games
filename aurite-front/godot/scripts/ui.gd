@@ -630,6 +630,8 @@ func _build_overlays() -> void:
 	var chv := VBoxContainer.new(); chv.add_theme_constant_override("separation", -4); chv.size_flags_horizontal = Control.SIZE_EXPAND_FILL; ch.add_child(chv)
 	chv.alignment = BoxContainer.ALIGNMENT_CENTER; chv.add_child(title("Campaigns", 30))
 	# wipe the story progress: the first tap arms it, a second tap within 4 s does it
+	var tr := ghost("Reset tutorial", func(): pass, 44); tr.custom_minimum_size.x = 170; ch.add_child(tr); btn.reset_tut = tr
+	_two_tap(tr, "RESET TUTORIAL", "TAP AGAIN TO RESET", func(): main.tut.reset())
 	var rb := ghost("Reset progress", func(): pass, 44); rb.custom_minimum_size.x = 170; ch.add_child(rb); btn.reset = rb
 	rb.pressed.connect(func():
 		if rb.has_meta("armed"):
@@ -671,7 +673,9 @@ func _build_overlays() -> void:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
-	d.add_child(ghost("Back", func(): show_overlay("start")))
+	var mrow := HBoxContainer.new(); mrow.add_theme_constant_override("separation", 8); d.add_child(mrow)
+	var mb2 := ghost("Back", func(): show_overlay("start")); mb2.size_flags_horizontal = Control.SIZE_EXPAND_FILL; mrow.add_child(mb2)
+	var mu := ghost("Units and lessons", func(): main.tut.open_manual("manual")); mu.size_flags_horizontal = Control.SIZE_EXPAND_FILL; mrow.add_child(mu)
 	# ---- pause
 	c = _overlay("menu", 400, false)
 	d = frame(c, 10)
@@ -686,6 +690,10 @@ func _build_overlays() -> void:
 	var r2 := HBoxContainer.new(); r2.add_theme_constant_override("separation", 8); d.add_child(r2)
 	var rs := ghost("Restart", func(): main.restart()); rs.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r2.add_child(rs)
 	var mm := ghost("Main menu", func(): main.quit_to_menu()); mm.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r2.add_child(mm)
+	# tutorial (scripts/tutorial.gd): Full / Cards only / Off, and the unit pages of the field manual
+	var r3 := HBoxContainer.new(); r3.add_theme_constant_override("separation", 8); d.add_child(r3)
+	btn.tut_mode = ghost("Tutorial: full", func(): main.tut.cycle_mode()); btn.tut_mode.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(btn.tut_mode)
+	var fmu := ghost("Field manual", func(): main.tut.open_manual("menu")); fmu.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(fmu)
 	# ---- end
 	c = _overlay("end", 700)
 	d = frame(c, 12)
@@ -720,8 +728,23 @@ func _build_overlays() -> void:
 	row = HBoxContainer.new(); row.add_theme_constant_override("separation", 8); d.add_child(row)
 	var lsg := seg(row, "level", [["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]], "normal", func(l): main.set_camp_level(l))
 	lsg.size_flags_horizontal = Control.SIZE_EXPAND_FILL; lsg.size_flags_stretch_ratio = 1.2
+	btn.br_tips = ghost("Tutorial tips: on", func(): main.tut.toggle_tips(), 52); btn.br_tips.custom_minimum_size.x = 150; row.add_child(btn.br_tips)
 	var go := cta("Begin", func(): main.begin_mission()); go.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(go)
 	var bk := ghost("Back", func(): main.show_campaigns(), 52); bk.custom_minimum_size.x = 110; row.add_child(bk)
+
+## A button that needs a second tap within 4 s to act (resets): the first tap turns it red and changes its words.
+func _two_tap(b: Button, idle: String, armed: String, act: Callable) -> void:
+	b.pressed.connect(func():
+		if b.has_meta("armed"):
+			b.remove_meta("armed"); b.text = idle
+			for k in ["font_color", "font_hover_color", "font_pressed_color"]: b.add_theme_color_override(k, W_KHAKI)
+			act.call(); return
+		b.set_meta("armed", true); b.text = armed
+		for k in ["font_color", "font_hover_color", "font_pressed_color"]: b.add_theme_color_override(k, Color("ff6a5c"))
+		get_tree().create_timer(4.0).timeout.connect(func():
+			if is_instance_valid(b) and b.has_meta("armed"):
+				b.remove_meta("armed"); b.text = idle
+				for k in ["font_color", "font_hover_color", "font_pressed_color"]: b.add_theme_color_override(k, W_KHAKI)))
 
 ## Title treatment per stage: colours age, a hard drop shadow, and the TitleMark overlay (crack, crystals).
 func _title_fx(a: Label, b: Label, center: bool) -> void:

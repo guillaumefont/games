@@ -149,6 +149,23 @@ godot --headless tests/sim_test.tscn   # must end with SIM TEST DONE and no SCRI
 - New scripts use `preload` constants, not `class_name`: the global class list comes from the installed APK's shell,
   so a class added in a self-update pack would be unknown on phones (cutscene.gd and cutscenes.gd do this).
 
+## Unit tutorial (Guillaume 2026-11-19: "Add a full in campaign tutorial for each unit")
+- All words and rules live in `godot/scripts/tutorial_data.gd` (`CARDS`, `ENEMY`, `LESSONS`, `MISSIONS`, `TXT`), kept in one
+  place for i18n later. Behaviour is `godot/scripts/tutorial.gd` (a Node made by `main.gd`, field `main.tut`). Both are
+  preloaded, no `class_name`.
+- A card opens when a unit/building with a card first appears on the player's side and its `home` mission is reached, or
+  earlier when the player trains/builds it. Cards pause the game; enemy cards are a small corner panel that does not.
+  `LESSON_ONLY` (hq, power, barracks) are taught by the "base" lesson instead of a card.
+- The sim calls `S.tut_cb` through `S._tut(kind, a, b)` for kills, heals, engineer fixes, launches, finished units and
+  upgrades; `main.gd` sends input events (select, move, box, dbl, rally, group, queue5, placing...). New input that a
+  lesson teaches must call `tut.ev(...)`.
+- Saved in `user://tutorial.json` (`mode` full/cards/off, `seen` keys). Pause menu: "Tutorial:" mode and "Field manual";
+  briefing: tips toggle; Campaigns header: "Reset tutorial" (two taps).
+- Tests: `tutorial_tests` in `tests/sim_test.gd` checks line lengths for phones and that every unit/building the player
+  owns at the start of a mission has a card due by that mission (buildable ones only need a card to exist).
+- Screenshots: `AF_SHOT=dir AF_MODE=tut xvfb-run godot --path godot` (16 shots: cards, lessons, drills, manual, menus).
+- Campaigns II and III are not wired yet: `MISSIONS` only has "ashen"; `start()` does nothing for other campaigns.
+
 ## Audio and UI on phones
 
 - Sounds come from `godot/tools/synth.py` (`python3 tools/synth.py .` from `godot/`). Keep the current levels:
