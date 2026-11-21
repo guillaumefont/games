@@ -259,6 +259,404 @@ func _initialize() -> void:
 	tick(200, false)
 	check(vg.G.shards.is_empty() and vg.G.ult_t == 0, "Shatter ends")
 
+	# --- Hornet: locks while holding under enemies, a missile per lock on lift ---
+	vg.prog.stages = {}
+	check(not vg.prog.ship_open("hornet") and vg.prog.ship_open("warden"), "new ships start locked, Lance and Warden are open")
+	vg.start_stage(1, "hornet")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var hk = vg.kit
+	var h1: Dictionary = vg.E("shell", vg.P.x, vg.P.y + 60, {hold = 0.0})
+	var h2: Dictionary = vg.E("drifter", vg.P.x + 50, vg.P.y + 60, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.P.x + 50})
+	h1.hp = 500.0
+	h2.hp = 500.0
+	tick(8, true)
+	check(hk.locks.size() == 1 and is_same(hk.locks[0].t.e, h1), "holding under an enemy locks it, and not one off to the side")
+	tick(hk.STACK + hk.LOCK_EVERY + 2, true)
+	check(hk.locks.size() == 2, "staying under a big target stacks another lock")
+	var hp1: float = h1.hp
+	tick(1, false)
+	check(hk.missiles.size() == 2 and hk.locks.is_empty(), "lifting fires one missile per lock")
+	tick(60, false)
+	check(h1.hp <= hp1 - 2 * hk.DMG and hk.missiles.is_empty() and hk.meter > 0.0, "the missiles home in, hit and load the Hive")
+	hk.meter = 1.0
+	tick(5, true)
+	tick(1, false)
+	tick(30, false)
+	check(vg.G.ult_t > 0 and hk.missiles.size() > 4 and hk.meter == 0.0, "a full meter and a lift lets the Hive loose")
+	tick(200, false)
+
+	# --- Weaver: the thread, and a loop that cuts ---
+	vg.start_stage(1, "weaver")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var wk = vg.kit
+	tick(1, true, 63.0 - vg.P.x, 60.0 - vg.P.y)
+	var w_in: Dictionary = vg.E("shell", 63.0, 75.0, {hold = 75.0})
+	var w_out: Dictionary = vg.E("drifter", 110.0, 75.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = 110.0})
+	w_in.hp = 500.0
+	w_out.hp = 500.0
+	vg.bullet(63.0, 78.0, 0, 0)
+	# fly a circle of radius 16 round (63, 76)
+	var ang := -PI / 2
+	for k in 44:
+		var na := ang + TAU / 40.0
+		tick(1, true, 16.0 * (cos(na) - cos(ang)), 16.0 * (sin(na) - sin(ang)))
+		ang = na
+	check(wk.pts.size() > 30 and not wk.loop.is_empty(), "holding trails a thread, and flying a circle closes a loop")
+	check(vg.hud.kit_hint.contains("LOOP"), "the HUD says the loop is closed")
+	var win: float = w_in.hp
+	var wout: float = w_out.hp
+	tick(1, false)
+	check(w_in.hp <= win - wk.CUT and w_out.hp == wout, "lifting cuts what is inside the loop, and nothing outside")
+	check(vg.G.eb.is_empty() and wk.meter > 0.0 and wk.pts.is_empty(), "the cut wipes bullets inside, loads the Loom and uses up the thread")
+	tick(40, false)
+	tick(30, true, 0.0, 0.0)
+	tick(1, false)
+	check(w_in.hp > 0.0 and wk.loop.is_empty(), "a straight thread closes no loop")
+	tick(40, false)
+	wk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(wk.loom > 0, "a full meter and a lift starts the Loom")
+	tick(40, false)
+	w_in.dead = true
+	w_in = vg.E("shell", 63.0, 75.0, {hold = 75.0})
+	w_in.hp = 500.0
+	win = w_in.hp
+	tick(1, true, 63.0 - vg.P.x, 60.0 - vg.P.y)
+	ang = -PI / 2
+	for k in 44:
+		var na2 := ang + TAU / 40.0
+		tick(1, true, 16.0 * (cos(na2) - cos(ang)), 16.0 * (sin(na2) - sin(ang)))
+		ang = na2
+	check(w_in.hp <= win - wk.CUT * 2.0, "in the Loom a loop cuts on its own, twice as hard")
+
+	# --- Anvil: the reticle runs ahead, a lift bombs it ---
+	vg.start_stage(1, "anvil")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var ak = vg.kit
+	tick(4, true)
+	tick(1, false)
+	check(ak.bombs.is_empty(), "a quick tap drops no bomb")
+	tick(40, false)
+	tick(ak.MIN_HOLD + 20, true)
+	var aim1: Vector2 = ak.aim()
+	tick(20, true)
+	var aim2: Vector2 = ak.aim()
+	check(aim1.y > vg.P.y + ak.START and aim2.y > aim1.y + 20.0 and absf(aim2.x - vg.P.x) < 0.01, "holding runs the reticle up the screen ahead of the ship")
+	var a_in: Dictionary = vg.E("turret", aim2.x + 8.0, aim2.y + 4.0)
+	var a_out: Dictionary = vg.E("shell", aim2.x, aim2.y - 60.0, {hold = aim2.y - 60.0})
+	a_out.hp = 500.0
+	vg.bullet(aim2.x - 5.0, aim2.y, 0, 0)
+	var held_at: Vector2 = ak.aim()
+	tick(1, false)
+	check(ak.bombs.size() == 1 and absf(ak.bombs[0].y - held_at.y) < 2.0, "lifting drops a bomb on the reticle")
+	tick(60, false)
+	check(a_in.get("dead", false) and a_out.hp == 500.0, "the blast kills the ground target in it, and spares what is outside")
+	check(vg.G.eb.is_empty() and ak.meter > 0.0, "it wipes bullets too, and a bombed ground target loads the Barrage")
+	ak.meter = 1.0
+	tick(12, true)
+	tick(1, false)
+	var dropped := 0
+	for k in 140:
+		tick(1, false)
+		dropped = maxi(dropped, ak.bombs.size())
+	check(ak.barrage == 0 and dropped >= 2 and a_out.hp < 500.0, "the Barrage walks bombs up the whole screen")
+	tick(60, false)
+
+	# --- Gemini: the mirror twin, and the swap ---
+	vg.start_stage(1, "gemini")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var gk = vg.kit
+	tick(1, true, 30.0 - vg.P.x, 0.0)
+	tick(gk.SPLIT + 2, true)
+	check(gk.split >= 1.0 and absf(gk.twin().x - (vg.W - 30.0)) < 0.01 and absf(gk.twin().y - vg.P.y) < 0.01, "holding splits the ship: the twin flies the mirror image")
+	vg.G.pb.clear()
+	tick(8, true)
+	var from_twin := 0
+	for b0 in vg.G.pb:
+		if absf(b0.x - gk.twin().x) < 3.0:
+			from_twin += 1
+	check(from_twin >= 2, "the twin fires too")
+	vg.P.inv = 0
+	vg.bullet(gk.twin().x, gk.twin().y, 0, 0)
+	tick(1, true, 0, 0, false, false)
+	check(vg.P.hull == 3, "nothing can hit the twin")
+	vg.G.eb.clear()
+	var g_in: Dictionary = vg.E("shell", 63.0, vg.P.y + 2.0, {hold = vg.P.y + 2.0})
+	g_in.hp = 500.0
+	vg.bullet(50.0, vg.P.y, 0, 0)
+	vg.bullet(50.0, vg.P.y + 40.0, 0, 0)
+	var gy: float = vg.P.y
+	tick(1, false, 0, 0, false, true)
+	check(absf(vg.P.x - (vg.W - 30.0)) < 0.01 and absf(vg.P.y - gy) < 0.01, "lifting swaps the ship with its twin")
+	check(vg.G.eb.size() == 1 and g_in.hp <= 500.0 - gk.LINK_DMG and gk.meter > 0.0, "the link wipes the bullets on it, hits what it crosses and loads the Eclipse")
+	g_in.dead = true
+	tick(40, false)
+	check(gk.split == 0.0, "with the thumb up the twin folds back in")
+	gk.meter = 1.0
+	tick(gk.SPLIT + 2, true)
+	tick(1, false)
+	var gx: float = vg.P.x
+	check(gk.eclipse > 0 and vg.P.x == gx, "a full meter and a lift starts the Eclipse instead of a swap")
+	tick(30, false)
+	var g2: Dictionary = vg.E("shell", 63.0, vg.P.y, {hold = vg.P.y})
+	g2.hp = 500.0
+	tick(20, false)
+	check(g2.hp < 500.0, "in the Eclipse the link burns what stands between the twins")
+	g2.dead = true
+
+	# --- Halo: the blade ring ---
+	vg.start_stage(1, "halo")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var hak = vg.kit
+	check(absf(hak.radius() - hak.R_MIN) < 0.01, "the blades circle close with the thumb up")
+	var bl0: Vector2 = hak.blade(0)
+	vg.bullet(bl0.x, bl0.y, 0, 0)
+	hak.ang -= hak.SPIN
+	tick(1, false)
+	check(vg.G.eb.is_empty() and hak.meter > 0.0, "a blade cuts the bullet it touches, which loads the Sawstorm")
+	tick(60, true)
+	check(hak.radius() > hak.R_MIN + 10.0, "holding widens the ring")
+	var ha_in: Dictionary = vg.E("shell", vg.P.x + 5.0, vg.P.y + 6.0, {hold = vg.P.y + 6.0})
+	var ha_out: Dictionary = vg.E("shell", vg.P.x + 50.0, vg.P.y + 50.0, {hold = vg.P.y + 50.0})
+	ha_in.hp = 500.0
+	ha_out.hp = 500.0
+	tick(1, false)
+	check(ha_in.hp <= 500.0 - hak.BURST and ha_out.hp == 500.0 and absf(hak.radius() - hak.R_MIN) < 0.01, "lifting bursts the ring on what is inside it and snaps it tight")
+	ha_in.dead = true
+	ha_out.dead = true
+	tick(40, false)
+	hak.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(hak.storm > 0 and hak.count() == hak.STORM_BLADES and hak.radius() > hak.R_MAX, "a full meter and a lift starts the Sawstorm: twelve blades, full width")
+	tick(hak.STORM_T + 30, false)
+	check(hak.storm == 0 and hak.count() == hak.BLADES, "the Sawstorm ends")
+
+	# --- Vortex: the gravity well ---
+	vg.start_stage(1, "vortex")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var vk = vg.kit
+	tick(30, true)
+	var vn: Vector2 = vk.nose()
+	vg.bullet(vn.x + 2.0, vn.y, 0, 0)
+	tick(1, true)
+	check(vg.G.eb.is_empty() and vk.fed == 1 and vk.meter > 0.0, "holding grows a well at the nose that swallows bullets")
+	tick(40, true)
+	vn = vk.nose()
+	tick(1, false)
+	check(vk.wells.size() == 1 and absf(vk.wells[0].x - vn.x) < 0.01 and absf(vk.wells[0].y - vn.y) < 0.01, "lifting leaves the well where it was")
+	var wl: Dictionary = vk.wells[0]
+	tick(1, false, 30.0, 0.0)
+	check(wl.x == vn.x, "the well stays put when the ship flies on")
+	var v_far: Dictionary = vg.E("drifter", wl.x + 30.0, wl.y + 10.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = wl.x + 30.0})
+	var v_big: Dictionary = vg.E("shell", wl.x - 30.0, wl.y + 20.0, {hold = wl.y + 20.0})
+	v_far.hp = 500.0
+	var d0: float = Vector2(v_far.x - wl.x, v_far.y - wl.y).length()
+	var bx0: float = v_big.x
+	var vt := 0
+	while not vk.wells.is_empty() and vt < 400:
+		vt += 1
+		tick(1, false)
+		if vt == 30:
+			check(Vector2(v_far.x - wl.x, v_far.y - wl.y).length() < d0 - 8.0 and absf(v_big.x - bx0) < 3.0, "the well drags small fliers in, not the big ones")
+	check(vt > 30 and v_far.hp < 500.0, "then it implodes on what it caught")
+	v_far.dead = true
+	v_big.dead = true
+	tick(2, false)
+	tick(5, true)
+	tick(1, false)
+	check(vk.wells.is_empty(), "a quick tap leaves no well")
+	tick(40, false)
+	vk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	check(vk.wells.size() == 1 and vk.wells[0].big, "a full meter and a lift opens the Event Horizon")
+	tick(260, false)
+	check(vk.wells.is_empty(), "which implodes in turn")
+
+	# --- Siphon: the drain beam ---
+	vg.start_stage(1, "siphon")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var sk = vg.kit
+	var s_side: Dictionary = vg.E("shell", vg.P.x + 55.0, vg.P.y + 20.0, {hold = vg.P.y + 20.0})
+	var s_in: Dictionary = vg.E("shell", vg.P.x + 14.0, vg.P.y + 40.0, {hold = vg.P.y + 40.0})
+	s_side.hp = 500.0
+	s_in.hp = 500.0
+	tick(30, true)
+	check(not sk.tgt.is_empty() and is_same(sk.tgt.e, s_in) and s_in.hp < 500.0 and s_side.hp == 500.0,
+		"holding latches the beam onto the nearest enemy ahead and drains it, not one off to the side")
+	check(sk.reserve > 0.0 and sk.meter > 0.0, "what it drains fills the reserve and loads the Leech")
+	vg.P.hull = vg.HULL - 1
+	sk.healed = sk.HEAL - 0.1
+	tick(sk.EVERY, true)
+	check(vg.P.hull == vg.HULL, "draining mends the hull")
+	sk.reserve = 30.0
+	var sh0: float = s_in.hp
+	tick(1, false)
+	check(s_in.hp <= sh0 - 30.0 * sk.BOLT and sk.reserve == 0.0, "lifting fires the reserve at the latched enemy as one bolt")
+	tick(40, false)
+	sk.meter = 1.0
+	vg.P.hull = 1
+	tick(3, true)
+	var ss0: float = s_in.hp
+	tick(1, false)
+	tick(60, false)
+	check(sk.leech > 0 and vg.P.hull == vg.HULL and s_in.hp < ss0, "a full meter and a lift starts the Leech: the hull is whole and everything on screen is drained")
+	s_in.dead = true
+	s_side.dead = true
+
+	# --- Echo: the replay ---
+	vg.start_stage(1, "echo")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var ek = vg.kit
+	var e_from := Vector2(vg.P.x, vg.P.y)
+	for k in 60:
+		tick(1, true, 0.5, 0.0)
+	var e_to := Vector2(vg.P.x, vg.P.y)
+	tick(1, false)
+	check(ek.echoes.size() == 1 and ek.echoes[0].tape.size() == 60 and ek.echoes[0].tape[0].distance_to(e_from) < 1.0 and ek.echoes[0].tape[59].distance_to(e_to) < 0.01,
+		"lifting leaves an echo holding the path the ship just flew")
+	vg.G.pb.clear()
+	var e_tgt: Dictionary = vg.E("shell", e_from.x + 10.0, e_from.y + 50.0, {hold = e_from.y + 50.0})
+	e_tgt.hp = 500.0
+	tick(40, false, -40.0, 0.0)
+	var e_kit := 0
+	for b in vg.G.pb:
+		if b.get("kit", false):
+			e_kit += 1
+	check(e_kit > 0 and ek.echoes[0].i > 10, "the echo flies it again, firing, with the thumb up and the ship elsewhere")
+	tick(60, false)
+	check(ek.echoes.is_empty() and e_tgt.hp < 500.0 and ek.meter > 0.0, "it fades when its tape runs out, and its hits load the Chorus")
+	e_tgt.dead = true
+	tick(5, true)
+	tick(1, false)
+	check(ek.echoes.is_empty(), "a quick tap leaves no echo")
+	tick(40, false)
+	for k in 3:
+		tick(40, true, 0.2, 0.0)
+		tick(1, false)
+		tick(40, false)
+	check(ek.echoes.size() <= ek.MAX_ECHOES, "two echoes at most")
+	ek.meter = 1.0
+	tick(40, true)
+	tick(1, false)
+	check(ek.echoes.size() == ek.CHORUS, "a full meter and a lift starts the Chorus: four echoes")
+
+	# --- Wraith: the phase ---
+	vg.start_stage(1, "wraith")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(60, true)
+	var wrk = vg.kit
+	vg.P.inv = 0
+	tick(1, false, 0, 0, false, false)
+	check(wrk.phased, "lifting phases the ship out")
+	vg.G.pb.clear()
+	vg.G.eb.clear()
+	var w_hull: int = vg.P.hull
+	for k in 3:
+		vg.bullet(vg.P.x, vg.P.y, 0, 0)
+		tick(4, false, 0, 0, false, false)
+		vg.G.eb.clear()
+	check(vg.P.hull == w_hull and vg.G.pb.is_empty(), "phased, bullets pass through and the gun is silent")
+	check(wrk.passed == 3 and wrk.meter > 0.0, "each one that passes through is counted and loads the Possession")
+	var w_tgt: Dictionary = vg.E("shell", vg.P.x + 12.0, vg.P.y + 8.0, {hold = vg.P.y + 8.0})
+	w_tgt.hp = 500.0
+	tick(1, true, 0, 0, false, false)
+	check(not wrk.phased and w_tgt.hp <= 500.0 - wrk.BURST_DMG - 3 * wrk.BURST_DMG_PASS, "touching again ends the phase with a burst that grows with what passed through")
+	w_tgt.dead = true
+	tick(2, true)
+	wrk.gauge = wrk.PHASE
+	tick(1, false)
+	tick(int(wrk.PHASE) + 5, false)
+	check(not wrk.phased and wrk.gauge == 0.0, "the phase ends by itself when the gauge runs out")
+	tick(1, true)
+	tick(1, false)
+	check(not wrk.phased, "an empty gauge cannot phase")
+	tick(60, true)
+	check(wrk.gauge > 20.0, "the gauge refills while the thumb is down")
+	tick(1, false)
+	tick(40, true)
+	wrk.meter = 1.0
+	tick(1, false)
+	vg.G.pb.clear()
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y, 0, 0)
+	tick(8, true, 0, 0, false, false)
+	check(wrk.possess > 0 and vg.P.hull == w_hull and not vg.G.pb.is_empty(), "a full meter and a lift starts the Possession: untouchable and firing at once")
+
+	# --- Forge: the heat gun ---
+	vg.start_stage(1, "forge")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var fk = vg.kit
+	check(fk.fire_every() == fk.SLOW_EVERY, "cold, the gun is slow")
+	tick(80, true)
+	check(fk.heat > 0.5 and fk.fire_every() < fk.SLOW_EVERY - 2, "holding heats it and speeds it up")
+	var f_tgt: Dictionary = vg.E("shell", vg.P.x + 14.0, vg.P.y + 10.0, {hold = vg.P.y + 10.0})
+	var f_far: Dictionary = vg.E("shell", vg.P.x + 50.0, vg.P.y + 60.0, {hold = vg.P.y + 60.0})
+	f_tgt.hp = 500.0
+	f_far.hp = 500.0
+	tick(1, false)
+	check(f_tgt.hp < 498.0 and f_far.hp == 500.0 and fk.heat == 0.0 and fk.meter > 0.0, "lifting vents the heat as a ring that burns what is near and loads the Meltdown")
+	f_tgt.dead = true
+	f_far.dead = true
+	tick(40, false)
+	tick(5, true)
+	tick(1, false)
+	check(fk.vent_t == 0, "a cool gun has nothing to vent")
+	tick(40, false)
+	tick(140, true)
+	check(fk.jam > 0 and fk.heat == 0.0, "held too long, the gun overheats and jams")
+	vg.G.pb.clear()
+	tick(20, true)
+	check(vg.G.pb.is_empty(), "jammed, it does not fire")
+	tick(fk.JAM, false)
+	check(fk.jam == 0, "the jam clears")
+	fk.meter = 1.0
+	tick(3, true)
+	tick(1, false)
+	tick(60, true)
+	check(fk.melt > 0 and fk.heat == 0.0 and fk.fire_every() == fk.FAST_EVERY, "a full meter and a lift starts the Meltdown: full fire rate, no heat")
+
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
 	for st in VStage.STAGES.size():
