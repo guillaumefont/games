@@ -538,8 +538,8 @@ func click_item(cat: String, type: String) -> void:
 			toast("Already building" if q.cur == type else "Busy building " + D.BLD[q.cur].name); return
 		q.cur = type; q.prog = 0.0; q.paid = 0.0; q.ready = false; sfx("click"); tut.ev("order", type)
 	else:
-		if S.count(0, D.PRODUCER[cat]) == 0:
-			toast("Requires " + D.BLD[D.PRODUCER[cat]].name, "warn"); return
+		if S.count(0, S.producer(0, cat)) == 0:
+			toast("Requires " + D.BLD[S.producer(0, cat)].name, "warn"); return
 		if q.queue.size() + (1 if q.cur != "" else 0) >= 9: return
 		q.queue.append(type); sfx("click")
 	refresh_panel(true)
@@ -565,7 +565,7 @@ func refresh_panel(_force := false) -> void:
 	var tm: Dictionary = S.teams[0]
 	for k in U.items:
 		var it = U.items[k]; var q: Dictionary = tm.prod[it.cat]; var d: Dictionary = D.def_of(it.type)
-		var locked: bool = not S.has_req(0, d.req) or (it.cat != "bld" and S.count(0, D.PRODUCER[it.cat]) == 0) or (d.lim > 0 and S.count(0, it.type) >= d.lim)
+		var locked: bool = not S.has_req(0, d.req) or (it.cat != "bld" and S.count(0, S.producer(0, it.cat)) == 0) or (d.lim > 0 and S.count(0, it.type) >= d.lim)
 		var n := 0; var prog := 0.0; var ready := false
 		if it.cat == "bld":
 			if q.cur == it.type: prog = q.prog; ready = q.ready
@@ -601,6 +601,13 @@ func hud_tick(dt: float) -> void:
 	var lp := S.low_power(0)
 	U.power_bar.set_val(min(1.0, float(tm.pused) / tm.pmade if tm.pmade else 1.0), lp)
 	U.power_l.add_theme_color_override("font_color", UI.C_BAD if lp else UI.C_FG)
+	var pw := S.uses_power(0); var cm := S.cap_max(0); var cap_on: bool = D.rule(tm.fac, "cap")
+	for c in U.power_parts: c.visible = pw
+	for c in U.cap_parts: c.visible = cap_on
+	if cap_on:
+		var cu := S.cap_used(0)
+		U.cap_l.text = "%d / %d" % [cu, cm]
+		U.cap_l.add_theme_color_override("font_color", UI.C_BAD if cu >= cm else UI.C_FG)
 	if S.mission:
 		if S.gi != obj_gi: obj_gi = S.gi; obj_t = OBJ_SHOW  # a new goal shows itself again
 		if obj_t > 0:
@@ -1192,6 +1199,7 @@ func render_mini() -> void:
 			data[k] = 4; data[k + 1] = 6; data[k + 2] = 8; data[k + 3] = 255; continue
 		var col: Color = D.tcol(S.theme)[S.terr[i]] * 0.9
 		if S.ore[i]: col = Color8(220, 170, 60)
+		elif S.field_dead(i): col = Color8(120, 116, 108)
 		if v == 1: col = col * 0.55
 		data[k] = int(col.r * 255); data[k + 1] = int(col.g * 255); data[k + 2] = int(col.b * 255); data[k + 3] = 255
 	for e in S.ents:
@@ -1320,6 +1328,8 @@ func _autotest(dir: String) -> void:
 		await _icon_shots(); get_tree().quit(); return
 	if mode == "radio":
 		await _radio_shots(dir); get_tree().quit(); return
+	if mode == "fields":
+		await _field_shots(dir); get_tree().quit(); return
 	if mode == "tut":
 		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
@@ -1607,6 +1617,36 @@ func _camp_shots(dir: String) -> void:
 			await get_tree().create_timer(0.5).timeout
 			await _shot(dir + "/%s_%d_wide.png" % [C.id, i + 1])
 			paused = true
+
+## AF_MODE=fields: living fields. One ore field fresh, one tired (half its vitality), one killed (grey stumps).
+func _field_shots(dir: String) -> void:
+	play({"fac": "vanguard", "diff": "normal", "seed": 4242})
+	paused = true
+	for i in D.MW * D.MH: S.vis[i] = 2
+	V.fog_clear(true)
+	# group ore tiles into fields by flood fill, then pick three
+	var seen := {}; var fields: Array = []
+	for i in D.MW * D.MH:
+		if S.ore[i] <= 0 or seen.has(i): continue
+		var f: Array = []; var q := [i]; seen[i] = true
+		while q.size():
+			var c: int = q.pop_back(); f.append(c)
+			for o in [1, -1, D.MW, -D.MW]:
+				var n: int = c + o
+				if n >= 0 and n < D.MW * D.MH and S.ore[n] > 0 and not seen.has(n): seen[n] = true; q.append(n)
+		fields.append(f)
+	fields.sort_custom(func(a, b): return a.size() > b.size())
+	var names := ["fresh", "tired", "dead"]
+	for k in mini(3, fields.size()):
+		for i in fields[k]:
+			if k == 1: S.take_ore(i, S.ore[i] * 6 / 10, 80.0)
+			if k == 2: S.take_ore(i, S.ore[i], 100.0)
+	V.upd_ore(); render_mini()
+	for k in mini(3, fields.size()):
+		var c: int = fields[k][fields[k].size() / 2]
+		V.cam_z = 1.6; V.center_on((c % D.MW) * T + 16.0, (c / D.MW) * T + 16.0)
+		await get_tree().create_timer(.4).timeout
+		await _shot(dir + "/field_%s.png" % names[k])
 
 ## AF_MODE=b: every building model, then the build, sell and collapse animations and a harvester at work.
 func _bld_test(dir: String) -> void:

@@ -21,7 +21,7 @@ var BLD := {
 	"power": {"name": "Reactor", "w": 2, "h": 2, "hp": 600, "cost": 300, "time": 7, "pwr": 100, "sight": 4, "req": ["hq"]},
 	"refinery": {"name": "Refinery", "no": ["choir"], "w": 3, "h": 3, "hp": 1000, "cost": 1400, "time": 13, "pwr": -30, "sight": 5, "req": ["power"]},
 	# Hollow Choir: no refinery or harvesters. A garden grows aurite on its own and drinks the ore around it.
-	"garden": {"name": "Crystal Garden", "fac": "choir", "w": 2, "h": 2, "hp": 850, "cost": 1000, "time": 11, "pwr": -20, "sight": 5, "req": ["power"], "grow": true},
+	"garden": {"name": "Crystal Garden", "fac": "choir", "w": 2, "h": 2, "hp": 850, "cost": 1000, "time": 11, "pwr": -20, "sight": 5, "req": ["power"], "grow": true, "drain": 20.0},
 	"barracks": {"name": "Barracks", "w": 2, "h": 2, "hp": 700, "cost": 400, "time": 8, "pwr": -20, "sight": 5, "req": ["power"]},
 	"factory": {"name": "War Factory", "w": 3, "h": 3, "hp": 1100, "cost": 1600, "time": 15, "pwr": -30, "sight": 5, "req": ["refinery"]},
 	"turret": {"name": "Sentry Gun", "w": 1, "h": 1, "hp": 500, "cost": 500, "time": 8, "pwr": -15, "sight": 7, "req": ["barracks"], "weapon": "shell", "dmg": 30, "range": 6.0, "rof": 1.3},
@@ -88,7 +88,7 @@ var UN := {
 	"saint": {"name": "Iron Saint", "fac": "vanguard", "cat": "veh", "cost": 0, "time": 1, "hp": 1900, "spd": 1.15, "range": 5.6, "sight": 7, "dmg": 72, "rof": 1.3, "weapon": "shell", "armor": "heavy", "r": 17, "turret": true, "hero": true, "req": ["never"]},
 	"deepmaw": {"name": "The Deepmaw", "fac": "choir", "cat": "veh", "cost": 0, "time": 1, "hp": 1700, "spd": 1.4, "range": 4.6, "sight": 7, "dmg": 66, "rof": 1.5, "weapon": "spine", "armor": "heavy", "r": 17, "hero": true, "req": ["never"]},
 	"truck": {"name": "Convoy Truck", "cat": "veh", "cost": 0, "time": 1, "hp": 520, "spd": 1.6, "sight": 5, "armor": "heavy", "r": 13, "req": ["never"]},
-	"harv": {"name": "Harvester", "no": ["choir"], "cat": "veh", "cost": 1200, "time": 14, "hp": 650, "spd": 1.35, "sight": 4, "armor": "heavy", "r": 14, "harv": true, "req": ["factory", "refinery"]},
+	"harv": {"name": "Harvester", "no": ["choir"], "cat": "veh", "cost": 1200, "time": 14, "hp": 650, "spd": 1.35, "sight": 4, "armor": "heavy", "r": 14, "harv": true, "drain": 20.0, "req": ["factory", "refinery"]},
 }
 
 const MOD := {
@@ -118,6 +118,28 @@ const FACS := {
 		"sub": {"refinery": "garden", "rifle": "thrall", "arty": "geode", "harv": ""}},
 }
 const FAC_ORDER := ["vanguard", "ashen", "choir"]
+## Faction rules (faction redesign, phase 2 groundwork). Each faction plays by its own rules instead of shared ones.
+## Today all three still use the old rules; the Pact, Vanguard and Choir phases switch theirs.
+##   power: its buildings make and use power (low power slows production, weapons and superweapons).
+##   place: where it may put a building: "near" = within 2 tiles of one of its own buildings.
+##   cap:   a unit cap is on (buildings with capAdd raise it, every unit uses capCost).
+##   prod:  the building that makes each unit category, when it is not D.PRODUCER's.
+var RULES := {
+	"vanguard": {"power": true, "place": "near", "cap": false, "prod": {}},
+	"ashen": {"power": true, "place": "near", "cap": false, "prod": {}},
+	"choir": {"power": true, "place": "near", "cap": false, "prod": {}},
+}
+func rule(fac: String, key: String):
+	return RULES[fac][key] if RULES.has(fac) else RULES.vanguard[key]
+## The building type that makes units of a category for this faction ("" for "bld").
+func producer(fac: String, cat: String) -> String:
+	return rule(fac, "prod").get(cat, PRODUCER.get(cat, ""))
+## Unit cap: what each unit costs when the faction has a cap (an override "capCost" in a unit def wins).
+const CAP_COST := {"inf": 1, "veh": 2, "air": 3}
+## Living fields: every ore tile has a vitality (0..100). Earners lower it as they take ore ("drain": vitality lost
+## when a whole tile is emptied, negative heals); a tile left alone for "rest" seconds regrows ore up to its start
+## amount scaled by vitality, and its vitality slowly comes back. At 0 the tile is dead for good (grey, no ore).
+const FIELD := {"tick": 2.0, "rest": 30.0, "ore": 0.02, "vit": 0.2}
 ## The faction's own version of a shared type: the Choir has gardens for refineries, thralls for riflemen.
 ## "" when the faction has none.
 static func sub(fac: String, t: String) -> String:
@@ -221,7 +243,7 @@ func _init() -> void:
 	for k in BLD:
 		var d: Dictionary = BLD[k]
 		d.type = k
-		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["antiAir", false], ["needPower", false], ["sw", false], ["charge", 0.0], ["kit", 0], ["splash", 0.0], ["minr", 0.0], ["air", false], ["heal", 0], ["eng", false], ["harv", false], ["turret", false], ["armor", "bld"], ["no", []], ["grow", false], ["tun", false], ["lim", 0]]:
+		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["antiAir", false], ["needPower", false], ["sw", false], ["charge", 0.0], ["kit", 0], ["splash", 0.0], ["minr", 0.0], ["air", false], ["heal", 0], ["eng", false], ["harv", false], ["turret", false], ["armor", "bld"], ["no", []], ["grow", false], ["tun", false], ["lim", 0], ["capAdd", 0], ["drain", 0.0]]:
 			if not d.has(kv[0]): d[kv[0]] = kv[1]
 	for k in UPG:
 		var u: Dictionary = UPG[k]; var b: Dictionary = BLD[k].duplicate(true)
@@ -239,8 +261,9 @@ func _init() -> void:
 	for k in UN:
 		var d: Dictionary = UN[k]
 		d.type = k
-		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["air", false], ["turret", false], ["heal", 0], ["eng", false], ["harv", false], ["minr", 0.0], ["splash", 0.0], ["antiAir", false], ["hero", false], ["no", []], ["burrow", false], ["lim", 0], ["aura", 0.0]]:
+		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["air", false], ["turret", false], ["heal", 0], ["eng", false], ["harv", false], ["minr", 0.0], ["splash", 0.0], ["antiAir", false], ["hero", false], ["no", []], ["burrow", false], ["lim", 0], ["aura", 0.0], ["drain", 0.0]]:
 			if not d.has(kv[0]): d[kv[0]] = kv[1]
+		if not d.has("capCost"): d.capCost = CAP_COST.get(d.cat, 1)
 	CAMPAIGNS = Campaign.all()
 	for c in CAMPAIGNS:
 		for i in c.missions.size():

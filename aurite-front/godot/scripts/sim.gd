@@ -57,6 +57,10 @@ var cine := false              # a cutscene runs on this sim: no AI, no goals or
 var tut_cb := Callable()
 var last_hurt := -99.0         # when one of the player's things last took damage (tutorial cards wait for calm)
 var raids: Array = []          # ids of the enemy units each scripted event sent, one array per event
+var vit := PackedByteArray()      # living fields: vitality of each tile's ore, 0..100 (D.FIELD)
+var ore0 := PackedInt32Array()    # ore each tile started with (what it can regrow to)
+var touch_t := PackedFloat32Array()  # when ore was last taken from each tile
+var field_t := 0.0
 
 func _tut(kind: String, a = null, b = null) -> void:
 	if tut_cb.is_valid(): tut_cb.call(kind, a, b)
@@ -281,6 +285,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 		p0 = D.P0; e0 = A; theme = "temperate"; dusk = false
 		gen_map(seed)
 	gen_heights(seed)
+	init_fields()
 	init_astar()
 	if M and opt.get("bare", false): gi = 99   # a cutscene's own cast, no mission units or goal marks
 	elif M: mission_setup(M)
@@ -454,7 +459,81 @@ func calc_power() -> void:
 		else: teams[b.team].pused -= p
 
 func low_power(t: int) -> bool:
-	return teams[t].pused > teams[t].pmade
+	return uses_power(t) and teams[t].pused > teams[t].pmade
+
+# ---------------- faction rules (D.RULES) ----------------
+func fac_of(team: int) -> String:
+	return teams[team].fac if teams.size() > team else "vanguard"
+
+func uses_power(team: int) -> bool:
+	return D.rule(fac_of(team), "power")
+
+## The building type that makes this team's units of a category.
+func producer(team: int, cat: String) -> String:
+	return D.producer(fac_of(team), cat)
+
+## Unit cap (only for factions with "cap"): 0 means no cap.
+func cap_max(team: int) -> int:
+	if not D.rule(fac_of(team), "cap"): return 0
+	var n := 0
+	for b in ents:
+		if b.alive and b.kind == "b" and b.team == team: n += int(b.d.capAdd)
+	return n
+
+## Cap used by living units plus the ones being trained.
+func cap_used(team: int) -> int:
+	var n := 0
+	for u in ents:
+		if u.alive and u.kind == "u" and u.team == team: n += int(u.d.capCost)
+	for c in teams[team].prod:
+		var q: Dictionary = teams[team].prod[c]
+		if c != "bld" and q.cur != "": n += int(D.UN[q.cur].capCost)
+	return n
+
+## True when the team's cap has no room for one more of this unit (always false without a cap).
+func cap_full(team: int, type: String, queued_in := false) -> bool:
+	var mx := cap_max(team)
+	if not D.rule(fac_of(team), "cap"): return false
+	var used := cap_used(team) - (int(D.UN[type].capCost) if queued_in else 0)
+	return used + int(D.UN[type].capCost) > mx
+
+# ---------------- living fields (D.FIELD) ----------------
+func init_fields() -> void:
+	vit = PackedByteArray(); vit.resize(MW * MH)
+	ore0 = ore.duplicate()
+	touch_t = PackedFloat32Array(); touch_t.resize(MW * MH)
+	field_t = 0.0
+	for i in MW * MH:
+		if ore[i] > 0: vit[i] = 100
+
+## A tile that held ore and has been killed: no ore, never regrows.
+func field_dead(i: int) -> bool:
+	return ore0[i] > 0 and vit[i] == 0
+
+## Takes up to n ore from tile i for an earner with this drain and returns what it got.
+func take_ore(i: int, n: int, drain: float) -> int:
+	var take := mini(n, ore[i])
+	if take <= 0: return 0
+	ore[i] -= take; touch_t[i] = time
+	if drain != 0.0 and ore0[i] > 0:
+		vit[i] = clampi(int(round(vit[i] - drain * take / float(ore0[i]))), 0, 100)
+		if vit[i] == 0: ore[i] = 0
+	return take
+
+func upd_field_life(dt: float) -> void:
+	field_t -= dt
+	if field_t > 0: return
+	field_t = D.FIELD.tick
+	var changed := false
+	for i in MW * MH:
+		if ore0[i] <= 0 or vit[i] == 0 or time - touch_t[i] < D.FIELD.rest: continue
+		var cap := int(ore0[i] * vit[i] / 100.0)
+		if ore[i] < cap:
+			var was := ore[i]
+			ore[i] = mini(cap, ore[i] + maxi(1, int(ore0[i] * D.FIELD.ore)))
+			if was == 0: changed = true
+		if vit[i] < 100 and randf() < D.FIELD.vit: vit[i] += 1
+	if changed and host: host.on_world_changed()
 
 func count(team: int, type: String) -> int:
 	var n := 0
@@ -847,7 +926,7 @@ func upd_garden(b: Ent, tm: Dictionary, dt: float) -> void:
 			if got >= want or not inb(tx, ty): continue
 			var i := ty * MW + tx
 			if ore[i] <= 0 or Vector2(tx + 0.5 - cx, ty + 0.5 - cy).length() > 5.5: continue
-			var take := mini(ore[i], want - got); ore[i] -= take; got += take
+			got += take_ore(i, want - got, b.d.drain)
 			if shown < 4 and (b.team == 0 or visible_to_player(b)):
 				shown += 1
 				parts.append({"k": "gem", "x": tx * T + 16.0, "y": ty * T + 16.0, "bx": b.x, "by": b.y, "ah": h_at(tx * T + 16.0, ty * T + 16.0) + .05, "bh": h_at(b.x, b.y) + 1.0, "life": .9, "max": .9, "s": .07 + randf() * .04})
@@ -1239,7 +1318,7 @@ func upd_harv(u: Ent, dt: float) -> void:
 				var i := t_idx(u)
 				if ore[i] == 0: i = u.ot
 				if ore[i] == 0: u.hs = "find"; return
-				var take := mini(20, ore[i]); ore[i] -= take; u.load += take
+				u.load += take_ore(i, 20, u.d.drain)
 				if randf() < 0.5: parts.append({"k": "smoke", "x": u.x + cos(u.ang) * 14, "y": u.y + sin(u.ang) * 14, "vx": (randf() - 0.5) * 14, "vy": -8.0, "life": 0.7, "max": 0.7, "s": 4.0, "c": Color8(170, 140, 70)})
 				if u.load >= D.HARV_CAP: u.hs = "ret"
 				elif ore[i] == 0: u.hs = "find"
@@ -1499,10 +1578,15 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 	for cat in D.CAT_ORDER:
 		var q: Dictionary = tm.prod[cat]
 		if q.cur == "" and q.queue.size():
+			if cat != "bld" and cap_full(tm.id, q.queue[0]):
+				if tm.id == 0:
+					tm.noFundsT -= dt
+					if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Unit cap reached", "warn")
+				continue
 			q.cur = q.queue.pop_front(); q.prog = 0.0; q.paid = 0.0
 		if q.cur == "" or q.ready: continue
 		var d: Dictionary = D.def_of(q.cur)
-		if cat != "bld" and count(tm.id, D.PRODUCER[cat]) == 0: continue
+		if cat != "bld" and count(tm.id, producer(tm.id, cat)) == 0: continue
 		if cat == "bld" and not has_req(tm.id, d.req):
 			tm.credits += q.paid; q.cur = ""; continue
 		var rate: float = min(dt * mult * (prod_speed(tm.id, cat) if cat != "bld" else 1.0) / d.time, 1.0 - q.prog); var cost: float = d.cost * rate
@@ -1520,7 +1604,7 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 
 func produce_done(tm: Dictionary, type: String) -> void:
 	var d: Dictionary = D.UN[type]
-	var bs: Array = ents.filter(func(e): return e.alive and e.kind == "b" and e.team == tm.id and e.type == D.PRODUCER[d.cat])
+	var bs: Array = ents.filter(func(e): return e.alive and e.kind == "b" and e.team == tm.id and e.type == producer(tm.id, d.cat))
 	if bs.is_empty(): return
 	var b: Ent = bs[-1]
 	for x in bs:
@@ -1645,7 +1729,7 @@ func finish_upgrade(b: Ent) -> void:
 
 ## Training speed of a category: an upgraded producer (Drill Hall, Heavy Works) speeds up its whole queue.
 func prod_speed(team: int, cat: String) -> float:
-	var p: String = D.PRODUCER.get(cat, "")
+	var p := producer(team, cat)
 	var best := 1.0
 	for b in ents:
 		if b.alive and b.kind == "b" and b.team == team and b.type == p: best = max(best, float(b.d.speed))
@@ -1676,7 +1760,7 @@ func ai_think(tm: Dictionary) -> void:
 				add_building(id, q.cur, spot.x, spot.y); q.cur = ""; q.ready = false; q.prog = 0.0; q.paid = 0.0
 		elif q.cur == "":
 			var nxt := ""
-			if tm.pused + 20 > tm.pmade and count(id, "power") < 10 and avail(id, "power"):
+			if uses_power(id) and tm.pused + 20 > tm.pmade and count(id, "power") < 10 and avail(id, "power"):
 				# an upgrade running on a reactor (or one it can start now) beats a new reactor
 				if not (ai_ups and (_ai_upgrading(id, "power") or _ai_upgrade(tm, "power", 200))): nxt = "power"
 			else:
@@ -1687,7 +1771,7 @@ func ai_think(tm: Dictionary) -> void:
 					if t == "SW": t = F.sw
 					if t == "TUN": t = F.get("tun", "")
 					t = D.sub(tm.fac, t)
-					if t == "" or not avail(id, t): continue
+					if t == "" or not avail(id, t) or (t == "power" and not uses_power(id)): continue
 					need[t] = need.get(t, 0) + 1
 					if count(id, t) < need[t]: nxt = t; break
 			if nxt != "" and ok.call(nxt): q.cur = nxt
@@ -2109,7 +2193,7 @@ func step(dt: float) -> void:
 		if not e.alive: continue
 		if e.kind == "u": upd_unit(e, dt)
 		else: upd_bld(e, dt)
-	separate(); upd_proj(dt); upd_parts(dt); upd_fields(dt); upd_auras(dt)
+	separate(); upd_proj(dt); upd_parts(dt); upd_fields(dt); upd_auras(dt); upd_field_life(dt)
 	if delayed.size():
 		var keep: Array = []
 		for dl in delayed:

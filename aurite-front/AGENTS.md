@@ -43,6 +43,23 @@
 - New sounds (`shard`, `geode`, `burrow`, `ack_choir`) are in `tools/synth.py`. Re-rendering every sound on another
   numpy version changes the old files slightly, so copy only the new ones into `sfx/`.
 
+## Faction redesign (Guillaume 2026-11-21: "Implement factions")
+
+- Design: Claude Doc "Aurite Front: asymmetric factions proposal" (https://claude.ai/artifact/87i89SVadBBZEWp5AxmL81),
+  with a Stats sheet tab. Flavour: Vanguard = high tech (flown in from the fleet), Pact = raw power, Choir = alien mutant.
+  Order: groundwork, then Pact, Vanguard, Choir, each its own PR, each waiting for Guillaume's OK.
+- Groundwork (phase 2): `D.RULES[fac]` holds each faction's rules (`power`, `place`, `cap`, `prod`); read them through
+  `D.rule(fac, key)`, `D.producer(fac, cat)` or the Sim helpers `uses_power`, `producer(team, cat)`, `cap_max`,
+  `cap_used`, `cap_full`. Never use `D.PRODUCER` directly. All three factions still run on today's rules until their phase.
+- Unit cap: buildings raise it with `capAdd`, units use `capCost` (defaults per category in `D.CAP_COST`). The HUD shows
+  UNITS instead of POWER for factions with a cap and without power (`UI.cap_parts`, `UI.power_parts`).
+- Living fields: `Sim.vit` (0..100 per ore tile), `ore0` (start amount), `touch_t`. Take ore only through
+  `Sim.take_ore(i, n, drain)`: an earner's `drain` is the vitality lost for emptying a whole tile (harvester and garden
+  20 today; negative heals). Rested tiles (`D.FIELD.rest`) regrow up to `ore0 * vit / 100`. At 0 a tile is dead for good
+  (`field_dead`): grey stumps in `View3D.upd_ore`, grey on the minimap. `AF_MODE=fields` shoots fresh, tired and dead fields.
+- `groundwork_tests()` in `tests/sim_test.gd` flips the rules on a match (power off, cap, producer override) and checks
+  drain, death and regrowth. It restores `D.RULES` and `D.BLD` after itself; do the same in new tests.
+
 ## Building upgrades (Guillaume 2026-11-14: "allow structure upgrade, for example the reactor to a superreactor")
 
 - `D.UPG[type]` holds each upgrade (cost, time, req, say, plus the stats it replaces); `D.BLD2[type]` is the merged
