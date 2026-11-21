@@ -159,20 +159,21 @@ func reach(t: int) -> int:
 	return -1
 
 
-## Stage `i` is open on tier `t` once the stage before it is cleared on that same tier (stage 1
-## of world 1 is always open), and, above Normal, once this stage is cleared on the tier below.
-## Cleared means finished with ships left; medals don't matter.
+## On Normal, stage `i` is open once the stage before it is cleared (stage 1 of world 1 is
+## always open). Above Normal, a stage is open once it is cleared on the tier just below
+## (Guillaume, 2026-11-21): Nova stage 5 needs Normal stage 5, not Nova stage 4. A stage already
+## cleared on a tier stays open on it. Cleared means finished with ships left; medals don't matter.
 func open(i: int, t: int) -> bool:
 	t = clampi(t, 0, TIERS.size() - 1)
-	if i > reach(t) + 1:
-		return false
-	return t <= 0 or cleared(stage_id(i), t - 1)
+	if t <= 0:
+		return i <= reach(0) + 1
+	return cleared(stage_id(i), t) or cleared(stage_id(i), t - 1)
 
 
 func unlocked(id: String, t: int) -> bool:
 	var i := index_of(id)
 	if i < 0:
-		return t <= 0 or cleared(id, t - 1)
+		return t <= 0 or cleared(id, t) or cleared(id, t - 1)
 	return open(i, t)
 
 

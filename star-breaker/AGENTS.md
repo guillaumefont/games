@@ -76,11 +76,13 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   `DEFAULT_PAR`). Flux (`Progress.flux`) is banked once per run in `finish()` (score / 100 plus
   `MEDAL_FLUX` per new medal) and buys ship levels; a level scales every hit through `G.power`,
   applied only in `dmg_e` and `boss_damage`, so new damage paths must go through those. Screens: `tools/progress_shots.gd` (same command as below, other script).
-- Stage order (Guillaume, 2026-11-21): on each tier a stage opens once the stage before it is
-  cleared on that tier (world 2 stage 1 needs world 1 stage 8), and above Normal it also needs
-  the stage cleared on the tier below. Cleared = finished with ships left; medals don't count.
-  `Progress.open(i, t)` is the rule: every stage up to one past the furthest cleared one
-  (`reach(t)`), so saves from before the rule keep what they reached. Only the map and the
+- Stage order (Guillaume, 2026-11-21): on Normal a stage opens once the stage before it is
+  cleared (world 2 stage 1 needs world 1 stage 8), up to one past the furthest Normal clear
+  (`reach(0)`), so saves from before the rule keep what they reached. Above Normal a stage opens
+  once that same stage is cleared on the tier just below (Nova stage 5 needs Normal stage 5, not
+  Nova stage 4; changed later the same day), or once it is already cleared on that tier.
+  Cleared = finished with ships left; medals don't count. `Progress.open(i, t)` is the rule.
+  Only the map and the
   result's Next enforce it; `start_stage()` plays any stage (tests and tools rely on that).
 
 ## App icon
