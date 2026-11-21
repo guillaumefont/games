@@ -145,5 +145,44 @@ func _initialize() -> void:
 		check(started and vg.G.get("run_medal", -2) == 0 and in_rock == 0,
 			"stage %d (%s): the run starts, the racing line earns gold, the camera stays out of rock" % [i + 1, VStage.STAGES[i].name])
 
+	print("Built a little per frame")
+	# every stage builds its run while you fly its first stretch (Guillaume, 2026-11-21: "the game
+	# recently started lagging"): a whole canyon slice or obstacle in one frame cost 5-13 ms on a
+	# desktop. The build is now split into small units under a per-frame budget, and its meshes
+	# come out exactly as if built at once
+	var sd: Dictionary = VStage.STAGES[25]
+	VRun.use(sd.course)
+	var mats := {ground = vg._terrain_mats.ground, lip = vg._lip_mat, glow = vg._terrain_mats.fissure_b}
+	var whole := VRun.Builder.new(vg.look, mats)
+	whole.finish()
+	var bit := VRun.Builder.new(vg.look, mats)
+	var units := 0
+	var slowest := 0
+	while not bit.step(0.0):
+		units += 1
+	var same := whole.node.get_child_count() == bit.node.get_child_count()
+	for k in mini(whole.node.get_child_count(), bit.node.get_child_count()):
+		var na: Node = whole.node.get_child(k)
+		var nb: Node = bit.node.get_child(k)
+		if na is MeshInstance3D and nb is MeshInstance3D and na.mesh is ArrayMesh and nb.mesh is ArrayMesh:
+			same = same and (na.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX] == (nb.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		else:
+			same = same and na.get_class() == nb.get_class() and na.position == nb.position
+	var slices := ceili((VRun.LEN + 600.0) / VRun.Builder.SLICE)
+	check(same and units >= slices * 4, "the run is built in %d small units (%d slices), meshes identical to building it at once" % [units, slices])
+	whole.node.free()
+	bit.node.free()
+	# in the game: built well before its mouth comes down, never hogging a frame
+	vg.start_stage(25, "lance")
+	var frames := 0
+	while not vg._run_built and frames < 3000:
+		frames += 1
+		vg.P.inv = maxi(vg.P.inv, 2)
+		var t0 := Time.get_ticks_usec()
+		tick()
+		slowest = maxi(slowest, Time.get_ticks_usec() - t0) if frames > 1 else 0
+	check(vg._run_built and vg.G.scroll < sd.run - vg.top() - 100.0,
+		"the run is built %d frames in, well before its mouth (slowest frame %.1f ms)" % [frames, slowest / 1000.0])
+
 	print("FAILED: %d" % fails if fails else "ALL PASSED")
 	quit(1 if fails else 0)

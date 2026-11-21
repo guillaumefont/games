@@ -239,11 +239,25 @@ static func warp(p: Vector3) -> Vector3:
 
 
 ## Bends a straight-built mesh: every vertex to its place, every normal turned with it.
+## (Works on local copies of the arrays: writing `acc.v[i]` straight into the other object's
+## packed array copied the whole array on every write, which made a canyon slice cost ~3 ms.)
 static func _bend(acc: Terrain.Acc) -> void:
-	for i in acc.v.size():
-		var h := heading(acc.v[i].y)
-		acc.n[i] = acc.n[i].rotated(Vector3.BACK, h)
-		acc.v[i] = warp(acc.v[i])
+	var v := acc.v
+	var n := acc.n
+	# most vertices share their row's u, so each u's heading and centre are worked out once
+	var seen := {}
+	for i in v.size():
+		var p := v[i]
+		var hc: Array = seen.get(p.y, [])
+		if hc.is_empty():
+			var h := heading(p.y)
+			hc = [h, centre(p.y), cos(h), sin(h)]
+			seen[p.y] = hc
+		n[i] = n[i].rotated(Vector3.BACK, hc[0])
+		var c: Vector2 = hc[1]
+		v[i] = Vector3(c.x + p.x * hc[2], c.y + p.x * hc[3], p.z)
+	acc.v = v
+	acc.n = n
 
 
 ## Stage x to world x (as `X()` in vgame.gd).
@@ -421,48 +435,89 @@ class Builder:
 	var _u := -300.0
 	var _pal: Dictionary
 	var _mats: Dictionary
-	## Obstacles waiting to be built, one per call (a faceted one costs as much as a slice).
+	## Obstacles waiting to be built, one per unit of work (a faceted one costs as much as a slice).
 	var _todo: Array = []
+	## The slice being laid row by row: its rock, lip and glow, and the u of its next row.
+	var _slice: Array = []
+	var _row_u := 0.0
+	## Built pieces waiting to be bent and made into meshes, one per unit: [acc, material,
+	## casts shadow, obstacle (or {})], or [null, null, false, {light = node}] for a gap's light.
+	var _ready: Array = []
 	const SLICE := 40.0
 	const ROW := 10.0
+	## Time each `step()` may spend per frame (ms). The canyon is built over the stage's first
+	## seconds while you fly (its mouth is 20 s or more in), so this keeps every frame light: a
+	## whole slice or obstacle in one frame cost 5-13 ms on a desktop, several times that on a
+	## phone, and every stage builds a run since they all have one.
+	const BUDGET_MS := 1.5
 
 	func _init(pal: Dictionary, mats: Dictionary) -> void:
 		_pal = pal
 		_mats = mats
 		node.name = "CanyonRun"
 
-	func step() -> bool:
+	## Does units of work for up to `budget_ms` (at least one); true once the canyon is built.
+	## A budget of 0 does a single unit.
+	func step(budget_ms := BUDGET_MS) -> bool:
+		var end := Time.get_ticks_usec() + int(budget_ms * 1000.0)
+		while not _done():
+			_unit()
+			if Time.get_ticks_usec() >= end:
+				break
+		return _done()
+
+	## Builds the rest at once.
+	func finish() -> void:
+		while not _done():
+			_unit()
+
+	## One small piece of work: bend one built piece into a mesh, build one obstacle, or lay
+	## one row of the current slice (the meshes come out the same as building it all at once).
+	func _unit() -> void:
+		if not _ready.is_empty():
+			var r: Array = _ready.pop_front()
+			_finish_piece(r[0], r[1], r[2], r[3])
+			return
 		if not _todo.is_empty():
 			_build_obstacle(_todo.pop_front())
-			return _done()
-		if _u >= VRun.LEN + 300.0:
-			return true
-		var rock := Terrain.Acc.new()
-		var lip := Terrain.Acc.new()
-		var glow := Terrain.Acc.new()
-		var u := _u
-		while u < _u + SLICE - 0.01:
-			VRun._rows(rock, lip, glow, u, u + ROW, _pal)
-			u += ROW
+			return
+		if _slice.is_empty():
+			if _u >= VRun.LEN + 300.0:
+				return
+			_slice = [Terrain.Acc.new(), Terrain.Acc.new(), Terrain.Acc.new()]
+			_row_u = _u
+		VRun._rows(_slice[0], _slice[1], _slice[2], _row_u, _row_u + ROW, _pal)
+		_row_u += ROW
+		if _row_u < _u + SLICE - 0.01:
+			return
+		# the walls, floor and mountains throw no shadow: from behind the ship the low sun put
+		# the whole floor in the left wall's shadow, so nothing read like the top-down view.
+		# Only the ship and the obstacles throw shadows on the floor, as on the moon (2026-11-21)
+		_ready.append([_slice[0], _mats.ground, false, {}])
+		_ready.append([_slice[1], _mats.lip, false, {}])
+		_ready.append([_slice[2], _mats.glow, false, {}])
 		for o in VRun.OBS:
 			if o.u >= _u and o.u < _u + SLICE:
 				_todo.append(o)
-		for acc in [rock, lip, glow]:
-			VRun._bend(acc)
-		if rock.count() > 0:
-			# the walls, floor and mountains throw no shadow: from behind the ship the low sun put
-			# the whole floor in the left wall's shadow, so nothing read like the top-down view.
-			# Only the ship and the obstacles throw shadows on the floor, as on the moon (2026-11-21)
-			node.add_child(Terrain._mi(rock.mesh(), _mats.ground, false))
-		if lip.count() > 0:
-			node.add_child(Terrain._mi(lip.mesh(), _mats.lip, false))
-		if glow.count() > 0:
-			node.add_child(Terrain._mi(glow.mesh(), _mats.glow, false))
+		_slice = []
 		_u += SLICE
-		return _done()
 
 	func _done() -> bool:
-		return _u >= VRun.LEN + 300.0 and _todo.is_empty()
+		return _u >= VRun.LEN + 300.0 and _todo.is_empty() and _ready.is_empty() and _slice.is_empty()
+
+	func _finish_piece(acc: Terrain.Acc, mat: Material, shadow: bool, o: Dictionary) -> void:
+		if acc == null:
+			node.add_child(o.light)
+			return
+		if acc.count() == 0:
+			return
+		VRun._bend(acc)
+		# a bridge, ridge or wall fades once the ship is through, so it has its own material
+		var fades: bool = not o.is_empty() and o.k in ["arch", "spine", "window"]
+		var mi := Terrain._mi(acc.mesh(), mat.duplicate() if fades else mat, shadow)
+		if fades:
+			mi.set_meta("obs_u", o.u)
+		node.add_child(mi)
 
 	## Each obstacle gets its own meshes and materials: a bridge, ridge or wall fades once the
 	## ship is through and goes once the camera reaches it (from under a bridge the camera
@@ -471,22 +526,16 @@ class Builder:
 		var orock := Terrain.Acc.new()
 		var olip := Terrain.Acc.new()
 		VRun._obstacle(orock, olip, o, _pal)
-		VRun._bend(orock)
-		VRun._bend(olip)
-		var fades: bool = o.k in ["arch", "spine", "window"]
-		for pair in [[orock, _mats.ground, true], [olip, _mats.lip, false]]:
-			if (pair[0] as Terrain.Acc).count() == 0:
-				continue
-			var mi := Terrain._mi((pair[0] as Terrain.Acc).mesh(), (pair[1] as Material).duplicate() if fades else pair[1], pair[2])
-			if fades:
-				mi.set_meta("obs_u", o.u)
-			node.add_child(mi)
+		# bent and meshed in the next units (nothing else is waiting: those come first), then
+		# the light behind its gap
+		_ready.append([orock, _mats.ground, true, o])
+		_ready.append([olip, _mats.lip, false, o])
 		var gl := VRun.gap_light(o)
 		if gl.size.x > 0.0:
 			gl.node.rotation.y = VRun.heading(o.u)
 			gl.node.position = VRun.warp(gl.node.position)
 			gl.node.set_meta("gap_u", o.u)
-			node.add_child(gl.node)
+			_ready.append([null, null, false, {light = gl.node}])
 
 
 ## Heights of the wall's bands, floor to rim, and how far each juts back into the rock.
@@ -704,17 +753,24 @@ static func _rock(acc: Terrain.Acc, a: Vector3, b: Vector3, col: Color, seed: fl
 		var plane: float = b[ax] if f[1] > 0.0 else a[ax]
 		var nu: int = n[u_ax]
 		var nv: int = n[v_ax]
+		# each grid point once (a point is shared by up to four facets), then the facets
+		var grid := PackedVector3Array()
+		grid.resize((nu + 1) * (nv + 1))
+		for i in nu + 1:
+			for k in nv + 1:
+				var v := Vector3.ZERO
+				v[ax] = plane
+				v[u_ax] = lerpf(a[u_ax], b[u_ax], float(i) / nu)
+				v[v_ax] = lerpf(a[v_ax], b[v_ax], float(k) / nv)
+				grid[i * (nv + 1) + k] = pt.call(v)
 		for i in nu:
 			for k in nv:
-				var q := []
-				for e in [[i, k], [i + 1, k], [i + 1, k + 1], [i, k + 1]]:
-					var v := Vector3.ZERO
-					v[ax] = plane
-					v[u_ax] = lerpf(a[u_ax], b[u_ax], float(e[0]) / nu)
-					v[v_ax] = lerpf(a[v_ax], b[v_ax], float(e[1]) / nv)
-					q.append(pt.call(v))
-				for t in [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]:
-					acc.tri(t[0], t[1], t[2], _facet(col, t[0], t[1], t[2], dir), dir)
+				var q0 := grid[i * (nv + 1) + k]
+				var q1 := grid[(i + 1) * (nv + 1) + k]
+				var q2 := grid[(i + 1) * (nv + 1) + k + 1]
+				var q3 := grid[i * (nv + 1) + k + 1]
+				acc.tri(q0, q1, q2, _facet(col, q0, q1, q2, dir), dir)
+				acc.tri(q0, q2, q3, _facet(col, q0, q2, q3, dir), dir)
 
 
 ## A box of rock from `a` to `b` (min and max corners), shaded per face.
