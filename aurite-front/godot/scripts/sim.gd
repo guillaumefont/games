@@ -2454,6 +2454,10 @@ func ai_think(tm: Dictionary) -> void:
 			for b in ents:
 				if b.alive and b.team == id and b.kind == "b" and b.d.grow and not upg_def(b).is_empty() and upg_block(b) == "" and tm.credits >= 300:
 					start_upgrade(b); break
+		# Gardens are its only income, so it keeps planting while there is living aurite to plant beside
+		tm.plant = q.cur == "" and not q.ready and count(id, "garden") < mini(7, 2 + int(time / 110.0)) and ok.call("garden") and ai_spot(id, "garden", hq) != null
+		if tm.plant and tm.credits >= 500:
+			q.cur = "garden"; tm.plant = false
 		# and four idle Thralls out of every six fuse into a Knot
 		var th := ents.filter(func(e): return e.alive and e.team == id and e.kind == "u" and e.d.fuse != "" and e.order == "none" and e.target == null)
 		if th.size() >= D.HUM.fuse + 2: fuse(id, th)

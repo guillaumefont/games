@@ -119,10 +119,11 @@ func _ready():
 			var w := 2
 			if s.over: w = 0 if s.find_hq(0) != null else 1
 			else:
-				# no knock-out: whoever holds more (buildings and army by cost)
+				# no knock-out: whoever has the stronger army and defences, by cost
 				var v := [0.0, 0.0]
 				for e in s.ents:
-					if e.alive and e.team < 2: v[e.team] += e.d.cost * e.hp / e.max_hp
+					# fighting strength only: a rich economy that has not won yet is not a win
+					if e.alive and e.team < 2 and (e.kind == "u" and not e.d.harv or e.d.weapon != ""): v[e.team] += e.d.cost * e.hp / e.max_hp
 				w = 0 if v[0] > v[1] * 1.25 else (1 if v[1] > v[0] * 1.25 else 2)
 			wins[w] += 1
 			print("game ", g, ": ", [fa, fb, "draw"][w], " t=", int(s.time), " over=", s.over)
@@ -345,8 +346,8 @@ func choir_tests(s, h, soak := true) -> bool:
 	var wo = s.spawn_unit(0, "wretch", hq.x + 14 * T, hq.y - 14 * T)
 	var wi = s.spawn_unit(0, "wretch", g.x - 3 * T, g.y); wi.hp = 20.0
 	for i in 20 * 5: s.step(0.05)
-	print("hum: Thrall 10 -> ", int(ht.hp), ", Wretch outside ", int(wo.hp), "/35, inside ", int(wi.hp))
-	if ht.hp < 13.5 or not ht.inhum or wo.hp > 31 or wi.hp < 20: return _fail("Hum healing or withering")
+	print("hum: Thrall 10 -> ", int(ht.hp), ", Wretch outside ", int(wo.hp), "/", int(wo.max_hp), ", inside ", int(wi.hp))
+	if ht.hp < 13.5 or not ht.inhum or wo.hp > wo.max_hp - 4 or wi.hp < 20: return _fail("Hum healing or withering")
 	ht.alive = false; wo.alive = false; wi.alive = false
 	# living crystal cuts human infantry in the Hum, and the dead rise as Wretches
 	var ot := -1

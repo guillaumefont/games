@@ -30,16 +30,13 @@
 
 ## Hollow Choir (third faction; campaign III)
 
+- The Choir's rules were rebuilt in the faction redesign: see "Hollow Choir (phase 5)" below. What follows here still holds.
 - Faction-only types have `fac: "choir"`; shared types the Choir does without have `no: ["choir"]`, and
   `D.sub(fac, type)` gives the faction's stand-in (`refinery` → `garden`, `rifle` → `thrall`, `arty` → `geode`).
-  Requirements go through `Sim.req_of`, so `factory` (needs a refinery) unlocks from a garden. Use `D.sub` in AI and
-  start-up code instead of naming shared types.
 - Tunnels: `Sim.plan_tunnel` (from `group_move`), `tunnel_tick`, `_emerge`. A unit in a tunnel has `intun > 0`: it is
   hidden, unselectable and skipped by separation. `under` (tunnels and moving sappers) makes a unit untargetable and
   undamageable. Handle both in any new targeting or selection code.
 - Shard fields are `Sim.fields`, drawn in `View3D.draw_parts`. Unit limits (`lim`, the Cantor) go through `Sim.at_limit`.
-- `tests/sim_test.gd` `choir_tests()` covers AI soaks with the Choir on each side, gardens, tunnels, burrowing,
-  geode fields, the aura, the limit and the Chorus Well. In AI-vs-AI runs (2026-11-14) the Choir won 5 of 12, lost 6, drew 1.
 - New sounds (`shard`, `geode`, `burrow`, `ack_choir`) are in `tools/synth.py`. Re-rendering every sound on another
   numpy version changes the old files slightly, so copy only the new ones into `sfx/`.
 
@@ -47,18 +44,19 @@
 
 - Design: Claude Doc "Aurite Front: asymmetric factions proposal" (https://claude.ai/artifact/87i89SVadBBZEWp5AxmL81),
   with a Stats sheet tab. Flavour: Vanguard = high tech (flown in from the fleet), Pact = raw power, Choir = alien mutant.
-  Order: groundwork, then Pact, Vanguard, Choir, each its own PR, each waiting for Guillaume's OK.
+  Order: groundwork, then Pact, Vanguard, Choir, then balance, each its own PR. Guillaume, 2026-11-21: "Finish the works
+  don't ask at every step" and "Don't forget to show a preview" (screenshots in the project's faction-previews folder).
 - Groundwork (phase 2): `D.RULES[fac]` holds each faction's rules (`power`, `place`, `cap`, `prod`); read them through
   `D.rule(fac, key)`, `D.producer(fac, cat)` or the Sim helpers `uses_power`, `producer(team, cat)`, `cap_max`,
-  `cap_used`, `cap_full`. Never use `D.PRODUCER` directly. All three factions still run on today's rules until their phase.
+  `cap_used`, `cap_full`. Never use `D.PRODUCER` directly. No faction runs on the old shared rules any more.
 - Unit cap: buildings raise it with `capAdd`, units use `capCost` (defaults per category in `D.CAP_COST`). The HUD shows
   UNITS instead of POWER for factions with a cap and without power (`UI.cap_parts`, `UI.power_parts`).
 - Living fields: `Sim.vit` (0..100 per ore tile), `ore0` (start amount), `touch_t`. Take ore only through
   `Sim.take_ore(i, n, drain)`: an earner's `drain` is the vitality lost for emptying a whole tile (harvester and garden
   20 today; negative heals). Rested tiles (`D.FIELD.rest`) regrow up to `ore0 * vit / 100`. At 0 a tile is dead for good
   (`field_dead`): grey stumps in `View3D.upd_ore`, grey on the minimap. `AF_MODE=fields` shoots fresh, tired and dead fields.
-- `groundwork_tests()` in `tests/sim_test.gd` flips the rules on a match (power off, cap, producer override) and checks
-  drain, death and regrowth. It restores `D.RULES` and `D.BLD` after itself; do the same in new tests.
+- `groundwork_tests()` in `tests/sim_test.gd` checks each faction's rules and field drain, death and regrowth. A test that
+  changes `D.RULES` or `D.BLD` must restore them after itself.
 - Ashen Pact (phase 3): `RULES.ashen` has `cap` (Hearths +10, the Yard +20) and `swap`. With `swap` on, the shared type
   names (`rifle`, `barracks`, `refinery`, `harv`, ...) mean the faction's own (`FACS.ashen.sub`) everywhere: `Sim.tr_t`
   translates in `spawn_unit`, `add_building`, `count` and mission tech lists, and `req_of` drops a requirement the faction
@@ -176,6 +174,30 @@ godot --headless tests/sim_test.tscn   # must end with SIM TEST DONE and no SCRI
   `cutscene_tests()` in `tests/sim_test.gd` runs every timeline on the sim.
 - New scripts use `preload` constants, not `class_name`: the global class list comes from the installed APK's shell,
   so a class added in a self-update pack would be unknown on phones (cutscene.gd and cutscenes.gd do this).
+- Boats: `mob` is a unit's movement class (0 land, 1 water, 2 hover; three A* grids). `shore` buildings need water beside
+  them and may go on any seen bank. A finished boat is set down on the nearest open water (`Sim.roll_out`).
+- Vanguard (phase 4): `RULES.vanguard` = no power, `place: "signal"`, cap from Command. Signal comes from the Yard and
+  Signal Masts (`d.signal`, `Sim.in_signal`, `calc_signal`); a building outside it is `b.dark` (no production, no fire).
+  Prefabs take `D.AEGIS.prefab` seconds whatever they cost. Deep Drill: `d.pump`, `d.onore`, `Sim.upd_drill` kills tiles
+  and ends `b.dry`. Vehicles and aircraft are ordered at a Landing Zone (`d.pad`) and flown in (`send_dropship`,
+  `upd_dropship`; packages are units with `cargo`). Aegis shields: `sh` in a def, `e.sh`/`sh_max`/`sh_t`, `Sim.aegis`,
+  the Shield Dome (`d.dome`). Also `cloak`, `jump`, `detect`, `mark`, `pierce`, recovery beacons on wrecks.
+  `vanguard_tests()`; `AF_MODE=vanguard`. Not built from the sheet: Kite as a player transport, Engineers planting
+  Masts, the Walker crossing cliffs.
+- Hollow Choir (phase 5): `RULES.choir` = no power, no cap, `place: "hum"`, `pods`, everything made by `garden`.
+  The Hum (`d.hum` on the Yard, Gardens and the Carillon unit; `Sim.calc_hum`, `in_hum`, numbers in `D.HUM`): growths go
+  only inside it, Choir units heal and hurry there (`Sim.hum_tick`, `u.inhum`), a Wretch (`wither`) fades outside it.
+  A Garden (`grow`, `field`: roots beside live ore, anywhere seen) pays `d.rate` a second, ripens Pods (`b.pods`,
+  `Sim.take_pod` when a unit starts), spreads crystal (`spread_crystal`) and ages twice: `D.UPG.garden` then
+  `D.UPG3.garden` (`BLD3`, `b.lv` 3). `count(team, "bloom"|"cathedral")` counts aged Gardens, so forms use them as `req`.
+  The Hollowing: `Sim.risers` (set in `kill`, raised by `upd_risers`). Mutation: `mut` in a def, `u.kills`, `Sim.mutate`
+  (the unit gets its own def copy and `lv` 2, which the view shows as crystal on the model). Fusion: `fuse` in a def,
+  `Sim.fuse`, the FUSE button. Keener `cry` sets `jam_t` (no firing) and drops shields. Burster `suicide`. Weapons
+  `toll` (infantry only, round the target) and `crush`. Thornglass `thorn`. Units with `free` or `retired` are never
+  ordered. `Sim.lacks(team, type)`: the army has no stand-in for a shared type. `choir_tests()`; `AF_MODE=choir`.
+- Balance: `AF_ONLY=duel AF_A=ashen AF_B=choir AF_N=4 AF_MIN=14 godot --headless --path godot tests/sim_test.tscn` plays
+  AI against AI and prints the score. Team 0 has a small edge, so run every pairing both ways. Each faction can have
+  its own `ai_order` in `D.FACS`. Other partial runs: `AF_ONLY=vanguard|choir|choirsoak|missions|cards`.
 
 ## Unit tutorial (Guillaume 2026-11-19: "Add a full in campaign tutorial for each unit")
 - All words and rules live in `godot/scripts/tutorial_data.gd` (`CARDS`, `ENEMY`, `LESSONS`, `MISSIONS`, `TXT`), kept in one
@@ -192,7 +214,10 @@ godot --headless tests/sim_test.tscn   # must end with SIM TEST DONE and no SCRI
 - Tests: `tutorial_tests` in `tests/sim_test.gd` checks line lengths for phones and that every unit/building the player
   owns at the start of a mission has a card due by that mission (buildable ones only need a card to exist).
 - Screenshots: `AF_SHOT=dir AF_MODE=tut xvfb-run godot --path godot` (16 shots: cards, lessons, drills, manual, menus).
-- Campaigns II and III are not wired yet: `MISSIONS` only has "ashen"; `start()` does nothing for other campaigns.
+- Campaigns II and III have their own cards, enemy cards (`ENEMY.vanguard`, `ENEMY.choir`) and one pointer lesson each
+  (`signal`, `hum`). They teach only what is new in that army. An enemy card shows once per type across all campaigns
+  (`TD.enemy_card(type, camp)` picks the campaign's wording). Cards are drawn in their army's colours whatever match is
+  on (`Turntable.show_model` builds outside the model cache). `AF_MODE=cards` shoots manual pages (`AF_KEYS=a,b`).
 
 ## Audio and UI on phones
 
