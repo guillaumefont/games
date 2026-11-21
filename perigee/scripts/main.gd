@@ -29,6 +29,7 @@ const TUTORIAL_RECIPE := {"moons": 6, "rescue": true}
 const MODE_NAMES := {"twin": "Lab · Twin moons", "retro": "Lab · Retrograde", "pulsar": "Lab · Pulsars"}
 var sector: Dictionary = {} ## the Voyage sector being played
 var run_rewards: Array[Dictionary] = [] ## Medals rewards paid out at the end of the last run
+var run_ranks := {} ## Leaderboards: {board: rank} the last Drift run made (0 = not on it)
 var clear_shown := false
 var paused := false
 var resume_left := 0.0 ## > 0 while counting down to resume
@@ -78,6 +79,8 @@ func _ready() -> void:
 	hud.hangar_closed.connect(close_hangar)
 	hud.refresh_pressed.connect(refresh_game)
 	hud.menu_requested.connect(go_to_menu)
+	hud.boards_opened.connect(open_boards)
+	hud.boards_closed.connect(close_boards)
 	_apply_volumes()
 	if not save.data.tutorial_done:
 		hud.set_start_text("Tap to learn to fly")
@@ -240,7 +243,7 @@ func _bank_sparks() -> void:
 		var it := Unlocks.reward_item(r.id)
 		if not it.is_empty():
 			got.append(it)
-	save.data.sparks = before + sim.sparks_got + bonus
+	save.data.sparks = before + sim.sparks_got + sim.rush_stars + bonus
 	got.append_array(Unlocks.newly_unlocked(before, int(save.data.sparks)))
 	var names: Array[String] = []
 	for it in got:
@@ -250,6 +253,27 @@ func _bank_sparks() -> void:
 		sfx.play("star", 0.6)
 		if sim.state == "clear":
 			_popup(sim.player.x, sim.player.y - 40.0, "Unlocked: " + ", ".join(names), SAND)
+
+
+## The Drift leaderboards (local for now; see Leaderboards for the online swap).
+func boards() -> Leaderboards:
+	return Leaderboards.new(save.data.boards)
+
+
+func open_boards() -> void:
+	var lb := boards()
+	var data := {}
+	for b in Leaderboards.BOARDS:
+		data[b] = lb.top(b)
+	hud.show_boards(data, run_ranks if sim.state == "over" else {})
+
+
+func close_boards() -> void:
+	hud.hide_boards()
+	if sim.state == "over" and over_shown:
+		hud.over_card.visible = true
+	elif sim.state == "start":
+		hud.show_start(true)
 
 
 func open_settings() -> void:
@@ -338,6 +362,7 @@ func go_to_menu() -> void:
 	clear_shown = false
 	new_best = false
 	hud.hide_over()
+	hud.hide_boards()
 	hud.hide_clear()
 	hud.hide_voyage()
 	hud.set_mode("")
@@ -479,11 +504,13 @@ func _handle_events() -> void:
 			"start":
 				hud.show_start(false)
 				hud.hide_over()
+				hud.hide_boards()
 				hud.hide_clear()
 				hud.hide_voyage()
 				over_shown = false
 				clear_shown = false
 				new_best = false
+				run_ranks = {}
 				hud.set_score(0)
 				hud.set_over_unlock("")
 				# a Voyage retry replays the same layout
@@ -511,6 +538,14 @@ func _handle_events() -> void:
 					_vibrate(30)
 				_burst(e.x, e.y, _palette[e.col], 10, 55.0)
 				_vibrate(12)
+			"lap":
+				if e.star:
+					_popup(e.x, e.y - 64.0, "Speed star  %.1f s  +%d" % [e.time, e.points], SAND)
+					_burst(e.x, e.y, SAND, 28, 150.0)
+					sfx.play("star", 0.5)
+					_vibrate(25)
+				else:
+					_popup(e.x, e.y - 50.0, "%d moons in %.1f s" % [Sim.LAP_MOONS, e.time], Hud.MUTED)
 			"spark":
 				_burst(e.x, e.y, SAND, 10, 70.0)
 				_popup(e.x, e.y - 12.0, "+%d" % e.points, SAND)
@@ -570,6 +605,7 @@ func _record_run() -> void:
 	new_best = sim.score > int(save.data.best)
 	if new_best:
 		save.data.best = sim.score
+	run_ranks = boards().submit(Leaderboards.entry_of(sim))
 	save.data.runs = int(save.data.runs) + 1
 	_bank_sparks()
 	save.save_file()
@@ -585,6 +621,12 @@ func _update_hud() -> void:
 		hud.set_best(save.data.best)
 	if mode == "voyage" and not sector.is_empty():
 		hud.set_timer(sim.run_t, float(sector.par))
+	elif mode == "endless" and sim.rush_on:
+		# Drift's lap clock: the next speed star
+		if sim.state == "play":
+			hud.set_timer(sim.lap_time(), Sim.LAP_PAR, "Lap %d" % (sim.laps + 1))
+		else:
+			hud.set_timer(0.0, 0.0)
 	if sim.state == "over" and not over_shown and sim.t - sim.death_t >= Sim.RESTART_LOCK:
 		over_shown = true
 		hud.set_over_row(mode == "voyage")
@@ -596,8 +638,13 @@ func _update_hud() -> void:
 			if won > 0:
 				txt += "  ·  +%d sparks" % won
 			hud.set_over_medal(tier, txt + ("  ·  " + nxt if nxt != "" else ""))
+			var rs := sim.rush_stars
+			var rtxt := ("%d speed %s  ·  +%d %s" % [rs, "star" if rs == 1 else "stars", rs, "spark" if rs == 1 else "sparks"]) \
+				if rs > 0 else "No speed star: %d moons in under %d s" % [Sim.LAP_MOONS, int(Sim.LAP_PAR)]
+			hud.set_over_rush(rs, rtxt, Leaderboards.ranks_text(run_ranks))
 		else:
 			hud.set_over_medal(-1, "")
+			hud.set_over_rush(-1, "", "")
 		var line := ("Moon %d of %d" % [mini(sim.hops, sector.moons), sector.moons]) if mode == "voyage" else ""
 		hud.show_over(sim.score, sim.death_why, save.data.best, new_best, _run_stats(), line)
 	if mode == "tutorial" and sim.state == "clear" and not clear_shown and sim.t - sim.death_t >= 0.6:

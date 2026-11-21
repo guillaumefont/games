@@ -430,6 +430,39 @@ func _initialize() -> void:
 	d.release()
 	check(d.player.planet != null, "the restart tap does not fling")
 
+	# --- Rush: speed stars for fast laps of LAP_MOONS moons (Drift only) ---
+	var ru := Sim.new(3, 400, 700)
+	ru.new_run(3)
+	check(ru.rush_on, "Drift (an empty recipe) runs the lap clock")
+	ru.hops = Sim.LAP_MOONS
+	ru.run_t = 12.0
+	ru.score = 100
+	ru.events.clear()
+	ru._check_lap(0.0, 0.0)
+	var lap_e: Dictionary = ru.events[0] if not ru.events.is_empty() else {}
+	var fast_pts := Sim.RUSH_POINTS + Sim.RUSH_PER_SECOND * 6
+	check(lap_e.get("type", "") == "lap" and lap_e.star and lap_e.points == fast_pts and ru.score == 100 + fast_pts
+		and ru.rush_stars == 1 and ru.laps == 1, "10 moons in 12 s wins a speed star and %d points (%s)" % [fast_pts, lap_e])
+	ru.events.clear()
+	ru.hops = 2 * Sim.LAP_MOONS - 1
+	ru._check_lap(0.0, 0.0)
+	check(ru.events.is_empty() and ru.laps == 1, "no lap ends before its last moon")
+	ru.hops = 2 * Sim.LAP_MOONS + 2 # a leap past the lap's last moon still ends it
+	ru.run_t = 12.0 + Sim.LAP_PAR + 0.5
+	ru._check_lap(0.0, 0.0)
+	lap_e = ru.events[0] if not ru.events.is_empty() else {}
+	check(lap_e.get("star", true) == false and ru.rush_stars == 1 and ru.score == 100 + fast_pts and ru.laps == 2,
+		"a lap over par ends without a star or points (%s)" % [lap_e])
+	check(is_equal_approx(ru.lap_time(), 0.0) and is_equal_approx(ru.lap_start, ru.run_t), "the next lap's clock starts at once")
+	var lab := Sim.new(3, 400, 700)
+	lab.recipe = {"mix": {"moon": 1.0, "twin": 2.0}}
+	lab.new_run(3)
+	check(not lab.rush_on, "lab and Voyage runs have no lap clock")
+	# a whole bot run: laps follow the moons reached, and every star paid its points
+	var rb: Sim = bot_run(11, 120 * 90, true)[0]
+	check(rb.laps == rb.hops / Sim.LAP_MOONS and rb.rush_stars <= rb.laps and rb.laps >= 2,
+		"the bot's run ends %d laps for %d moons, %d under par" % [rb.laps, rb.hops, rb.rush_stars])
+
 	if fails:
 		print("%d check(s) failed" % fails)
 		quit(1)

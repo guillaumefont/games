@@ -109,6 +109,16 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   play: purchases must never earn, upgrade or skip a medal or reward, and a future double-sparks purchase must not
   double reward sparks. `voyage_test.gd` checks the bot wins
   speed gold and points silver in every sector, so rerun `par_times.gd` after changing a sector.
+- Rush and the Drift boards (Guillaume, 2026-11-21: boards for "the further you can go" and "the most points", plus
+  "find a way to reward fast runs"). Rush is in `sim.gd`, Drift only (`rush_on` = an empty recipe): every
+  `Sim.LAP_MOONS` (10) moons is a lap on a clock shown under the score ("Lap 3 · 7.2 s · par 18 s"); a lap within
+  `Sim.LAP_PAR` (18 s) wins a speed star, `RUSH_POINTS` + `RUSH_PER_SECOND` per whole second to spare, and one bonus
+  spark (`main._bank_sparks()` adds `sim.rush_stars`). Leaps count their skipped moons, so shortcuts are the way to
+  very fast laps. The par is a first guess from `tools/drift_pace.gd` (the bot averages ~16 s a lap). The boards are
+  `scripts/leaderboards.gd`: "Farthest" (moons reached) and "Top score", best 10 each in `save.data.boards`, each entry
+  badged with its speed stars, perigees and leaps. Only Drift runs are entered (not lab, Voyage or the tutorial).
+  They are local for now; online boards should subclass `Leaderboards` (override `submit()`/`top()`) so the HUD and
+  main.gd don't change. Purchases must never touch an entry, a speed star or a lap par.
 - Audio is original and generated: `tools/audio/compose.py` (numpy + ffmpeg) writes the music track and every
   sound effect to `audio/` as Ogg. Edit the script and rerun it rather than editing the files; keep the effects in
   D major pentatonic so they sit on the music. The music loops through `loop=true` in its `.import` file (a looping
@@ -156,8 +166,9 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
 - `tests/sim_test.gd` (rules: bot, replay, difficulty ramp, momentum, game over), `tests/game_test.gd`
   (scene: input, HUD, save, pause/resume, settings) and `tests/voyage_test.gd` (sectors, stars, unlocks, Voyage
   screens) `tests/onboarding_test.gd` (tutorial, settings), `tests/unlocks_test.gd` (unlock track, hangar) and
-  `tests/update_test.gd` (self-update: pack download and checks, APK offer, Play build) run in `perigee-test.yml` (check "Perigee headless test").
-  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` last; CI greps for it. A new test file gets a step there.
+  `tests/update_test.gd` (self-update: pack download and checks, APK offer, Play build) and `tests/boards_test.gd`
+  (Drift boards, speed stars on the game over card) run in `perigee-test.yml` (check "Perigee headless test").
+  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` / `BOARDS TEST DONE` last; CI greps for it. A new test file gets a step there.
 - `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
 - Every change comes with a test of what it should do; a bug fix gets a regression test.
 - Screenshots of the Godot game for reviews: `tools/screenshots.gd` (see README).
