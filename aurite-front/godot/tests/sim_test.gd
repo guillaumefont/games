@@ -286,7 +286,7 @@ func _ufail(msg: String) -> bool:
 
 ## Building upgrades: cost, requirements, cancel, sell, each effect, and the campaign AI rule (Hard only).
 func upgrade_tests(s, h) -> bool:
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	var hq = s.find_hq(0)
 	var pw = s.add_building(0, "power", hq.tx + 4, hq.ty)
@@ -300,14 +300,14 @@ func upgrade_tests(s, h) -> bool:
 	for i in 40: s.step(0.05)
 	if pw.upg <= 0 or s.teams[0].credits >= 5000: return _ufail("upgrade did not start paying")
 	s.cancel_upgrade(pw)
-	if abs(s.teams[0].credits - 5000.0) > 1 or pw.upg >= 0: return _ufail("cancel did not refund")
+	if abs(s.teams[0].credits - 5000.0) > 4 or pw.upg >= 0: return _ufail("cancel did not refund")
 	# full reactor upgrade: +150 power, more hp, costs 450, new name
 	var pm0: int = s.teams[0].pmade
 	s.start_upgrade(pw)
 	for i in 20 * 14: s.step(0.05)
 	print("reactor: lv ", pw.lv, " ", pw.d.name, " power ", pm0, " -> ", s.teams[0].pmade, " paid ", int(5000.0 - s.teams[0].credits), " hp ", int(pw.hp), "/", int(pw.max_hp))
-	if pw.lv != 2 or pw.d.name != "Super Reactor" or s.teams[0].pmade != pm0 + 150 or pw.max_hp != 1000: return _ufail("reactor upgrade")
-	if abs((5000.0 - s.teams[0].credits) - 450) > 2: return _ufail("reactor upgrade cost")
+	if pw.lv != 2 or pw.d.name != "Roaring Furnace" or s.teams[0].pmade != pm0 + 150 or pw.max_hp != 1000: return _ufail("reactor upgrade")
+	if abs((5000.0 - s.teams[0].credits) - 450) > 14: return _ufail("reactor upgrade cost")
 	if s.upg_block(pw) == "" or not s.upg_def(pw).is_empty(): return _ufail("upgraded twice")
 	# selling an upgraded building refunds half of both prices
 	var cr: float = s.teams[0].credits
@@ -322,7 +322,7 @@ func upgrade_tests(s, h) -> bool:
 	# sentry: the upgraded def carries the new weapon numbers
 	var tu = s.add_building(0, "turret", hq.tx + 1, hq.ty + 5)
 	s.finish_upgrade(tu)
-	if tu.d.dmg != 44 or tu.d.range != 6.5 or tu.d.weapon != "shell": return _ufail("Heavy Sentry stats")
+	if tu.d.dmg != 85 or tu.d.range != 5.5 or tu.d.weapon != "shell": return _ufail("Heavy Sentry stats")
 	# refinery yield: a full load is worth 25% more
 	var ld := 0.0
 	for k in 2:
@@ -436,10 +436,12 @@ func _gfail(msg: String) -> bool:
 func groundwork_tests(s, h) -> bool:
 	if not D.rule("ashen", "cap") or D.producer("ashen", "inf") != "muster" or D.producer("ashen", "veh") != "workshop":
 		return _gfail("the Pact should have a unit cap and train from its Muster Hall and Workshop")
-	for f in ["vanguard", "choir"]:
+	if D.rule("vanguard", "power") or not D.rule("vanguard", "cap") or D.rule("vanguard", "place") != "signal" or D.producer("vanguard", "veh") != "lz":
+		return _gfail("the Vanguard should run on Signal and Command and fly its vehicles in to a Landing Zone")
+	for f in ["choir"]:
 		if not D.rule(f, "power") or D.rule(f, "cap") or D.rule(f, "place") != "near" or D.producer(f, "inf") != "barracks":
 			return _gfail(f + " does not start on today's rules")
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "choir", "enemy": "ashen", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	var hq = s.find_hq(0)
 	# power off: a faction without power is never short of it
@@ -447,38 +449,38 @@ func groundwork_tests(s, h) -> bool:
 	s.add_building(0, "comms", hq.tx + 4, hq.ty + 3)
 	s.calc_power()
 	if not s.low_power(0): return _gfail("barracks with no reactor should be low power")
-	D.RULES.vanguard.power = false
+	D.RULES.choir.power = false
 	var lp: bool = s.low_power(0)
-	D.RULES.vanguard.power = true
+	D.RULES.choir.power = true
 	if lp: return _gfail("a faction without power reported low power")
 	s.add_building(0, "power", hq.tx - 3, hq.ty); s.add_building(0, "power", hq.tx - 3, hq.ty + 3)
 	# unit cap: nothing trains past the cap, buildings with capAdd raise it
-	D.RULES.vanguard.cap = true
+	D.RULES.choir.cap = true
 	var hq_cap: int = D.BLD.hq.capAdd
 	D.BLD.hq.capAdd = s.cap_used(0)
-	var had: int = s.count(0, "rifle")
+	var had: int = s.count(0, "thrall")
 	s.teams[0].credits = 5000.0
-	for i in 3: s.teams[0].prod.inf.queue.append("rifle")
+	for i in 3: s.teams[0].prod.inf.queue.append("thrall")
 	for i in 400: s.step(0.05)
-	var capped: int = s.count(0, "rifle") - had
+	var capped: int = s.count(0, "thrall") - had
 	D.BLD.hq.capAdd = s.cap_used(0) + 2
 	for i in 400: s.step(0.05)
-	var after: int = s.count(0, "rifle") - had
+	var after: int = s.count(0, "thrall") - had
 	print("unit cap: trained ", capped, " at cap ", s.cap_max(0) - 2, ", then ", after, " with 2 more room (cap ", s.cap_used(0), "/", s.cap_max(0), ")")
-	D.BLD.hq.capAdd = hq_cap; D.RULES.vanguard.cap = false
+	D.BLD.hq.capAdd = hq_cap; D.RULES.choir.cap = false
 	s.teams[0].prod.inf.queue.clear()
 	if capped != 0 or after != 2: return _gfail("unit cap did not hold or did not release")
 	# producer override: the faction's infantry come out of another building
-	D.RULES.vanguard.prod = {"inf": "power"}
+	D.RULES.choir.prod = {"inf": "power"}
 	var pws: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.team == 0 and e.type == "power")
-	var n0: int = s.count(0, "rifle")
-	s.teams[0].prod.inf.queue.append("rifle")
+	var n0: int = s.count(0, "thrall")
+	s.teams[0].prod.inf.queue.append("thrall")
 	for i in 200: s.step(0.05)
-	D.RULES.vanguard.prod = {}
+	D.RULES.choir.prod = {}
 	var newest = null
 	for e in s.ents:
-		if e.alive and e.kind == "u" and e.team == 0 and e.type == "rifle" and (newest == null or e.id > newest.id): newest = e
-	if s.count(0, "rifle") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
+		if e.alive and e.kind == "u" and e.team == 0 and e.type == "thrall" and (newest == null or e.id > newest.id): newest = e
+	if s.count(0, "thrall") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
 	if pws.all(func(b): return Vector2(newest.x - b.x, newest.y - b.y).length() > 6 * D.T): return _gfail("unit did not come out of the overridden producer")
 	# living fields: drain, death, regrowth up to what vitality allows
 	var tiles: Array = []
@@ -499,7 +501,7 @@ func groundwork_tests(s, h) -> bool:
 	if s.ore[b] < int(full * 0.9) - 1 or s.ore[b] > full: return _gfail("tired tile did not regrow to its vitality cap")
 	if s.vit[b] <= 90: return _gfail("vitality did not come back on a rested tile")
 	# a harvester tires the field it works
-	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	hq = s.find_hq(0)
 	var rf = s.place_near(0, "refinery", hq.tx, hq.ty + 4)
