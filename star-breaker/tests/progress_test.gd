@@ -57,7 +57,7 @@ func _initialize() -> void:
 	check(q.total() == 3 and q.unlocked("w1s1", 1) and q.paint_of("lance").id == "ember", "progress and colours survive a save and load")
 	check(Progress.max_total() == VStage.STAGES.size() * 12, "each stage holds 12 medals (4 on each of 3 tiers)")
 
-	# --- stage order: a stage opens once the one before it is cleared, on each tier ---
+	# --- stage order: Normal opens stage by stage; a higher tier opens on a stage cleared on the tier below ---
 	var o := Progress.new()
 	check(o.open(0, 0) and not o.open(1, 0), "a new save has only the first stage open")
 	check(o.next_stage(0) == 0 and o.next_stage(1) == -1, "the next stage is the first one; nothing is open on Nova yet")
@@ -67,10 +67,13 @@ func _initialize() -> void:
 	check(o.open(1, 0) and r.unlocked_next == 1, "clearing a stage without medals opens the next one")
 	check(o.open(0, 1) and not o.open(1, 1), "Nova: stage 1 opens, stage 2 still needs Normal stage 2")
 	o.record("w1s2", 0, true, [])
-	check(not o.open(1, 1), "Nova stage 2 also needs Nova stage 1")
-	o.record("w1s1", 1, true, [])
-	check(o.open(1, 1) and not o.open(2, 1) and o.next_stage(1) == 1, "Nova stage 2 opens after Nova stage 1 and Normal stage 2")
-	check(not o.open(2, 2), "Supernova follows its own chain")
+	check(o.open(1, 1) and not o.open(2, 1), "Nova stage 2 opens with Normal stage 2, without Nova stage 1")
+	check(o.next_stage(1) == 0, "Nova's next stage is its first uncleared open one")
+	check(not o.open(1, 2), "Supernova stage 2 needs Nova stage 2")
+	o.record("w1s2", 1, true, [])
+	check(o.open(1, 2) and not o.open(0, 2), "Supernova stage 2 opens with Nova stage 2, without Supernova stage 1")
+	r = o.record("w1s2", 2, true, [])
+	check(r.unlocked_next == -1 and not o.open(2, 2), "clearing a high tier doesn't open the next stage on it")
 	for k in range(2, 8):
 		o.record("w1s%d" % (k + 1), 0, true, [])
 	check(o.open(8, 0) and not o.open(9, 0) and o.next_stage(0) == 8, "clearing world 1's boss opens world 2")
@@ -81,7 +84,9 @@ func _initialize() -> void:
 	old.stages = {w1s1 = {m = [0, 0, 0], c = 1}, w1s5 = {m = [0, 0, 0], c = 1}}
 	check(old.open(3, 0) and old.open(4, 0) and old.open(5, 0) and not old.open(6, 0), "an old save keeps every stage up to its furthest clear and the one after it")
 	check(old.next_stage(0) == 1, "an old save's next stage is the first gap")
-	check(not old.open(4, 1), "but Nova still needs the stage cleared on Normal")
+	check(old.open(4, 1) and not old.open(3, 1), "but Nova still needs the stage cleared on Normal")
+	old.stages["w1s7"] = {m = [0, 0, 0], c = 2}
+	check(old.open(6, 1), "a stage an old save cleared on Nova stays open on Nova")
 
 	# --- in the game ---
 	vg = load("res://scenes/main.tscn").instantiate()
@@ -144,9 +149,13 @@ func _initialize() -> void:
 	vg.hud.pick_tier(1)
 	check(vg.hud.tier == 1 and vg.hud._sheet_play.text == "PLAY ON NOVA", "the tier is picked on the panel")
 	vg.hud.open_stage(5)
+	check(vg.hud.tier == 1, "Nova is open on any stage cleared on Normal, even past the last Nova clear")
+	vg.hud.pick_tier(2)
+	check(vg.hud.tier == 1 and vg.hud._sheet_note.text.contains("ON NOVA FIRST"), "Supernova there asks for this stage on Nova")
+	vg.hud.open_stage(8)
 	check(vg.hud.tier == 0, "a stage not open on that tier falls back to the highest one it has")
-	vg.hud.pick_tier(1)
-	check(vg.hud.tier == 0, "and Nova stays shut there")
+	vg.hud.pick_tier(2)
+	check(vg.hud.tier == 0 and vg.hud._sheet_note.text.contains("NORMAL, THEN NOVA"), "and Supernova there says to clear Normal, then Nova")
 	vg.hud.open_stage(2)
 	vg.hud.pick_tier(1)
 	vg.hud._sheet_play.pressed.emit()

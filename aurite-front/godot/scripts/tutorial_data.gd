@@ -1,7 +1,8 @@
 extends RefCounted
 ## In-campaign tutorial text and rules: unit cards, enemy cards, pointer lessons and drills, mission by mission.
 ## All tutorial words live here (ready for translation later). Approved by Guillaume on 2026-11-20
-## ("Aurite Front: unit tutorial script"). Campaign I only for now; II and III follow in their own PR.
+## ("Aurite Front: unit tutorial script"). Campaign I cards were rewritten for the Pact roster in the faction redesign
+## (decided 2026-11-21: merge the tutorial first, update its cards in the Pact phase). II and III follow in their own PR.
 ##
 ## Limits checked by tests/sim_test.gd tutorial_tests(): job and tip at most 60 characters, a speaker line at most 64,
 ## a lesson hint at most 60.
@@ -12,32 +13,42 @@ extends RefCounted
 ##   builds the thing; from that mission on it shows as soon as the player has one.
 const CARDS := {
 	# ---- campaign I, mission 1: Smoke on the River
-	"vey": {"job": "Hero with an arc rifle. If she falls, you lose.", "tip": "Keep a Medic close to her",
+	"vey": {"job": "Hero with an arc rifle. If she falls, you lose.", "tip": "Keep the Medic close to her",
 		"who": "foreman", "say": "That's Vey. Keep her breathing or we all go home.", "home": ["ashen", 0]},
-	"rifle": {"job": "Cheap all-round infantry. Fires at aircraft too.", "tip": "Double-tap one to select them all",
-		"who": "vey", "say": "Riflemen. Cheap, cheerful, and they shoot at the sky.", "home": ["ashen", 0]},
+	"militia": {"job": "Cheap town militia. Fires at aircraft too.", "tip": "Double-tap one to select them all",
+		"who": "vey", "say": "Militia. Foundry hands with rifles. They'll stand.", "home": ["ashen", 0]},
 	"pyro": {"job": "Short-range flamer. Clears infantry fast.", "tip": "Get close: its reach is barely two tiles",
 		"who": "foreman", "say": "Pyros! Point them at soldiers, not at tanks.", "home": ["ashen", 0]},
-	"medic": {"job": "Heals nearby infantry. Carries no weapon.", "tip": "Keep it just behind the front line", "gw": "Heals infantry only, not vehicles",
+	"medic": {"job": "A town doctor. Heals nearby infantry.", "tip": "Keep her just behind the front line", "gw": "Heals infantry only, not vehicles",
 		"who": "vey", "say": "Doc stays behind me. Nobody bleeds out on my hill.", "home": ["ashen", 0]},
 	# ---- mission 2: Kettleford
-	"lancer": {"job": "Rocket trooper. Cracks tanks, swats aircraft.", "tip": "Mix with Riflemen so infantry can't rush them",
-		"who": "foreman", "say": "Lancers! Rockets for tanks. Keep them off rifles.", "home": ["ashen", 1]},
-	"raider": {"job": "Fast gun bike. Hits and runs.", "tip": "Strike, then pull back before tanks arrive",
-		"who": "brann", "say": "Fastest thing on wheels. Don't park it by a tank.", "home": ["ashen", 1]},
-	"turret": {"job": "Cannon turret. Guards the base from vehicles.", "tip": "Put it where enemies come in, behind Barriers",
-		"who": "foreman", "say": "Sentry's up! Loves tanks. Infantry, not so much.", "home": ["ashen", 1]},
+	"grenadier": {"job": "Lobs pipe bombs over cover. Cracks buildings.", "tip": "Keep enemies at range: it can't fire up close",
+		"who": "foreman", "say": "Grenadiers! Duck when they wind up, boss.", "home": ["ashen", 1]},
+	"raider": {"job": "Fast bike. Rams infantry flat as it passes.", "tip": "Drive it through a squad, then away",
+		"who": "brann", "say": "Fastest thing on wheels. Aim it at their boots.", "home": ["ashen", 1]},
+	"boars": {"job": "Pack of three war boars. Charge, gore, knock down.", "tip": "Rest them between fights: the charge comes back",
+		"who": "vey", "say": "Slag Boars. Don't stand in front of them. Ever.", "home": ["ashen", 1]},
+	"hammer": {"job": "Short fat cannon. Guards the base from vehicles.", "tip": "Put it where enemies come in, behind Barriers",
+		"who": "foreman", "say": "Hammer Gun's up! Loves tanks. Infantry, not so much.", "home": ["ashen", 1]},
 	"wall": {"name": "Barrier", "job": "Four wall pieces per purchase. Blocks and funnels.", "tip": "Tap the map four times to lay all four", "gw": "No weapon",
 		"who": "vey", "say": "Walls don't win fights. They pick where fights happen.", "home": ["ashen", 1]},
-	# ---- mission 3: Dust and Ore
-	"refinery": {"job": "Turns aurite into money. Comes with a Harvester.", "tip": "Build it close to an ore field", "gw": "No weapon",
+	"hearth": {"job": "Houses your army: +10 units. Can muster Militia.", "tip": "Tap MUSTER once a battle: 3 free Militia each", "gw": "No weapon",
+		"who": "foreman", "say": "No Hearth, no bunks, no army. Build more, boss!", "home": ["ashen", 1]},
+	"smelter": {"job": "Turns aurite into money. Comes with a Crawler.", "tip": "Build it close to an ore field", "gw": "No weapon",
 		"who": "brann", "say": "Short trips, fat profits. Build it by the ore.", "home": ["ashen", 1]},
-	"harv": {"job": "Mines aurite and hauls it home. No gun.", "tip": "Tap aurite to send it mining", "gw": "No weapon, heavy armour",
-		"who": "brann", "say": "My harvesters. Scratch the paint, I scratch you.", "home": ["ashen", 1]},
-	"factory": {"job": "Builds vehicles. Needs a Refinery.", "tip": "Select it and tap the map to set a rally", "gw": "No weapon",
-		"who": "brann", "say": "The factory's warm. Let's make something heavy.", "home": ["ashen", 2]},
-	"scorpion": {"job": "Pact battle tank. Quick for its weight.", "tip": "Send infantry with it to handle rifles",
-		"who": "vey", "say": "Scorpions bite tanks. Bring rifles for the infantry.", "home": ["ashen", 2]},
+	"crawler": {"job": "Slow armoured miner. Hauls aurite home. No gun.", "tip": "Tap aurite to send it mining", "gw": "No weapon, heavy armour",
+		"who": "brann", "say": "My Crawlers. Scratch the paint, I scratch you.", "home": ["ashen", 1]},
+	"workshop": {"job": "Builds vehicles. Needs a Smelter.", "tip": "Select it and tap the map to set a rally", "gw": "No weapon",
+		"who": "brann", "say": "The Workshop's warm. Let's make something heavy.", "home": ["ashen", 1]},
+	# ---- mission 3: Dust and Ore
+	"scorpion": {"job": "Pact battle tank. Slow, thick, hits like a hammer.", "tip": "Send infantry with it to handle rifles",
+		"who": "vey", "say": "Anvils. Slow as a funeral, twice as final.", "home": ["ashen", 2]},
+	"anvilf": {"name": "Anvil Tank (flamer)", "job": "Anvil with a flamer kit. Burns out infantry.", "tip": "Lead into trenches and towns",
+		"who": "brann", "say": "Same Anvil, new kit. Bolt it on, light it up.", "home": ["ashen", 2]},
+	"brute": {"job": "Big man in plate. Rifle fire barely scratches him.", "tip": "Walk them in front of your Militia",
+		"who": "foreman", "say": "Rivet Brutes! Bullets bounce, boss. Rockets don't.", "home": ["ashen", 2]},
+	"kettle": {"job": "Boiler on tracks. Smashes buildings, nothing else.", "tip": "Escort it to the walls, then let it knock",
+		"who": "brann", "say": "The Kettle doesn't shoot. It knocks. Once.", "home": ["ashen", 2]},
 	# ---- mission 4: Refugee Road
 	"truck": {"job": "Carries the families. No gun. Two must arrive.", "tip": "Clear the road first, then move the trucks", "gw": "No weapon, heavy armour",
 		"who": "vey", "say": "Every truck is forty people. Guard it like it's me.", "home": ["ashen", 3]},
@@ -46,34 +57,36 @@ const CARDS := {
 	# ---- mission 5: Ironpine Pass
 	"flak": {"job": "Anti-air guns. Shreds aircraft, ignores the ground.", "tip": "Build two so they cover each other", "gw": "Hits aircraft only",
 		"who": "foreman", "say": "Flak Nest! Gunships hate it. Tanks don't care.", "home": ["ashen", 4]},
-	"arty": {"job": "Long-range mortar. Lobs shells over hills.", "tip": "Keep it behind the wall, out of reach",
+	"howler": {"job": "Siege mortar. Lobs huge shells over hills.", "tip": "Keep it behind the wall, out of reach",
 		"gw": "Good: buildings, splash · Cannot fire up close or at aircraft",
-		"who": "brann", "say": "The Howler. Lobs a shell over any hill you like.", "home": ["ashen", 4]},
-	"repair": {"job": "Fixes vehicles parked beside it, for aurite.", "tip": "Select hurt tanks, then tap the Bay", "gw": "No weapon",
-		"who": "brann", "say": "Bring them back dented. I send them out shiny.", "home": ["ashen", 4]},
-	"l_upgrades": {"name": "Upgrades", "job": "Select a building, tap UPGRADE. It keeps working.", "tip": "A Heavy Sentry hits harder and reaches further", "gw": "",
-		"who": "brann", "say": "Same Sentry, two barrels. Pay me and watch.", "home": ["ashen", 4], "glyph": "up"},
+		"who": "brann", "say": "The Big Howler. Lobs a shell over any hill you like.", "home": ["ashen", 4]},
+	"l_upgrades": {"name": "Upgrades", "job": "Select a building, tap UPGRADE. It keeps working.", "tip": "A Sledge Gun hits harder and reaches further", "gw": "",
+		"who": "brann", "say": "Same Hammer, bigger head. Pay me and watch.", "home": ["ashen", 4], "glyph": "up"},
 	# ---- mission 6: Silent Wires
-	"engineer": {"job": "Captures enemy buildings, fully fixes yours.", "tip": "Select it, then tap the building", "gw": "No weapon · Used up when it does the job",
-		"who": "vey", "say": "Engineers walk in, the building's ours. Cover them.", "home": ["ashen", 5]},
+	"scrapper": {"job": "Revives wrecks or strips them. Welds vehicles.", "tip": "Tap a fresh wreck to rebuild it for your side", "gw": "No weapon · Captures enemy buildings (used up)",
+		"who": "brann", "say": "Nothing's dead till my Scrappers say so.", "home": ["ashen", 5]},
 	"furnace": {"job": "Brann's hero tank. Arc cannon, huge armour.", "tip": "Lead with it: it soaks what others can't",
 		"who": "brann", "say": "Slow to start, slower to stop. Just point her.", "home": ["ashen", 5]},
-	"comms": {"job": "Radar mast. Sees far, unlocks advanced tech.", "tip": "Unlocks Pyros, the Helipad, the top upgrades", "gw": "No weapon",
-		"who": "foreman", "say": "Our own mast! Now we hear everything too.", "home": ["ashen", 5]},
 	# ---- mission 7: The Iron Saint
-	"helipad": {"job": "Builds aircraft. Needs a Comms Array.", "tip": "Set its rally away from enemy flak", "gw": "No weapon",
-		"who": "brann", "say": "A pad for the drones. Mind your heads.", "home": ["ashen", 6]},
-	"wasp": {"job": "Fast gun drone. Scouts and hunts infantry.", "tip": "Send it ahead to look before the army moves",
-		"who": "foreman", "say": "Wasps! Fast, nosy, and they bite infantry.", "home": ["ashen", 6]},
-	"tech": {"job": "Unlocks the Pact's best weapons.", "tip": "Build a Reactor first", "gw": "No weapon · Uses 60 power",
-		"who": "brann", "say": "My Tech Lab. Don't touch anything that glows.", "home": ["ashen", 6]},
-	"arcc": {"job": "Heavy arc tank. Strong against almost all.", "tip": "Slow: escort it with Lancers",
+	"works": {"name": "Old Works", "job": "Pre-war foundry. Unlocks the Pact's best weapons.", "tip": "Build a Furnace first", "gw": "No weapon · Uses 60 power",
+		"who": "brann", "say": "The Old Works. Don't touch anything that glows.", "home": ["ashen", 6]},
+	"mast": {"job": "Builds aircraft. Needs the Old Works.", "tip": "Set its rally away from enemy flak", "gw": "No weapon",
+		"who": "brann", "say": "A mast for the gyros. Mind your heads.", "home": ["ashen", 6]},
+	"gyro": {"job": "Heavy gyrocopter with a cannon. Hits the ground.", "tip": "Send it ahead to look before the army moves",
+		"who": "foreman", "say": "Gyro Hammers! Loud, slow, and they bite tanks.", "home": ["ashen", 6]},
+	"arcc": {"job": "Heavy arc tank. Strong against almost all.", "tip": "Slow: escort it with Grenadiers",
 		"who": "vey", "say": "Lightning on tracks. Point them at the Saint.", "home": ["ashen", 6]},
-	"pylon": {"job": "Arc tower. Deadly, but dark without power.", "tip": "Keep spare power or it shuts off",
-		"who": "brann", "say": "Pylons drink power. Low power, no lightning.", "home": ["ashen", 6]},
+	"anvila": {"name": "Anvil Tank (arc coil)", "job": "Anvil with an arc coil. Chains between targets.", "tip": "Best into packed infantry",
+		"who": "brann", "say": "Arc kit's done. Mind the hair on your arms.", "home": ["ashen", 6]},
+	"pylon": {"job": "Arc tower. Deadly, but dark without power.", "tip": "Keep your Furnaces fed or it shuts off",
+		"who": "brann", "say": "Pylons drink power. Cold Furnace, no lightning.", "home": ["ashen", 6]},
 	# ---- mission 8: Embers
 	"rift": {"job": "Superweapon. Charges 4 minutes, tears a hole.", "tip": "Select it, tap LAUNCH, then tap the target", "gw": "Hits everything in a wide circle",
 		"who": "foreman", "say": "Rift's charged! Pick something big, boss.", "home": ["ashen", 7]},
+	"jugg": {"name": "Foundry Juggernaut", "job": "A rolling foundry. Two big guns, side flamers.", "tip": "Only one at a time: keep it alive",
+		"who": "brann", "say": "She's the whole foundry on tracks. Don't lose her.", "home": ["ashen", 7]},
+	"zeppelin": {"job": "Slow airship. Drops firebombs on what's below.", "tip": "Clear their flak first, then send it",
+		"who": "vey", "say": "The Zeppelin's up. Everybody look busy below it.", "home": ["ashen", 7]},
 }
 
 ## Enemy cards ("Know your enemy"): shown once, the first time that enemy type is in sight. They do not pause.
@@ -105,18 +118,19 @@ const LESSONS := {
 	"controls": {"who": "foreman", "steps": [
 		{"hint": "Tap Vey to select her", "say": "Tap the lady with the goggles, boss.", "ptr": {"hero": true}, "done": {"ev": "select", "hero": true}},
 		{"hint": "Tap the ground to move", "say": "Now tap where you want her. Simple!", "ptr": {"ahead": true}, "done": {"ev": "move"}},
-		{"hint": "Hold, then drag over the squad to select it", "say": "Hold your finger, then drag. Grab the lot!", "ptr": {"unit": "rifle"}, "done": {"ev": "box"}},
+		{"hint": "Hold, then drag over the squad to select it", "say": "Hold your finger, then drag. Grab the lot!", "ptr": {"unit": "militia"}, "done": {"ev": "box"}},
 		{"hint": "Tap an enemy to attack", "say": "That's a Vanguard picket. Tap it. Hard.", "ptr": {"enemy": true}, "done": {"ev": "attack"}, "when": "enemy_seen"},
-		{"hint": "Double-tap a unit to pick every one of its type", "say": "Double-tap a rifle, get all the rifles.", "ptr": {"unit": "rifle"}, "done": {"ev": "dbl"}},
+		{"hint": "Double-tap a unit to pick every one of its type", "say": "Double-tap a rifle, get all the rifles.", "ptr": {"unit": "militia"}, "done": {"ev": "dbl"}},
 		{"hint": "Drag to look around, pinch to zoom", "say": "Drag the map to look about. Pinch for close-ups.", "ptr": {"view": true}, "done": {"ev": "cam"}},
 	]},
 	"base": {"who": "foreman", "steps": [
-		{"hint": "Every building needs power. Reactors make it", "say": "See the power bar? Keep it green, boss.", "ptr": {"ui": "power"}, "done": {"t": 7.0}},
-		{"hint": "Tap a building to start it", "say": "Tap the War Factory. Brann's lads do the rest.", "ptr": {"item": "bld:factory"}, "done": {"ev": "order", "type": "factory"}, "skip_if": "factory"},
-		{"hint": "When it is ready, drag it onto the map", "say": "It's ready! Drag it out where you want it.", "ptr": {"item": "bld:factory"}, "done": {"ev": "placing"}, "when": "bld_ready", "skip_if": "factory"},
-		{"hint": "Tap it to build there", "say": "Tap it again to drop it. Bang. Factory.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "factory"}, "skip_if": "factory"},
-		{"hint": "Select the Barracks, tap the map: rally point", "say": "Pick the Barracks, tap the map. Recruits go there.", "ptr": {"bld": "barracks"}, "done": {"ev": "rally"}},
-		{"hint": "Hold a unit button to queue five", "say": "Hold the button to order five at once!", "ptr": {"item": "inf:rifle"}, "done": {"ev": "queue5"}},
+		{"hint": "Furnaces burn aurite to make power", "say": "See the power bar? Feed the Furnaces, keep it green.", "ptr": {"ui": "power"}, "done": {"t": 7.0}},
+		{"hint": "Hearths house your army. Watch UNITS", "say": "Out of bunks, no more troops. Build a Hearth, boss.", "ptr": {"ui": "power"}, "done": {"t": 7.0}},
+		{"hint": "Tap a building to start it", "say": "Tap the Workshop. Brann's lads do the rest.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "order", "type": "workshop"}, "skip_if": "workshop"},
+		{"hint": "When it is ready, drag it onto the map", "say": "It's ready! Drag it out where you want it.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "placing"}, "when": "bld_ready", "skip_if": "workshop"},
+		{"hint": "Tap it to build there", "say": "Tap it again to drop it. Bang. Workshop.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "workshop"}, "skip_if": "workshop"},
+		{"hint": "Select the Muster Hall, tap the map: rally", "say": "Pick the Muster Hall, tap the map. Recruits go there.", "ptr": {"bld": "muster"}, "done": {"ev": "rally"}},
+		{"hint": "Hold a unit button to queue five", "say": "Hold the button to order five at once!", "ptr": {"item": "inf:militia"}, "done": {"ev": "queue5"}},
 	]},
 	"launch": {"who": "foreman", "steps": [
 		{"hint": "Tap LAUNCH", "say": "", "ptr": {"ui": "sw"}, "done": {"ev": "aim"}, "when": "sw_ready"},
@@ -128,7 +142,7 @@ const LESSONS := {
 ## Drill: text, check (see Tutor._drill_check), ptr (a unit type pulsed for a few seconds when the drill appears).
 ## Done drills give +200 aurite in missions with a base (DRILL_BONUS), a tick only in the others.
 ## Basics the "base" lesson teaches instead of a card (the tests skip them).
-const LESSON_ONLY := ["hq", "power", "barracks"]
+const LESSON_ONLY := ["hq", "power", "barracks", "kiln", "muster"]
 const DRILL_BONUS := 200
 const MISSIONS := {
 	"ashen": [
@@ -136,22 +150,22 @@ const MISSIONS := {
 			{"text": "Burn a picket with your Pyros", "check": {"ev": "kill", "by": "pyro"}, "ptr": "pyro"},
 			{"text": "Let the Medic patch up Vey", "check": {"ev": "heal", "target": "vey"}, "ptr": "medic"}]},
 		{"lesson": "base", "drills": [
-			{"text": "Train two Lancers", "check": {"ev": "made", "type": "lancer", "n": 2}},
+			{"text": "Train two Grenadiers", "check": {"ev": "made", "type": "grenadier", "n": 2}},
 			{"text": "Set a rally point", "check": {"ev": "rally"}}]},
 		{"drills": [
-			{"text": "Build a second Harvester", "check": {"have": "harv", "n": 2}},
+			{"text": "Build a second Ore Crawler", "check": {"have": "crawler", "n": 2}},
 			{"text": "Wipe out a buggy raid", "check": {"raid": true}}]},
 		{"cards": ["l_groups"], "drills": [
 			{"text": "Put your army in group 1 and call it back", "check": {"ev": "group_recall", "i": 0}},
 			{"text": "Bring all three trucks home", "check": {"arrived": 3}}]},
 		{"cards": ["l_upgrades"], "drills": [
-			{"text": "Shell a column with a Howler", "check": {"ev": "kill", "by": "arty"}},
+			{"text": "Shell a column with a Big Howler", "check": {"ev": "kill", "by": "howler"}},
 			{"text": "Shoot down a gunship", "check": {"ev": "kill", "by": "flak", "air": true}},
-			{"text": "Upgrade a Sentry Gun", "check": {"ev": "upgrade", "type": "turret"}}]},
+			{"text": "Upgrade a Hammer Gun", "check": {"ev": "upgrade", "type": "hammer"}}]},
 		{"drills": [
-			{"text": "Fix a damaged building with an Engineer", "check": {"ev": "eng_fix"}, "ptr": "engineer"}]},
+			{"text": "Revive a wreck with a Scrapper", "check": {"ev": "revive"}, "ptr": "scrapper"}]},
 		{"drills": [
-			{"text": "Find the Iron Saint with a Wasp", "check": {"spot": "saint", "by": "wasp"}},
+			{"text": "Find the Iron Saint with a Gyro Hammer", "check": {"spot": "saint", "by": "gyro"}},
 			{"text": "Build an Arc Pylon", "check": {"ev": "made", "type": "pylon"}}]},
 		{"lesson": "launch", "drills": [
 			{"text": "Fire the Rift Engine", "check": {"ev": "launch"}}]},

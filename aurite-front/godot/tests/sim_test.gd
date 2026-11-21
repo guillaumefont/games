@@ -128,6 +128,7 @@ func _ready():
 	if paced.size():
 		print("FORMATION OFF TEST FAILED"); get_tree().quit(1); return
 	if not groundwork_tests(s, h): get_tree().quit(1); return
+	if not pact_tests(s, h): get_tree().quit(1); return
 	if not choir_tests(s, h): get_tree().quit(1); return
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
@@ -391,7 +392,7 @@ func tutorial_tests(s, h) -> bool:
 		if not D.SPEAKERS.has(TD.LESSONS[id].who): return _tfail("lesson " + id + " unknown speaker")
 		for st in TD.LESSONS[id].steps:
 			if st.hint.length() > 60 or st.get("say", "").length() > 64: return _tfail("lesson " + id + " line too long: " + st.hint)
-	var kinds := ["kill", "heal", "made", "rally", "group_recall", "upgrade", "eng_fix", "launch"]
+	var kinds := ["kill", "heal", "made", "rally", "group_recall", "upgrade", "eng_fix", "revive", "launch"]
 	var seen := {}
 	var late := []
 	for camp in TD.MISSIONS:
@@ -433,7 +434,9 @@ func _gfail(msg: String) -> bool:
 
 ## Faction redesign groundwork: per-faction rules (power, unit cap, producers) and living fields.
 func groundwork_tests(s, h) -> bool:
-	for f in D.FAC_ORDER:
+	if not D.rule("ashen", "cap") or D.producer("ashen", "inf") != "muster" or D.producer("ashen", "veh") != "workshop":
+		return _gfail("the Pact should have a unit cap and train from its Muster Hall and Workshop")
+	for f in ["vanguard", "choir"]:
 		if not D.rule(f, "power") or D.rule(f, "cap") or D.rule(f, "place") != "near" or D.producer(f, "inf") != "barracks":
 			return _gfail(f + " does not start on today's rules")
 	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 4242})
@@ -451,6 +454,8 @@ func groundwork_tests(s, h) -> bool:
 	s.add_building(0, "power", hq.tx - 3, hq.ty); s.add_building(0, "power", hq.tx - 3, hq.ty + 3)
 	# unit cap: nothing trains past the cap, buildings with capAdd raise it
 	D.RULES.vanguard.cap = true
+	var hq_cap: int = D.BLD.hq.capAdd
+	D.BLD.hq.capAdd = s.cap_used(0)
 	var had: int = s.count(0, "rifle")
 	s.teams[0].credits = 5000.0
 	for i in 3: s.teams[0].prod.inf.queue.append("rifle")
@@ -460,7 +465,7 @@ func groundwork_tests(s, h) -> bool:
 	for i in 400: s.step(0.05)
 	var after: int = s.count(0, "rifle") - had
 	print("unit cap: trained ", capped, " at cap ", s.cap_max(0) - 2, ", then ", after, " with 2 more room (cap ", s.cap_used(0), "/", s.cap_max(0), ")")
-	D.BLD.hq.capAdd = 0; D.RULES.vanguard.cap = false
+	D.BLD.hq.capAdd = hq_cap; D.RULES.vanguard.cap = false
 	s.teams[0].prod.inf.queue.clear()
 	if capped != 0 or after != 2: return _gfail("unit cap did not hold or did not release")
 	# producer override: the faction's infantry come out of another building
@@ -504,4 +509,103 @@ func groundwork_tests(s, h) -> bool:
 		if s.ore0[i] > 0 and s.vit[i] < 100: tired += 1
 	print("harvester tired ", tired, " tiles")
 	if rf == null or tired == 0: return _gfail("harvesting did not touch any field's vitality")
+	return true
+
+func _pfail(msg: String) -> bool:
+	print("PACT TEST FAILED: ", msg); return false
+
+## The Ashen Pact: its own buildings stand in for the shared ones, Furnaces burn aurite, Hearths house and muster,
+## Brutes shrug off bullets, boars charge in packs, the Kettle Ram only hits buildings, wrecks revive or strip,
+## and the Pact AI builds and fights with its own roster.
+func pact_tests(s, h) -> bool:
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
+	s.teams[1].credits = 0; s.ai_t = 1e9
+	var hq = s.find_hq(0)
+	if s.count(0, "rifle") != 3 or s.count(0, "militia") != 3: return _pfail("the Pact should start with Militia, counted as its rifles")
+	if s.avail(0, "rifle") or s.avail(0, "barracks") or not s.avail(0, "militia") or not s.avail(0, "muster"): return _pfail("shared types should be swapped for the Pact's own")
+	if s.avail(0, "wasp") or s.avail(1, "wasp"): return _pfail("the Wasp is retired")
+	var m = s.add_building(0, "barracks", hq.tx + 4, hq.ty)
+	if m.type != "muster": return _pfail("a Barracks order should raise a Muster Hall, got " + m.type)
+	if s.req_of(0, ["barracks", "comms"]) != ["muster"]: return _pfail("requirements should map to Pact buildings, got " + str(s.req_of(0, ["barracks", "comms"])))
+	# Furnace: burns aurite for power, cold without it; spending keeps its fuel aside
+	var k = s.add_building(0, "kiln", hq.tx - 3, hq.ty)
+	s.teams[0].credits = 0.0
+	s.step(0.05)
+	var cold_pw: int = s.teams[0].pmade
+	if not k.cold: return _pfail("a Furnace with no aurite should go cold")
+	s.teams[0].credits = 200.0
+	s.step(0.05)
+	if k.cold or s.teams[0].pmade != cold_pw + 100: return _pfail("a fed Furnace should make 100 power")
+	s.teams[0].prod.inf.queue.append("militia")
+	for i in 20: s.step(0.05)
+	if s.teams[0].credits < s.fuel_reserve(0) - 2: return _pfail("training ate into the Furnace fuel: %d left" % int(s.teams[0].credits))
+	s.teams[0].prod.inf.queue.clear(); s.teams[0].prod.inf.cur = ""
+	# Hearth: +10 cap and one muster a match
+	var c0: int = s.cap_max(0)
+	s.add_building(0, "hearth", hq.tx - 3, hq.ty + 3)
+	if s.cap_max(0) != c0 + 10: return _pfail("a Hearth should add 10 to the cap")
+	var mil: int = s.count(0, "militia")
+	if s.muster(0) != 3 or s.count(0, "militia") != mil + 3 or s.muster(0) != 0: return _pfail("a Hearth should muster 3 Militia, once")
+	# Rivet Brute: 30% less from bullets
+	var br = s.spawn_unit(0, "brute", hq.x + 200, hq.y)
+	s.damage(br, 100, "bullet", null)
+	if absf(br.hp - (200 - 70)) > 0.01: return _pfail("a Brute should take 70 from a 100 bullet hit, took %f" % (200 - br.hp))
+	# Slag Boars: a pack of three; the first gore is a charge that knocks down
+	var before: int = s.count(0, "boars")
+	s.produce_done(s.teams[0], "boars")
+	if s.count(0, "boars") != before + 3: return _pfail("Slag Boars should come as a pack of 3")
+	var boar = s.ents.filter(func(e): return e.alive and e.type == "boars")[0]
+	var vic = s.spawn_unit(1, "rifle", boar.x + 20, boar.y)
+	vic.max_hp = 1000.0; vic.hp = 1000.0
+	var hp0: float = vic.hp
+	s.fire(boar, vic, boar.d)
+	var hit: float = hp0 - vic.hp
+	if absf(hit - 20 * D.MOD.gore.inf * 3) > 0.5 or (vic.alive and vic.stun <= 0): return _pfail("a boar charge should hit x3 and knock down, hit %f" % hit)
+	vic.hp = vic.max_hp; vic.stun = 0.0
+	s.fire(boar, vic, boar.d)
+	if absf(vic.max_hp - vic.hp - 20 * D.MOD.gore.inf) > 0.5: return _pfail("a winded boar should hit normally")
+	# Kettle Ram hits buildings only
+	var kr = s.spawn_unit(0, "kettle", hq.x + 260, hq.y)
+	if s.can_hit(kr.d, vic) or not s.can_hit(kr.d, hq): return _pfail("the Kettle Ram should hit buildings only")
+	# Juggernaut: two shells a shot
+	var jg = s.spawn_unit(0, "jugg", hq.x + 300, hq.y + 100)
+	var np: int = s.proj.size()
+	s.fire(jg, vic, jg.d)
+	if s.proj.size() != np + 2: return _pfail("the Juggernaut should fire a salvo of 2")
+	if s.cap_full(0, "jugg") == false and s.at_limit(0, "jugg") == false: return _pfail("only one Juggernaut at a time")
+	# wrecks: a fresh one is revived, an old one is stripped
+	var tk = s.spawn_unit(1, "tank", hq.x + 120, hq.y + 140)
+	s.kill(tk)
+	if s.wrecks.size() != 1: return _pfail("a destroyed tank should leave a wreck")
+	var sc = s.spawn_unit(0, "scrapper", hq.x + 100, hq.y + 140)
+	s.scrap_order([sc], s.wrecks[0])
+	var tanks: int = s.count(0, "tank")
+	for i in 20 * 16: s.step(0.05)
+	if s.count(0, "tank") != tanks + 1 or s.wrecks.size() != 0: return _pfail("a Scrapper should revive a fresh wreck for its side")
+	var tk2 = s.spawn_unit(1, "tank", hq.x + 120, hq.y + 180)
+	s.kill(tk2)
+	s.wrecks[0].intact = 0.2
+	var cr: float = s.teams[0].credits
+	s.scrap_order([sc], s.wrecks[0])
+	for i in 20 * 12: s.step(0.05)
+	var gain: float = s.teams[0].credits - cr
+	print("pact: scrapper stripped a wreck for ", int(gain))
+	if s.wrecks.size() != 0 or gain < D.UN.tank.cost * D.WRECK.strip - 60: return _pfail("a Scrapper should strip an old wreck for aurite")
+	# the Pact AI: builds its own base and army, and holds for ten minutes against the Vanguard
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 777})
+	var c = {}   # every type the Pact AI had at some point (the enemy may have destroyed it since)
+	for i in 20 * 60 * 10:
+		s.step(0.05)
+		if i % 20 == 0:
+			s.ai_think(s.teams[0])
+			for e in s.ents:
+				if e.alive and e.team == 0: c[e.type] = maxi(c.get(e.type, 0), s.count(0, e.type))
+		if s.over: break
+	print("pact AI in 10 min, most of each at once: ", c)
+	if s.find_hq(0) == null: return _pfail("the Pact AI lost its base in 10 minutes")
+	for t in ["kiln", "muster", "workshop", "smelter", "crawler"]:
+		if not c.has(t): return _pfail("the Pact AI never built a " + t)
+	if not (c.has("brute") or c.has("boars") or c.has("grenadier") or c.has("scorpion") or c.has("anvilf") or c.has("kettle")):
+		return _pfail("the Pact AI fielded none of its own units")
+	print("pact tests ok")
 	return true

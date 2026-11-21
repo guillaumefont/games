@@ -14,7 +14,8 @@ extends RefCounted
 ## A goal's "done" can give a base, credits, tech, units, and say something. "keep": lose if the player has none of
 ## these types left (heroes, the Command Yard). Posts are enemy positions that hold their ground.
 
-const ASH_EARLY := ["power", "refinery", "barracks", "turret", "wall", "rifle", "lancer", "medic", "pyro", "harv"]
+## The Pact names its own: "power" is its Furnace, "barracks" its Muster Hall, "rifle" its Militia (D.FACS.ashen.sub).
+const ASH_EARLY := ["power", "hearth", "refinery", "barracks", "turret", "wall", "rifle", "lancer", "pyro", "harv"]
 const VAN_EARLY := ["power", "refinery", "barracks", "turret", "wall", "rifle", "lancer", "medic", "ranger", "harv"]
 const CHO_EARLY := ["power", "garden", "barracks", "burrow", "turret", "wall", "thrall", "lancer", "medic"]
 
@@ -46,9 +47,9 @@ static func _plus(a: Array, b: Array) -> Array:
 # Campaign I: Embers of the Pact (Ashen Pact)
 # =====================================================================================
 static func ashen() -> Array:
-	var t2 := _plus(ASH_EARLY, ["factory", "raider", "engineer"])
-	var t3 := _plus(t2, ["scorpion", "flak", "repair", "arty", "comms"])
-	var t4 := _plus(t3, ["helipad", "wasp", "tech", "pylon", "arcc"])
+	var t2 := _plus(ASH_EARLY, ["factory", "raider", "boars"])
+	var t3 := _plus(t2, ["scorpion", "anvilf", "brute", "kettle", "flak", "arty", "engineer"])
+	var t4 := _plus(t3, ["helipad", "wasp", "tech", "pylon", "arcc", "anvila"])
 	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv"]
 	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk"])
 	return [
@@ -77,7 +78,7 @@ static func ashen() -> Array:
 		{"title": "Kettleford", "tag": "Throw back the bridgehead", "seed": 1202, "diff": "easy", "credits": [4000, 1500],
 		 "theatre": "Kettleford foundry town · autumn",
 		 "brief": "The Vanguard has a bridgehead on our side of the river, right above Kettleford's foundries. The town council has handed you its yards. Build up, train a strike force and drive them back into the water.",
-		 "obj": ["Destroy every Vanguard unit and structure", "Keep your Command Yard standing", "New: base building, Raider Bikes, War Factory"],
+		 "obj": ["Destroy every Vanguard unit and structure", "Keep your Command Yard standing", "New: base building, the Workshop, Ram Bikes, Slag Boars"],
 		 "map": {"theme": "autumn", "p0": [10, 52], "e0": [52, 12], "rock": 0.73,
 			"rivers": [{"pts": [[0, 24], [16, 28], [30, 31], [44, 30], [63, 40]], "w": 1.7}], "gaps": [[14, 28, 2], [38, 31, 2], [56, 36, 2]],
 			"ore": [[18, 46, 3.2], [7, 38, 3], [28, 42, 3], [44, 20, 3], [33, 12, 3], [55, 26, 2.6]], "roads": [[[10, 52], [14, 28], [30, 18], [52, 12]]]},
@@ -90,7 +91,7 @@ static func ashen() -> Array:
 		{"title": "Dust and Ore", "tag": "Fill the foundries", "seed": 1303, "diff": "normal", "credits": [3000, 1500],
 		 "theatre": "The Dust Flats, south of the valley · dry season",
 		 "brief": "Every foundry in the Pact is cold for lack of aurite. The Dust Flats are thick with it, but Vanguard buggies hunt anything that moves out there. Build refineries, guard your harvesters and ship 10,000 aurite before the supply trains leave.",
-		 "obj": ["Deliver 10,000 aurite within 13 minutes", "Keep your Command Yard standing", "New: Scorpion Tanks, Flak Nests, Repair Bay, Howler Mortars"],
+		 "obj": ["Deliver 10,000 aurite within 13 minutes", "Keep your Command Yard standing", "New: Anvil Tanks and their kits, Rivet Brutes, Kettle Rams, Flak Nests, the Big Howler"],
 		 "map": {"theme": "arid", "p0": [9, 54], "e0": [54, 9], "rock": 0.8, "dirt": 0.55,
 			"mesas": [[20, 20, 4], [32, 32, 4.5], [44, 44, 4], [14, 34, 3], [40, 15, 3], [27, 50, 3], [50, 28, 3]],
 			"ore": [[18, 48, 3.4], [7, 41, 3], [26, 40, 3.2], [38, 53, 3], [22, 27, 3], [42, 36, 3.4], [31, 13, 3], [51, 20, 3]]},
@@ -124,7 +125,7 @@ static func ashen() -> Array:
 		{"title": "Ironpine Pass", "tag": "Hold the pass", "seed": 1505, "diff": "normal", "credits": [6000, 0],
 		 "theatre": "Ironpine Pass · deep winter",
 		 "brief": "The refugees are behind the Ironpine wall, and the Vanguard wants through before the snow closes the pass. Our sappers will bring the cliffs down in ten minutes. Until then, nothing gets past. Watch the sky: the Directorate flies gunships now.",
-		 "obj": ["Hold out for 10 minutes", "Keep your Command Yard standing", "New: Engineers, Comms Array, Pyros from the barracks"],
+		 "obj": ["Hold out for 10 minutes", "Keep your Command Yard standing", "New: Scrappers revive wrecks and strip them for aurite"],
 		 "map": {"theme": "snow", "p0": [32, 54], "e0": [32, 7], "rock": 0.75,
 			"ridges": [{"pts": [[0, 27], [18, 29], [27, 31]], "w": 2.6}, {"pts": [[37, 31], [46, 29], [63, 27]], "w": 2.6}],
 			"gaps": [[9, 28, 1.6]], "lakes": [[52, 46, 3.5], [12, 46, 3]],
@@ -138,8 +139,8 @@ static func ashen() -> Array:
 		# ---- 6: capture with engineers, then keep it
 		{"title": "Silent Wires", "tag": "Steal their codes", "seed": 1606, "diff": "normal", "credits": [6000, 4000],
 		 "theatre": "The Reedmarsh · fog season",
-		 "brief": "The Vanguard talks to its whole army through one Comms Array out in the Reedmarsh. Take it intact with Engineers and we hear every order they give. Old Brann has rolled The Furnace out of the foundry to help: point it at anything that guards the array, but do not burn the array itself.",
-		 "obj": ["Capture the Vanguard Comms Array with an Engineer (do not destroy it)", "Then hold it for 2 minutes", "Kestrel Vey must survive", "New hero: The Furnace, Old Brann's arc tank"],
+		 "brief": "The Vanguard talks to its whole army through one Comms Array out in the Reedmarsh. Take it intact with Scrappers and we hear every order they give. Old Brann has rolled The Furnace out of the foundry to help: point it at anything that guards the array, but do not burn the array itself.",
+		 "obj": ["Capture the Vanguard Comms Array with a Scrapper (do not destroy it)", "Then hold it for 2 minutes", "Kestrel Vey must survive", "New hero: The Furnace, Old Brann's arc tank"],
 		 "heroes": ["vey", "furnace"],
 		 "map": {"theme": "marsh", "p0": [8, 54], "e0": [55, 9], "rock": 0.78,
 			"lakes": [[20, 20, 4], [30, 41, 4.5], [44, 32, 3.6], [13, 32, 3], [50, 49, 4], [36, 12, 3], [23, 55, 2.6], [58, 30, 2.6]],
@@ -159,14 +160,14 @@ static func ashen() -> Array:
 		{"title": "The Iron Saint", "tag": "Stop Marshal Dace", "seed": 1707, "diff": "normal", "credits": [7500, 5000],
 		 "theatre": "The Cinder Hills, the Pact's heartland · dusk",
 		 "brief": "From the codes we know the name of their spearhead: the Iron Saint, Marshal Corwin Dace's own command tank. Where it goes, the Vanguard follows. It is parked in the Cinder Hills, and it will come for our forges soon. Destroy the Iron Saint, then their forward Command Yard.",
-		 "obj": ["Destroy the Iron Saint", "Then destroy the Vanguard Command Yard", "Keep your Command Yard standing", "New: Tech Lab, Arc Crawlers, Arc Pylons, Helipad and Wasp drones"],
+		 "obj": ["Destroy the Iron Saint", "Then destroy the Vanguard Command Yard", "Keep your Command Yard standing", "New: the Old Works, Arc Crawlers, Arc Pylons, the Mooring Mast and Gyro Hammers"],
 		 "heroes": ["furnace"],
 		 "map": {"theme": "ash", "dusk": true, "p0": [10, 52], "e0": [52, 12], "rock": 0.7,
 			"rivers": [{"pts": [[20, 0], [24, 16], [17, 30]], "w": 1.3}, {"pts": [[63, 30], [47, 36], [40, 50], [44, 63]], "w": 1.3}],
 			"gaps": [[24, 10, 1.6], [43, 42, 1.6]], "ridges": [{"pts": [[28, 20], [36, 28], [30, 40]], "w": 2}],
 			"ore": [[18, 46, 3.2], [8, 38, 3], [30, 48, 3], [36, 14, 3], [46, 24, 3], [54, 34, 2.6]]},
 		 "tech": t4, "aiTech": van_ai2, "aiFirst": 260,
-		 "pbase": ["power", "power", "refinery", "barracks", "factory", "comms"], "pheroes": ["furnace"], "punits": [["scorpion", 3], ["pyro", 3], ["lancer", 3], ["medic", 1]], "keep": ["hq"],
+		 "pbase": ["power", "power", "refinery", "barracks", "factory", "tech"], "pheroes": ["furnace"], "punits": [["scorpion", 3], ["pyro", 3], ["lancer", 3], ["medic", 1]], "keep": ["hq"],
 		 "ehq": "hq", "ebase": ["power", "power", "power", "refinery", "barracks", "factory", "repair", "turret", "turret", "flak", "bastion"],
 		 "eheroes": ["saint"], "eunits": [["tank", 3], ["bulwark", 1], ["rifle", 4], ["ranger", 2]],
 		 "events": [{"t": 240, "say": "The Iron Saint is rolling. Marshal Dace leads from the front!", "attack": "hero"}],
@@ -178,14 +179,14 @@ static func ashen() -> Array:
 		{"title": "Embers", "tag": "Break the Skyfall", "seed": 1808, "diff": "hard", "credits": [10000, 6000], "swCh": 80.0,
 		 "theatre": "Sable Mouth, the Vanguard's sea camp · dusk",
 		 "brief": "The Vanguard has fallen back to its sea camp at Sable Mouth and finished a Skyfall Battery there. Its missiles can reach every town we have. Captain Ilse Harrow, their best marksman, guards the cliffs. Every system the Pact owns is yours. Destroy the Skyfall Battery and their Command Yard, and the Directorate goes home.",
-		 "obj": ["Destroy the Skyfall Battery and the Vanguard Command Yard", "The Skyfall strikes your biggest cluster of buildings each time it charges", "Kestrel Vey must survive", "New: Rift Engine"],
+		 "obj": ["Destroy the Skyfall Battery and the Vanguard Command Yard", "The Skyfall strikes your biggest cluster of buildings each time it charges", "Kestrel Vey must survive", "New: Rift Engine, Foundry Juggernaut, Ember Zeppelins"],
 		 "heroes": ["vey", "furnace"],
 		 "map": {"theme": "temperate", "dusk": true, "p0": [12, 54], "e0": [50, 15], "rock": 0.74, "sea": {"edge": "n", "d": 5},
 			"ridges": [{"pts": [[36, 4], [36, 20], [44, 30], [63, 30]], "w": 2}], "gaps": [[36, 13, 2], [42, 27, 2], [56, 30, 2]],
 			"rivers": [{"pts": [[0, 30], [20, 34], [30, 44], [32, 63]], "w": 1.5}], "gaps2": [[18, 34, 2], [30, 53, 2]],
 			"ore": [[18, 48, 3.4], [6, 42, 3], [24, 24, 3.2], [8, 18, 3], [46, 40, 3.2], [56, 40, 3], [44, 12, 2.8], [28, 56, 2.8]]},
 		 "tech": null, "aiTech": null, "aiFirst": 230,
-		 "pbase": ["power", "power", "power", "refinery", "barracks", "factory", "comms"], "pheroes": ["vey", "furnace"],
+		 "pbase": ["power", "power", "power", "refinery", "barracks", "factory", "tech", "hearth"], "pheroes": ["vey", "furnace"],
 		 "punits": [["scorpion", 3], ["arcc", 1], ["pyro", 3], ["lancer", 3], ["medic", 2]], "keep": ["vey"],
 		 "ehq": "hq", "ebase": ["power", "power", "power", "power", "refinery", "refinery", "barracks", "factory", "comms", "helipad", "tech", "flak", "flak", "bastion", "bastion", "turret", "skyfall"],
 		 "eheroes": ["harrow"], "eunits": [["tank", 3], ["bulwark", 1], ["ranger", 2], ["skyhawk", 2], ["rifle", 4]],
