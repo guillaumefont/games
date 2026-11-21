@@ -36,15 +36,17 @@ const STORM_SPREAD := 24
 const STORM_LIFE := 70
 ## Warden's ultimate, Shatter, has its own mechanic (Guillaume's call, 2026-11-21): holding loads
 ## nothing, so a lift is always a pod command. The meter fills from the pod's work: SHAT_RAM per
-## ram, SHAT_BLOCK per enemy bullet it stops, SHAT_SHOT per pod shot that lands and SHAT_KILL more
-## for each enemy the pod finishes. Full at SHATTER_FULL, it stays stored (through lifts and lost
+## ram, SHAT_SHOT per pod shot that lands and SHAT_KILL more for each enemy the pod finishes (the
+## pod no longer stops bullets). Each gain flashes the bar and pops a pink glint on the pod. Full at SHATTER_FULL, it stays stored (through lifts and lost
 ## ships) until the pod is recalled while out: the pod then bursts into the homing shards where it
 ## is. With the pod docked, fling it and recall it.
 const SHATTER_FULL := 60.0
 const SHAT_RAM := 5.0
-const SHAT_BLOCK := 3.0
 const SHAT_SHOT := 1.0
 const SHAT_KILL := 6.0
+## Flung, the pod flies up to POD_AHEAD units in front of the ship and then rides there, following
+## the ship (Guillaume, 2026-11-21: ahead of the ship, not parked on the screen).
+const POD_AHEAD := 55.0
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
 const SLOW := 0.4
 const SLOW_TICKS := 24
@@ -950,7 +952,6 @@ func release() -> void:
 	elif kit.release == "pod" and not pod.is_empty():
 		if pod.state == "dock":
 			pod.state = "out"
-			pod.ty = minf(H - 30, P.y + 80)
 			audio.play("pod")
 		elif pod.state == "out":
 			pod.state = "back"
@@ -1014,7 +1015,13 @@ func shatter_gain(n: float) -> void:
 	if G.ship != "warden" or G.ult_t > 0 or not P.alive:
 		return
 	var was_full := shatter_full()
+	if was_full:
+		return
 	P.shat = minf(SHATTER_FULL, P.get("shat", 0.0) + n)
+	P.shat_fx = 14
+	P.shat_last = n
+	if not pod.is_empty():
+		glow_fx("ff5fd2", pod.x, pod.y, 6, 5.0 + n * 0.6, 14)
 	if shatter_full() and not was_full:
 		audio.play("ready", 4)
 		shake = maxf(shake, 3.0)
@@ -1223,9 +1230,12 @@ func _update_pod() -> void:
 			pod.x = P.x
 			pod.y = P.y + 10
 		"out":
-			var pw := walls_at(pod.y)
-			pod.x = lerpf(pod.x, clampf(pod.x, maxf(6, pw.x + 5), minf(W - 6, pw.y - 5)), 0.2)
-			pod.y = minf(pod.ty, pod.y + 3.2)
+			# fly up to its spot ahead of the ship, then ride there as the ship moves
+			var ty := minf(H - 30, P.y + POD_AHEAD)
+			var pw := walls_at(ty)
+			var tx := clampf(P.x, maxf(6, pw.x + 5), minf(W - 6, pw.y - 5))
+			pod.x = lerpf(pod.x, tx, 0.3)
+			pod.y = move_toward(pod.y, ty, maxf(3.2, absf(ty - pod.y) * 0.3))
 		"back":
 			var d := Vector2(P.x - pod.x, P.y + 10 - pod.y)
 			if d.length() < 4.5:
@@ -1237,12 +1247,9 @@ func _update_pod() -> void:
 				pod.y += v.y
 	if pod.state == "shatter" or not P.alive:
 		return
-	# the pod blocks bullets, rams enemies and fires straight up
-	for b in G.eb:
-		if Vector2(b.x - pod.x, b.y - pod.y).length() < 5.5 and not b.get("dead", false):
-			b.dead = true
-			spark(b.x, b.y)
-			shatter_gain(SHAT_BLOCK)
+	# the pod rams enemies (bullets fly through it) and fires straight up
+	if P.get("shat_fx", 0) > 0:
+		P.shat_fx -= 1
 	if pod.ram_cd > 0:
 		pod.ram_cd -= 1
 	else:
@@ -2724,6 +2731,8 @@ func _process(_delta: float) -> void:
 	hud.ult_ready = G.ult_t == 0
 	hud.charge = float(P.charge) / ULT_AT if G.ship != "warden" else P.get("shat", 0.0) / SHATTER_FULL
 	hud.pod_out = pod.get("state", "") == "out"
+	hud.shat_flash = P.get("shat_fx", 0) / 14.0 if G.ship == "warden" else 0.0
+	hud.shat_last = int(P.get("shat_last", 0.0))
 	hud.charge_lv = charge_lv(P.charge)
 	hud.charge_marks = [float(CHARGE_AT[1]) / ULT_AT, float(CHARGE_AT[2]) / ULT_AT, float(CHARGE_AT[3]) / ULT_AT, float(CHARGE_MAX) / ULT_AT]
 	hud.queue_redraw()

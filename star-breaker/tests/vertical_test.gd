@@ -215,11 +215,15 @@ func _initialize() -> void:
 	tick(1, false)
 	check(vg.pod.state == "out", "lifting flings the pod up the screen")
 	tick(60, false)
-	check(vg.pod.y > vg.P.y + 40, "the pod flies up and holds")
+	check(absf(vg.pod.y - (vg.P.y + vg.POD_AHEAD)) < 1.0 and absf(vg.pod.x - vg.P.x) < 1.0, "the pod flies up to its spot ahead of the ship")
+	tick(1, false, 20.0, 15.0)
+	tick(30, false)
+	check(absf(vg.pod.y - (vg.P.y + vg.POD_AHEAD)) < 1.0 and absf(vg.pod.x - vg.P.x) < 1.0, "and rides there, following the ship")
 	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
 	var pb: Dictionary = vg.G.eb.back()
 	tick(1, false)
-	check(not vg.G.eb.has(pb), "the pod blocks bullets")
+	check(vg.G.eb.has(pb) and not pb.get("dead", false), "bullets fly through the pod")
+	vg.G.eb.clear()
 	tick(5, true)
 	tick(1, false)
 	check(vg.pod.state == "back", "lifting again calls the pod back")
@@ -235,16 +239,21 @@ func _initialize() -> void:
 	# (the docked pod may have earned some Shatter during that hold: start from empty)
 	vg.P.shat = 0.0
 	var s0: float = vg.P.shat
-	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
+	var shell: Dictionary = vg.E("shell", vg.pod.x, vg.pod.y, {hold = 0.0})
 	tick(1, false)
-	check(vg.P.shat == s0 + vg.SHAT_BLOCK, "a bullet the pod blocks fills the Shatter meter")
+	check(vg.P.shat == s0 + vg.SHAT_RAM and not shell.get("dead", false), "a ram fills the Shatter meter")
+	check(vg.hud.shat_flash > 0.9 and vg.hud.shat_last == int(vg.SHAT_RAM), "and the bar flashes with the gain")
+	shell.dead = true
+	tick(1, false)
 	vg.P.shat = 0.0
 	s0 = vg.P.shat
+	vg.pod.ram_cd = 0
 	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
 	tick(1, false)
 	check(vg.P.shat >= s0 + vg.SHAT_RAM + vg.SHAT_KILL, "a ram that kills fills it more")
 	vg.P.shat = vg.SHATTER_FULL - 1.0
-	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
+	vg.pod.ram_cd = 0
+	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
 	tick(1, false)
 	check(vg.shatter_full() and vg.hud.charge >= 1.0, "the meter fills up and the bar shows it")
 	tick(5, true)
