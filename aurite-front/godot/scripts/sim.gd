@@ -40,6 +40,9 @@ var teams: Array = []
 var diff := "normal"
 var delayed: Array = []
 var astar := AStarGrid2D.new()
+var ai_dry := {}   # AI teams that found no berth for a shipyard
+var astar_w := AStarGrid2D.new()  # boats: open water only
+var astar_h := AStarGrid2D.new()  # hovercraft and jump troops: land or water
 var by_id := {}
 # mission state
 var p0 := Vector2i(9, 53)     # player start (tile)
@@ -107,6 +110,27 @@ static func inb(x: int, y: int) -> bool:
 
 func walk(x: int, y: int) -> bool:
 	return x >= 0 and y >= 0 and x < MW and y < MH and terr[y * MW + x] < D.ROCK and bmap[y * MW + x] == 0
+
+## Movement classes (UN "mob"): 0 land, 1 water (boats), 2 land or water (hovercraft).
+func passable(m: int, x: int, y: int) -> bool:
+	if m == 0: return walk(x, y)
+	if x < 0 or y < 0 or x >= MW or y >= MH or bmap[y * MW + x] != 0: return false
+	var t: int = terr[y * MW + x]
+	if m == 1: return t == D.WATER
+	return t == D.WATER or t < D.ROCK
+
+func mob(u: Ent) -> int:
+	return 0 if u.d.air else int(u.d.get("mob", 0))
+
+func grid(m: int) -> AStarGrid2D:
+	return astar if m == 0 else (astar_w if m == 1 else astar_h)
+
+## True when there is open water next to this footprint (a shipyard needs it).
+func water_beside(tx: int, ty: int, w: int, h: int) -> bool:
+	for y in range(ty - 1, ty + h + 1):
+		for x in range(tx - 1, tx + w + 1):
+			if inb(x, y) and terr[y * MW + x] == D.WATER: return true
+	return false
 
 func t_idx(e) -> int:
 	return clampi(int(e.y / T), 0, MH - 1) * MW + clampi(int(e.x / T), 0, MW - 1)
@@ -244,22 +268,31 @@ func init_astar() -> void:
 	astar.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	astar.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
 	astar.update()
+	for g in [astar_w, astar_h]:
+		g.region = astar.region; g.cell_size = astar.cell_size; g.diagonal_mode = astar.diagonal_mode
+		g.default_compute_heuristic = astar.default_compute_heuristic; g.default_estimate_heuristic = astar.default_estimate_heuristic
+		g.update()
 	for y in MH:
 		for x in MW:
 			var t: int = terr[y * MW + x]
 			astar.set_point_solid(Vector2i(x, y), t >= D.ROCK)
+			astar_w.set_point_solid(Vector2i(x, y), t != D.WATER)
+			astar_h.set_point_solid(Vector2i(x, y), t == D.ROCK)
 			if t == D.SAND: astar.set_point_weight_scale(Vector2i(x, y), 1.15)
 
 func _sync_solid(tx: int, ty: int, w: int, h: int) -> void:
 	for y in range(ty, ty + h):
 		for x in range(tx, tx + w):
-			if inb(x, y): astar.set_point_solid(Vector2i(x, y), not walk(x, y))
+			if inb(x, y):
+				astar.set_point_solid(Vector2i(x, y), not walk(x, y))
+				astar_w.set_point_solid(Vector2i(x, y), not passable(1, x, y)); astar_h.set_point_solid(Vector2i(x, y), not passable(2, x, y))
 
 # ---------------- setup ----------------
 func new_game(d: String, opt: Dictionary) -> void:
 	var M = opt.get("mission", null)
 	mission = M
 	cine = opt.get("cine", false)
+	ai_dry = {}
 	lvl = opt.get("level", "normal") if M else "normal"
 	diff = (D.DIFF_ORDER[clampi(D.DIFF_ORDER.find(M.diff) + D.LEVELS[lvl].shift, 0, D.DIFF_ORDER.size() - 1)]) if M else d
 	seed = M.seed if M else opt.get("seed", int(Time.get_ticks_msec() % 100000) + randi() % 1000)
@@ -451,8 +484,8 @@ func spawn_unit(team: int, type: String, x: float, y: float) -> Ent:
 	var d: Dictionary = D.UN[type]
 	if d.air:
 		tx = clampi(tx, 0, MW - 1); ty = clampi(ty, 0, MH - 1)
-	elif not walk(tx, ty):
-		var n = nearest_walk(tx, ty, tx, ty)
+	elif not passable(int(d.get("mob", 0)), tx, ty):
+		var n = nearest_walk(tx, ty, tx, ty, int(d.get("mob", 0)))
 		if n != null: tx = n.x; ty = n.y
 	var u := Ent.new()
 	u.id = nid; nid += 1
@@ -483,6 +516,11 @@ func uses_power(team: int) -> bool:
 ## The building type that makes this team's units of a category.
 func producer(team: int, cat: String) -> String:
 	return D.producer(fac_of(team), cat)
+
+## The building a unit comes out of: its own "from" (a Slipway for boats), else its category's producer.
+func unit_from(team: int, type: String) -> String:
+	var d: Dictionary = D.UN[type]
+	return d.from if d.from != "" else producer(team, d.cat)
 
 ## Unit cap (only for factions with "cap"): 0 means no cap.
 func cap_max(team: int) -> int:
@@ -622,22 +660,23 @@ func has_shot(s: Ent, t: Ent, dt: float) -> bool:
 	return s.los_ok
 
 # ---------------- pathfinding ----------------
-func nearest_walk(gx: int, gy: int, sx: int, sy: int):
+func nearest_walk(gx: int, gy: int, sx: int, sy: int, m := 0):
 	for r in 14:
 		var best = null; var bd := 1e9
 		for y in range(gy - r, gy + r + 1):
 			for x in range(gx - r, gx + r + 1):
 				if max(abs(x - gx), abs(y - gy)) != r: continue
-				if not walk(x, y): continue
+				if not passable(m, x, y): continue
 				var dd := (x - sx) * (x - sx) + (y - sy) * (y - sy)
 				if dd < bd: bd = dd; best = Vector2i(x, y)
 		if best != null: return best
 	return null
 
-func find_path(sx: int, sy: int, gx: int, gy: int) -> Array:
+func find_path(sx: int, sy: int, gx: int, gy: int, m := 0) -> Array:
 	sx = clampi(sx, 0, MW - 1); sy = clampi(sy, 0, MH - 1)
-	if not walk(gx, gy):
-		var n = nearest_walk(gx, gy, sx, sy)
+	var astar: AStarGrid2D = grid(m)
+	if not passable(m, gx, gy):
+		var n = nearest_walk(gx, gy, sx, sy, m)
 		if n == null: return []
 		gx = n.x; gy = n.y
 	if sx == gx and sy == gy: return []
@@ -648,9 +687,9 @@ func find_path(sx: int, sy: int, gx: int, gy: int) -> Array:
 	if was_solid: astar.set_point_solid(sp, true)
 	var out: Array = []
 	for k in range(1, ids.size()): out.append(ids[k])
-	return smooth(sx, sy, out)
+	return smooth(sx, sy, out, m)
 
-func los(ax: int, ay: int, bx: int, by: int) -> bool:
+func los(ax: int, ay: int, bx: int, by: int, m := 0) -> bool:
 	var dx := bx - ax; var dy := by - ay
 	var L := sqrt(dx * dx + dy * dy); var n := int(ceil(L * 3))
 	if n == 0: return true
@@ -658,15 +697,15 @@ func los(ax: int, ay: int, bx: int, by: int) -> bool:
 	for i in range(1, n + 1):
 		var f := float(i) / n
 		var x := ax + 0.5 + dx * f; var y := ay + 0.5 + dy * f
-		if not walk(int(floor(x)), int(floor(y))) or not walk(int(floor(x + px)), int(floor(y + py))) or not walk(int(floor(x - px)), int(floor(y - py))): return false
+		if not passable(m, int(floor(x)), int(floor(y))) or not passable(m, int(floor(x + px)), int(floor(y + py))) or not passable(m, int(floor(x - px)), int(floor(y - py))): return false
 	return true
 
-func smooth(sx: int, sy: int, p: Array) -> Array:
+func smooth(sx: int, sy: int, p: Array, m := 0) -> Array:
 	if p.size() < 3: return p
 	var out: Array = []; var cx := sx; var cy := sy; var i := 0
 	while i < p.size():
 		var j := mini(p.size() - 1, i + 14)
-		while j > i and not los(cx, cy, p[j].x, p[j].y): j -= 1
+		while j > i and not los(cx, cy, p[j].x, p[j].y, m): j -= 1
 		out.append(p[j]); cx = p[j].x; cy = p[j].y; i = j + 1
 	return out
 
@@ -674,7 +713,7 @@ func route(u: Ent, tx: int, ty: int) -> Array:
 	if u.d.air:
 		tx = clampi(tx, 0, MW - 1); ty = clampi(ty, 0, MH - 1)
 		return [] if (int(u.x / T) == tx and int(u.y / T) == ty) else [Vector2i(tx, ty)]
-	return find_path(int(u.x / T), int(u.y / T), tx, ty)
+	return find_path(int(u.x / T), int(u.y / T), tx, ty, mob(u))
 
 func set_path(u: Ent, tx: int, ty: int) -> void:
 	u.path = route(u, tx, ty); u.dest = Vector2i(tx, ty); u.stuck = 0; u.fspd = 0.0
@@ -1151,7 +1190,7 @@ func move_unit(u: Ent, dt: float) -> bool:
 	if d.turret and u.target == null: u.tang = turn_to(u.tang, u.ang, 3 * dt)
 	if dist <= sp:
 		u.x = px; u.y = py; u.path.pop_front()
-		if not d.air and u.path.size() and not walk(u.path[0].x, u.path[0].y):
+		if not d.air and u.path.size() and not passable(mob(u), u.path[0].x, u.path[0].y):
 			var l: Vector2i = u.path[-1]; set_path(u, l.x, l.y)
 	else:
 		u.x += dx / dist * sp; u.y += dy / dist * sp
@@ -1684,7 +1723,7 @@ func separate() -> void:
 
 func nudge(u: Ent, dx: float, dy: float) -> void:
 	var nx := u.x + dx; var ny := u.y + dy
-	var ok: bool = (nx > 4 and ny > 4 and nx < D.WW - 4 and ny < D.WH - 4) if u.d.air else walk(int(nx / T), int(ny / T))
+	var ok: bool = (nx > 4 and ny > 4 and nx < D.WW - 4 and ny < D.WH - 4) if u.d.air else passable(mob(u), int(nx / T), int(ny / T))
 	if ok: u.x = nx; u.y = ny
 
 func upd_proj(dt: float) -> void:
@@ -1772,7 +1811,7 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 			q.cur = q.queue.pop_front(); q.prog = 0.0; q.paid = 0.0
 		if q.cur == "" or q.ready: continue
 		var d: Dictionary = D.def_of(q.cur)
-		if cat != "bld" and count(tm.id, producer(tm.id, cat)) == 0: continue
+		if cat != "bld" and count(tm.id, unit_from(tm.id, q.cur)) == 0: continue
 		if cat == "bld" and not has_req(tm.id, d.req):
 			tm.credits += q.paid; q.cur = ""; continue
 		var rate: float = min(dt * mult * (prod_speed(tm.id, cat) if cat != "bld" else 1.0) / d.time, 1.0 - q.prog); var cost: float = d.cost * rate
@@ -1790,7 +1829,7 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 
 func produce_done(tm: Dictionary, type: String) -> void:
 	var d: Dictionary = D.UN[type]
-	var bs: Array = ents.filter(func(e): return e.alive and e.kind == "b" and e.team == tm.id and e.type == producer(tm.id, d.cat))
+	var bs: Array = ents.filter(func(e): return e.alive and e.kind == "b" and e.team == tm.id and e.type == unit_from(tm.id, type))
 	if bs.is_empty(): return
 	var b: Ent = bs[-1]
 	for x in bs:
@@ -1823,6 +1862,7 @@ func can_place(team: int, type: String, tx: int, ty: int, gap: bool) -> bool:
 			var i := y * MW + x
 			if terr[i] >= D.ROCK or ore[i] > 0 or bmap[i]: return false
 			if team == 0 and vis[i] == 0: return false
+	if d.shore and not water_beside(tx, ty, d.w, d.h): return false
 	if gap:
 		for y in range(ty - 1, ty + d.h + 1):
 			for x in range(tx - 1, tx + d.w + 1):
@@ -1835,8 +1875,8 @@ func can_place(team: int, type: String, tx: int, ty: int, gap: bool) -> bool:
 			if u.kind != "u" or not u.alive or u.d.air: continue
 			var ux := int(u.x / T); var uy := int(u.y / T)
 			if ux >= tx and ux < tx + d.w and uy >= ty and uy < ty + d.h: return false
-	if d.tun:
-		# a burrow can be dug anywhere the team has seen, but not right under an enemy base
+	if d.tun or d.shore:
+		# a burrow or a shipyard can go anywhere the team has seen, but not right under an enemy base
 		for b in ents:
 			if b.kind == "b" and b.alive and b.team != team and Vector2(b.x - (tx + d.w / 2.0) * T, b.y - (ty + d.h / 2.0) * T).length() < T * 7: return false
 		return true
@@ -1946,6 +1986,9 @@ func ai_think(tm: Dictionary) -> void:
 			var spot = ai_spot(id, q.cur, hq)
 			if spot != null:
 				add_building(id, q.cur, spot.x, spot.y); q.cur = ""; q.ready = false; q.prog = 0.0; q.paid = 0.0
+			elif D.BLD[q.cur].shore:
+				# water in sight but no berth to build on: take the money back and stop asking
+				tm.credits += q.paid; ai_dry[id] = true; q.cur = ""; q.ready = false; q.prog = 0.0; q.paid = 0.0
 		elif q.cur == "":
 			var nxt := ""
 			var pw := tr_t(id, "power")
@@ -1965,6 +2008,9 @@ func ai_think(tm: Dictionary) -> void:
 					if t == "DEF": t = F.def
 					if t == "SW": t = F.sw
 					if t == "TUN": t = F.get("tun", "")
+					if t == "NAVAL": t = F.get("naval", "")
+					# a shipyard only where the base has a shore in reach
+					if t != "" and D.BLD.has(t) and D.BLD[t].shore and (count(id, t) > 0 or ai_dry.has(id) or shore_near(hq) == null): continue
 					t = D.sub(tm.fac, t)
 					if t == "" or not avail(id, t) or (t == "power" and not uses_power(id)): continue
 					need[t] = need.get(t, 0) + 1
@@ -1980,7 +2026,9 @@ func ai_think(tm: Dictionary) -> void:
 		if count(id, "factory") and vq.cur == "" and vq.queue.is_empty():
 			if refs and harvs < mini(refs * 2, 3) and ok.call(hv): vq.queue.append(hv)
 			elif tm.credits > 500 or q.cur == "":
-				var u: String = pick.call(F.get("ai_veh", [F.lv, F.mt, F.mt, F.mt, D.sub(tm.fac, "arty"), F.ht, F.ht]))
+				var sea: Array = F.get("ai_sea", [])
+				var u: String = pick.call(sea) if (sea.size() and count(id, F.get("naval", "")) > 0 and randf() < 0.3) else ""
+				if u == "": u = pick.call(F.get("ai_veh", [F.lv, F.mt, F.mt, F.mt, D.sub(tm.fac, "arty"), F.ht, F.ht]))
 				if u != "": vq.queue.append(u)
 		if count(id, "barracks") and iq.cur == "" and iq.queue.is_empty() and (tm.credits > 300 or q.cur == ""):
 			var rf := D.sub(tm.fac, "rifle")
@@ -2042,6 +2090,15 @@ func _ai_upgrade(tm: Dictionary, type: String, spare: float) -> bool:
 			return start_upgrade(b)
 	return false
 
+## The water tile nearest the AI's HQ, or null on a dry map (no dice, so it doesn't shift the game's random rolls).
+func shore_near(hq: Ent):
+	var best = null; var bd := 1e9
+	for i in MW * MH:
+		if terr[i] != D.WATER: continue
+		var dd := Vector2(i % MW - hq.tx, i / MW - hq.ty).length_squared()
+		if dd < bd: bd = dd; best = Vector2i(i % MW, i / MW)
+	return best
+
 func ai_spot(id: int, type: String, hq: Ent, home := false):
 	var d: Dictionary = D.BLD[type]; var best = null; var bs := 1e9
 	var ores: Array = []
@@ -2062,6 +2119,11 @@ func ai_spot(id: int, type: String, hq: Ent, home := false):
 		var f: float = clamp(0.3 + 0.12 * count(id, type), 0.3, 0.6)
 		fwd = Vector2(lerp(hq.x, en.x, f) / T, lerp(hq.y, en.y, f) / T)
 		cx = int(fwd.x); cy = int(fwd.y)
+	if d.shore:
+		# a shipyard goes out to the nearest bank, however far from the base that is
+		var w = shore_near(hq)
+		if w == null: return null
+		cx = w.x; cy = w.y
 	for ty in range(cy - 12, cy + 13):
 		for tx in range(cx - 12, cx + 13):
 			if not can_place(id, type, tx, ty, true): continue
@@ -2074,6 +2136,7 @@ func ai_spot(id: int, type: String, hq: Ent, home := false):
 					if dd < s: s = dd
 				s += randf() * 2
 			elif d.weapon != "": s = Vector2(mx - MW / 2.0, my - MH / 2.0).length() + randf() * 4
+			elif d.shore: s = Vector2(mx - hq.tx, my - hq.ty).length() + randf() * 2
 			else: s = Vector2(mx - cx, my - cy).length() + randf() * 3
 			if s < bs: bs = s; best = Vector2i(tx, ty)
 	if best == null and fwd != null: return ai_spot(id, type, hq, true)

@@ -46,6 +46,7 @@ var BLD := {
 	"workshop": {"name": "Workshop", "fac": "ashen", "door": true, "w": 3, "h": 3, "hp": 1300, "cost": 1600, "time": 15, "pwr": -30, "sight": 5, "req": ["smelter"]},
 	"works": {"name": "Old Works", "fac": "ashen", "w": 2, "h": 2, "hp": 900, "cost": 1500, "time": 14, "pwr": -60, "sight": 5, "req": ["workshop"]},
 	"mast": {"name": "Mooring Mast", "fac": "ashen", "w": 2, "h": 2, "hp": 700, "cost": 1200, "time": 12, "pwr": -20, "sight": 6, "req": ["workshop"]},
+	"slipway": {"name": "Slipway", "fac": "ashen", "w": 2, "h": 2, "hp": 900, "cost": 1000, "time": 11, "pwr": -20, "sight": 6, "req": ["workshop"], "shore": true, "yard": true},
 	"hammer": {"name": "Hammer Gun", "fac": "ashen", "w": 1, "h": 1, "hp": 700, "cost": 600, "time": 8, "pwr": -15, "sight": 6, "req": ["muster"], "weapon": "shell", "dmg": 60, "range": 5.0, "rof": 2.0},
 	"chorus": {"name": "Chorus Well", "fac": "choir", "w": 3, "h": 3, "hp": 1500, "cost": 3000, "time": 25, "pwr": -100, "sight": 5, "req": ["tech"], "sw": true, "charge": 240.0},
 }
@@ -109,6 +110,7 @@ var UN := {
 	"jugg": {"name": "Foundry Juggernaut", "fac": "ashen", "cat": "veh", "cost": 3500, "time": 35, "hp": 2400, "spd": 0.8, "range": 5.0, "sight": 7, "dmg": 80, "rof": 2.0, "weapon": "shell", "armor": "heavy", "r": 20, "turret": true, "salvo": 2, "w2": {"weapon": "flame", "dmg": 18, "range": 2.5, "rof": 0.3, "splash": 0.0}, "lim": 1, "capCost": 6, "req": ["workshop", "works"]},
 	"gyro": {"name": "Gyro Hammer", "fac": "ashen", "cat": "air", "cost": 1100, "time": 12, "hp": 450, "spd": 2.2, "range": 4.0, "sight": 7, "dmg": 45, "rof": 1.6, "weapon": "shell", "armor": "heavy", "r": 12, "air": true, "req": ["mast"]},
 	"zeppelin": {"name": "Ember Zeppelin", "fac": "ashen", "cat": "air", "cost": 1800, "time": 20, "hp": 900, "spd": 0.9, "range": 0.8, "sight": 7, "dmg": 150, "rof": 4.0, "weapon": "bomb", "splash": 64, "armor": "light", "r": 18, "air": true, "req": ["mast", "works"]},
+	"ironclad": {"name": "River Ironclad", "fac": "ashen", "cat": "veh", "from": "slipway", "mob": 1, "cost": 1400, "time": 15, "hp": 900, "spd": 1.0, "range": 7.0, "minr": 2.0, "sight": 7, "dmg": 70, "rof": 3.5, "weapon": "arty", "splash": 45, "armor": "heavy", "r": 16, "turret": true, "w2": {"weapon": "flame", "dmg": 18, "range": 2.6, "rof": 0.3, "splash": 0.0}, "req": ["slipway"]},
 	"crawler": {"name": "Ore Crawler", "fac": "ashen", "cat": "veh", "cost": 1200, "time": 14, "hp": 750, "spd": 1.25, "sight": 4, "armor": "heavy", "r": 14, "harv": true, "drain": 20.0, "req": ["workshop", "smelter"]},
 	# heroes and mission-only units: never trained, a mission brings them
 	"vey": {"name": "Kestrel Vey", "fac": "ashen", "cat": "inf", "cost": 0, "time": 1, "hp": 460, "spd": 1.35, "range": 5.2, "sight": 8, "dmg": 30, "rof": 0.7, "weapon": "arc", "armor": "inf", "r": 7, "hero": true, "req": ["never"]},
@@ -133,9 +135,9 @@ const MOD := {
 	"bomb": {"inf": 1.0, "light": 1.0, "heavy": 0.9, "bld": 1.2},
 }
 const CATS := {
-	"bld": ["power", "kiln", "hearth", "refinery", "smelter", "garden", "barracks", "muster", "burrow", "factory", "workshop", "turret", "hammer", "flak", "wall", "repair", "comms", "helipad", "mast", "tech", "works", "bastion", "pylon", "spire", "skyfall", "rift", "chorus"],
+	"bld": ["power", "kiln", "hearth", "refinery", "smelter", "garden", "barracks", "muster", "burrow", "factory", "workshop", "slipway", "turret", "hammer", "flak", "wall", "repair", "comms", "helipad", "mast", "tech", "works", "bastion", "pylon", "spire", "skyfall", "rift", "chorus"],
 	"inf": ["rifle", "militia", "thrall", "lancer", "grenadier", "medic", "engineer", "scrapper", "ranger", "pyro", "brute", "boars", "sapper", "cantor"],
-	"veh": ["buggy", "raider", "skitter", "tank", "scorpion", "anvilf", "anvila", "mantis", "kettle", "arty", "howler", "geode", "bulwark", "arcc", "jugg", "harv", "crawler"],
+	"veh": ["buggy", "raider", "skitter", "tank", "scorpion", "anvilf", "anvila", "mantis", "kettle", "arty", "howler", "geode", "bulwark", "arcc", "jugg", "harv", "crawler", "ironclad"],
 	"air": ["skyhawk", "gyro", "zeppelin", "wasp", "moth"],
 }
 const CAT_ORDER := ["bld", "inf", "veh", "air"]
@@ -149,7 +151,7 @@ const FACS := {
 	"vanguard": {"name": "Vanguard", "lv": "buggy", "mt": "tank", "ht": "bulwark", "air": "skyhawk", "inf": "ranger", "def": "bastion", "sw": "skyfall"},
 	"ashen": {"name": "Ashen Pact", "lv": "raider", "mt": "scorpion", "ht": "arcc", "air": "gyro", "inf": "pyro", "def": "pylon", "sw": "rift",
 		"ai_inf": ["militia", "militia", "brute", "brute", "grenadier", "pyro", "boars"], "ai_veh": ["raider", "scorpion", "scorpion", "anvilf", "anvila", "kettle", "howler", "arcc", "arcc", "jugg"],
-		"ai_air": ["gyro", "gyro", "zeppelin"],
+		"ai_air": ["gyro", "gyro", "zeppelin"], "naval": "slipway", "ai_sea": ["ironclad"],
 		"sub": {"rifle": "militia", "lancer": "grenadier", "medic": "", "engineer": "scrapper", "arty": "howler", "harv": "crawler", "refinery": "smelter",
 			"power": "kiln", "barracks": "muster", "factory": "workshop", "helipad": "mast", "comms": "", "repair": "", "tech": "works", "turret": "hammer",
 			"wasp": "gyro"}},
@@ -251,12 +253,12 @@ func tcol(theme: String) -> Array:
 		_tcol[theme] = [c.call(TH.grass), c.call(TH.dirt), c.call(TH.sand), c.call(TH.rock), c.call(TH.water)]
 	return _tcol[theme]
 
-const BH := {"kiln": 1.4, "hearth": 0.9, "smelter": 1.3, "muster": 1.0, "workshop": 1.3, "works": 1.3, "mast": 2.0, "hammer": 0.8, "hq": 1.55, "power": 1.25, "refinery": 1.3, "barracks": 0.95, "factory": 1.2, "turret": 0.7, "repair": 1.0, "wall": 0.6, "flak": 0.8, "comms": 2.2, "helipad": 0.5, "tech": 1.3, "bastion": 1.2, "pylon": 1.9, "skyfall": 1.0, "rift": 2.2, "garden": 1.3, "burrow": 0.7, "spire": 1.8, "chorus": 2.0}
-const UH := {"militia": 0.5, "brute": 0.6, "grenadier": 0.55, "boars": 0.3, "scrapper": 0.5, "anvilf": 0.45, "anvila": 0.45, "kettle": 0.45, "howler": 0.6, "jugg": 0.8, "gyro": 0.4, "zeppelin": 0.5, "crawler": 0.58, "rifle": 0.5, "lancer": 0.55, "medic": 0.5, "engineer": 0.5, "ranger": 0.5, "pyro": 0.55, "buggy": 0.42, "raider": 0.45, "tank": 0.48, "scorpion": 0.4, "bulwark": 0.6, "arcc": 0.85, "arty": 0.55, "harv": 0.58, "skyhawk": 0.4, "wasp": 0.25, "vey": 0.62, "harrow": 0.62, "furnace": 0.95, "saint": 0.8, "truck": 0.6, "deepmaw": 0.9, "thrall": 0.48, "sapper": 0.45, "cantor": 0.7, "skitter": 0.4, "mantis": 0.6, "geode": 0.6, "moth": 0.25}
+const BH := {"kiln": 1.4, "hearth": 0.9, "smelter": 1.3, "muster": 1.0, "workshop": 1.3, "works": 1.3, "mast": 2.0, "slipway": 1.0, "hammer": 0.8, "hq": 1.55, "power": 1.25, "refinery": 1.3, "barracks": 0.95, "factory": 1.2, "turret": 0.7, "repair": 1.0, "wall": 0.6, "flak": 0.8, "comms": 2.2, "helipad": 0.5, "tech": 1.3, "bastion": 1.2, "pylon": 1.9, "skyfall": 1.0, "rift": 2.2, "garden": 1.3, "burrow": 0.7, "spire": 1.8, "chorus": 2.0}
+const UH := {"ironclad": 0.6, "militia": 0.5, "brute": 0.6, "grenadier": 0.55, "boars": 0.3, "scrapper": 0.5, "anvilf": 0.45, "anvila": 0.45, "kettle": 0.45, "howler": 0.6, "jugg": 0.8, "gyro": 0.4, "zeppelin": 0.5, "crawler": 0.58, "rifle": 0.5, "lancer": 0.55, "medic": 0.5, "engineer": 0.5, "ranger": 0.5, "pyro": 0.55, "buggy": 0.42, "raider": 0.45, "tank": 0.48, "scorpion": 0.4, "bulwark": 0.6, "arcc": 0.85, "arty": 0.55, "harv": 0.58, "skyhawk": 0.4, "wasp": 0.25, "vey": 0.62, "harrow": 0.62, "furnace": 0.95, "saint": 0.8, "truck": 0.6, "deepmaw": 0.9, "thrall": 0.48, "sapper": 0.45, "cantor": 0.7, "skitter": 0.4, "mantis": 0.6, "geode": 0.6, "moth": 0.25}
 
-const ALLB := ["power", "kiln", "hearth", "refinery", "smelter", "garden", "barracks", "muster", "burrow", "factory", "workshop", "turret", "hammer", "flak", "wall", "repair", "comms", "helipad", "mast", "tech", "works", "bastion", "pylon", "spire", "skyfall", "rift", "chorus"]
+const ALLB := ["power", "kiln", "hearth", "refinery", "smelter", "garden", "barracks", "muster", "burrow", "factory", "workshop", "slipway", "turret", "hammer", "flak", "wall", "repair", "comms", "helipad", "mast", "tech", "works", "bastion", "pylon", "spire", "skyfall", "rift", "chorus"]
 ## "DEF", "SW" and "TUN" are the faction's defence, superweapon and tunnel (skipped when it has none); shared types go through sub().
-const AI_ORDER := ["power", "refinery", "barracks", "power", "factory", "TUN", "turret", "power", "refinery", "flak", "comms", "repair", "TUN", "power", "DEF", "turret", "helipad", "power", "tech", "DEF", "TUN", "power", "flak", "SW", "power", "DEF", "turret", "power"]
+const AI_ORDER := ["power", "refinery", "barracks", "power", "factory", "TUN", "turret", "power", "refinery", "NAVAL", "flak", "comms", "repair", "TUN", "power", "DEF", "turret", "helipad", "power", "tech", "DEF", "TUN", "power", "flak", "SW", "power", "DEF", "turret", "power"]
 
 var CAMPAIGNS: Array = []
 
@@ -286,7 +288,7 @@ func _init() -> void:
 	for k in BLD:
 		var d: Dictionary = BLD[k]
 		d.type = k
-		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["antiAir", false], ["needPower", false], ["sw", false], ["charge", 0.0], ["kit", 0], ["splash", 0.0], ["minr", 0.0], ["air", false], ["heal", 0], ["eng", false], ["harv", false], ["turret", false], ["armor", "bld"], ["no", []], ["grow", false], ["tun", false], ["lim", 0], ["capAdd", 0], ["drain", 0.0], ["burn", 0.0], ["muster", 0], ["dock", false], ["door", false]]:
+		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["antiAir", false], ["needPower", false], ["sw", false], ["charge", 0.0], ["kit", 0], ["splash", 0.0], ["minr", 0.0], ["air", false], ["heal", 0], ["eng", false], ["harv", false], ["turret", false], ["armor", "bld"], ["no", []], ["grow", false], ["tun", false], ["lim", 0], ["capAdd", 0], ["drain", 0.0], ["shore", false], ["yard", false], ["burn", 0.0], ["muster", 0], ["dock", false], ["door", false]]:
 			if not d.has(kv[0]): d[kv[0]] = kv[1]
 	for k in UPG:
 		var u: Dictionary = UPG[k]; var b: Dictionary = BLD[k].duplicate(true)
@@ -304,7 +306,7 @@ func _init() -> void:
 	for k in UN:
 		var d: Dictionary = UN[k]
 		d.type = k
-		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["air", false], ["turret", false], ["heal", 0], ["eng", false], ["harv", false], ["minr", 0.0], ["splash", 0.0], ["antiAir", false], ["hero", false], ["no", []], ["burrow", false], ["lim", 0], ["aura", 0.0], ["drain", 0.0], ["tough", 0.0], ["pack", 1], ["charge", 0.0], ["ram", 0.0], ["bldOnly", false], ["salvo", 1], ["w2", null], ["scrap", false], ["kit", ""], ["retired", false]]:
+		for kv in [["fac", ""], ["weapon", ""], ["dmg", 0], ["range", 0.0], ["rof", 1.0], ["air", false], ["turret", false], ["heal", 0], ["eng", false], ["harv", false], ["minr", 0.0], ["splash", 0.0], ["antiAir", false], ["hero", false], ["no", []], ["burrow", false], ["lim", 0], ["aura", 0.0], ["drain", 0.0], ["mob", 0], ["from", ""], ["tough", 0.0], ["pack", 1], ["charge", 0.0], ["ram", 0.0], ["bldOnly", false], ["salvo", 1], ["w2", null], ["scrap", false], ["kit", ""], ["retired", false]]:
 			if not d.has(kv[0]): d[kv[0]] = kv[1]
 		if not d.has("capCost"): d.capCost = CAP_COST.get(d.cat, 1)
 	CAMPAIGNS = Campaign.all()
