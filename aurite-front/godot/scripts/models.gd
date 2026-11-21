@@ -595,6 +595,17 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			for z in [-.1, .1]:
 				B.box(M.rust, .7, .08, .08, .55, .1, z, t); B.box(M.dark, .1, .11, .11, .9, .1, z, t)
 			B.flash_mesh(t, .96, .1, 0, .16)
+		"ironclad":
+			# River Ironclad: a flat armoured hull, a squat mortar turret, twin stacks and bow flamers
+			B.prism(M.iron, .95, .14, .46, 0, .06, 0, body); B.box(M.rust, .9, .1, .44, -.02, .13, 0, body); B.box(tm.col, .92, .04, .46, -.02, .19, 0, body)
+			B.prism(M.rust, .24, .1, .42, .5, .1, 0, body)
+			for z in [-.1, .1]:
+				B.cyl(M.iron, .05, .06, .3, 6, -.3, .36, z, body); B.cyl(M.fire, .04, .04, .02, 6, -.3, .52, z, body)
+			for z in [-.16, .16]: B.box(M.dark, .14, .04, .04, .5, .2, z, body)
+			var t := B.grp(body, "tur", Vector3(.08, .24, 0))
+			B.cyl(M.iron, .15, .18, .12, 8, 0, .05, 0, t)
+			var tube := B.solo("tube", t, .02, .16, 0, Vector3(0, 0, -.9)); B.cyl(M.rust, .07, .09, .34, 7, 0, 0, 0, tube)
+			B.flash_mesh(t, .2, .33, 0, .13, M.fire)
 		"crawler":
 			# Ore Crawler: a slow armoured hopper with a toothed scoop and a furnace glow inside
 			tracks.call(.82, .28, .15)
@@ -802,6 +813,12 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			for y in [.5, 1.1, 1.7]: B.box(M.dark, .76, .04, .76, 0, y, 0, body)
 			B.cyl(tm.col, .3, .3, .1, 8, 0, 2.08, 0, body); B.cyl(M.fire, .05, .05, .12, 6, 0, 2.2, 0, body)
 			B.box(M.iron, .5, .3, .4, .55, .27, .5, body)
+		"slipway":
+			# Slipway: a sloped launch ramp on timber piles, a gantry crane and a winch shed
+			B.box(M.timber, 1.6, .1, 1.7, 0, .16, 0, body, Vector3(-.12, 0, 0)); B.box(M.dark, .1, .06, 1.7, -.5, .23, 0, body, Vector3(-.12, 0, 0)); B.box(M.dark, .1, .06, 1.7, .5, .23, 0, body, Vector3(-.12, 0, 0))
+			for x in [-.75, .75]: B.box(M.rust, .08, 1.1, .08, x, .6, -.3, body)
+			B.box(M.rust, 1.6, .08, .1, 0, 1.15, -.3, body); B.box(tm.col, .3, .14, .16, .2, 1.08, -.3, body); B.box(M.dark, .02, .4, .02, .2, .85, -.3, body)
+			B.box(M.iron, .5, .35, .4, -.55, .3, -.65, body); B.box(tm.col, .52, .05, .42, -.55, .49, -.65, body)
 		"hammer":
 			# Hammer Gun: a sandbagged emplacement with a short fat cannon
 			B.cyl(M.sandbag, .5, .55, .22, 8, 0, .23, 0, body)
