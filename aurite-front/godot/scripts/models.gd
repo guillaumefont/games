@@ -597,12 +597,12 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			B.flash_mesh(t, .96, .1, 0, .16)
 		"ironclad":
 			# River Ironclad: a flat armoured hull, a squat mortar turret, twin stacks and bow flamers
-			B.prism(M.iron, .95, .14, .46, 0, .06, 0, body); B.box(M.rust, .9, .1, .44, -.02, .13, 0, body); B.box(tm.col, .92, .04, .46, -.02, .19, 0, body)
-			B.prism(M.rust, .24, .1, .42, .5, .1, 0, body)
+			B.prism(M.iron, .95, .14, .46, .0, .22, 0, body); B.box(M.rust, .9, .1, .44, -.02, .29, 0, body); B.box(M.dark, .9, .03, .42, -.02, .345, 0, body); B.box(tm.col, .92, .04, .08, -.02, .36, 0, body)
+			B.prism(M.rust, .24, .1, .42, .5, .26, 0, body)
 			for z in [-.1, .1]:
-				B.cyl(M.iron, .05, .06, .3, 6, -.3, .36, z, body); B.cyl(M.fire, .04, .04, .02, 6, -.3, .52, z, body)
-			for z in [-.16, .16]: B.box(M.dark, .14, .04, .04, .5, .2, z, body)
-			var t := B.grp(body, "tur", Vector3(.08, .24, 0))
+				B.cyl(M.iron, .05, .06, .3, 6, -.3, .52, z, body); B.cyl(M.fire, .04, .04, .02, 6, -.3, .68, z, body)
+			for z in [-.16, .16]: B.box(M.dark, .14, .04, .04, .5, .36, z, body)
+			var t := B.grp(body, "tur", Vector3(.08, .4, 0))
 			B.cyl(M.iron, .15, .18, .12, 8, 0, .05, 0, t)
 			var tube := B.solo("tube", t, .02, .16, 0, Vector3(0, 0, -.9)); B.cyl(M.rust, .07, .09, .34, 7, 0, 0, 0, tube)
 			B.flash_mesh(t, .2, .33, 0, .13, M.fire)

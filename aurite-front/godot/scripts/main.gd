@@ -1843,6 +1843,7 @@ func _pact_shots(dir: String) -> void:
 			if dd < bd: bd = dd; best = i
 	if best >= 0:
 		var wx: int = best % S.MW; var wy: int = best / S.MW
+		for v in S.vis.size(): S.vis[v] = 2
 		for r in range(1, 6):
 			var placed := false
 			for oy in range(-r, r + 1):
@@ -1850,9 +1851,17 @@ func _pact_shots(dir: String) -> void:
 					if not placed and S.can_place(0, "slipway", wx + ox, wy + oy, false):
 						var sw := S.add_building(0, "slipway", wx + ox, wy + oy); sw.born = -9.0; placed = true
 			if placed: break
-		var ic := S.spawn_unit(0, "ironclad", wx * T + 16, wy * T + 16); ic.ang = PI * .75; ic.tang = ic.ang
+		var deep := Vector2i(wx, wy); var dn := 0
+		for oy in range(-4, 5):
+			for ox in range(-4, 5):
+				var n := 0
+				for ay in range(-2, 3):
+					for ax in range(-2, 3):
+						if S.passable(1, wx + ox + ax, wy + oy + ay): n += 1
+				if n > dn and S.passable(1, wx + ox, wy + oy): dn = n; deep = Vector2i(wx + ox, wy + oy)
+		var ic := S.spawn_unit(0, "ironclad", deep.x * T + 16, deep.y * T + 16); ic.ang = PI * .75; ic.tang = ic.ang
 		S.update_vision(); V.fog_clear(true)
-		V.cam_z = 2.2; V.center_on(wx * T, wy * T)
+		V.cam_z = 3.0; V.center_on((wx + deep.x) * T / 2.0, (wy + deep.y) * T / 2.0)
 		await get_tree().create_timer(.4).timeout
 		await _shot(dir + "/p8_river.png")
 	# the HUD: unit cap and the Hearth's MUSTER button
