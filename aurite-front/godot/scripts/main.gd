@@ -4,6 +4,7 @@ extends Node
 const T := 32
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const CutscenePlayer := preload("res://scripts/cutscene.gd")
+const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
 
 var S: Sim
 var V: View3D
@@ -24,6 +25,7 @@ var camp_id := "ashen"
 var icons_for := ""
 var headless := false
 var cut: CutscenePlayer
+var tut: Tutor
 ## Fingers that drag the map. 1 (Guillaume's pick after trying both, 2026-11-14): one-finger drag pans,
 ## hold then drag draws a selection box (or faces a formation). 2: two-finger drag pans and a plain
 ## one-finger drag draws the box.
@@ -57,6 +59,7 @@ func _ready() -> void:
 	U = UI.new(); U.main = self; layer.add_child(U); U.build()
 	A = GameAudio.new(); add_child(A)
 	cut = CutscenePlayer.new(); cut.main = self; layer.add_child(cut); cut.build(U, V)
+	tut = Tutor.new(); tut.main = self; add_child(tut); tut.build()
 	U.set_tab("bld")
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
@@ -155,6 +158,7 @@ func queue_many(cat: String, type: String, k: int) -> void:
 		click_item(cat, type)
 		if q.queue.size() == before: break
 	buzz(20)
+	if k >= 5: tut.ev("queue5")
 
 # ---------------- objective ----------------
 func _obj_vis() -> void:
@@ -181,7 +185,7 @@ func group_btn(i: int, hold: bool) -> void:
 	if hold or units.is_empty():
 		if sel_u.size():
 			groups[i] = sel_u.map(func(e): return e.id)
-			toast("Group %d · %d units" % [i + 1, sel_u.size()]); buzz(25); sfx("click")
+			toast("Group %d · %d units" % [i + 1, sel_u.size()]); buzz(25); sfx("click"); tut.ev("group", i, "store")
 		elif hold:
 			groups[i] = []; toast("Group %d cleared" % (i + 1))
 		else: toast("Select units, then hold %d to store them" % (i + 1))
@@ -194,6 +198,7 @@ func group_btn(i: int, hold: bool) -> void:
 		c /= units.size(); V.center_on(c.x, c.y)
 	else:
 		S.set_sel(units); sfx("click"); buzz(10)
+	tut.ev("group", i, "select")
 
 func _group_chips() -> void:
 	for i in 4:
@@ -262,6 +267,7 @@ func end_game(win: bool) -> void:
 	U.btn.end_why.visible = U.btn.end_why.text != ""
 	U.set_debrief(M.get("debrief", {}).get("win" if win else "loss", []) if M else [])
 	U.radio_q.clear()
+	tut.stop()
 	if M and win: camp_save(M.camp, M.idx)
 	var last: bool = M != null and M.idx == D.camp(M.camp).missions.size() - 1
 	var sequel := _sequel(M.camp) if M else ""
@@ -341,6 +347,7 @@ func menu_stage() -> int:
 	return 1 if camp_prog("vanguard") >= Campaign.CRACK else 0
 
 func show_start() -> void:
+	tut.stop()
 	U.set_stage(menu_stage())
 	set_app_icon(menu_stage())
 	if not camp_open(camp_id): camp_id = D.CAMPAIGNS[0].id
@@ -467,6 +474,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	if icons_for != S.teams[0].fac and not headless: render_icons(S.teams[0].fac)
 	select_tab("bld"); refresh_panel(true); update_cmd(); end_placing()
 	_obj_vis()
+	tut.start(S.mission)
 	if S.mission: toast(S.mission.title, "gold")
 	else:
 		toast("Two fingers move the map · drag one finger to box-select" if PAN_FINGERS == 2 else "Drag to move the map · hold, then drag to box-select", "gold")
@@ -499,7 +507,9 @@ func _notification(what: int) -> void:
 		if what == NOTIFICATION_WM_GO_BACK_REQUEST: cut.skip()
 		return
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		if U.overlays.menu.visible: resume()
+		if tut.card_open: tut.close_card()
+		elif U.overlays.units.visible: U.show_overlay(tut.man_back)
+		elif U.overlays.menu.visible: resume()
 		elif U.overlays.brief.visible: show_campaigns()
 		elif U.overlays.manual.visible or U.overlays.campaign.visible or U.overlays.skirmish.visible: show_start()
 		elif S.teams.size() and not S.over and not U.overlays.start.visible: open_menu()
@@ -526,7 +536,7 @@ func click_item(cat: String, type: String) -> void:
 		if q.ready and q.cur == type: start_placing(type); return
 		if q.cur != "":
 			toast("Already building" if q.cur == type else "Busy building " + D.BLD[q.cur].name); return
-		q.cur = type; q.prog = 0.0; q.paid = 0.0; q.ready = false; sfx("click")
+		q.cur = type; q.prog = 0.0; q.paid = 0.0; q.ready = false; sfx("click"); tut.ev("order", type)
 	else:
 		if S.count(0, D.PRODUCER[cat]) == 0:
 			toast("Requires " + D.BLD[D.PRODUCER[cat]].name, "warn"); return
@@ -576,7 +586,7 @@ func refresh_panel(_force := false) -> void:
 	if sw:
 		U.sw_name.text = sw.d.name.split(" ")[0].to_upper()
 		U.sw_time.text = "READY" if sw.rdy else D.fmt(sw.d.charge - sw.ch)
-	if S.mission: U.obj_l.text = S.obj_text()
+	if S.mission: U.obj_l.text = S.obj_text() + tut.obj_extra()
 	_obj_vis()
 	_panel_alert()
 	_prod_chips(tm)
@@ -615,6 +625,7 @@ func start_placing(type: String) -> void:
 				if dd < bd: bd = dd; best = Vector2i(x, y)
 	if best != null: placing.tx = best.x; placing.ty = best.y
 	U.place_bar.visible = true; U.cmd_row.visible = false; place_hint()
+	tut.ev("placing")
 
 ## Drag a ready building out of the menu: it follows the finger, drawn GHOST_LIFT above it so the
 ## finger does not hide it, and is built where it is let go (if the spot is allowed).
@@ -652,6 +663,7 @@ func confirm_place() -> void:
 	if not S.can_place(0, placing.type, placing.tx, placing.ty, false):
 		toast("Can't build there. Stay close to your base, off rock, water and aurite.", "warn"); return
 	var b := S.add_building(0, placing.type, placing.tx, placing.ty)
+	tut.ev("made", placing.type)
 	for k in 8: S.parts.append({"k": "smoke", "x": b.tx * T + randf() * b.w * T, "y": (b.ty + b.h) * T - 4, "vx": (randf() - .5) * 30, "vy": -randf() * 10, "life": .8, "max": .8, "s": 5.0, "c": Color8(150, 140, 120)})
 	sfx("place")
 	if D.BLD[placing.type].kit:
@@ -692,6 +704,7 @@ func cmd_btn(k: String) -> void:
 	match k:
 		"sw":
 			sw_aim = not sw_aim; sfx("click"); update_cmd()
+			if sw_aim: tut.ev("aim")
 		"amove":
 			amove = not amove; update_cmd()
 		"stop":
@@ -842,8 +855,10 @@ func tap(sx: float, sy: float, right: bool) -> void:
 				var same := S.ents.filter(func(e): return e.alive and e.kind == "u" and e.team == 0 and e.type == hit.type and V.on_screen(e.x, e.y))
 				S.set_sel(same); last_tap.id = 0
 				if same.size() > 1: toast("%d × %s" % [same.size(), hit.d.name])
+				tut.ev("dbl")
 			else:
 				S.set_sel([hit]); last_tap = {"id": hit.id, "t": now}
+			tut.ev("select", S.sel)
 			buzz(8)
 		else: S.set_sel([hit])
 		sfx("click"); return
@@ -851,7 +866,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 		command(hit, wx, wy, sel_u); return
 	var sb: Ent = S.sel[0] if S.sel.size() else null
 	if sb and sb.kind == "b" and (sb.type == "barracks" or sb.type == "factory"):
-		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); return
+		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); return
 	S.set_sel([])
 
 func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width := 0.0) -> void:
@@ -863,7 +878,7 @@ func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width :=
 		if combat.size(): S.attack_order(combat, hit); ring(hit.x, hit.y, Color("ff5a52")); sfx("click")
 		if hit.kind == "b" and engs.size(): S.eng_order(engs, hit); ring(hit.x, hit.y, Color("7fd68e")); sfx("click")
 		if others.size(): S.group_move(others, hit.x, hit.y, "move")
-		buzz(12); amove = false; update_cmd(); return
+		buzz(12); amove = false; update_cmd(); tut.ev("attack"); return
 	var ti := clampi(int(wy / T), 0, 63) * 64 + clampi(int(wx / T), 0, 63)
 	if harvs.size() and S.ore[ti] > 0:
 		for h in harvs: h.pref = ti; h.hs = "find"
@@ -872,14 +887,14 @@ func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width :=
 	if combat.size() or others.size():
 		S.group_move(combat + others, wx, wy, "amove" if (amove and combat.size()) else "move", face, width)
 		ring(wx, wy, Color("ff5a52") if amove else Color("7fd68e"))
-	sfx("ack"); buzz(12); amove = false; update_cmd()
+	sfx("ack"); buzz(12); amove = false; update_cmd(); tut.ev("move")
 
 func box_select(x0: float, y0: float, x1: float, y1: float) -> void:
 	var us := _box_units(Vector2(x0, y0), Vector2(x1, y1))
 	var cb := us.filter(func(u): return not u.d.harv)
 	if cb.size(): us = cb
 	S.set_sel(us)
-	if us.size(): sfx("click"); buzz(8)
+	if us.size(): sfx("click"); buzz(8); tut.ev("box"); tut.ev("select", us)
 
 func _box_units(a: Vector2, b: Vector2) -> Array:
 	V.update_cam()
@@ -1276,6 +1291,7 @@ func _process(delta: float) -> void:
 		A.intensity = A.intensity + (S.combat - A.intensity) * min(1.0, dt * 0.5)
 		V.render(dt, placing, preview_slots, pv_from, pv_to)
 		hud_tick(dt)
+		tut.tick(dt)
 	else:
 		V.update_cam()
 	U.tick(dt)
@@ -1304,6 +1320,8 @@ func _autotest(dir: String) -> void:
 		await _icon_shots(); get_tree().quit(); return
 	if mode == "radio":
 		await _radio_shots(dir); get_tree().quit(); return
+	if mode == "tut":
+		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
 		await _cine_shots(dir); get_tree().quit(); return
 	if OS.get_environment("AF_CAMP") != "": camp_id = OS.get_environment("AF_CAMP")
@@ -1420,6 +1438,77 @@ func _radio_shots(dir: String) -> void:
 	S.over = true; end_game(true)
 	await get_tree().create_timer(1.6).timeout
 	await _shot(dir + "/05_debrief.png")
+
+## AF_MODE=tut: the in-campaign tutorial from a fresh start: unit card, pointer lesson, enemy card, drills, a drill
+## done, lesson and building cards, the base lesson, the pause menu setting, the field manual, briefing and reset.
+func _tut_shots(dir: String) -> void:
+	tut.seen = {}; tut.mode = "full"
+	camp_id = "ashen"; brief_i = 0
+	play({"mission": D.camp("ashen").missions[0], "level": "normal"})
+	for i in 100:
+		if tut.card_open: break
+		await get_tree().create_timer(0.1).timeout
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/01_card_vey.png")
+	tut.close_card()
+	await get_tree().create_timer(0.6).timeout
+	await _shot(dir + "/02_lesson_select.png")
+	var vey := tut._hero()
+	S.set_sel([vey]); tut.ev("select", S.sel)
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/03_lesson_move.png")
+	var foe: Ent = null
+	for e in S.ents:
+		if e.alive and e.team == 1 and e.type == "rifle": foe = e; break
+	if foe: V.center_on((foe.x + vey.x) / 2, (foe.y + vey.y) / 2)
+	tut._show_enemy("e:rifle")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/04_enemy_card.png")
+	tut.enemy_box.visible = false
+	show_objective()
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/05_drills.png")
+	var py: Ent = null
+	for e in S.ents:
+		if e.alive and e.team == 0 and e.type == "pyro": py = e; break
+	if foe and py: tut.ev("kill", foe, py)
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/06_drill_done.png")
+	tut.queue.clear(); tut.open_card("pyro")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/07_card_pyro.png")
+	tut.close_card()
+	brief_i = 1
+	play({"mission": D.camp("ashen").missions[1], "level": "normal"})
+	tut.queue.clear(); tut.step_i = 1; tut.step_on = false
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/08_lesson_build.png")
+	tut.open_card("turret")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/09_card_building.png")
+	tut.close_card(); tut.open_card("l_groups")
+	await get_tree().create_timer(0.5).timeout
+	await _shot(dir + "/10_card_lesson.png")
+	tut.close_card()
+	open_menu()
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/11_pause.png")
+	tut.seen["e:tank"] = true; tut.seen["raider"] = true
+	tut.open_manual("menu")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/12_manual.png")
+	tut.man_tab = 1; tut.man_sel = "e:tank"; tut._fill_manual(); U._seg_pick("tut_tab", "1")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/13_manual_enemy.png")
+	tut.man_tab = 0; tut.man_sel = "arcc"; tut._fill_manual(); U._seg_pick("tut_tab", "0")
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir + "/14_manual_locked.png")
+	show_start(); camp_id = "ashen"; open_brief(2)
+	await get_tree().create_timer(0.5).timeout
+	await _shot(dir + "/15_brief.png")
+	show_campaigns()
+	await get_tree().create_timer(0.5).timeout
+	await _shot(dir + "/16_campaigns.png")
 
 ## AF_MODE=menus: one screenshot per menu screen.
 func _menu_shots(dir: String) -> void:
