@@ -1,0 +1,6 @@
+/* Bundled copies of the Google Fonts the game uses (latin subset, from @fontsource 5.3.0, SIL OFL 1.1),
+   so the game also works offline inside the Android app. */
+@font-face{font-family:"Unbounded";font-style:normal;font-weight:500;font-display:swap;src:url(unbounded-latin-500-normal.woff2) format("woff2");}
+@font-face{font-family:"Unbounded";font-style:normal;font-weight:800;font-display:swap;src:url(unbounded-latin-800-normal.woff2) format("woff2");}
+@font-face{font-family:"Manrope";font-style:normal;font-weight:500;font-display:swap;src:url(manrope-latin-500-normal.woff2) format("woff2");}
+@font-face{font-family:"Manrope";font-style:normal;font-weight:700;font-display:swap;src:url(manrope-latin-700-normal.woff2) format("woff2");}
