@@ -97,7 +97,7 @@ static func generate(seed: int, world: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var w := float(world)
-	var n := 5 + (1 if world >= 3 else 0)
+	var n := 14 + (1 if world >= 3 else 0)
 	var sp := 112.0 - 4.0 * w
 	var hw := 30.0 - 0.8 * w
 	var u0 := 230.0
@@ -120,10 +120,10 @@ static func generate(seed: int, world: int) -> Dictionary:
 				obs.append({u = u, k = k, dx = side * 8.0, z = z, hw = 17.0 - 0.5 * w, hh = 15.0 - 0.5 * w})
 			"arch":
 				low = true
-				obs.append({u = u, k = k, z = -20.0 - 0.6 * w})
+				obs.append({u = u, k = k, z = -20.0 - 0.4 * w})
 			"spine":
 				low = false
-				obs.append({u = u, k = k, z = 4.0 + 0.8 * w})
+				obs.append({u = u, k = k, z = 4.0 + 0.4 * w})
 		prev = k
 	var last: float = obs[-1].u
 	var out := last + 45.0
@@ -135,17 +135,37 @@ static func generate(seed: int, world: int) -> Dictionary:
 	path.append([out + 20.0, 63.0, hw + 2.0])
 	path.append([length - 120.0, 63.0, 100.0])
 	path.append([length + 500.0, 63.0, 100.0])
-	# one bend (no tighter than ~260 units of radius) and back, straight again before the way out
-	var a := rng.randf_range(22.0, 35.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+	# real turns (Guillaume, 2026-11-21: longer runs that turn): a big bend of 35-60 degrees,
+	# then either an S into the other side or a hold, and back to straight before the way out.
 	# 160 units of turn per 22 degrees keeps the tightest point (smoothstep's middle) wider than
-	# ~250 units of radius; both turns must fit before the way out
+	# ~250 units of radius; if the turns don't fit, they all shrink together
+	var s := 1.0 if rng.randf() < 0.5 else -1.0
+	var h1 := s * rng.randf_range(35.0, 60.0)
+	var h2 := -s * rng.randf_range(15.0, 35.0) if rng.randf() < 0.6 else h1
+	var heads := [h1, h2, 0.0]
 	var b0 := 380.0
 	var b3 := out - 40.0
-	var tl := minf(160.0 * absf(a) / 22.0, (b3 - b0) / 2.0)
-	a = signf(a) * minf(absf(a), 22.0 * tl / 160.0)
-	var b1 := b0 + tl
-	var b2 := b3 - tl
-	var turn := [[-400.0, 0.0], [b0, 0.0], [b1, a], [b2, a], [b3, 0.0], [length + 500.0, 0.0]]
+	var hold := 40.0
+	var need := 0.0
+	var last_h := 0.0
+	for h in heads:
+		need += 160.0 * absf(h - last_h) / 22.0
+		last_h = h
+	var f := minf(1.0, (b3 - b0 - hold * 2.0) / need)
+	var turn := [[-400.0, 0.0], [b0, 0.0]]
+	var at := b0
+	last_h = 0.0
+	for i in heads.size():
+		var h: float = heads[i] * f if i < heads.size() - 1 else 0.0
+		if absf(h - last_h) < 0.01:
+			continue
+		at += 160.0 * absf(h - last_h) / 22.0
+		turn.append([at, h])
+		if i < heads.size() - 1:
+			at += hold
+			turn.append([at, h])
+		last_h = h
+	turn.append([length + 500.0, 0.0])
 	return {len = length, path = path, turn = turn, obs = obs}
 
 

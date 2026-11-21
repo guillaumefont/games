@@ -292,7 +292,8 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   `flare(o, u)` widens the oval before the wall and `front(o)` is how far the rock reaches.
   A run in every stage (Guillaume, 2026-11-20): `VStage` gives each stage `run` (130 before the
   fortress) and `course`: stage 1 keeps `VRun.handmade()`, the others get `VRun.generate(seed,
-  world)` (~15 s, 5-6 obstacles, one bend, harder each world). `VRun.use(course)` swaps the course
+  world)` (~20 s since 2026-11-21, 14-15 obstacles, a 35-60 degree bend then an S or a hold, harder each
+  world; Guillaume wanted longer runs that really turn, but the level itself keeps scrolling up). `VRun.use(course)` swaps the course
   in (LEN, OUT, PATH, TURN, OBS are static vars). Outpost props and islands stay out of the ground
   the camera sees behind the ship as it swings. tests/runs_test.gd checks all 48 courses and flies
-  one stage per world for gold. tools/run_shots.gd takes a stage index as a second argument.
+  every one in the game for gold, camera out of rock (holes' funnels included) and ship in sight. tools/run_shots.gd takes a stage index as a second argument.
