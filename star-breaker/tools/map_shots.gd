@@ -79,7 +79,8 @@ func _initialize() -> void:
 	vg.hud.pick_tier(1)
 	await snap("m_panel_locked_tier")
 	vg.hud.close_stage()
-	vg.hud._map_ship.pressed.emit()
+	vg.hud.back()
+	vg.hud._btn_medals.pressed.emit()
 	await snap("m_hangar")
 	vg.hud.back()
 	# a scroll up the whole map, for a GIF

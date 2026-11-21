@@ -164,18 +164,18 @@ func _initialize() -> void:
 	check(vg.hud.screen == "levels" and vg.hud.levels_scr.visible and not vg.hud.menu_scr.visible, "leaving a stage shows the map at that stage")
 	check(vg.hud.back() and vg.hud.menu_scr.visible, "back from the map goes home")
 	check(not vg.hud.back() and vg.hud.menu_scr.visible, "back on the home screen is left to the app (it quits)")
-	# the ship: on the map, tap it for the hangar
+	# the ship: on the home screen (not the map), tap it for the hangar
+	check(vg.hud._btn_medals.text.contains("LANCE") and vg.hud._home_ship.is_visible_in_tree(), "home shows the ship you fly")
 	vg.hud._btn_play.pressed.emit()
-	check(vg.hud._map_ship.text.contains("LANCE"), "the map shows the ship you fly")
-	vg.hud._map_ship.pressed.emit()
-	check(vg.hud.medals_scr.visible, "tapping the ship on the map opens the hangar")
-	vg.hud._ship_btns["warden"].pressed.emit()
-	check(vg.hud.ship == "warden" and vg.hud._ship_secs["warden"].visible and not vg.hud._ship_secs["lance"].visible, "the hangar picks the ship and shows only its level and colours")
-	check(vg.hud._map_ship.text.contains("WARDEN") and vg.hud._btn_medals.text.contains("WARDEN"), "the map and home show the chosen ship")
-	check(vg.hud.back() and vg.hud.levels_scr.visible, "back from the hangar returns to the map it was opened from")
-	vg.hud.select_ship("lance")
+	var bar: Node = vg.hud.levels_scr.find_child("bar", true, false)
+	check(bar.get_child_count() == 1, "the map's top bar only has Back, no ship")
 	vg.hud.back()
 	vg.hud._btn_medals.pressed.emit()
+	check(vg.hud.medals_scr.visible, "tapping the ship on home opens the hangar")
+	vg.hud._ship_btns["warden"].pressed.emit()
+	check(vg.hud.ship == "warden" and vg.hud._ship_secs["warden"].visible and not vg.hud._ship_secs["lance"].visible, "the hangar picks the ship and shows only its level and colours")
+	check(vg.hud._btn_medals.text.contains("WARDEN"), "home shows the chosen ship")
+	vg.hud.select_ship("lance")
 	check(vg.hud.back() and vg.hud.menu_scr.visible, "the hangar opened from home goes back home")
 	vg.prog.stages = {}
 	vg.hud.tier = 0
