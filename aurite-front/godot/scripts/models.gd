@@ -106,7 +106,7 @@ static var MAT := {
 	"olive": lit("5f6b4a"), "olive2": lit("4c573a"), "gold": lit("d8b840"), "goldGlow": lit("f2c443", 0.25), "glass": lit("24343f"),
 	"skin": lit("d6a079"), "white": lit("e6ebe8"), "green": unlit("6fe08a"), "harv": lit("c9a227"), "cyan": unlit("78ebff"),
 	"redLight": unlit("ff4a42"), "wall": lit("7d8378"), "wall2": lit("656b61"), "rock": lit("8a8174"),
-	"ashM": lit("4a4644"), "ashM2": lit("353231"), "ashC": lit("55524f"), "arc": unlit("b88cff"), "orange": lit("d9772b"),
+	"ashM": lit("4a4644"), "ashM2": lit("353231"), "iron": lit("756c64"), "rust": lit("8f5a3a"), "brick": lit("8a4e3a"), "timber": lit("7d6040"), "ashC": lit("55524f"), "arc": unlit("b88cff"), "orange": lit("d9772b"),
 	"rotor": lit("1c1e1f"), "hmark": lit("e6e2d0"), "glowC": unlit("9ff3ff"),
 	"heal": unlit("8af5a4"), "fire": unlit("ffa040"), "arcF": unlit("d9c2ff"), "flash": unlit("fff0a0"),
 	"stone": lit("6a675a"), "stone2": lit("4b493f"), "earthC": lit("5c5547"), "moss": lit("46603a"), "earth": lit("6e5a42"), "robe": lit("343a31"),
@@ -340,6 +340,17 @@ static func get_model(kind: String, type: String, team: int, fac: String, lv := 
 static func infantry(B: Builder, b: Node3D, type: String) -> void:
 	var M := MAT; var tm := B.tm; var P := B.P
 	b.scale = Vector3.ONE * 1.6
+	if type == "boars":
+		# Slag Boar: an armoured war boar, slag plates on its back, tusks and a glowing eye
+		b.scale = Vector3.ONE * 1.5
+		var lf := B.solo("legL", b, .1, .06, 0); B.box(M.dark, .04, .1, .04, 0, 0, -.05, lf); B.box(M.dark, .04, .1, .04, -.2, 0, .05, lf)
+		var rf := B.solo("legR", b, .1, .06, 0); B.box(M.dark, .04, .1, .04, 0, 0, .05, rf); B.box(M.dark, .04, .1, .04, -.2, 0, -.05, rf)
+		B.ico(M.rust, 1, 0, .16, 0, b, Vector3(.17, .09, .09)); B.ico(M.dark, 1, .15, .14, 0, b, Vector3(.07, .06, .06))
+		for k in 3: B.box(M.iron if k % 2 else tm.col, .07, .03, .13, -.08 + k * .07, .25, 0, b, Vector3(0, 0, .2))
+		for z in [-.04, .04]: B.box(M.bone, .06, .015, .015, .22, .12, z, b, Vector3(0, -z * 6, .5))
+		B.box(M.fire, .01, .012, .012, .2, .17, .035, b); B.box(M.fire, .01, .012, .012, .2, .17, -.035, b)
+		B.flash_mesh(b, .24, .12, 0, .05, M.fire)
+		return
 	var lg := B.solo("legL", b, 0, .065, -.045); B.box(M.dark, .07, .13, .06, 0, 0, 0, lg)
 	var rg := B.solo("legR", b, 0, .065, .045); B.box(M.dark, .07, .13, .06, 0, 0, 0, rg)
 	var torso: Color = M.white if type == "medic" else tm.col
@@ -393,6 +404,27 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 			var orb := B.solo("orb", b, .09, .66, .12); B.ico(M.glowG, .35, 0, 0, 0, orb); orb.scale = Vector3.ONE * .08; B.nshadow[orb] = true
 			var hl := B.grp(b, "halo", Vector3(-.05, .36, 0), Vector3(0, PI / 2, 0)); B.torus(M.cryst, .085, .01, 4, 10, hl); B.nshadow[hl] = true
 			B.flash_mesh(b, .09, .66, .12, .09, M.glowG)
+		"militia":
+			# Pact militia: flat cap, a rag scarf, a long bolt rifle
+			B.box(M.rust, .14, .025, .15, 0, .365, 0, b); B.box(M.dark, .11, .04, .11, 0, .385, 0, b); B.box(M.orange, .1, .035, .18, 0, .27, 0, b)
+			B.box(M.iron, .06, .1, .1, -.09, .21, 0, b); B.box(M.dark, .3, .028, .028, .12, .22, .08, b); B.flash_mesh(b, .28, .22, .08, .06)
+		"brute":
+			# Rivet Brute: a big man in welded plate with a rivet gun
+			b.scale = Vector3.ONE * 2.05
+			B.box(M.iron, .17, .12, .22, 0, .22, 0, b); B.box(M.rust, .08, .06, .26, .0, .3, 0, b)
+			B.box(M.rust, .13, .09, .13, 0, .37, 0, b); B.box(M.fire, .01, .012, .07, .066, .37, 0, b)
+			B.box(M.iron, .07, .07, .07, 0, .3, -.14, b); B.box(M.iron, .07, .07, .07, 0, .3, .14, b)
+			B.box(M.rust, .2, .06, .06, .1, .2, .1, b); B.cyl(M.dark, .025, .025, .08, 6, .22, .2, .1, b, Vector3(0, 0, PI / 2)); B.flash_mesh(b, .27, .2, .1, .07)
+		"grenadier":
+			# Pipe Grenadier: a bandolier of pipe bombs, goggles, a short launcher tube
+			B.box(M.dark, .12, .045, .12, 0, .37, 0, b); B.box(M.orange, .02, .02, .1, .06, .335, 0, b)
+			for k in 4: B.cyl(M.rust, .018, .018, .06, 5, .065, .17 + k * .03, -.06 + k * .04, b)
+			B.cyl(M.iron, .035, .035, .26, 6, .06, .3, -.1, b, Vector3(0, 0, PI / 2 - .5)); B.flash_mesh(b, .17, .36, -.1, .08, M.fire)
+		"scrapper":
+			# Scrapper: a welder's mask, a scrap sack on the back, a long torch
+			B.box(M.rust, .14, .1, .14, 0, .35, 0, b); B.box(M.dark, .02, .05, .1, .07, .34, 0, b)
+			B.box(M.metal2, .1, .14, .15, -.12, .23, 0, b); B.box(M.gold, .04, .05, .04, -.15, .33, .05, b)
+			B.box(M.dark, .22, .025, .025, .1, .2, .1, b); B.cyl(M.fire, .015, .015, .02, 5, .21, .2, .1, b, Vector3(0, 0, PI / 2)); B.flash_mesh(b, .22, .2, .1, .05, M.fire)
 		"pyro":
 			B.box(M.dark, .12, .05, .12, 0, .37, 0, b); B.box(M.dark, .03, .03, .05, .065, .32, 0, b); B.cyl(M.orange, .04, .04, .18, 6, -.11, .23, -.04, b); B.cyl(M.orange, .04, .04, .18, 6, -.11, .23, .04, b); B.box(M.dark, .2, .035, .035, .1, .2, .08, b); B.flash_mesh(b, .22, .2, .08, .08, M.fire)
 
@@ -406,7 +438,7 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 		for x in [-L / 2 + .08, L / 2 - .08]:
 			for zz in [z, -z]: B.cyl(M.dark, .06, .06, .15, 6, x, .07, zz, body, Vector3(PI / 2, 0, 0))
 	match type:
-		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor":
+		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor", "militia", "brute", "grenadier", "scrapper", "boars":
 			infantry(B, body, type)
 		"skitter":
 			# six-legged crystal crawler with a shard gun under its chin
@@ -521,6 +553,70 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			var t := B.grp(body, "tur", Vector3(0, .24, 0))
 			B.cone(tm.col, 6, .13, .1, .13, 0, .05, 0, t); B.box(M.dark, .46, .035, .035, .26, .06, 0, t); B.box(M.arc, .04, .04, .04, .5, .06, 0, t); B.flash_mesh(t, .52, .06, 0, .08)
 			B.box(M.ashM2, .03, .24, .03, -.27, .36, 0, body, Vector3(0, 0, .5))
+		"anvilf", "anvila":
+			# Anvil Tank hull with a bolt-on kit: a flamer tank, or an arc coil
+			tracks.call(.74, .24, .15); B.box(M.rust, .66, .16, .42, 0, .23, 0, body); B.box(tm.col, .68, .05, .44, 0, .33, 0, body); B.prism(M.iron, .2, .1, .42, .36, .2, 0, body)
+			var t := B.grp(body, "tur", Vector3(-.04, .36, 0))
+			B.box(M.iron, .32, .14, .3, 0, .07, 0, t); B.box(tm.dk, .1, .1, .3, -.2, .07, 0, t)
+			if type == "anvilf":
+				for z in [-.07, .07]: B.cyl(M.orange, .045, .045, .2, 6, -.08, .2, z, t)
+				B.box(M.dark, .3, .05, .05, .26, .07, 0, t); B.box(M.rust, .06, .08, .08, .42, .07, 0, t); B.flash_mesh(t, .48, .07, 0, .12, M.fire)
+			else:
+				B.cyl(M.rust, .04, .07, .12, 6, .05, .2, 0, t)
+				for k in 3: B.cyl(tm.col if k % 2 else M.metal, .1 - k * .02, .1 - k * .02, .025, 8, .05, .27 + k * .04, 0, t)
+				var orb := B.solo("orb", t, .05, .42, 0); B.ico(M.arc, 1, 0, 0, 0, orb); orb.scale = Vector3.ONE * .06; B.nshadow[orb] = true
+				B.flash_mesh(t, .05, .42, 0, .11, M.arcF)
+		"kettle":
+			# Kettle Ram: a boiler on tracks behind a huge iron ram, puffing steam
+			tracks.call(.78, .25, .15); B.box(M.rust, .6, .16, .42, -.05, .23, 0, body)
+			B.cyl(M.iron, .17, .17, .52, 8, -.1, .42, 0, body, Vector3(0, 0, PI / 2)); B.cyl(tm.col, .175, .175, .06, 8, -.1, .42, 0, body, Vector3(0, 0, PI / 2))
+			B.cyl(M.rust, .04, .05, .26, 6, -.28, .62, 0, body); B.cyl(M.fire, .035, .035, .02, 6, -.28, .76, 0, body)
+			B.prism(M.metal2, .28, .26, .5, .4, .26, 0, body); B.box(M.dark, .06, .3, .52, .3, .26, 0, body)
+			B.flash_mesh(body, .55, .26, 0, .1, M.fire)
+		"howler":
+			# Big Howler: a siege mortar the size of a chimney on a heavy tracked carriage
+			tracks.call(.78, .26, .14); B.box(M.rust, .7, .14, .46, 0, .21, 0, body); B.box(tm.col, .72, .04, .48, 0, .29, 0, body)
+			var t := B.grp(body, "tur", Vector3(-.08, .3, 0))
+			B.box(M.iron, .34, .12, .36, 0, .05, 0, t)
+			var tube := B.solo("tube", t, .08, .2, 0, Vector3(0, 0, -.8)); B.cyl(M.rust, .1, .13, .62, 8, 0, 0, 0, tube); B.cyl(tm.col, .14, .14, .05, 8, 0, -.18, 0, tube); B.cyl(M.dark, .11, .11, .04, 8, 0, .31, 0, tube)
+			for z in [-.2, .2]: B.box(M.dark, .05, .2, .05, -.12, .1, z, t, Vector3(0, 0, .5))
+			B.flash_mesh(t, .38, .46, 0, .16, M.fire)
+		"jugg":
+			# Foundry Juggernaut: a rolling foundry, four tracks, twin long guns, side flamers and three smokestacks
+			for z in [-.36, .36]:
+				B.box(M.tire, 1.1, .2, .18, 0, .1, z, body); B.box(M.tire, 1.1, .2, .18, 0, .1, z * 1.55, body)
+			B.box(M.rust, 1.0, .26, .9, 0, .33, 0, body); B.box(tm.col, 1.02, .06, .92, 0, .48, 0, body); B.prism(M.iron, .26, .18, .9, .54, .3, 0, body)
+			for k in 3:
+				B.cyl(M.iron, .06, .08, .42, 6, -.38, .66, -.22 + k * .22, body); B.cyl(M.fire, .05, .05, .02, 6, -.38, .88, -.22 + k * .22, body)
+			for z in [-.5, .5]:
+				B.box(M.iron, .18, .1, .1, .32, .32, z, body); B.box(M.dark, .12, .04, .04, .45, .32, z, body)
+			var t := B.grp(body, "tur", Vector3(.02, .52, 0))
+			B.box(M.iron, .5, .2, .46, 0, .1, 0, t); B.prism(tm.dk, .22, .12, .46, -.34, .08, 0, t); B.box(M.fire, .02, .04, .2, .25, .14, 0, t)
+			for z in [-.1, .1]:
+				B.box(M.rust, .7, .08, .08, .55, .1, z, t); B.box(M.dark, .1, .11, .11, .9, .1, z, t)
+			B.flash_mesh(t, .96, .1, 0, .16)
+		"crawler":
+			# Ore Crawler: a slow armoured hopper with a toothed scoop and a furnace glow inside
+			tracks.call(.82, .28, .15)
+			B.box(M.rust, .58, .24, .5, -.08, .26, 0, body); B.box(tm.col, .18, .26, .34, .3, .33, 0, body); B.box(M.fire, .02, .06, .22, .395, .36, 0, body)
+			B.box(M.dark, .42, .03, .42, -.12, .39, 0, body)
+			var cargo := B.solo("cargo", body, -.12, .4, 0); B.box(M.goldGlow, .38, 1, .38, 0, 0, 0, cargo)
+			var scoop := B.solo("scoop", body, .46, .1, 0); B.box(M.iron, .1, .14, .56, 0, 0, 0, scoop)
+			for k in 4: B.box(M.metal2, .05, .04, .04, .06, -.06, -.21 + k * .14, scoop)
+		"gyro":
+			# Gyro Hammer: an open-frame gyrocopter with a big gun slung under it
+			B.box(M.rust, .42, .12, .16, 0, 0, 0, body); B.box(tm.col, .44, .04, .17, 0, .07, 0, body); B.box(M.dark, .1, .08, .12, .18, .04, 0, body)
+			B.box(M.iron, .4, .04, .04, -.38, .02, 0, body); B.box(tm.dk, .03, .14, .1, -.58, .07, 0, body); B.rotor(body, "tr", -.6, .1, 0, .14, null, Vector3(0, 0, PI / 2))
+			B.cyl(M.dark, .03, .03, .14, 5, 0, .12, 0, body); B.rotor(body, "rot", 0, .2, 0, .85)
+			B.box(M.rust, .4, .06, .06, .12, -.1, 0, body); B.box(M.dark, .06, .08, .08, .33, -.1, 0, body); B.flash_mesh(body, .38, -.1, 0, .1)
+		"zeppelin":
+			# Ember Zeppelin: a patched gas bag over a gondola full of firebombs, a big pusher prop
+			B.ico(M.sandbag, 1, 0, .22, 0, body, Vector3(.62, .22, .22)); B.ico(tm.col, 1, 0, .22, 0, body, Vector3(.5, .225, .1))
+			for x in [-.3, 0.0, .3]: B.box(M.dark, .02, .46, .02, x, .22, 0, body)
+			B.box(M.rust, .4, .1, .14, 0, -.06, 0, body); B.box(M.fire, .3, .02, .1, 0, -.115, 0, body)
+			for z in [-.12, .12]: B.box(tm.dk, .12, .14, .02, -.56, .22, z, body)
+			B.rotor(body, "tr", -.68, .22, 0, .24, null, Vector3(0, 0, PI / 2))
+			B.flash_mesh(body, 0, -.14, 0, .14, M.fire)
 		"bulwark":
 			tracks.call(.82, .27, .16); B.box(tm.col, .72, .16, .44, 0, .24, 0, body); B.box(tm.dk, .14, .1, .44, .38, .2, 0, body); B.box(P.metal2, .74, .12, .06, 0, .22, .3, body); B.box(P.metal2, .74, .12, .06, 0, .22, -.3, body)
 			var t := B.grp(body, "tur", Vector3(-.06, .32, 0))
@@ -660,6 +756,59 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			for k in 4: B.box(M.glowC, .22, .06, .02, -.6 + k * .4, .45, .81, body)
 			B.ico(M.glass, .62, -.15, .42, -.35, body); B.box(P.metal2, .4, .7, .4, .55, .45, -.45, body)
 			var bl := B.solo("blink", body, .55, .85, -.45); B.ico(M.cyan, .06, 0, 0, 0, bl)
+		"kiln":
+			# Furnace: a squat brick kiln with a glowing mouth and a tall stack
+			B.cyl(M.brick, .55, .65, .7, 8, -.1, .47, -.1, body); B.cyl(tm.col, .57, .57, .06, 8, -.1, .8, -.1, body)
+			B.box(M.fire, .3, .22, .05, -.1, .32, .5, body); B.box(M.dark, .4, .05, .07, -.1, .45, .5, body)
+			B.cyl(M.rust, .13, .16, 1.1, 6, .5, .7, -.5, body); B.cyl(M.fire, .11, .11, .02, 6, .5, 1.26, -.5, body)
+			B.box(M.sandbag, .4, .18, .3, .5, .21, .45, body)
+		"hearth":
+			# Hearth: a smoky longhouse with a fire pit out front
+			B.box(M.timber, 1.0, .36, .8, 0, .3, -.05, body); B.prism(tm.col, 1.05, .3, .86, 0, .62, -.05, body)
+			B.box(M.dark, .24, .24, .04, 0, .24, .36, body); B.cyl(M.iron, .1, .12, .4, 6, .3, .85, -.25, body)
+			B.cyl(M.dark, .14, .16, .05, 8, -.3, .15, .4, body); B.cone(M.fire, 6, .08, .14, .08, -.3, .23, .4, body)
+		"smelter":
+			# Smelter: a blast furnace tower, an ore hopper and a slag spout
+			B.box(M.iron, 1.4, .7, 1.3, -.6, .45, -.6, body); B.box(tm.col, 1.42, .08, 1.32, -.6, .82, -.6, body)
+			B.cyl(M.rust, .4, .5, 1.3, 8, .75, .75, -.6, body); B.cyl(M.fire, .34, .34, .04, 8, .75, 1.41, -.6, body)
+			B.box(M.dark, .5, .16, .16, .15, .7, -.6, body)
+			B.box(M.gold, 1.1, .04, .7, 0, .14, .95, body)
+			for x in [-.35, 0, .35]: B.box(M.dark, .12, .046, .7, x, .142, .95, body)
+			B.box(M.fire, .1, .04, .3, 1.1, .2, -.1, body)
+		"muster":
+			# Muster Hall: a rough timber and sheet-iron hall with a big roll door and a horn
+			B.box(M.timber, 1.6, .55, 1.3, 0, .4, -.1, body); B.prism(M.iron, 1.7, .4, 1.42, 0, .68, -.1, body); B.box(tm.col, 1.62, .07, 1.32, 0, .66, -.1, body)
+			B.box(M.dark, .52, .36, .05, 0, .3, .56, body); B.cone(M.gold, 6, .08, .2, .08, .6, .95, -.5, body, Vector3(0, 0, -PI / 2))
+		"workshop":
+			# Workshop: a sooty shed with a gantry crane and bolt-on kits on racks
+			B.box(M.iron, 2.6, .8, 1.9, 0, .5, -.35, body); B.box(tm.col, 2.62, .09, 1.92, 0, .86, -.35, body)
+			for z in [-1.0, -.35, .3]: B.prism(M.rust, 2.6, .3, .62, 0, .92, z, body)
+			B.box(M.dark, 1.4, .62, .05, 0, .41, .61, body)
+			for x in [-1.25, 1.25]: B.box(M.dark, .08, 1.3, .08, x, .7, .9, body)
+			B.box(M.dark, 2.6, .08, .08, 0, 1.33, .9, body)
+			for k in 3: B.cyl(M.orange, .08, .08, .3, 6, -1.0 + k * .2, .3, -1.25, body)
+			B.box(M.dark, 1.4, .03, .6, 0, .135, 1.1, body)
+		"works":
+			# Old Works: a pre-war foundry hall, saw-tooth roof, arc coils on the gable
+			B.box(M.brick, 1.8, .75, 1.6, 0, .5, 0, body); B.box(tm.col, 1.82, .08, 1.62, 0, .88, 0, body)
+			for z in [-.55, 0, .55]: B.prism(M.iron, 1.8, .26, .5, 0, .99, z, body)
+			for x in [-.6, .6]:
+				B.cyl(M.iron, .06, .08, .5, 6, x, 1.25, .6, body)
+				for k in 2: B.cyl(tm.col if k else M.metal, .1, .1, .03, 8, x, 1.3 + k * .12, .6, body)
+			B.box(M.fire, .5, .06, .02, 0, .4, .81, body)
+		"mast":
+			# Mooring Mast: a lattice tower with a docking ring at the top and a winch house
+			for xz in [[-.5, -.5], [.5, -.5], [-.5, .5], [.5, .5]]: B.box(M.rust, .07, 2.0, .07, xz[0] * .7, 1.05, xz[1] * .7, body)
+			for y in [.5, 1.1, 1.7]: B.box(M.dark, .76, .04, .76, 0, y, 0, body)
+			B.cyl(tm.col, .3, .3, .1, 8, 0, 2.08, 0, body); B.cyl(M.fire, .05, .05, .12, 6, 0, 2.2, 0, body)
+			B.box(M.iron, .5, .3, .4, .55, .27, .5, body)
+		"hammer":
+			# Hammer Gun: a sandbagged emplacement with a short fat cannon
+			B.cyl(M.sandbag, .5, .55, .22, 8, 0, .23, 0, body)
+			var t := B.grp(body, "tur", Vector3(0, .4, 0))
+			B.box(M.iron, .38, .2, .36, 0, .05, 0, t); B.box(tm.col, .4, .04, .38, 0, .16, 0, t)
+			B.cyl(M.rust, .09, .1, .44, 7, .3, .06, 0, t, Vector3(0, 0, PI / 2)); B.box(M.dark, .1, .14, .14, .52, .06, 0, t)
+			B.flash_mesh(t, .6, .06, 0, .15)
 		"bastion":
 			B.cyl(P.metal, .85, .95, .45, 8, 0, .32, 0, body); B.box(tm.col, 1.72, .06, .3, 0, .56, 0, body)
 			var t := B.grp(body, "tur", Vector3(0, .6, 0))

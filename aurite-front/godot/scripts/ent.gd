@@ -85,3 +85,11 @@ var intun := 0.0       # seconds left travelling through a tunnel (hidden, froze
 var tun = null         # tunnel plan {a, b, dest, order}: walk to burrow a, come out of burrow b, go on to dest
 var aura_t := 0.0      # inside a Cantor's aura for this long: fires faster, mends slowly
 var gt := 0.0          # crystal garden: time since the last harvest pulse
+# Ashen Pact
+var stun := 0.0        # knocked down (a boar charge, a Ram Bike): cannot move or fire
+var fired_t := -99.0   # when it last fired (a boar charges again after resting)
+var ram_t := -99.0     # Ram Bike: when it may ram again
+var cd2 := 0.0         # second weapon cooldown (the Juggernaut's side flamers)
+var cold := false      # a Furnace with nothing to burn: makes no power
+var wk = null          # Scrapper: the wreck it is working on
+var wk_t := 0.0        # Scrapper: seconds spent on that wreck
