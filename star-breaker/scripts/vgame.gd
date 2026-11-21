@@ -600,8 +600,8 @@ func _notification(what: int) -> void:
 			set_paused(false)
 		elif mode == "result":
 			to_menu()
-		else:
-			# back on the menu leaves the app
+		elif not hud.back():
+			# back on the home screen leaves the app (other menu screens step back)
 			Diag.note("QUIT")
 			get_tree().quit()
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
@@ -723,8 +723,11 @@ func teardown() -> void:
 	pod = {}
 
 
+## Back to the menu: the level screen after a stage (the world just played, or the next one when
+## this clear opened it), the home screen otherwise.
 func to_menu() -> void:
-	if not G.is_empty():
+	var from_stage := not G.is_empty()
+	if from_stage:
 		# show the world just played, or the next one when this clear opened it
 		var nx := int(G.get("report", {}).get("unlocked_next", -1))
 		hud.focus_next(nx if nx >= 0 else G.stage)
@@ -733,7 +736,7 @@ func to_menu() -> void:
 	paused = false
 	audio.set_paused(false)
 	audio.music("")
-	hud.show_screen("menu")
+	hud.show_screen("levels" if from_stage else "menu")
 
 
 func set_paused(v: bool) -> void:

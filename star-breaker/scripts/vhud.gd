@@ -48,6 +48,15 @@ var prog: Progress
 var tier := 0
 
 var menu_scr: Control
+## The menu's other screens: worlds (pick a world), levels (its route of stages) and the hangar
+## (`medals_scr`: pick a ship, level it up, paint it). `screen` is the one showing.
+var worlds_scr: Control
+var levels_scr: Control
+var worlds: VWorlds
+var screen := "menu"
+var _btn_play: Button
+var _home_next: Label
+var _ship_secs := {}
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
@@ -105,6 +114,10 @@ func _ready() -> void:
 	pause_scr = _build_pause()
 	result_scr = _build_result()
 	medals_scr = _build_medals()
+	worlds_scr = _build_worlds()
+	levels_scr = _build_levels()
+	select_ship(ship)
+	focus_next()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	show_screen("menu")
@@ -180,44 +193,66 @@ func _center(c: Control) -> Control:
 
 func _build_menu() -> Control:
 	var v := _screen()
-	var t := _label("STAR BREAKER", 44, 800, C_TEXT, 6.0)
+	var t := _label("STAR BREAKER", 52, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 8
+	gap.custom_minimum_size.y = 60
 	v.add_child(gap)
-	var sl := _label("SHIP", 16, 700, C_MUTED, 3.0)
-	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(sl)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 16)
-	for k in VShips.ORDER:
-		var b := Button.new()
-		b.text = String(VShips.KITS[k].name).to_upper()
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2((COL_W - 16) / 2.0, 70)
-		b.pressed.connect(func(): select_ship(k))
-		row.add_child(b)
-		_ship_btns[k] = b
-	v.add_child(row)
-	var how := _label("", 16, 500, C_MUTED)
-	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	how.custom_minimum_size.x = COL_W
-	how.name = "how"
-	v.add_child(_center(how))
+	_btn_play = _button("Play", true, 104)
+	_btn_play.add_theme_font_size_override("font_size", 34)
+	_btn_play.pressed.connect(func(): show_screen("worlds"))
+	v.add_child(_center(_btn_play))
+	_home_next = _label("", 16, 700, C_MUTED, 2.0)
+	_home_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_home_next)
 	var gap2 := Control.new()
-	gap2.custom_minimum_size.y = 12
+	gap2.custom_minimum_size.y = 18
 	v.add_child(gap2)
+	# the ship you fly, its level, flux and medals: opens the hangar
+	_btn_medals = _button("", false, 104)
+	_btn_medals.add_theme_font_size_override("font_size", 20)
+	_btn_medals.pressed.connect(func(): show_screen("hangar"))
+	v.add_child(_center(_btn_medals))
+	var gap3 := Control.new()
+	gap3.custom_minimum_size.y = 40
+	v.add_child(gap3)
+	_build_device(v)
+	return v.get_parent()
+
+
+## The world screen: the tier, then the six worlds (see VWorlds).
+func _build_worlds() -> Control:
+	var v := _screen()
+	var t := _label("WORLDS", 44, 800, C_TEXT, 6.0)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	v.add_child(_build_tier_row())
+	worlds = VWorlds.new(self)
+	worlds.world_tapped.connect(func(w: int):
+		select_world(w)
+		show_screen("levels"))
+	v.add_child(_center(worlds))
+	var back := _button("Back", false)
+	back.pressed.connect(func(): show_screen("menu"))
+	v.add_child(_center(back))
+	return v.get_parent()
+
+
+## The level screen: the tier, the chosen world's route (see VMap) and what the medals mean.
+func _build_levels() -> Control:
+	var v := _screen()
 	v.add_child(_build_tier_row())
 	_build_map(v)
-	_btn_medals = _small_button("")
-	_btn_medals.custom_minimum_size.x = COL_W
-	_btn_medals.pressed.connect(func(): show_screen("medals"))
-	v.add_child(_center(_btn_medals))
-	_build_device(v)
-	select_ship(ship)
+	var legend := Pips.new()
+	legend.big = true
+	legend.custom_minimum_size = Vector2(Pips.WIDTH_BIG, Pips.HEIGHT_BIG)
+	legend.size = legend.custom_minimum_size
+	legend.set_medals(15)
+	v.add_child(_center(legend))
+	var back := _button("Worlds", false)
+	back.pressed.connect(func(): show_screen("worlds"))
+	v.add_child(_center(back))
 	return v.get_parent()
 
 
@@ -225,9 +260,7 @@ func _build_menu() -> Control:
 func _build_map(v: VBoxContainer) -> void:
 	map = VMap.new(self)
 	map.stage_tapped.connect(func(i): stage_chosen.emit(i, ship))
-	map.world_tapped.connect(select_world)
 	v.add_child(_center(map))
-	focus_next()
 
 
 ## Shows world `w` on the stage map.
@@ -236,6 +269,8 @@ func select_world(w: int) -> void:
 	if map:
 		map.world = world_sel
 		map.queue_redraw()
+	if worlds:
+		worlds.queue_redraw()
 	refresh_progress()
 
 
@@ -357,12 +392,12 @@ func set_bests(b: Array) -> void:
 ## Redraws everything that shows progress: the tier row, the shown world's stage labels, medals
 ## and locks, the medal count and the ship colours.
 func refresh_progress() -> void:
-	for t in _tier_btns.size():
-		_style_tier(_tier_btns[t], t)
+	for b in _tier_btns:
+		_style_tier(b, int(b.get_meta("tier")))
+	_update_home()
 	if map:
 		map.queue_redraw()
 	if prog and _btn_medals:
-		_btn_medals.text = "HANGAR  ·  %s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
 		_medals_total.text = "MEDALS %d / %d" % [prog.total(), Progress.max_total()]
 		_flux_lbl.text = "%s FLUX" % _fmt(prog.flux)
 		for k in _level_btns:
@@ -395,11 +430,34 @@ func select_ship(k: String) -> void:
 	ship = k
 	for key in _ship_btns:
 		_style_button(_ship_btns[key], key == k)
+	for key in _ship_secs:
+		_ship_secs[key].visible = key == k
 	_update_how()
+	_update_home()
+
+
+## The home screen's lines: the next stage under Play, and the ship button (ship, level, flux,
+## medals).
+func _update_home() -> void:
+	if _btn_medals == null:
+		return
+	var kit: Dictionary = VShips.KITS[ship]
+	var lv := prog.level(ship) if prog else 1
+	var l2 := "HANGAR"
+	if prog:
+		l2 = "%s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
+	_btn_medals.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, l2]
+	if _home_next:
+		var n := prog.next_stage(tier) if prog else 0
+		if n < 0:
+			_home_next.text = ""
+		else:
+			var st: Dictionary = VStage.STAGES[n]
+			_home_next.text = ("Next  ·  world %d  ·  %d %s  ·  %s" % [st.world + 1, st.j + 1, st.name, Progress.tier(tier).name]).to_upper()
 
 
 func _update_how() -> void:
-	var how: Label = menu_scr.find_child("how", true, false) if menu_scr else (find_child("how", true, false) as Label)
+	var how: Label = medals_scr.find_child("how", true, false) if medals_scr else null
 	if not how:
 		return
 	var k := ship
@@ -456,15 +514,35 @@ func _build_result() -> Control:
 	return v.get_parent()
 
 
-## Shows one of "menu", "pause", "result" or "play" (no menu, the HUD only).
+## Shows one of "menu" (home), "worlds", "levels", "hangar", "pause", "result" or "play" (no
+## menu, the HUD only).
 func show_screen(which: String) -> void:
+	if which == "medals":
+		which = "hangar"
+	screen = which
 	menu_scr.visible = which == "menu"
-	medals_scr.visible = which == "medals"
+	medals_scr.visible = which == "hangar"
+	if worlds_scr:
+		worlds_scr.visible = which == "worlds"
+		levels_scr.visible = which == "levels"
 	pause_scr.visible = which == "pause"
 	result_scr.visible = which == "result"
 	playing = which == "play" or which == "pause"
 	btn_pause.visible = which == "play"
 	queue_redraw()
+
+
+## Back from a menu screen to the one before it (levels -> worlds -> home, hangar -> home).
+## False on the home screen, where back leaves the app.
+func back() -> bool:
+	match screen:
+		"levels":
+			show_screen("worlds")
+		"worlds", "hangar":
+			show_screen("menu")
+		_:
+			return false
+	return true
 
 
 func set_result(cleared: bool, score_txt: String, has_next: bool) -> void:
@@ -581,6 +659,7 @@ func _build_tier_row() -> Control:
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2((COL_W - 20) / 3.0, 56)
 		b.pressed.connect(func(): select_tier(t))
+		b.set_meta("tier", t)
 		row.add_child(b)
 		_tier_btns.append(b)
 		_style_tier(b, t)
@@ -649,11 +728,12 @@ func set_report(r: Dictionary) -> void:
 			sb.shadow_color = Color(col, 0.35)
 
 
-## The hangar: flux in the bank, the four medals explained and the medal count, then each
-## ship's level (with a level-up button) and colours (locked ones say how many medals they need).
+## The hangar: flux in the bank and the medal count, then the ship you fly (Lance or Warden, with
+## what it does), its level with a level-up button, and its colours (locked ones say how many
+## medals they need).
 func _build_medals() -> Control:
 	var v := _screen()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 14)
 	var t := _label("HANGAR", 44, 800, C_TEXT, 6.0)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
@@ -663,53 +743,65 @@ func _build_medals() -> Control:
 	_medals_total = _label("", 16, 700, C_MUTED, 2.0)
 	_medals_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_medals_total)
-	var legend := VBoxContainer.new()
-	legend.add_theme_constant_override("separation", 8)
-	for k in Progress.MEDALS.size():
-		var info: Dictionary = Progress.MEDAL_INFO[Progress.MEDALS[k]]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 14)
-		var p := Pips.new()
-		p.only = k
-		p.custom_minimum_size = Vector2(22, Pips.HEIGHT)
-		p.set_medals(1 << k)
-		row.add_child(p)
-		var l := _label("%s  ·  %s" % [String(info.name).to_upper(), info.how], 17, 700, C_TEXT)
-		row.add_child(l)
-		legend.add_child(row)
-	var note := _label("Each stage has 4 medals on each tier. Clear a tier to open the next.", 15, 500, C_MUTED)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	note.custom_minimum_size.x = COL_W
-	legend.add_child(note)
-	v.add_child(_center(legend))
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 10
+	v.add_child(gap)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
 	for k in VShips.ORDER:
-		var gap := Control.new()
-		gap.custom_minimum_size.y = 6
-		v.add_child(gap)
-		var sl := _label("", 17, 800, C_LANCE, 2.0)
+		var b := Button.new()
+		b.text = String(VShips.KITS[k].name).to_upper()
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2((COL_W - 16) / 2.0, 76)
+		b.pressed.connect(func(): select_ship(k))
+		row.add_child(b)
+		_ship_btns[k] = b
+	v.add_child(row)
+	var how := _label("", 16, 500, C_MUTED)
+	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	how.custom_minimum_size.x = COL_W
+	how.name = "how"
+	v.add_child(_center(how))
+	for k in VShips.ORDER:
+		var sec := VBoxContainer.new()
+		sec.add_theme_constant_override("separation", 14)
+		var g := Control.new()
+		g.custom_minimum_size.y = 6
+		sec.add_child(g)
+		var sl := _label("", 18, 800, C_LANCE, 2.0)
 		sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(sl)
+		sec.add_child(sl)
 		_level_lbls[k] = sl
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.add_theme_constant_override("separation", 10)
-		_paint_btns[k] = []
-		for s in Progress.SCHEMES[k]:
-			var b := Button.new()
-			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size = Vector2(80, 64)
-			b.set_meta("scheme", s.id)
-			var sid: String = s.id
-			b.pressed.connect(func(): paint_chosen.emit(k, sid))
-			row.add_child(b)
-			_paint_btns[k].append(b)
-		v.add_child(row)
-		var up := _button("", true, 60)
+		var up := _button("", true, 64)
 		up.pressed.connect(func(): level_pressed.emit(k))
 		up.add_theme_stylebox_override("disabled", up.get_theme_stylebox("normal"))
 		up.add_theme_color_override("font_disabled_color", C_INK)
-		v.add_child(_center(up))
+		sec.add_child(_center(up))
 		_level_btns[k] = up
+		var cl := _label("COLOURS", 14, 700, C_MUTED, 3.0)
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sec.add_child(cl)
+		var prow := HBoxContainer.new()
+		prow.alignment = BoxContainer.ALIGNMENT_CENTER
+		prow.add_theme_constant_override("separation", 10)
+		_paint_btns[k] = []
+		for sc in Progress.SCHEMES[k]:
+			var b := Button.new()
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(88, 70)
+			b.set_meta("scheme", sc.id)
+			var sid: String = sc.id
+			b.pressed.connect(func(): paint_chosen.emit(k, sid))
+			prow.add_child(b)
+			_paint_btns[k].append(b)
+		sec.add_child(prow)
+		v.add_child(sec)
+		_ship_secs[k] = sec
+	var gap2 := Control.new()
+	gap2.custom_minimum_size.y = 10
+	v.add_child(gap2)
 	var back := _button("Back", false)
 	back.pressed.connect(func(): show_screen("menu"))
 	v.add_child(_center(back))
