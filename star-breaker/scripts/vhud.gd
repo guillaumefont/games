@@ -64,7 +64,7 @@ var _sheet_tiers: Array = []
 var _sheet_pips: Pips
 var _sheet_note: Label
 var _sheet_play: Button
-var _home_ship: Control
+var _home_ship: ShipView
 var screen := "menu"
 ## Where the hangar's Back goes: the screen it was opened from.
 var _hangar_from := "menu"
@@ -219,10 +219,9 @@ func _build_menu() -> Control:
 		var sb: StyleBoxFlat = _btn_medals.get_theme_stylebox(st)
 		sb.content_margin_top = 196
 	_btn_medals.pressed.connect(func(): show_screen("hangar"))
-	_home_ship = ShipBadge.new()
-	_home_ship.hud = self
-	_home_ship.k = 2.7
-	_home_ship.position = Vector2(COL_W / 2.0, 104)
+	_home_ship = ShipView.new(Vector2i(640, 240), 19.0)
+	_home_ship.position = Vector2(2, 2)
+	_home_ship.size = Vector2(COL_W - 4, 192)
 	_btn_medals.add_child(_home_ship)
 	var tag := _label("GARAGE  ›", 14, 800, C_MUTED, 2.0)
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -427,21 +426,6 @@ func _update_sheet() -> void:
 		sb.shadow_color = Color(col, 0.35)
 
 
-## A ship drawn top-down in its paint, `k` times its map size (for the home screen's ship card).
-class ShipBadge:
-	extends Control
-	var hud: VHud
-	var k := 1.25
-
-	func _init() -> void:
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	func _draw() -> void:
-		if hud:
-			var paint: Dictionary = hud.prog.paint_of(hud.ship) if hud.prog else {}
-			VMap.draw_ship(self, Vector2.ZERO, k, paint, hud.ship)
-
-
 ## Shows world `w` on the stage map.
 func select_world(w: int) -> void:
 	world_sel = clampi(w, 0, VStage.WORLDS.size() - 1)
@@ -628,9 +612,9 @@ func _update_home() -> void:
 		l2 = "%s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
 	_btn_medals.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, l2]
 	if _home_ship:
-		_home_ship.queue_redraw()
+		_home_ship.show_ship(ship, prog.paint_of(ship) if prog else {})
 	if carousel:
-		carousel.queue_redraw()
+		carousel.refresh()
 	if _home_next:
 		var n := prog.next_stage(0) if prog else 0
 		if n < 0:
@@ -1046,17 +1030,24 @@ class ShipCarousel:
 	var hud: VHud
 	var drag := 0.0      # how far the finger has pulled the ship sideways
 	var slide := 0.0     # what's left of the slide after a switch, eased back to 0
+	var views := {}      # ship -> ShipView, the real model of each ship, turning
 	var _down := false
 	var _moved := false
 	var _start := 0.0
 	var _last := 0.0
 	var _vel := 0.0
-	var _t := 0.0
+
+	const VIEW_H := 236.0
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		clip_contents = true
 		set_process(true)
+		for k in VShips.ORDER:
+			var v := ShipView.new(Vector2i(640, 300), 21.0, 0.2)
+			v.size = Vector2(COL_W, VIEW_H)
+			add_child(v)
+			views[k] = v
 
 	func _index() -> int:
 		return maxi(0, VShips.ORDER.find(hud.ship))
@@ -1064,6 +1055,11 @@ class ShipCarousel:
 	func _ship_at(d: int) -> String:
 		var n: int = VShips.ORDER.size()
 		return VShips.ORDER[posmod(_index() + d, n)]
+
+	## Repaints each ship's model (after a paint change).
+	func refresh() -> void:
+		for k in views:
+			views[k].show_ship(k, hud.prog.paint_of(k) if hud.prog else {})
 
 	## Moves to the ship `d` steps along (+1 = next) and slides it in from that side.
 	func swipe(d: int) -> void:
@@ -1075,12 +1071,31 @@ class ShipCarousel:
 		hud.select_ship(k)
 
 	func _process(delta: float) -> void:
-		_t += delta
+		if hud == null:
+			return
 		if not _down:
 			drag = lerpf(drag, 0.0, minf(1.0, delta * 14.0))
 		slide = lerpf(slide, 0.0, minf(1.0, delta * 10.0))
 		if absf(slide) < 0.5:
 			slide = 0.0
+		var w := size.x
+		var off := drag + slide
+		# the current ship sits in the middle; while moving, the next one comes in from the side
+		# the finger pulls toward
+		var side := 1 if off < 0 else -1
+		for k in views:
+			var v: ShipView = views[k]
+			var x := w / 2
+			if k == hud.ship:
+				x += off
+			elif off != 0.0 and k == _ship_at(side):
+				x += side * w + off
+			else:
+				v.visible = false
+				continue
+			v.visible = true
+			v.size = Vector2(w, VIEW_H)
+			v.position = Vector2(x - v.size.x / 2, 0)
 		queue_redraw()
 
 	func _gui_input(e: InputEvent) -> void:
@@ -1113,27 +1128,23 @@ class ShipCarousel:
 				_moved = true
 			accept_event()
 
+	## Under the ships: a turntable pad; over them (names, arrows, dots) is drawn here too, since
+	## the names sit below the views.
 	func _draw() -> void:
 		if hud == null:
 			return
 		var w := size.x
 		var cy := 124.0
 		var off := drag + slide
-		# the pad the ship sits on
-		draw_circle(Vector2(w / 2, cy + 6), 112, Color(1, 1, 1, 0.04))
-		draw_arc(Vector2(w / 2, cy + 6), 112, 0, TAU, 64, Color(1, 1, 1, 0.12), 2.0, true)
-		for d: int in [-1, 0, 1]:
-			var x: float = w / 2 + d * w + off
-			if x < -w * 0.6 or x > w * 1.6:
-				continue
-			var k: String = hud.ship if d == 0 else _ship_at(d)
+		var pad := Rect2(w / 2 - 150, 176, 300, 56)
+		_ellipse(pad.get_center(), pad.size / 2, Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.16))
+		var side := 1 if off < 0 else -1
+		for d: int in [0, side]:
 			if d != 0 and off == 0.0:
 				continue
-			var paint: Dictionary = hud.prog.paint_of(k) if hud.prog else {}
-			var bob := 5.0 * sin(_t * 2.2)
+			var x: float = w / 2 + d * w + off
+			var k: String = hud.ship if d == 0 else _ship_at(d)
 			var fade := clampf(1.0 - absf(x - w / 2) / w, 0.0, 1.0)
-			var c := Vector2(x, cy + bob)
-			VMap.draw_ship(self, c, 3.5, paint, k)
 			var f: Font = hud.fonts[800]
 			var name := String(VShips.KITS[k].name).to_upper()
 			var fs := 30
@@ -1150,6 +1161,14 @@ class ShipCarousel:
 			var dx := (i - (n - 1) / 2.0) * 22.0
 			var on := i == _index()
 			draw_circle(Vector2(w / 2 + dx, 290), 6.0 if on else 4.0, Color(1, 1, 1, 0.9 if on else 0.3))
+
+	func _ellipse(c: Vector2, r: Vector2, fill: Color, line: Color) -> void:
+		var pts := PackedVector2Array()
+		for i in 49:
+			var a := TAU * i / 48.0
+			pts.append(c + Vector2(cos(a) * r.x, sin(a) * r.y))
+		draw_colored_polygon(pts.slice(0, 48), fill)
+		draw_polyline(pts, line, 2.0, true)
 
 
 class Pips:
