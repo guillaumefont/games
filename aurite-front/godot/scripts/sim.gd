@@ -1125,7 +1125,7 @@ func mutate(u: Ent) -> void:
 			"spd": nd.spd = nd.spd * m.spd
 			_: nd[k] = m[k]
 	nd.mut = {}
-	u.d = nd; u.mut = true; calc_hum()
+	u.d = nd; u.mut = true; u.lv = 2; calc_hum()
 	for k in 8: parts.append({"k": "spark", "x": u.x, "y": u.y, "vx": (randf() - 0.5) * 80, "vy": (randf() - 0.5) * 80, "life": 0.5, "max": 0.5, "c": Color("#9dffb4"), "s": 2.4, "h0": h_at(u.x, u.y) + .4})
 	if u.team == 0: host.toast(u.d.name + ": a mutation", "gold")
 

@@ -334,7 +334,7 @@ class Builder:
 static func get_model(kind: String, type: String, team: int, fac: String, lv := 1) -> Node3D:
 	var key := kind + type + str(team) + fac + ("+%d" % lv if lv > 1 else "")
 	if not cache.has(key):
-		cache[key] = unit_model(type, team, fac) if kind == "u" else bld_model(type, team, fac, lv)
+		cache[key] = unit_model(type, team, fac, lv) if kind == "u" else bld_model(type, team, fac, lv)
 	return cache[key].duplicate()
 
 static func infantry(B: Builder, b: Node3D, type: String) -> void:
@@ -350,6 +350,30 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 		for z in [-.04, .04]: B.box(M.bone, .06, .015, .015, .22, .12, z, b, Vector3(0, -z * 6, .5))
 		B.box(M.fire, .01, .012, .012, .2, .17, .035, b); B.box(M.fire, .01, .012, .012, .2, .17, -.035, b)
 		B.flash_mesh(b, .24, .12, 0, .05, M.fire)
+		return
+	if type == "knot":
+		# Knot: four bodies grown into one heaving mass, heads and arms sticking out wherever they ended up, crystal through all of it
+		b.scale = Vector3.ONE * 1.7
+		var lf := B.solo("legL", b, 0, .07, 0); B.box(M.robe, .07, .14, .07, .1, 0, -.1, lf); B.box(M.robe, .07, .14, .07, -.12, 0, .1, lf)
+		var rf := B.solo("legR", b, 0, .07, 0); B.box(M.robe, .07, .14, .07, .1, 0, .1, rf); B.box(M.robe, .07, .14, .07, -.12, 0, -.1, rf)
+		B.ico(M.robe, 1, 0, .24, 0, b, Vector3(.22, .15, .19)); B.ico(tm.dk, 1, -.1, .32, .06, b, Vector3(.14, .12, .13)); B.ico(M.stone2, 1, .1, .3, -.08, b, Vector3(.13, .11, .12))
+		for hd in [[.2, .36, .04], [.06, .45, -.1], [-.12, .46, .1], [-.2, .3, -.12]]:
+			B.ico(M.bone, .05, hd[0], hd[1], hd[2], b); B.box(M.glowG, .012, .012, .04, hd[0] + .045, hd[1], hd[2], b)
+		B.box(M.bone, .2, .03, .03, .22, .26, .14, b, Vector3(0, -.5, .3)); B.box(M.bone, .18, .03, .03, .2, .2, -.16, b, Vector3(0, .6, -.2))
+		B.box(M.bone, .16, .03, .03, -.2, .34, .16, b, Vector3(0, 2.2, .5)); B.box(M.bone, .14, .03, .03, -.02, .44, .16, b, Vector3(.4, 1.2, 1.0))
+		B.cluster(b, -.04, .38, 0, 5, .22, 3); B.cluster(b, .14, .28, .12, 3, .12, 6); B.cluster(b, -.18, .26, -.02, 3, .14, 9)
+		B.flash_mesh(b, .3, .25, 0, .08, M.glowG)
+		return
+	if type == "wretch":
+		# Wretch: what is left of a soldier, bent double, crystal breaking out of the back and one arm grown into a blade
+		b.scale = Vector3.ONE * 1.55
+		var lg0 := B.solo("legL", b, 0, .065, -.045); B.box(M.dark, .07, .13, .06, 0, 0, 0, lg0)
+		var rg0 := B.solo("legR", b, 0, .065, .045); B.box(M.dark, .07, .13, .06, 0, 0, 0, rg0)
+		B.box(M.olive2, .13, .14, .16, .04, .18, 0, b, Vector3(0, 0, -.5)); B.box(M.dark, .1, .03, .165, .0, .13, 0, b)
+		B.ico(M.bone, .05, .13, .26, 0, b); B.box(M.glowG, .01, .012, .014, .175, .265, -.02, b); B.box(M.glowG, .01, .012, .014, .175, .265, .02, b)
+		B.box(M.bone, .16, .025, .025, .14, .14, .1, b, Vector3(0, 0, -.7)); B.gem(M.cryst, .03, .12, .03, .12, .12, -.11, b, Vector3(0, 0, -2.0))
+		B.cluster(b, -.02, .26, 0, 4, .16, 4)
+		B.flash_mesh(b, .2, .12, 0, .04, M.glowG)
 		return
 	if type == "k9":
 		# K9 Team: a lean war dog in a blue sensor vest, ears up
@@ -367,7 +391,7 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 	var torso: Color = M.white if type == "medic" else tm.col
 	B.box(torso, .12, .15, .17, 0, .2, 0, b); B.box(tm.dk, .125, .03, .175, 0, .135, 0, b)
 	B.box(tm.col, .05, .1, .04, .01, .2, -.105, b); B.box(tm.col, .05, .1, .04, .01, .2, .105, b)
-	var hollow := ["thrall", "sapper", "cantor"].has(type)
+	var hollow := ["thrall", "sapper", "cantor", "keener"].has(type)
 	B.ico(M.dark if type == "pyro" else (M.bone if hollow else M.skin), .055, .01, .32, 0, b)
 	if hollow:
 		# deep hood with two green eyes
@@ -408,6 +432,14 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 			B.box(M.robe, .13, .06, .18, -.01, .1, 0, b)
 			B.box(M.stone2, .24, .03, .03, .1, .22, .08, b); B.gem(M.cryst, .05, .018, .018, .25, .22, .08, b, Vector3(0, 0, PI / 2))
 			B.flash_mesh(b, .3, .22, .08, .06, M.glowG)
+		"keener":
+			# Keener: a thin singer, throat and chest split open round a glowing crystal, a wide glass collar that throws the cry
+			b.scale = Vector3.ONE * 1.75
+			B.box(M.robe, .12, .12, .16, -.01, .08, 0, b); B.box(M.glowG, .012, .07, .05, .062, .225, 0, b)
+			var kc := B.grp(b, "halo", Vector3(.0, .3, 0), Vector3(0, 0, -.5)); B.torus(M.cryst, .1, .012, 4, 10, kc); B.nshadow[kc] = true
+			for z in [-.1, .1]: B.gem(M.cryst, .02, .09, .02, -.02, .36, z, b, Vector3(z * 4, 0, 0))
+			B.gem(M.crystD, .025, .1, .025, -.06, .38, 0, b)
+			B.flash_mesh(b, .1, .24, 0, .09, M.glowG)
 		"sapper":
 			b.scale = Vector3.ONE * 1.5
 			B.box(M.earth, .1, .16, .15, -.11, .23, 0, b); B.cluster(b, -.12, .3, 0, 4, .14, 2)
@@ -445,7 +477,7 @@ static func infantry(B: Builder, b: Node3D, type: String) -> void:
 		"pyro":
 			B.box(M.dark, .12, .05, .12, 0, .37, 0, b); B.box(M.dark, .03, .03, .05, .065, .32, 0, b); B.cyl(M.orange, .04, .04, .18, 6, -.11, .23, -.04, b); B.cyl(M.orange, .04, .04, .18, 6, -.11, .23, .04, b); B.box(M.dark, .2, .035, .035, .1, .2, .08, b); B.flash_mesh(b, .22, .2, .08, .08, M.fire)
 
-static func unit_model(type: String, team: int, fac: String) -> Node3D:
+static func unit_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 	var B := Builder.new(team, fac); var M := MAT; var tm := B.tm; var P := B.P
 	B.unit = true
 	var g := B.root
@@ -455,7 +487,7 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 		for x in [-L / 2 + .08, L / 2 - .08]:
 			for zz in [z, -z]: B.cyl(M.dark, .06, .06, .15, 6, x, .07, zz, body, Vector3(PI / 2, 0, 0))
 	match type:
-		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor", "militia", "brute", "grenadier", "scrapper", "boars", "jump", "k9":
+		"rifle", "lancer", "medic", "engineer", "ranger", "pyro", "vey", "harrow", "thrall", "sapper", "cantor", "keener", "wretch", "knot", "militia", "brute", "grenadier", "scrapper", "boars", "jump", "k9":
 			infantry(B, body, type)
 		"skitter":
 			# six-legged crystal crawler with a shard gun under its chin
@@ -495,6 +527,37 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 			var tube := B.solo("tube", t, .02, .05, 0, Vector3(0, 0, -.9)); B.box(M.bone, .04, .4, .04, 0, .2, 0, tube); B.box(M.stone2, .1, .04, .1, 0, .4, 0, tube); B.gem(M.cryst, .06, .08, .06, 0, .47, 0, tube)
 			B.cluster(body, -.12, .34, 0, 4, .12, 3)
 			B.flash_mesh(t, .32, .37, 0, .1, M.glowG)
+		"undertow":
+			# Undertow: a glass eel the size of a boat, low in the water, a row of crystal fins and a jaw full of spines
+			for k in 5:
+				var sx := .13 - k * .018
+				B.ico(tm.dk if k % 2 else tm.col, 1, .26 - k * .16, .1, sin(k * 1.3) * .04, body, Vector3(sx + .03, sx * .7, sx))
+				if k > 0: B.gem(M.cryst if k % 2 else M.crystD, .02, .1 - k * .012, .05, .26 - k * .16, .2 - k * .015, sin(k * 1.3) * .04, body, Vector3(0, 0, .3))
+			B.ico(M.stone2, 1, .42, .1, 0, body, Vector3(.1, .06, .08)); B.box(M.glowG, .012, .018, .11, .47, .13, 0, body)
+			for z in [-.045, .045]: B.gem(M.bone, .09, .015, .015, .54, .07, z, body, Vector3(0, -z * 5, 1.57))
+			B.gem(M.crystD, .08, .012, .1, -.44, .1, 0, body)
+			B.flash_mesh(body, .56, .08, 0, .07, M.glowG)
+		"carillon":
+			# Carillon: a walking cathedral of fused singers. Four stone legs, a belfry of arches with a singing heart, a crown of glass
+			for side in [["legL", .3], ["legR", -.3]]:
+				var lg := B.solo(side[0], body, 0, .3, side[1])
+				for x in [-.28, .28]:
+					B.box(M.stone2, .1, .1, .22, x, 0, sign(side[1]) * .06, lg, Vector3(-sign(side[1]) * .5, 0, 0))
+					B.box(M.stone, .11, .32, .11, x, -.14, sign(side[1]) * .14, lg); B.box(M.stone2, .16, .05, .18, x, -.28, sign(side[1]) * .14, lg)
+			B.ico(M.robe, 1, 0, .38, 0, body, Vector3(.42, .16, .34)); B.cyl(tm.col, .4, .42, .05, 8, 0, .46, 0, body)
+			B.cyl(M.stone, .3, .36, .3, 8, 0, .62, 0, body)
+			for k in 6:
+				var a := TAU * k / 6.0
+				B.box(M.stone2, .06, .42, .06, cos(a) * .26, .98, sin(a) * .26, body)
+				B.ico(M.bone, .04, cos(a) * .31, .7, sin(a) * .31, body); B.box(M.glowG, .012, .012, .03, cos(a) * .35, .7, sin(a) * .35, body, Vector3(0, -a, 0))
+			B.cyl(M.stone, .34, .3, .08, 8, 0, 1.22, 0, body); B.cyl(tm.col, .31, .31, .03, 8, 0, 1.17, 0, body)
+			var orb := B.solo("orb", body, 0, .95, 0); B.ico(M.glowG, 1, 0, 0, 0, orb); orb.scale = Vector3.ONE * .14; B.nshadow[orb] = true
+			B.gem(M.cryst, .09, .34, .09, 0, 1.42, 0, body)
+			for k in 5:
+				var a := TAU * k / 5.0 + .3
+				B.gem(M.cryst if k % 2 else M.crystD, .04, .2, .04, cos(a) * .22, 1.32, sin(a) * .22, body, Vector3(sin(a) * .5, 0, -cos(a) * .5))
+			B.cluster(body, -.3, .46, .18, 4, .2, 2); B.cluster(body, .28, .46, -.2, 3, .16, 5)
+			B.flash_mesh(body, .0, .95, 0, .2, M.glowG)
 		"moth":
 			# glass-winged moth drone
 			B.ico(tm.dk, 1, 0, 0, 0, body, Vector3(.14, .05, .055)); B.ico(tm.col, 1, .1, .01, 0, body, Vector3(.05, .045, .045)); B.box(M.glowG, .01, .015, .04, .15, .01, 0, body)
@@ -737,6 +800,10 @@ static func unit_model(type: String, team: int, fac: String) -> Node3D:
 	var ring := B.grp(g, "sel", Vector3(0, .035, 0)); ring.visible = false
 	_ring(B, ring, r * 0.82, r, Color(0.5, 0.84, 0.56, 0))
 	B.nshadow[ring] = true
+	if lv > 1:
+		# a mutated Choir form: crystal has broken out along its back
+		var k: float = D.UH.get(type, .5) / body.scale.x
+		B.cluster(body, -.08 * k * 2.0, k * .62, 0, 5, k * .7, 11); B.cluster(body, .04, k * .5, k * .22, 3, k * .4, 4)
 	return B.finish()
 
 static func _ring(B: Builder, par: Node3D, r0: float, r1: float, c: Color) -> void:
@@ -758,8 +825,21 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 	var g := B.root
 	var body := B.grp(g, "body")
 	var d: Dictionary = D.BLD[type]; var w: float = d.w; var h: float = d.h
-	if type != "wall" and type != "helipad": B.box(P.conc, w - .1, .12, h - .1, 0, .06, 0, body)
-	match type:
+	if type != "wall" and type != "helipad" and type != "thorn": B.box(P.conc, w - .1, .12, h - .1, 0, .06, 0, body)
+	var own: bool = fac == "choir" and type == "hq"
+	if own:
+		# the Choir's Yard is the old shaft the miners never left: a timber headframe over the pit, swallowed by one great bloom of crystal
+		B.ico(M.earth, 1, 0, .2, -.1, body, Vector3(1.3, .5, 1.15)); B.ico(M.moss, 1, -.6, .42, -.5, body, Vector3(.5, .25, .45)); B.cyl(M.earthC, 1.36, 1.4, .05, 8, 0, .14, 0, body); B.torus(tm.col, 1.3, .035, 4, 16, B.grp(body, "band", Vector3(0, .17, 0)))
+		B.box(M.dark, .7, .5, .4, .1, .35, .85, body)
+		for x in [-.3, .5]: B.box(M.olive2, .09, .6, .09, x, .42, 1.02, body)
+		B.box(M.olive2, 1.0, .09, .11, .1, .74, 1.02, body); B.box(tm.col, .5, .08, .02, .1, .74, 1.085, body)
+		for c in [[-.25, -.1], [.75, -.1], [-.25, .6], [.75, .6]]:
+			B.pipe(M.olive2, Vector3(c[0], .4, c[1]), Vector3(.25 + (c[0] - .25) * .25, 1.75, .25 + (c[1] - .25) * .25), .05, body)
+		B.box(M.olive2, .5, .06, .5, .25, 1.75, .25, body); B.box(M.olive2, .7, .05, .06, .25, 1.2, -.02, body); B.box(M.olive2, .7, .05, .06, .25, 1.2, .52, body)
+		var wh := B.grp(body, "wheel", Vector3(.25, 1.95, .25), Vector3(0, 0, PI / 2)); B.torus(M.stone2, .2, .03, 4, 10, wh)
+		B.cluster(body, -.55, .45, -.45, 7, 1.5, 3); B.cluster(body, .7, .4, -.6, 5, .8, 8); B.cluster(body, -.95, .3, .35, 4, .6, 5); B.cluster(body, .25, .5, .25, 4, .9, 12)
+		var hrt := B.solo("heart", body, .1, .3, .88); B.ico(M.glowG, .16, 0, 0, 0, hrt); B.nshadow[hrt] = true
+	match ("" if own else type):
 		"hq":
 			B.box(P.metal, 2.3, .85, 1.5, -.15, .55, -.55, body); B.box(tm.col, 2.32, .1, 1.52, -.15, .86, -.55, body)
 			B.box(P.metal2, 1.1, .5, 1.0, -.5, 1.2, -.6, body); B.box(M.glass, 1.12, .1, .7, -.5, 1.28, -.55, body)
@@ -857,6 +937,10 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			var l1 := B.solo("lamp", body, 1.05, 1.2, -.6); B.ico(M.green, .07, 0, 0, 0, l1); B.nshadow[l1] = true
 			var l2 := B.solo("lamp2", body, 1.05, 1.2, -.6); B.ico(M.goldGlow, .07, 0, 0, 0, l2); l2.visible = false; B.nshadow[l2] = true
 			for x in [-.7, 0, .7]: B.box(M.gold, .4, .035, .08, x, .14, 1.05, body, Vector3(0, .5, 0))
+		"thorn":
+			# Thornglass: a hedge of crystal blades grown out of the ground
+			B.cyl(M.earthC, .4, .46, .08, 6, 0, .04, 0, body)
+			B.cluster(body, 0, .06, 0, 6, .62, 3); B.cluster(body, .22, .05, .2, 4, .42, 7); B.cluster(body, -.24, .05, -.18, 4, .46, 1); B.cluster(body, -.2, .05, .24, 3, .34, 5); B.cluster(body, .24, .05, -.22, 3, .36, 9)
 		"wall":
 			B.box(M.wall, .86, .48, .86, 0, .24, 0, body); B.box(M.wall2, .92, .07, .92, 0, .03, 0, body)
 			for xz in [[-.27, -.27], [.27, -.27], [-.27, .27], [.27, .27]]: B.box(M.wall2, .22, .12, .22, xz[0], .53, xz[1], body)
@@ -1006,9 +1090,9 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			var ring := B.grp(body, "spin", Vector3(0, 1.25, 0))
 			B.torus(tm.col, .9, .14, 5, 12, ring); B.torus(M.ashM, .72, .06, 4, 10, ring)
 			var orb := B.solo("orb", body, 0, 1.25, 0); B.ico(M.arc, 1, 0, 0, 0, orb); orb.scale = Vector3.ONE * .32; B.nshadow[orb] = true
-	if not ["wall", "turret", "flak", "pylon", "helipad", "spire", "burrow", "garden"].has(type):
+	if not own and not ["wall", "thorn", "turret", "flak", "pylon", "helipad", "spire", "burrow", "garden"].has(type):
 		B.cyl(M.dark, .025, .025, .5, 4, -w / 2 + .18, .37, -h / 2 + .18, body); B.box(tm.col, .24, .14, .02, -w / 2 + .31, .55, -h / 2 + .18, body)
-	if fac == "choir" and not ["garden", "burrow", "spire", "chorus", "wall"].has(type):
+	if fac == "choir" and not ["garden", "burrow", "spire", "chorus", "wall", "thorn"].has(type):
 		# the Choir's yards are overgrown: crystal clusters at the corners and moss on the slabs
 		var k := 0
 		for c in [[-1, -1], [1, 1], [1, -1]]:
@@ -1016,8 +1100,8 @@ static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 			B.cluster(body, c[0] * (w / 2.0 - .2), .1, c[1] * (h / 2.0 - .2), 3 + k % 2, .28 + .1 * k, k + type.length())
 			k += 1
 		B.box(M.moss, w * .35, .02, h * .25, -w * .2, .125, h * .25, body)
-	_detail(B, type, body, g)
-	if lv > 1: _upgraded(B, type, body, g)
+	if not own: _detail(B, type, body, g)
+	if lv > 1: _upgraded(B, type, body, g, lv)
 	# selection outline
 	var sel := B.grp(g, "sel", Vector3(0, .16, 0)); sel.visible = false; B.nshadow[sel] = true
 	var gc := Color(0.5, 0.84, 0.56, 0); var hw := w / 2 + .06; var hh := h / 2 + .06
@@ -1129,12 +1213,13 @@ static func _detail(B: Builder, type: String, body: Node3D, root: Node3D) -> voi
 
 ## What an upgrade adds on top of the base model: taller stacks, extra tanks, armour, more barrels, a gold trim band
 ## round the slab so an upgraded building reads at a glance. Spinning parts go in a group named "spin".
-static func _upgraded(B: Builder, type: String, body: Node3D, root: Node3D) -> void:
+static func _upgraded(B: Builder, type: String, body: Node3D, root: Node3D, lv := 2) -> void:
 	var M := MAT; var tm := B.tm; var P := B.P
 	var d: Dictionary = D.BLD[type]; var w: float = d.w; var h: float = d.h
 	if w > 1:
-		for z in [-h / 2 + .06, h / 2 - .06]: B.box(M.gold, w - .14, .035, .05, 0, .13, z, body)
-		for x in [-w / 2 + .06, w / 2 - .06]: B.box(M.gold, .05, .035, h - .14, x, .13, 0, body)
+		var trim: Color = M.cryst if D.BLD[type].grow else M.gold   # a Garden's ages are grown, not gilded
+		for z in [-h / 2 + .06, h / 2 - .06]: B.box(trim, w - .14, .035, .05, 0, .13, z, body)
+		for x in [-w / 2 + .06, w / 2 - .06]: B.box(trim, .05, .035, h - .14, x, .13, 0, body)
 	match type:
 		"power":
 			# Super Reactor: both cooling towers raised, a caged fusion core between them, spinning containment ring
@@ -1172,6 +1257,15 @@ static func _upgraded(B: Builder, type: String, body: Node3D, root: Node3D) -> v
 			for k in 6:
 				var a := TAU * k / 6.0
 				B.gem(M.cryst if k % 2 else M.crystD, .05, .12, .05, cos(a) * .45, 0, sin(a) * .45, sp)
+			if lv > 2:
+				# Cathedral Garden: four stone ribs lean in over the bed and carry one great crystal, with a second ring of shards
+				for k in 4:
+					var a := TAU * k / 4.0 + PI / 4
+					B.pipe(M.stone, Vector3(cos(a) * .9, .1, sin(a) * .9), Vector3(cos(a) * .5, 1.3, sin(a) * .5), .07, body)
+					B.pipe(M.stone2, Vector3(cos(a) * .5, 1.3, sin(a) * .5), Vector3(cos(a) * .12, 1.85, sin(a) * .12), .05, body)
+					B.gem(M.crystD, .05, .2, .05, cos(a) * .5, 1.42, sin(a) * .5, body)
+				B.gem(M.cryst, .16, .5, .16, 0, 2.1, 0, body); B.cyl(tm.col, .2, .2, .04, 6, 0, 1.86, 0, body)
+				var hl := B.grp(body, "halo", Vector3(0, 2.2, 0)); B.torus(M.glowG, .34, .015, 4, 14, hl); B.nshadow[hl] = true
 		"barracks":
 			# Drill Hall: an armoured upper floor with a searchlight and a lookout mast
 			B.box(P.metal2, .9, .28, .7, -.2, .98, -.2, body); B.box(tm.col, .92, .05, .72, -.2, .96, -.2, body)

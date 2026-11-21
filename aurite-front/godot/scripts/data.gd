@@ -20,7 +20,7 @@ var BLD := {
 	"hq": {"name": "Command Yard", "w": 3, "h": 3, "hp": 1600, "cost": 0, "time": 1, "pwr": 20, "sight": 7, "req": [], "capAdd": 20, "signal": 10.0, "hum": 6.0},
 	"power": {"name": "Reactor", "no": ["ashen", "vanguard", "choir"], "w": 2, "h": 2, "hp": 600, "cost": 300, "time": 7, "pwr": 100, "sight": 4, "req": ["hq"]},
 	"refinery": {"name": "Refinery", "no": ["choir", "ashen", "vanguard"], "dock": true, "w": 3, "h": 3, "hp": 1000, "cost": 1400, "time": 13, "pwr": -30, "sight": 5, "req": ["power"]},
-	# Hollow Choir: no refinery or harvesters. A garden grows aurite on its own and drinks the ore around it.
+	# Hollow Choir: no refinery or harvesters. A Garden sings the field beside it into growing and is paid for it.
 	"garden": {"name": "Garden", "fac": "choir", "w": 2, "h": 2, "hp": 850, "cost": 1000, "time": 11, "pwr": 0, "sight": 5, "req": ["hq"], "grow": true, "drain": -8.0, "hum": 5.0, "rate": 15.0, "field": true},
 	"barracks": {"name": "Barracks", "no": ["ashen", "choir"], "door": true, "w": 2, "h": 2, "hp": 700, "cost": 400, "time": 8, "pwr": -20, "sight": 5, "req": ["power"]},
 	"factory": {"name": "War Factory", "no": ["ashen", "vanguard", "choir"], "door": true, "w": 3, "h": 3, "hp": 1100, "cost": 1600, "time": 15, "pwr": -30, "sight": 5, "req": ["refinery"]},

@@ -478,7 +478,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	if S.mission: toast(S.mission.title, "gold")
 	else:
 		toast("Two fingers move the map · drag one finger to box-select" if PAN_FINGERS == 2 else "Drag to move the map · hold, then drag to box-select", "gold")
-		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast("Build a " + D.BLD[S.tr_t(0, "power")].name + ", then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name, "gold"))
+		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast(("Grow a Garden beside the aurite: it earns, and it hatches your army" if S.lacks(0, "power") else "Build a " + D.BLD[S.tr_t(0, "power")].name + ", then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name), "gold"))
 	A.music_start()
 
 func open_menu() -> void:
@@ -1136,7 +1136,7 @@ func _draw_signal(c: Control) -> void:
 ## While a Choir growth is being placed: the edge of the Hum.
 func _draw_hum(c: Control) -> void:
 	for b in S.hums[0]:
-		if not b.alive or b.kind != "b": continue
+		if not b.alive: continue
 		var pts := PackedVector2Array(); var gh: float = S.h_at(b.x, b.y) + .08
 		for i in 49:
 			var a := TAU * i / 48.0
@@ -1172,7 +1172,7 @@ func draw_hud(c: Control) -> void:
 		if is_b and e.repairing:
 			c.draw_string(U.f_disp7, Vector2(p.x - 5, y - 5 + sin(S.time * 6) * 2), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("7fd68e"))
 	if placing != null and D.rule(S.fac_of(0), "place") == "signal": _draw_signal(c)
-	if placing != null and D.rule(S.fac_of(0), "place") == "hum": _draw_hum(c)
+	if D.rule(S.fac_of(0), "place") == "hum" and (placing != null or S.sel.any(func(e): return e.team == 0 and e.d.get("hum", 0.0) > 0)): _draw_hum(c)
 	_draw_mission_marks(c)
 	# floating "+N" aurite numbers (refinery deliveries, sales)
 	for p in S.parts:
@@ -1993,76 +1993,129 @@ func _pact_shots(dir: String) -> void:
 	await get_tree().create_timer(.3).timeout
 	await _shot(dir + "/p7_mustered.png")
 
-## AF_MODE=choir: the Hollow Choir's skirmish pick, buildings, units, a burrowing sapper, shard fields, the Cantor's aura and the Chorus Well.
+## AF_MODE=choir: the Hollow Choir's base inside its Hum, a Garden at each age, every form, mutations, the Hollowing,
+## a fusion and the HUD with its Pods.
 func _choir_shots(dir: String) -> void:
-	U.show_overlay("skirmish"); U.seg_btns.fac.choir.pressed.emit()
-	await get_tree().create_timer(0.3).timeout
-	await _shot(dir + "/c0_skirmish.png")
 	play({"fac": "choir", "enemy": "vanguard", "diff": "normal", "seed": 4242})
 	paused = true
+	S.teams[0].credits = 9000.0
+	for v in S.vis.size(): S.vis[v] = 2
 	var hq: Ent = S.find_hq(0)
 	var bs: Array = []
-	for t in ["power", "garden", "barracks", "factory", "comms", "tech", "helipad", "spire", "chorus", "garden"]:
-		var sp = S.ai_spot(0, t, hq)
-		if sp == null: continue
+	for t in ["garden", "garden", "garden", "spire", "burrow", "spire", "chorus"]:
+		var sp = S.ai_spot(0, t, hq, true)
+		if sp == null: print("no spot for ", t); continue
 		var b := S.add_building(0, t, sp.x, sp.y); b.born = -9.0; bs.append(b)
-		S.update_vision()
-	var bur := S.add_building(0, "burrow", hq.tx + 3, hq.ty - 7); bur.born = -9.0
-	S.update_vision(); V.fog_clear(true)
-	V.cam_z = 1.1; V.center_on(hq.x + T * 2, hq.y - T * 2)
+	var gs: Array = bs.filter(func(e): return e.type == "garden")
+	if gs.size() > 1: S.finish_upgrade(gs[1])
+	if gs.size() > 2:
+		S.finish_upgrade(gs[2]); S.finish_upgrade(gs[2])
+	for g in gs: g.up_t = -9.0; g.pods = 2
+	for k in 4:
+		if S.can_place(0, "thorn", hq.tx - 2 + k, hq.ty + 5, false): S.add_building(0, "thorn", hq.tx - 2 + k, hq.ty + 5).born = -9.0
+	S.calc_hum(); S.update_vision(); V.fog_clear(true)
+	S.set_sel([hq])
+	V.cam_z = 0.9; V.center_on(hq.x + T * 2, hq.y - T * 2)
 	await get_tree().create_timer(.6).timeout
-	await _shot(dir + "/c1_base.png")
-	for b in [hq, bur] + bs.filter(func(e): return ["garden", "spire", "chorus", "factory"].has(e.type)):
-		V.cam_z = 2.4; V.center_on(b.x, b.y)
+	await _shot(dir + "/c1_base_hum.png")
+	S.set_sel([])
+	var nm := ["sprout", "bloom", "cathedral"]
+	for i in gs.size():
+		V.cam_z = 2.4; V.center_on(gs[i].x, gs[i].y - T * 0.5)
 		await get_tree().create_timer(.25).timeout
-		await _shot(dir + "/c_b_%s_%d.png" % [b.type, b.id])
-	# the army in a row
-	var row := ["thrall", "thrall", "sapper", "cantor", "lancer", "medic", "skitter", "mantis", "geode", "moth"]
+		await _shot(dir + "/c_garden_%s.png" % nm[i])
+	V.cam_z = 2.2; V.center_on(hq.x, hq.y - T * 0.4)
+	await get_tree().create_timer(.25).timeout
+	await _shot(dir + "/c_b_hq.png")
+	for t in ["spire", "burrow", "chorus"]:
+		var l: Array = bs.filter(func(e): return e.type == t)
+		if l.is_empty(): continue
+		V.cam_z = 2.4; V.center_on(l[0].x, l[0].y)
+		await get_tree().create_timer(.25).timeout
+		await _shot(dir + "/c_b_%s.png" % t)
+	V.cam_z = 2.6; V.center_on((hq.tx) * T, (hq.ty + 5.5) * T)
+	await get_tree().create_timer(.25).timeout
+	await _shot(dir + "/c_b_thorn.png")
+	# every form, in rows
 	var x0: float = (hq.tx + 6) * T; var y0: float = (hq.ty - 14) * T
-	var us: Array = []
-	for i in row.size():
-		var u := S.spawn_unit(0, row[i], x0 + i * T * 1.1, y0); u.ang = PI * .75; us.append(u)
-	V.cam_z = 2.6; V.center_on(x0 + T * 5, y0)
+	var rows := [["thrall", "wretch", "keener", "sapper", "knot", "cantor"], ["skitter", "mantis", "geode", "carillon"], ["moth", "moth"]]
+	var all: Array = []
+	for ri in rows.size():
+		var row: Array = rows[ri]
+		for i in row.size():
+			var u := S.spawn_unit(0, row[i], x0 + i * T * (1.2 if ri == 0 else 2.2), y0 + ri * T * 2.6); u.ang = PI * .75; u.tang = u.ang; all.append(u)
+	V.cam_z = 3.4; V.center_on(x0 + T * 3.0, y0)
 	await get_tree().create_timer(.4).timeout
-	await _shot(dir + "/c2_units.png")
-	V.cam_z = 3.4; V.center_on(x0 + T * 2.5, y0)
+	await _shot(dir + "/c2_infantry.png")
+	V.cam_z = 2.4; V.center_on(x0 + T * 3.3, y0 + T * 2.6)
 	await get_tree().create_timer(.3).timeout
-	await _shot(dir + "/c3_units_close.png")
-	V.center_on(x0 + T * 7.5, y0)
+	await _shot(dir + "/c3_beasts.png")
+	V.cam_z = 3.0; V.center_on(x0 + T * 6.6, y0 + T * 2.4)
 	await get_tree().create_timer(.3).timeout
-	await _shot(dir + "/c3_units_close2.png")
-	# fighting: geode fields and the Cantor's aura against a Vanguard squad
-	var ex: float = x0 + T * 9; var ey: float = y0 - T * 5
-	var foes: Array = []
-	for i in 5:
-		var f := S.spawn_unit(1, "rifle" if i < 3 else "tank", ex + (i % 3) * T, ey + (i / 3) * T)
-		f.hp *= 6; f.max_hp *= 6; foes.append(f)
-	S.update_vision(); paused = false
-	for i in 20 * 6: S.step(.05)
-	V.cam_z = 1.8; V.center_on((x0 + T * 5 + ex) / 2, (y0 + ey) / 2)
-	await get_tree().create_timer(.5).timeout
-	await _shot(dir + "/c4_fight.png")
-	# a sapper burrowing towards the tank
-	var sp: Ent = us[2]
-	S.group_move([sp], ex + T * 6, ey - T * 4, "move")
-	for i in 12: S.step(.05)
-	V.cam_z = 2.6; V.center_on(sp.x, sp.y)
+	await _shot(dir + "/c3_carillon.png")
+	V.cam_z = 3.4; V.center_on(x0 + T * 1.1, y0 + T * 5.2)
 	await get_tree().create_timer(.3).timeout
-	await _shot(dir + "/c5_sapper.png")
-	# the Chorus Well
-	var ch: Ent = bs.filter(func(e): return e.type == "chorus")[0]
-	S.launch_sw(ch, ex, ey)
-	for i in 20 * 2: S.step(.05)
-	V.cam_z = 1.4; V.center_on(ex, ey)
-	await get_tree().create_timer(.2).timeout
-	await _shot(dir + "/c6_chorus_charge.png")
-	for i in 20 * 1: S.step(.05)
-	await get_tree().create_timer(.3).timeout
-	await _shot(dir + "/c7_chorus_burst.png")
-	for i in 20 * 2: S.step(.05)
-	await get_tree().create_timer(.3).timeout
-	await _shot(dir + "/c8_chorus_field.png")
-	paused = true
+	await _shot(dir + "/c3_moths.png")
+	# mutations: the same forms after three kills
+	var mrow := ["thrall", "mantis", "skitter", "knot"]
+	for i in mrow.size():
+		var a := S.spawn_unit(0, mrow[i], x0 + i * T * 2.4, y0 - T * 3); a.ang = PI * .75
+		var m := S.spawn_unit(0, mrow[i], x0 + i * T * 2.4 + T, y0 - T * 3); m.ang = PI * .75; S.mutate(m)
+	V.cam_z = 3.0; V.center_on(x0 + T * 4, y0 - T * 3)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/c4_mutations.png")
+	# an Undertow in the river
+	var w = S.shore_near(hq)
+	if w != null:
+		var best := Vector2i(w.x, w.y); var bn := 0
+		for ty in range(w.y - 6, w.y + 7):
+			for tx in range(w.x - 6, w.x + 7):
+				var n := 0
+				for ay in range(-1, 2):
+					for ax in range(-1, 2):
+						if S.inb(tx + ax, ty + ay) and S.terr[(ty + ay) * D.MW + tx + ax] == D.WATER: n += 1
+				if n > bn: bn = n; best = Vector2i(tx, ty)
+		var ud := S.spawn_unit(0, "undertow", best.x * T + 16, best.y * T + 16); ud.ang = PI * .75; ud.reveal_t = 1e9
+		S.update_vision(); V.fog_clear(true)
+		V.cam_z = 3.0; V.center_on(ud.x, ud.y)
+		await get_tree().create_timer(.4).timeout
+		await _shot(dir + "/c5_undertow.png")
+	# the Hollowing: Vanguard troopers die on the crystal by a Garden and get up again
+	var g0: Ent = gs[0]; var ot := -1
+	for i in D.MW * D.MH:
+		if S.ore[i] > 0 and S.in_hum(0, (i % D.MW) * T + 16, (i / D.MW) * T + 16) and Vector2((i % D.MW) * T - g0.x, (i / D.MW) * T - g0.y).length() < T * 4: ot = i; break
+	if ot >= 0:
+		var fx: float = (ot % D.MW) * T + 16; var fy: float = (ot / D.MW) * T + 16
+		for i in 5:
+			var f := S.spawn_unit(1, "rifle", fx + (i % 3) * 12 - 12, fy + (i / 3) * 12); f.hp = 6.0 + i * 3
+		for i in 3: S.spawn_unit(0, "thrall", fx - T * 2.5, fy + (i - 1) * 14)
+		paused = false
+		for i in 20 * 3: S.step(.05)
+		V.cam_z = 3.0; V.center_on(fx, fy)
+		await get_tree().create_timer(.3).timeout
+		await _shot(dir + "/c6_crystal_cuts.png")
+		for i in 20 * 5: S.step(.05)
+		await get_tree().create_timer(.3).timeout
+		await _shot(dir + "/c6_hollowing.png")
+		paused = true
+	# fusion: four Thralls selected, the FUSE button, then the Knot
+	var fz: Array = []
+	for u in all: u.alive = false
+	for i in 4: fz.append(S.spawn_unit(0, "thrall", x0 + T * (2 + (i % 2) * 1.1), y0 + T * ((i / 2) * 1.1)))
+	S.set_sel(fz); update_cmd()
+	V.cam_z = 3.0; V.center_on(x0 + T * 2.3, y0 + T * 0.3)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/c7_fuse_button.png")
+	cmd_btn("fuse")
+	for i in 30: S.step(.05)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/c7_knot.png")
+	# the HUD: Pods, and a Garden selected with its next age
+	S.set_sel([gs[0]]); update_cmd()
+	V.cam_z = 1.5; V.center_on(gs[0].x, gs[0].y)
+	await get_tree().create_timer(.4).timeout
+	await _shot(dir + "/c8_hud_garden.png")
+	S.set_sel([])
 
 func _shot(path: String) -> void:
 	await RenderingServer.frame_post_draw
