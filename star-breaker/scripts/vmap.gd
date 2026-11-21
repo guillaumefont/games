@@ -124,13 +124,16 @@ func _sub(i: int) -> String:
 ## Why stage `i` is closed on tier `t`.
 func lock_reason(i: int, t := 0) -> String:
 	var tn: String = Progress.tier(t).name
-	if i > 0 and prog() and prog().reach(t) + 1 < i:
+	if t > 0:
+		# a higher tier only needs this stage cleared on the tier below
+		if t > 1 and prog() and not prog().open(i, t - 1):
+			return "Clear this stage on %s, then %s" % [Progress.tier(t - 2).name, Progress.tier(t - 1).name]
+		return "Clear this stage on %s first" % Progress.tier(t - 1).name
+	if i > 0 and prog() and prog().reach(0) + 1 < i:
 		var p: Dictionary = VStage.STAGES[i - 1]
 		if p.world != VStage.STAGES[i].world:
 			return "Clear %s on %s to reach %s" % [p.name, tn, Worlds.LIST[VStage.STAGES[i].world].name]
 		return "Clear %d %s on %s first" % [p.j + 1, p.name, tn]
-	if t > 0:
-		return "Clear this stage on %s first" % Progress.tier(t - 1).name
 	return "Locked"
 
 
