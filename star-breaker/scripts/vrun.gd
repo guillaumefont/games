@@ -13,9 +13,12 @@ extends RefCounted
 
 ## The course in use (see `use()`): stage 1's long hand-made run by default, a short generated
 ## one in every other stage (`generate()`).
-static var LEN := 2400.0
+static var LEN := 2240.0
 ## Past here the ship only glides back to the play plane while the camera swings out.
 static var OUT := 2000.0
+## How long the way out is (Guillaume, 2026-11-21: faster out of the run; it was 400): from OUT,
+## the ship pulls up and the camera swings back top-down over this many units.
+const EXIT := 240.0
 static var PATH: Array = BASE_PATH
 static var TURN: Array = BASE_TURN
 static var OBS: Array = BASE_OBS
@@ -40,7 +43,7 @@ const MEDALS := [["Gold", 5000], ["Silver", 2000], ["Bronze", 500]]
 const BASE_PATH := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, 32.0], [290.0, 53.0, 30.0], [430.0, 74.0, 30.0],
 	[540.0, 63.0, 30.0], [1080.0, 63.0, 30.0], [1180.0, 63.0, 52.0], [1380.0, 63.0, 52.0], [1460.0, 63.0, 30.0],
 	[1520.0, 63.0, 30.0], [1580.0, 52.0, 23.0], [1660.0, 78.0, 22.0], [1740.0, 50.0, 23.0], [1820.0, 63.0, 30.0],
-	[2020.0, 63.0, 32.0], [2240.0, 63.0, 100.0], [2900.0, 63.0, 100.0]]
+	[2020.0, 63.0, 32.0], [2120.0, 63.0, 100.0], [2900.0, 63.0, 100.0]]
 
 ## Where the canyon heads: [u, degrees to the left], eased between keys. It runs straight where
 ## the camera swings (so the moon's floor lines up with it) and turns no tighter than a radius of
@@ -72,13 +75,13 @@ const BASE_OBS := [
 
 ## Stage 1's hand-made course.
 static func handmade() -> Dictionary:
-	return {len = 2400.0, path = BASE_PATH, turn = BASE_TURN, obs = BASE_OBS}
+	return {len = 2240.0, path = BASE_PATH, turn = BASE_TURN, obs = BASE_OBS}
 
 
 ## Makes `c` (from `handmade()` or `generate()`) the course in use.
 static func use(c: Dictionary) -> void:
 	LEN = c.len
-	OUT = c.len - 400.0
+	OUT = c.len - EXIT
 	PATH = c.path
 	TURN = c.turn
 	OBS = c.obs
@@ -124,13 +127,13 @@ static func generate(seed: int, world: int) -> Dictionary:
 		prev = k
 	var last: float = obs[-1].u
 	var out := last + 45.0
-	var length := out + 400.0
+	var length := out + EXIT
 	# the passage sways a little between obstacles
 	var path := [[-400.0, 63.0, 100.0], [0.0, 63.0, 100.0], [160.0, 63.0, hw + 2.0]]
 	for i in n - 1:
 		path.append([u0 + (i + 0.5) * sp, 63.0 + rng.randf_range(-7.0, 7.0), hw])
 	path.append([out + 20.0, 63.0, hw + 2.0])
-	path.append([length - 160.0, 63.0, 100.0])
+	path.append([length - 120.0, 63.0, 100.0])
 	path.append([length + 500.0, 63.0, 100.0])
 	# one bend (no tighter than ~260 units of radius) and back, straight again before the way out
 	var a := rng.randf_range(22.0, 35.0) * (1.0 if rng.randf() < 0.5 else -1.0)
@@ -257,13 +260,13 @@ const STAGE_SPEED := 0.6
 ## comes down the screen, builds through the run, and eases back to the stage's scroll at the exit.
 static func speed(u: float) -> float:
 	var up := lerpf(STAGE_SPEED, 2.5, smoothstep(-240.0, 250.0, u))
-	return lerpf(up, STAGE_SPEED, smoothstep(LEN - 360.0, LEN, u))
+	return lerpf(up, STAGE_SPEED, smoothstep(LEN - EXIT + 20.0, LEN, u))
 
 
 ## Height of the drawn canyon floor at `u`: it starts and ends well under the moon's own ground (below its rivers and craters)
 ## (so the moon shows through the open mouth and exit) and rises to FLOOR inside.
 static func floor_z(u: float) -> float:
-	var k := smoothstep(-40.0, 200.0, u) * (1.0 - smoothstep(LEN - 330.0, LEN - 120.0, u))
+	var k := smoothstep(-40.0, 200.0, u) * (1.0 - smoothstep(LEN - EXIT + 40.0, LEN - 70.0, u))
 	return lerpf(-100.0, FLOOR, k)
 
 
@@ -447,7 +450,10 @@ class Builder:
 		for acc in [rock, lip, glow]:
 			VRun._bend(acc)
 		if rock.count() > 0:
-			node.add_child(Terrain._mi(rock.mesh(), _mats.ground, true))
+			# the walls, floor and mountains throw no shadow: from behind the ship the low sun put
+			# the whole floor in the left wall's shadow, so nothing read like the top-down view.
+			# Only the ship and the obstacles throw shadows on the floor, as on the moon (2026-11-21)
+			node.add_child(Terrain._mi(rock.mesh(), _mats.ground, false))
 		if lip.count() > 0:
 			node.add_child(Terrain._mi(lip.mesh(), _mats.lip, false))
 		if glow.count() > 0:
