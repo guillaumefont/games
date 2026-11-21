@@ -3,13 +3,15 @@ extends RefCounted
 ## Ship kits for the portrait game (the vertical slice). Each ship has a main weapon that fires
 ## on its own while the thumb is down, a release (what happens when the thumb lifts) and an
 ## ultimate, loaded each ship's own way: Lance's Storm is the last stage of its charge bar (hold
-## ULT_AT ticks, lift); Warden's Shatter fills from the pod's work and fires when the pod is recalled. Lance and Warden are in the slice; the other seven come later.
+## ULT_AT ticks, lift). Every other ship has a ShipKit (`kit`, scripts/kits/) with its own hold,
+## lift and ultimate meter (`loads` says what fills it). No ship has a detached thing to steer:
+## Guillaume dropped Warden's pod on 2026-11-21.
 
 const KITS := {
 	lance = {name = "Lance", sub = "Hold to charge the beam, lift to fire", release = "beam", ult = "storm", ult_name = "Storm",
 		fire_every = 6, shot_speed = 6.5},
-	warden = {name = "Warden", sub = "Lift to fling the pod, lift again to call it back. Pod hits load Shatter", release = "pod", ult = "shatter", ult_name = "Shatter",
-		fire_every = 8, shot_speed = 5.5},
+	warden = {name = "Warden", sub = "Hold to raise a shield that eats bullets, lift to throw them back", release = "shield", ult = "shatter", ult_name = "Shatter",
+		fire_every = 8, shot_speed = 5.5, kit = "warden", loads = "Bullets eaten load Shatter"},
 }
 const ORDER := ["lance", "warden"]
 
@@ -62,6 +64,14 @@ static func lance() -> Node3D:
 	g.set_meta("body", body)
 	g.set_meta("flame", fl)
 	return g
+
+
+## The ship's mechanic (null for Lance, whose beam lives in vgame.gd).
+static func make_kit(kind: String, game: Node3D) -> ShipKit:
+	var k: String = KITS[kind].get("kit", "")
+	if k == "":
+		return null
+	return load("res://scripts/kits/%s.gd" % k).new(game)
 
 
 static func model(kind: String) -> Node3D:

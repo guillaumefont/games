@@ -35,11 +35,10 @@ var ships := 3
 var ult_ready := false
 var charge := 0.0
 var charge_lv := 0
-## Warden: the pod is out, so a lift recalls it (and fires a stored Shatter).
-var pod_out := false
-## Warden: 1 right after the pod adds Shatter charge, fading to 0, and how much it added.
+## Ships with a kit: the line under the ultimate meter, and 1 right after the meter gains,
+## fading to 0.
+var kit_hint := ""
 var shat_flash := 0.0
-var shat_last := 0
 ## Lance's bar marks as parts of the whole bar: LV 2, LV 3, the Nova (the Storm is the end).
 var charge_marks := [50.0 / 300.0, 100.0 / 300.0, 160.0 / 300.0, 240.0 / 300.0]
 var boss := -1.0
@@ -786,12 +785,12 @@ func _draw() -> void:
 
 ## The ultimate bar under the score. Lance's is the charge bar while the thumb is down: LV 1-3,
 ## the Nova, then the Storm's pink stretch whose label lights up once the charge runs into it.
-## Warden's is the Shatter meter, filled by the pod's work and kept through lifts: always shown,
-## all pink, flashing with a "+N" each time the pod adds to it; its line under the bar says what
-## loads it, and once full, how to fire it (recall the pod, or fling it first).
+## Every other ship's is its kit's ultimate meter, kept through lifts: always shown, all pink,
+## flashing each time it gains; the kit's line under the bar says what loads it, and once full,
+## that a lift fires it.
 func _draw_charge_bar(_f: Font) -> void:
-	if ship == "warden" and playing:
-		_draw_shatter_bar()
+	if ship != "lance" and playing:
+		_draw_meter_bar()
 		return
 	if charge <= 0.0:
 		return
@@ -821,7 +820,7 @@ func _draw_charge_bar(_f: Font) -> void:
 				C_TEXT if charge >= 1.0 else Color(C_SPORE, pulse))
 
 
-func _draw_shatter_bar() -> void:
+func _draw_meter_bar() -> void:
 	var bx := 30.0
 	var by := 140.0
 	var bw := 240.0
@@ -832,19 +831,9 @@ func _draw_shatter_bar() -> void:
 	var grow := 2.0 + 3.0 * shat_flash
 	if charge > 0.0:
 		draw_rect(Rect2(bx, by - grow, bw * minf(charge, 1.0), 8 + grow * 2), fill)
-	draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), "SHATTER", HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
+	draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), String(VShips.KITS[ship].ult_name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
 			C_TEXT if full else Color(C_SPORE, 0.6))
-	if shat_flash > 0.0 and not full:
-		draw_string(fonts[800], Vector2(bx + bw * minf(charge, 1.0) + 4, by - 6 - 10 * (1.0 - shat_flash)), "+%d" % shat_last,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(Color.WHITE, shat_flash))
-	var hint := "POD HITS AND KILLS LOAD SHATTER"
-	var hc := Color(C_MUTED, 0.9)
-	if full:
-		hint = "LIFT: RECALL TO SHATTER" if pod_out else "FLING THE POD, THEN RECALL TO SHATTER"
-		hc = Color(C_TEXT, pulse)
-	elif not ult_ready:
-		hint = "SHATTERING"
-	draw_string(fonts[700], Vector2(bx, by + 30), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, hc)
+	draw_string(fonts[700], Vector2(bx, by + 30), kit_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(C_TEXT, pulse) if full else Color(C_MUTED, 0.9))
 
 
 # ---------- tiers, medals and ship colours ----------

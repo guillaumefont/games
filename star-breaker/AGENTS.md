@@ -6,17 +6,29 @@ never use R-Type names, art, enemies or levels, and no recreation of existing ga
 Guillaume wants a modern mobile-game look (glass HUD, bloom, Rubik font), not retro.
 Portrait only since 2026-11-17 (Guillaume: "switch the whole game to portrait now that we are
 committed"); the landscape game was removed, its history is in git before that date.
-Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release
-(Lance: charge beam; Warden: fling or recall the pod). Each ship loads its ultimate its own way, and
-never with a double tap (Guillaume's calls 2026-11-20/21). Lance's is the last stage of its charge
-bar, `ULT_AT` (7 s) of holding, then lift: LV 1-3, the Nova, then the Storm (chain lightning on every
-enemy on screen; the hold length and lighter `STORM_DMG` are its price); the Starbreak sweeping beam
-it replaced is in git history. Warden's hold loads nothing (so a lift is always a pod command): the
-Shatter meter `P.shat` fills from the pod's rams, shot hits and kills (`SHAT_*`, `SHATTER_FULL`;
-each gain flashes the HUD bar with "+N"), stays stored, and fires when the pod is recalled while out
-(it bursts where it is). The flung pod rides `POD_AHEAD` in front of the ship and follows it; it rams
-enemies but bullets fly through it (Guillaume, 2026-11-21).
-Holding to charge Warden's ult conflicted with the pod, which is why it changed.
+Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release.
+Each ship loads its ultimate its own way, and never with a double tap (Guillaume's calls
+2026-11-20/21). Lance's is the last stage of its charge bar, `ULT_AT` (7 s) of holding, then lift:
+LV 1-3, the Nova, then the Storm (chain lightning on every enemy on screen; the hold length and
+lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced is in git history.
+
+## Ships
+
+- No pod, and nothing detached to steer or manage (Guillaume, 2026-11-21: "The pod. Get rid of the
+  pod mechanics. Create twelve ships total with their own design and mechanics", then "Don't
+  roster me": build them, no approval rounds; stop short of twelve rather than ship a reskin).
+- Every ship but Lance is a `ShipKit` (`scripts/shipkit.gd`, one file per ship in `scripts/kits/`,
+  named in `VShips.KITS[ship].kit`): `hold()` each tick the thumb is down, `lift()` when it comes
+  up, `fire()` for the main gun, an ultimate meter filled through `gain()`; with the meter full
+  the next lift calls `ult()` instead. The HUD bar and its hint line (`hint()`) are shared. A kit
+  shot marked `kit = true` calls `on_hit()`. Nodes go through `own()` so teardown frees them.
+- Warden: holding raises a shield arc that eats bullets in front (`eats()`), `STORE` at most,
+  then it lets them through until a lift throws them back; Shatter loads from bullets eaten.
+- New ship checklist: `KITS` + `ORDER` in vships.gd, a model in `VShips.model()`, paints and
+  levels in progress.gd, the kit, a block in tests/vertical_test.gd, a bot run
+  (`tools/playbot.gd -- 0,15,31 <ship>`: it must clear) and a GIF (`tools/ship_shots.gd`).
+- Tests read the real save: clear `user://save.cfg` before running them after playing or after
+  a bot run (a higher tier picked on the menu changes enemy hit points).
 
 ## Pull requests
 

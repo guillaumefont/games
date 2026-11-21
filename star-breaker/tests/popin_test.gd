@@ -129,9 +129,9 @@ func _labels() -> Dictionary:
 			out[isl.m.get_instance_id()] = "island"
 	if G.get("boss", {}).get("m") is Node:
 		out[G.boss.m.get_instance_id()] = "boss " + str(G.boss.get("kind", ""))
-	# the ship blinks while it's shielded and the pod bursts and reforms: both on purpose (the
+	# the ship blinks while it's shielded and kit effects come and go with the thumb: on purpose (the
 	# ship coming back is checked on its own, in `play`)
-	for n in [vg.ship_m, vg.shield_m, vg.charge_fx, vg.pod_m]:
+	for n in [vg.ship_m, vg.shield_m, vg.charge_fx] + (vg.kit.nodes if vg.kit else []):
 		if n is Node:
 			out[n.get_instance_id()] = ""
 	# the ground streams in with the scroll
@@ -217,8 +217,7 @@ func play(i: int) -> void:
 					boss_nodes[n.get_instance_id()] = true
 		if vg.P.alive and not was_alive:
 			var r: Array = _rects(vg.ship_m)
-			var r2: Array = _rects(vg.pod_m) if vg.pod_m != null else [false]
-			if (r[0] and _on(r[1], -3.0)) or (r[2] and _on(r[3], -3.0)) or (r2[0] and _on(r2[1], -3.0)):
+			if (r[0] and _on(r[1], -3.0)) or (r[2] and _on(r[3], -3.0)):
 				_report("stage %d: the ship comes back on screen" % i)
 		watch(i)
 		if t % 30 == 0:

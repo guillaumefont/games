@@ -1,8 +1,8 @@
 extends SceneTree
 ## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
-## Nova) or flings and recalls Warden's pod, holding to the end of the charge bar loads each
-## ship's ultimate (Lance's Storm, Warden's Shatter), barriers and
+## Nova) or throws back what Warden's shield ate, holding to the end of Lance's charge bar
+## loads the Storm, a full meter fires Warden's Shatter on the next lift, barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
 ## end with their mid-bosses and the Bloom Mother.
 
@@ -156,7 +156,7 @@ func _initialize() -> void:
 	for f in foes:
 		all_dead = all_dead and f.get("dead", false)
 	check(all_dead, "every small flyer on screen dies")
-	check(not big.get("dead", false) and big.hp <= bhp - vg.STORM_DMG + 0.01, "big flyers take one hit and live")
+	check(not big.get("dead", false) and big.hp <= bhp - vg.STORM_DMG + 0.01, "big flyers take one hit and live (hp %s of %s dead %s)" % [big.hp, bhp, big.get("dead", false)])
 	check(not far.get("dead", false) and far.hp == fhp, "enemies off screen are spared")
 	check(vg.G.has("storm") and (vg.G.storm.m as Node3D).get_child_count() > 3, "the bolts crackle on after striking")
 	tick(vg.STORM_LIFE, false)
@@ -205,74 +205,59 @@ func _initialize() -> void:
 	tick(120, false)
 	check(vg.mode == "result" and vg.hud.result_scr.visible and not vg.hud._result_next.visible, "losing every ship ends the stage with Retry")
 
-	# --- Warden ---
+	# --- Warden: the shield (no pod since 2026-11-21) ---
 	vg.hud.select_ship("warden")
 	vg.hud.stage_chosen.emit(1, "warden")
 	settle()
-	check(vg.G.ship == "warden" and vg.pod.state == "dock", "Warden starts with the pod docked at the nose")
+	check(vg.G.ship == "warden" and vg.kit != null and not ("pod" in vg), "Warden has a kit and no pod")
 	tick(10, true)
 	check(vg.G.pb.size() >= 3, "Warden fires a wide spread")
-	tick(1, false)
-	check(vg.pod.state == "out", "lifting flings the pod up the screen")
-	tick(60, false)
-	check(absf(vg.pod.y - (vg.P.y + vg.POD_AHEAD)) < 1.0 and absf(vg.pod.x - vg.P.x) < 1.0, "the pod flies up to its spot ahead of the ship")
-	tick(1, false, 20.0, 15.0)
-	tick(30, false)
-	check(absf(vg.pod.y - (vg.P.y + vg.POD_AHEAD)) < 1.0 and absf(vg.pod.x - vg.P.x) < 1.0, "and rides there, following the ship")
-	vg.bullet(vg.pod.x, vg.pod.y + 1, 0, 0)
-	var pb: Dictionary = vg.G.eb.back()
-	tick(1, false)
-	check(vg.G.eb.has(pb) and not pb.get("dead", false), "bullets fly through the pod")
+	check(vg.kit.up >= 1.0, "holding raises the shield")
+	# a bullet coming at the shield's arc is eaten, one from below still hits
 	vg.G.eb.clear()
-	tick(5, true)
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y + 13.0, 0, 0)
+	tick(1, true, 0, 0, false, false)
+	check(vg.G.eb.is_empty() and vg.P.hull == 3 and vg.kit.stored == 1, "the shield eats a bullet in front of the ship")
+	check(vg.kit.meter > 0.0 and vg.hud.shat_flash > 0.9, "eating loads Shatter and the bar flashes")
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y - 1.0, 0, 0)
+	tick(1, true, 0, 0, false, false)
+	check(vg.P.hull == 2, "a bullet from below gets through")
+	vg.P.hull = 3
+	vg.P.inv = 0
 	tick(1, false)
-	check(vg.pod.state == "back", "lifting again calls the pod back")
-	tick(80, false)
-	check(vg.pod.state == "dock", "the pod docks again")
-	# Shatter: its own mechanic, filled by the pod's work and fired by recalling the pod
-	vg.P.shat = 0.0
-	tick(vg.ULT_AT + 20, true)
-	check(vg.P.charge == 0 and vg.G.ult_t == 0, "holding loads nothing on Warden (only the pod's work fills Shatter)")
-	tick(1, false)
-	check(vg.pod.state == "out" and vg.G.ult_t == 0, "so a lift after a long hold is just a pod fling")
+	check(vg.kit.stored == 0 and vg.G.pb.filter(func(b): return b.get("kit", false)).size() == 1, "lifting throws the eaten bullet back up")
 	tick(40, false)
-	# (the docked pod may have earned some Shatter during that hold: start from empty)
-	vg.P.shat = 0.0
-	var s0: float = vg.P.shat
-	var shell: Dictionary = vg.E("shell", vg.pod.x, vg.pod.y, {hold = 0.0})
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y + 13.0, 0, -4.0)
+	tick(4, false, 0, 0, false, false)
+	check(vg.P.hull == 2 and vg.kit.stored == 0, "with the thumb up the shield is down")
+	vg.P.hull = 3
+	tick(100, false)
+	# a full shield lets bullets through until a lift empties it
+	tick(10, true)
+	vg.kit.stored = vg.kit.STORE
+	vg.P.inv = 0
+	vg.bullet(vg.P.x, vg.P.y + 13.0, 0, -4.0)
+	tick(4, true, 0, 0, false, false)
+	check(vg.P.hull == 2, "a full shield stops nothing")
+	vg.P.hull = 3
 	tick(1, false)
-	check(vg.P.shat == s0 + vg.SHAT_RAM and not shell.get("dead", false), "a ram fills the Shatter meter")
-	check(vg.hud.shat_flash > 0.9 and vg.hud.shat_last == int(vg.SHAT_RAM), "and the bar flashes with the gain")
-	shell.dead = true
+	check(vg.kit.stored == 0 and vg.G.pb.filter(func(b): return b.get("kit", false)).size() == vg.kit.STORE, "a lift throws the lot and empties it")
+	tick(100, false)
+	# Shatter: full meter, the next lift fires it
+	vg.kit.meter = 1.0
+	tick(30, true)
+	check(vg.kit.ready() and vg.G.ult_t == 0, "a full meter waits through a hold")
 	tick(1, false)
-	vg.P.shat = 0.0
-	s0 = vg.P.shat
-	vg.pod.ram_cd = 0
-	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
-	tick(1, false)
-	check(vg.P.shat >= s0 + vg.SHAT_RAM + vg.SHAT_KILL, "a ram that kills fills it more")
-	vg.P.shat = vg.SHATTER_FULL - 1.0
-	vg.pod.ram_cd = 0
-	vg.E("drifter", vg.pod.x, vg.pod.y, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.pod.x})
-	tick(1, false)
-	check(vg.shatter_full() and vg.hud.charge >= 1.0, "the meter fills up and the bar shows it")
-	tick(5, true)
-	check(vg.shatter_full() and vg.G.ult_t == 0, "a stored Shatter survives holding and doesn't fire on its own")
-	var px: float = vg.pod.x
-	var py: float = vg.pod.y
-	tick(1, false)
-	check(vg.pod.state == "shatter" and vg.G.shards.size() == 8, "recalling the pod with the meter full fires Shatter")
-	var from_pod := true
-	for sh in vg.G.shards:
-		from_pod = from_pod and Vector2(sh.x - px, sh.y - py).length() < 4.0
-	check(from_pod, "the shards burst out where the pod was")
-	check(vg.P.shat == 0.0, "firing empties the meter")
+	check(vg.G.ult_t > 0 and vg.G.shards.size() == 8 and vg.kit.meter == 0.0, "the next lift fires Shatter and empties the meter")
 	vg.P.inv = 0
 	vg.bullet(vg.P.x, vg.P.y, 0, 0)
 	tick(1, true, 0, 0, false, false)
 	check(vg.P.hull == 3, "the ship is shielded during Shatter")
 	tick(200, false)
-	check(vg.pod.state == "dock" and vg.G.shards.is_empty(), "the pod reforms after Shatter")
+	check(vg.G.shards.is_empty() and vg.G.ult_t == 0, "Shatter ends")
 
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
