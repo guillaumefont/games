@@ -99,7 +99,7 @@ void fragment() {
 	vec3 col = mix(water_col.rgb * 1.35 + vec3(0.04, 0.06, 0.05), water_col.rgb * 0.62, deep);
 	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 	col = mix(col, vec3(0.75, 0.85, 0.9), fres * 0.25 * (1.0 - glow));
-	col = mix(col, vec3(0.92, 0.95, 0.93), foam * 0.6);
+	col = mix(col, vec3(0.92, 0.95, 0.93), foam * 0.45);
 	ALBEDO = col * f * (1.0 - glow * 0.5);
 	EMISSION = water_col.rgb * glow * f * (0.75 + 0.25 * sin(TIME * 1.7 + wpos.x * 0.9 + wpos.z * 0.6)) * (1.0 + glow * (1.0 - deep) * 0.8);
 	ALPHA = mix(mix(0.55, 1.0, deep) * water_col.a + foam * 0.3, 1.0, glow);
@@ -333,7 +333,18 @@ func build_world() -> void:
 				n = (n + Vector3.UP * TERR_SOFT).normalized()  # softer facets on gentle ground; cliffs stay sharp
 				# clockwise for Godot: tris above are counter-clockwise seen from above
 				verts.append_array([p0, p2, p1])
-				for q in 3: cols.append(col); norms.append(n)
+				# under and beside the water the colour follows each corner's depth (wet sand at the bank, dark bed below), so the
+				# shallows shade off smoothly instead of showing the triangles as light and dark teeth
+				var wet: bool = hmin < -0.05
+				for q in 3:
+					if wet:
+						var hq: float = [p0, p2, p1][q].y
+						var f: float = smoothstep(0.0, 1.0, clamp((-0.06 - hq) / 0.5, 0.0, 1.0))
+						var top: Vector3 = SND * 0.92 if t == D.WATER else base
+						var c3: Vector3 = top.lerp(BED, f)
+						cols.append(Color(c3.x + v * .5, c3.y + v * .5, c3.z + v * .4).srgb_to_linear())
+					else: cols.append(col)
+					norms.append(n)
 	var arr := []; arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts; arr[Mesh.ARRAY_NORMAL] = norms; arr[Mesh.ARRAY_COLOR] = cols
 	var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr); am.surface_set_material(0, Models.material)
