@@ -79,6 +79,36 @@ func _ready():
 				var emiss: Array = (m.ebase as Array).filter(func(t): return s.count(1, t) == 0)
 				print(C.num, ".", m.idx + 1, " dark ", dk, " missing ", miss, " enemy missing ", emiss, " masts ", s.count(0, "sigmast"), "/", s.count(1, "sigmast"))
 		get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "duel":
+		# AI against AI, for balance: AF_A and AF_B are the factions, AF_N the number of games, AF_MIN the length, AF_LOG=1 a line a minute
+		var fa := OS.get_environment("AF_A"); var fb := OS.get_environment("AF_B")
+		var wins := [0, 0, 0]; var n: int = maxi(1, int(OS.get_environment("AF_N")))
+		var mins: int = int(OS.get_environment("AF_MIN")) if OS.get_environment("AF_MIN") != "" else 20
+		for g in n:
+			s.new_game("normal", {"fac": fa, "enemy": fb, "seed": 1000 + g * 77})
+			for i in 20 * 60 * mins:
+				s.step(0.05)
+				if i % 20 == 0: s.ai_think(s.teams[0])
+				if OS.get_environment("AF_LOG") != "" and i % 1200 == 0:
+					var c := [{}, {}]
+					for e in s.ents:
+						if e.alive and e.team < 2: c[e.team][e.type] = c[e.team].get(e.type, 0) + 1
+					print(int(s.time), " A ", int(s.teams[0].credits), " earned ", int(s.teams[0].earned), " ", c[0], "\n    B ", int(s.teams[1].credits), " earned ", int(s.teams[1].earned), " ", c[1])
+				if s.over: break
+			var w := 2
+			if s.over: w = 0 if s.find_hq(0) != null else 1
+			else:
+				# no knock-out: whoever holds more (buildings and army by cost)
+				var v := [0.0, 0.0]
+				for e in s.ents:
+					if e.alive and e.team < 2: v[e.team] += e.d.cost * e.hp / e.max_hp
+				w = 0 if v[0] > v[1] * 1.25 else (1 if v[1] > v[0] * 1.25 else 2)
+			wins[w] += 1
+			print("game ", g, ": ", [fa, fb, "draw"][w], " t=", int(s.time), " over=", s.over)
+		print("DUEL ", fa, " ", wins[0], " : ", wins[1], " ", fb, " (draws ", wins[2], ")")
+		get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY").begins_with("choir"):
+		print("ONLY ", choir_tests(s, h, OS.get_environment("AF_ONLY") == "choirsoak")); get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "vanguard":
 		print("ONLY ", vanguard_tests(s, h)); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
@@ -111,7 +141,7 @@ func _ready():
 			if s.teams[0].fac != C.fac or D.TEAMC[0] != D.FCOL[C.fac]:
 				print("MISSION TEST FAILED: wrong faction or colour in ", m.title); get_tree().quit(1); return
 			var dk: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.dark and e.type != "wall").map(func(e): return str(e.team) + e.type)
-			var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0 and t != "burrow") + (m.ebase as Array).filter(func(t): return s.count(1, t) == 0 and t != "burrow")
+			var miss: Array = (m.pbase as Array).filter(func(t): return s.count(0, t) == 0 and t != "burrow" and not s.lacks(0, t)) + (m.ebase as Array).filter(func(t): return s.count(1, t) == 0 and t != "burrow" and not s.lacks(1, t))
 			if dk.size() or miss.size():
 				print("MISSION TEST FAILED: ", m.title, " starts with dark buildings ", dk, " or missing ", miss); get_tree().quit(1); return
 			for i in 1200: s.step(0.05)
@@ -196,8 +226,8 @@ func _fail(msg: String) -> bool:
 	print("CHOIR TEST FAILED: ", msg); return false
 
 ## The Hollow Choir: AI soaks on both sides, then each of its systems on its own.
-func choir_tests(s, h) -> bool:
-	for pair in [["choir", "vanguard"], ["ashen", "choir"]]:
+func choir_tests(s, h, soak := true) -> bool:
+	for pair in ([["choir", "vanguard"], ["ashen", "choir"]] if soak else []):
 		var t0 = Time.get_ticks_msec()
 		s.new_game("normal", {"fac": pair[0], "enemy": pair[1]})
 		if s.teams[0].fac != pair[0] or s.teams[1].fac != pair[1] or D.TEAMC[0] != D.FCOL[pair[0]]: return _fail("factions or colours not set")
@@ -219,35 +249,162 @@ func choir_tests(s, h) -> bool:
 		if not (seen.has("thrall") or seen.has("skitter") or seen.has("mantis")): return _fail("the Choir AI trained no army")
 	# a fixed map for the unit tests
 	s.new_game("normal", {"fac": "choir", "enemy": "vanguard", "seed": 4242})
-	s.teams[1].credits = 0
+	s.teams[1].credits = 0; s.ai_t = 1e9
+	for i in D.MW * D.MH: s.vis[i] = 2
 	var hq = s.find_hq(0)
-	if not s.avail(0, "thrall") or s.avail(0, "rifle") or s.avail(0, "refinery") or not s.avail(0, "garden"): return _fail("availability")
-	# the garden stands in for a refinery in requirements
-	s.add_building(0, "power", hq.tx + 4, hq.ty)
+	var T: float = D.T
+	if not s.avail(0, "thrall") or s.avail(0, "rifle") or s.avail(0, "refinery") or s.avail(0, "power") or not s.avail(0, "garden"): return _fail("availability")
+	if s.avail(0, "wretch") or s.avail(0, "knot") or s.avail(0, "bloom"): return _fail("a Wretch, a Knot or an age can be ordered")
+	if not s.lacks(0, "power") or s.lacks(0, "refinery") or s.uses_power(0): return _fail("the Choir should have no power and no reactor")
 	if s.has_req(0, ["refinery"]): return _fail("refinery requirement met without a garden")
-	# garden: yields on its own and drinks nearby ore
+	# the Hum: growths only inside it; a Garden goes wherever there is living aurite
+	if not s.can_place(0, "spire", hq.tx + 4, hq.ty, false): return _fail("a Spire inside the Yard's Hum was refused")
+	if s.can_place(0, "spire", hq.tx + 12, hq.ty, false) or s.can_place(0, "spire", hq.tx + 3, hq.ty - 12, false): return _fail("a Spire outside the Hum was allowed")
+	if s.can_place(0, "garden", hq.tx + 4, hq.ty, false) and s.live_ore(hq.tx + 5.0, hq.ty + 1.0, 3.5) == 0: return _fail("a Garden away from aurite was allowed")
 	var oi := -1
 	for i in D.MW * D.MH:
-		if s.ore[i] > 0 and Vector2(i % D.MW - hq.tx, i / D.MW - hq.ty).length() < 14: oi = i; break
+		if s.ore[i] > 0 and Vector2(i % D.MW - hq.tx, i / D.MW - hq.ty).length() < 16 and Vector2(i % D.MW - hq.tx, i / D.MW - hq.ty).length() > 8: oi = i; break
 	if oi < 0: return _fail("no ore near the base on the test map")
 	var gp = null
-	for r in range(1, 6):
+	for r in range(1, 5):
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if gp == null and s.can_place(0, "garden", oi % D.MW + dx, oi / D.MW + dy, false): gp = Vector2i(oi % D.MW + dx, oi / D.MW + dy)
-	if gp == null:
-		# place it by hand next to the ore; the garden test is about growth, not placement rules
-		gp = Vector2i(oi % D.MW + 2, oi / D.MW)
+	if gp == null: return _fail("no room for a Garden beside the field, outside the Hum")
 	var g = s.add_building(0, "garden", gp.x, gp.y)
-	if not s.has_req(0, ["refinery"]): return _fail("garden does not count as a refinery")
-	var ore0 := 0
-	for i in D.MW * D.MH: ore0 += s.ore[i]
+	if not s.has_req(0, ["refinery"]) or not s.has_req(0, ["barracks"]) or not s.has_req(0, ["factory"]): return _fail("a Garden does not stand in for the refinery, barracks and factory")
+	if not s.in_hum(0, g.x + 4 * T, g.y) or s.in_hum(0, g.x + 6 * T, g.y + 6 * T): return _fail("the Garden's Hum")
+	# it earns on its own, with no harvester
 	var cr0: float = s.teams[0].credits
 	for i in 20 * 9: s.step(0.05)
-	var ore1 := 0
-	for i in D.MW * D.MH: ore1 += s.ore[i]
-	print("garden: +", int(s.teams[0].credits - cr0), " credits, ore drained ", ore0 - ore1)
-	if s.teams[0].credits - cr0 < 40: return _fail("garden gave nothing")
+	print("garden: +", int(s.teams[0].credits - cr0), " aurite in 9 s, ", g.pods, " Pod")
+	if s.teams[0].credits - cr0 < 30: return _fail("garden gave nothing")
+	if s.ents.any(func(e): return e.alive and e.team == 0 and e.kind == "u" and e.d.harv): return _fail("the Choir has a harvester")
+	# Pods: one to start with, one more every 15 s, three at most; a unit needs one to start
+	if g.pods != 1: return _fail("a new Garden should hold one Pod, has %d" % g.pods)
+	for i in 20 * 8: s.step(0.05)
+	if g.pods != 2: return _fail("no second Pod after 15 s")
+	for i in 20 * 40: s.step(0.05)
+	if g.pods != D.HUM.hold or s.pods(0) != D.HUM.hold: return _fail("Pods did not stop at %d" % D.HUM.hold)
+	s.teams[0].credits = 5000.0
+	var th0: int = s.count(0, "thrall")
+	for i in 5: s.teams[0].prod.inf.queue.append("thrall")
+	for i in 20 * 14: s.step(0.05)
+	var hatched: int = s.count(0, "thrall") - th0
+	print("pods: ", hatched, " Thralls hatched from 3 Pods in 14 s, ", s.teams[0].prod.inf.queue.size(), " broods still waiting")
+	if hatched != 9 or s.pods(0) != 0: return _fail("3 Pods should hatch exactly 3 broods of 3 before the next one ripens")
+	s.teams[0].prod.inf.queue.clear(); s.teams[0].prod.inf.cur = ""
+	for e in s.ents:
+		if e.kind == "u" and e.team == 0: e.alive = false
+	# aging: Sprout, Bloom, Cathedral; each age unlocks forms and widens the Hum
+	if s.has_req(0, D.UN.mantis.req) or s.has_req(0, D.UN.carillon.req): return _fail("a Sprout unlocks later forms")
+	if s.upg_def(g).is_empty() or s.upg_def(g).name != "Bloom Garden": return _fail("a Sprout has no Bloom to grow into")
+	s.teams[0].credits = 5000.0
+	if not s.start_upgrade(g): return _fail("aging did not start: " + s.upg_block(g))
+	for i in 20 * 62: s.step(0.05)
+	if g.lv != 2 or g.d.name != "Bloom Garden" or g.d.hum != 7.0 or s.count(0, "bloom") != 1: return _fail("Bloom")
+	if not s.has_req(0, D.UN.mantis.req) or s.has_req(0, D.UN.carillon.req): return _fail("what a Bloom unlocks")
+	var rate2: float = g.d.rate
+	if s.upg_def(g).is_empty() or s.upg_def(g).name != "Cathedral Garden": return _fail("a Bloom has no Cathedral to grow into")
+	s.finish_upgrade(g)
+	if g.lv != 3 or g.d.hum != 9.0 or g.d.rate <= rate2 or s.count(0, "cathedral") != 1 or s.count(0, "bloom") != 1: return _fail("Cathedral")
+	if not s.has_req(0, D.UN.carillon.req) or not s.has_req(0, D.BLD.chorus.req) or not s.upg_def(g).is_empty(): return _fail("what a Cathedral unlocks")
+	# the crystal spreads one tile at a time inside the Hum
+	var n0 := 0
+	for i in D.MW * D.MH:
+		if s.ore0[i] > 0: n0 += 1
+	g.spread_t = D.HUM.spread
+	s.step(0.05)
+	var n1 := 0
+	for i in D.MW * D.MH:
+		if s.ore0[i] > 0: n1 += 1
+	if n1 != n0 + 1: return _fail("the crystal did not spread (%d -> %d tiles)" % [n0, n1])
+	# in the Hum the Choir heals and hurries; a Wretch withers outside it
+	var ht = s.spawn_unit(0, "thrall", g.x + 3 * T, g.y); ht.hp = 10.0
+	var wo = s.spawn_unit(0, "wretch", hq.x + 14 * T, hq.y - 14 * T)
+	var wi = s.spawn_unit(0, "wretch", g.x - 3 * T, g.y); wi.hp = 20.0
+	for i in 20 * 5: s.step(0.05)
+	print("hum: Thrall 10 -> ", int(ht.hp), ", Wretch outside ", int(wo.hp), "/35, inside ", int(wi.hp))
+	if ht.hp < 13.5 or not ht.inhum or wo.hp > 31 or wi.hp < 20: return _fail("Hum healing or withering")
+	ht.alive = false; wo.alive = false; wi.alive = false
+	# living crystal cuts human infantry in the Hum, and the dead rise as Wretches
+	var ot := -1
+	for i in D.MW * D.MH:
+		if s.ore[i] > 0 and s.in_hum(0, (i % D.MW) * T + 16, (i / D.MW) * T + 16): ot = i; break
+	if ot < 0: return _fail("no crystal inside the Garden's Hum")
+	var vr = s.spawn_unit(1, "rifle", (ot % D.MW) * T + 16, (ot / D.MW) * T + 16); vr.hp = 9.0
+	var vt = s.spawn_unit(1, "tank", (ot % D.MW) * T + 16, (ot / D.MW) * T + 16)
+	var tk0: float = vt.hp
+	for i in 20 * 2: s.step(0.05)
+	if vr.hp >= 9.0 and vr.alive: return _fail("crystal did not cut a soldier")
+	if vt.hp < tk0: return _fail("crystal cut a tank")
+	vt.alive = false
+	for i in 20 * 6: s.step(0.05)
+	var ws: Array = s.ents.filter(func(e): return e.alive and e.team == 0 and e.type == "wretch")
+	print("hollowing: soldier alive=", vr.alive, ", Wretches risen ", ws.size())
+	if vr.alive or ws.size() != 1: return _fail("the dead soldier did not rise as one Wretch")
+	for w in ws: w.alive = false
+	# mutation: the third kill changes a form for good
+	var mt = s.spawn_unit(0, "thrall", g.x + 2 * T, g.y + 3 * T); mt.kills = D.HUM.mut - 1
+	var prey = s.spawn_unit(1, "rifle", mt.x + T * 2, mt.y); prey.hp = 1.0; prey.cd = 99.0
+	for i in 20 * 4: s.step(0.05)
+	if prey.alive or not mt.mut or abs(mt.max_hp - 45 * 1.4) > 0.5 or D.UN.thrall.hp != 45: return _fail("Thrall mutation")
+	mt.alive = false
+	for e in s.ents:
+		if e.type == "wretch": e.alive = false
+	# fusion: four Thralls make a Knot, three do not
+	var fs: Array = []
+	for i in 3: fs.append(s.spawn_unit(0, "thrall", hq.x + (4 + i) * T, hq.y + 4 * T))
+	if s.fuse(0, fs) != null: return _fail("three Thralls fused")
+	for i in 2: fs.append(s.spawn_unit(0, "thrall", hq.x + (4 + i) * T, hq.y + 5 * T))
+	var kn = s.fuse(0, fs)
+	if kn == null or kn.type != "knot" or kn.max_hp != 700 or fs.filter(func(u): return u.alive).size() != 1: return _fail("fusion")
+	for u in fs: u.alive = false
+	# a Knot crushes what stands beside its target
+	var k1 = s.spawn_unit(1, "rifle", kn.x + T * 0.8, kn.y); var k2 = s.spawn_unit(1, "rifle", kn.x + T * 1.3, kn.y + 8)
+	k1.hp = 999; k1.max_hp = 999; k2.hp = 999; k2.max_hp = 999; kn.stun = 0.0
+	for i in 20 * 4: s.step(0.05)
+	if k1.hp >= 999 or k2.hp >= 999: return _fail("Knot crush")
+	k1.alive = false; k2.alive = false; kn.alive = false
+	# Keener: its cry jams a tank and drops its shield; soldiers do not care
+	var kt = s.spawn_unit(1, "tank", hq.x + 9 * T, hq.y + 9 * T); var ks = s.spawn_unit(1, "rifle", kt.x, kt.y + T); ks.cd = 99.0
+	kt.hp = 9999; kt.max_hp = 9999
+	if kt.sh_max <= 0: return _fail("the test tank has no shield")
+	var ke = s.spawn_unit(0, "keener", kt.x + T * 1.5, kt.y); ke.hp = 9999
+	for i in 12: s.step(0.05)
+	if kt.jam_t <= s.time or kt.sh != 0.0 or ks.jam_t > s.time or ke.cry_t < 10: return _fail("Keener cry")
+	var kh: float = ke.hp
+	for i in 20 * 3: s.step(0.05)
+	if ke.hp < kh - 1: return _fail("a jammed tank kept firing")
+	ke.alive = false; kt.alive = false; ks.alive = false
+	# Burster: it is its own charge
+	var bt = s.add_building(1, "turret", hq.tx + 12, hq.ty + 6); bt.jam_t = 1e9
+	var bu = s.spawn_unit(0, "sapper", bt.x - T * 3, bt.y)
+	bu.target = bt; bu.order = "attack"
+	for i in 20 * 8: s.step(0.05)
+	print("burster: alive=", bu.alive, " turret ", int(bt.hp), "/", int(bt.max_hp))
+	if bu.alive or bt.hp > bt.max_hp - 100: return _fail("Burster")
+	s.kill(bt)
+	# Carillon: it carries the Hum, and its toll only falls on soldiers
+	var cx: float = hq.x + 16 * T; var cy: float = hq.y - 12 * T
+	if s.in_hum(0, cx, cy): return _fail("test spot already in the Hum")
+	var ca0 = s.spawn_unit(0, "carillon", cx, cy)
+	s.calc_hum()
+	if not s.in_hum(0, cx + 4 * T, cy) or not s.at_limit(0, "carillon"): return _fail("Carillon Hum or limit")
+	var c1 = s.spawn_unit(1, "rifle", cx + 2 * T, cy); var c2 = s.spawn_unit(1, "rifle", cx + 2.8 * T, cy); var c3 = s.spawn_unit(1, "tank", cx + 2 * T, cy + T)
+	for u in [c1, c2, c3]: u.hp = 9999; u.max_hp = 9999; u.cd = 99.0; u.jam_t = 1e9
+	var sh3: float = c3.sh
+	for i in 20 * 5: s.step(0.05)
+	if c1.hp >= 9999 or c2.hp >= 9999 or c3.hp < 9999 or c3.sh < sh3: return _fail("Carillon toll")
+	for u in [c1, c2, c3, ca0]: u.alive = false
+	s.calc_hum()
+	# Thornglass cuts infantry that lean on it
+	var tg = s.add_building(0, "thorn", hq.tx + 3, hq.ty + 5)
+	var tv = s.spawn_unit(1, "rifle", tg.x + T * 0.9, tg.y); tv.hp = 9999; tv.max_hp = 9999; tv.cd = 99.0; tv.jam_t = 1e9
+	for i in 20 * 3: s.step(0.05)
+	if tv.hp >= 9999 - 5: return _fail("Thornglass")
+	tv.alive = false
+	print("choir: Hum, Pods, ages, spread, Hollowing, mutation, fusion, Keener, Burster, Carillon, Thornglass ok")
 	# tunnels: a far burrow, units walk into the yard and come out of the burrow
 	var bp := Vector2i(hq.tx + 22, hq.ty - 22)
 	var bur = s.add_building(0, "burrow", bp.x, bp.y)
@@ -352,21 +509,6 @@ func upgrade_tests(s, h) -> bool:
 		print("refinery lv", rf.lv, ": one load gave ", int(gain))
 		if k == 1 and gain < ld * 1.2: return _ufail("Deep Refinery yield")
 		ld = gain
-	# the Choir's garden blooms
-	s.new_game("normal", {"fac": "choir", "enemy": "vanguard", "seed": 4242})
-	s.teams[1].credits = 0; s.ai_t = 1e9
-	hq = s.find_hq(0)
-	var gd = s.add_building(0, "garden", hq.tx + 5, hq.ty + 5)
-	s.add_building(0, "power", hq.tx - 4, hq.ty)
-	var gains := []
-	for k in 2:
-		if k == 1: s.finish_upgrade(gd)
-		gd.gt = 0.0
-		var c0: float = s.teams[0].credits
-		for i in 20 * 8 + 2: s.step(0.05)
-		gains.append(s.teams[0].credits - c0)
-	print("garden: ", gains.map(func(g): return int(g)), " ", gd.d.name)
-	if gains[1] <= gains[0] or gd.d.name != "Bloom Garden": return _ufail("Bloom Garden yield")
 	# campaign AI: never upgrades on Normal, may on Hard
 	var m = null
 	for C in D.CAMPAIGNS:
@@ -454,50 +596,11 @@ func groundwork_tests(s, h) -> bool:
 		return _gfail("the Pact should have a unit cap and train from its Muster Hall and Workshop")
 	if D.rule("vanguard", "power") or not D.rule("vanguard", "cap") or D.rule("vanguard", "place") != "signal" or D.producer("vanguard", "veh") != "lz":
 		return _gfail("the Vanguard should run on Signal and Command and fly its vehicles in to a Landing Zone")
-	for f in ["choir"]:
-		if not D.rule(f, "power") or D.rule(f, "cap") or D.rule(f, "place") != "near" or D.producer(f, "inf") != "barracks":
-			return _gfail(f + " does not start on today's rules")
-	s.new_game("normal", {"fac": "choir", "enemy": "ashen", "seed": 4242})
+	if D.rule("choir", "power") or D.rule("choir", "cap") or D.rule("choir", "place") != "hum" or not D.rule("choir", "pods") or D.producer("choir", "veh") != "garden":
+		return _gfail("the Choir should grow inside its Hum, with Pods and no cap, all from Gardens")
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 4242})
 	s.teams[1].credits = 0; s.ai_t = 1e9
 	var hq = s.find_hq(0)
-	# power off: a faction without power is never short of it
-	s.add_building(0, "barracks", hq.tx + 4, hq.ty)
-	s.add_building(0, "comms", hq.tx + 4, hq.ty + 3)
-	s.calc_power()
-	if not s.low_power(0): return _gfail("barracks with no reactor should be low power")
-	D.RULES.choir.power = false
-	var lp: bool = s.low_power(0)
-	D.RULES.choir.power = true
-	if lp: return _gfail("a faction without power reported low power")
-	s.add_building(0, "power", hq.tx - 3, hq.ty); s.add_building(0, "power", hq.tx - 3, hq.ty + 3)
-	# unit cap: nothing trains past the cap, buildings with capAdd raise it
-	D.RULES.choir.cap = true
-	var hq_cap: int = D.BLD.hq.capAdd
-	D.BLD.hq.capAdd = s.cap_used(0)
-	var had: int = s.count(0, "thrall")
-	s.teams[0].credits = 5000.0
-	for i in 3: s.teams[0].prod.inf.queue.append("thrall")
-	for i in 400: s.step(0.05)
-	var capped: int = s.count(0, "thrall") - had
-	D.BLD.hq.capAdd = s.cap_used(0) + 2
-	for i in 400: s.step(0.05)
-	var after: int = s.count(0, "thrall") - had
-	print("unit cap: trained ", capped, " at cap ", s.cap_max(0) - 2, ", then ", after, " with 2 more room (cap ", s.cap_used(0), "/", s.cap_max(0), ")")
-	D.BLD.hq.capAdd = hq_cap; D.RULES.choir.cap = false
-	s.teams[0].prod.inf.queue.clear()
-	if capped != 0 or after != 2: return _gfail("unit cap did not hold or did not release")
-	# producer override: the faction's infantry come out of another building
-	D.RULES.choir.prod = {"inf": "power"}
-	var pws: Array = s.ents.filter(func(e): return e.alive and e.kind == "b" and e.team == 0 and e.type == "power")
-	var n0: int = s.count(0, "thrall")
-	s.teams[0].prod.inf.queue.append("thrall")
-	for i in 200: s.step(0.05)
-	D.RULES.choir.prod = {}
-	var newest = null
-	for e in s.ents:
-		if e.alive and e.kind == "u" and e.team == 0 and e.type == "thrall" and (newest == null or e.id > newest.id): newest = e
-	if s.count(0, "thrall") != n0 + 1 or newest == null: return _gfail("overridden producer made no unit")
-	if pws.all(func(b): return Vector2(newest.x - b.x, newest.y - b.y).length() > 6 * D.T): return _gfail("unit did not come out of the overridden producer")
 	# living fields: drain, death, regrowth up to what vitality allows
 	var tiles: Array = []
 	for i in D.MW * D.MH:

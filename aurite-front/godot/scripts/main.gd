@@ -603,8 +603,14 @@ func hud_tick(dt: float) -> void:
 	U.power_l.add_theme_color_override("font_color", UI.C_BAD if lp else UI.C_FG)
 	var pw := S.uses_power(0); var cm := S.cap_max(0); var cap_on: bool = D.rule(tm.fac, "cap")
 	for c in U.power_parts: c.visible = pw
-	for c in U.cap_parts: c.visible = cap_on
-	if cap_on:
+	var podf: bool = D.rule(tm.fac, "pods")
+	for c in U.cap_parts: c.visible = cap_on or podf
+	U.cap_parts[2].get_child(0).text = "PODS" if podf else "UNITS"
+	if podf:
+		var np := S.pods(0)
+		U.cap_l.text = str(np)
+		U.cap_l.add_theme_color_override("font_color", UI.C_BAD if np == 0 else UI.C_FG)
+	elif cap_on:
 		var cu := S.cap_used(0)
 		U.cap_l.text = "%d / %d" % [cu, cm]
 		U.cap_l.add_theme_color_override("font_color", UI.C_BAD if cu >= cm else UI.C_FG)
@@ -671,6 +677,8 @@ func confirm_place() -> void:
 		var pd: Dictionary = D.BLD[placing.type]
 		if pd.onore: toast("A Deep Drill lands on an aurite field, inside Signal (the blue rings).", "warn")
 		elif pd.shore: toast("It needs open water beside it.", "warn")
+		elif pd.field: toast("A Garden roots beside living aurite, away from enemy buildings.", "warn")
+		elif D.rule(S.fac_of(0), "place") == "hum": toast("Can't grow there. Stay inside the Hum (the green rings): a Garden carries it further.", "warn")
 		elif D.rule(S.fac_of(0), "place") == "signal": toast("Can't land there. Stay inside Signal (the blue rings): a Signal Mast carries it further.", "warn")
 		else: toast("Can't build there. Stay close to your base, off rock, water and aurite.", "warn")
 		return
@@ -683,7 +691,7 @@ func confirm_place() -> void:
 		if q.left > 0:
 			var px: int = placing.tx; var py: int = placing.ty; var best = null; var bd := 1e9
 			for dxy in [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [0, 2]]:
-				if S.can_place(0, "wall", px + dxy[0], py + dxy[1], false):
+				if S.can_place(0, placing.type, px + dxy[0], py + dxy[1], false):
 					var dd: float = dxy[0] * dxy[0] + dxy[1] * dxy[1] + (-1 if (placing.ldx == dxy[0] and placing.ldy == dxy[1]) else 0)
 					if dd < bd: bd = dd; best = dxy
 			if best != null:
@@ -725,6 +733,9 @@ func cmd_btn(k: String) -> void:
 					u.path = []; u.order = "none"; u.target = null; u.guard = Vector2(u.x, u.y); u.face = null
 					if u.d.harv: u.hs = "idle"
 		"desel": S.set_sel([])
+		"fuse":
+			if S.fuse(0, S.sel) == null: toast("Fusion needs %d Thralls" % D.HUM.fuse, "warn")
+			update_cmd()
 		"muster":
 			if S.muster(0) == 0: toast("The Hearths have already answered this battle", "warn")
 			update_cmd()
@@ -768,6 +779,7 @@ func update_cmd() -> void:
 	if sb: U.set_on(U.btn.repair, sb.repairing)
 	_upg_btn()
 	U.btn.muster.visible = sb != null and sb.d.get("muster", 0) > 0 and not S.teams[0].get("mustered", false)
+	U.btn.fuse.visible = units.filter(func(u): return u.team == 0 and u.d.fuse != "").size() >= D.HUM.fuse
 	U.set_on(U.btn.amove, amove)
 	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
 	for k in ["all", "inf", "veh", "air", "idle"]:
@@ -779,14 +791,16 @@ func update_cmd() -> void:
 		U.selinfo.visible = true
 		if S.sel.size() == 1:
 			var e: Ent = S.sel[0]; var d := e.d
-			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + " · upgrade: " + D.UPG[e.type].say
+			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + ((" · %d Pods" % e.pods) if d.grow else "") + " · next: " + S.upg_def(e).say
 			elif e.kind == "b":
 				U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
-				if e.dark: U.selinfo.text = d.name + " · NO SIGNAL: build a Signal Mast near it"
+				if d.grow: U.selinfo.text = d.name + " · %d Pods · sings to the field around it" % e.pods
+				elif d.thorn > 0: U.selinfo.text = "Thornglass · cuts infantry that touch it"
+				elif e.dark: U.selinfo.text = d.name + " · NO SIGNAL: build a Signal Mast near it"
 				elif e.dry: U.selinfo.text = d.name + " · field pumped dry: sell it and drill another"
 				elif d.get("signal", 0.0) > 0 and S.fac_of(0) == "vanguard": U.selinfo.text = d.name + " · sends Signal %d tiles%s" % [int(d.signal), (", +%d Command" % d.capAdd) if e.type != "hq" else ""]
 				elif d.get("dome", 0.0) > 0: U.selinfo.text = d.name + " · shield %d / %d over everything near it" % [int(e.sh), int(e.sh_max)]
-			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else (" · cloaks when it stands still" if d.cloak > 0 else (" · jumps on long moves" if d.jump > 0 else (" · sniffs out hidden units" if d.detect > 0 else (" · what it sees takes +25%" if d.mark > 0 else (" · slug goes through a whole line" if d.pierce else ""))))))))))
+			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else (" · cloaks when it stands still" if d.cloak > 0 else (" · jumps on long moves" if d.jump > 0 else (" · sniffs out hidden units" if d.detect > 0 else (" · what it sees takes +25%" if d.mark > 0 else (" · slug goes through a whole line" if d.pierce else (" · select %d and FUSE them into a Knot" % D.HUM.fuse if d.fuse != "" else (" · its cry jams machines and drops shields" if d.cry > 0 else (" · withers outside the Hum" if d.wither > 0 else (" · mutated" if e.mut else (" · mutates after %d kills" % D.HUM.mut if not d.mut.is_empty() else "")))))))))))))))
 		else: U.selinfo.text = "%d units" % S.sel.size()
 	else: U.selinfo.visible = false
 
@@ -1119,6 +1133,18 @@ func _draw_signal(c: Control) -> void:
 			pts.append(Vector2(q.x, q.y))
 		if pts.size() > 2: c.draw_polyline(pts, Color(0.5, 0.9, 1.0, 0.55), 2.0, true)
 
+## While a Choir growth is being placed: the edge of the Hum.
+func _draw_hum(c: Control) -> void:
+	for b in S.hums[0]:
+		if not b.alive or b.kind != "b": continue
+		var pts := PackedVector2Array(); var gh: float = S.h_at(b.x, b.y) + .08
+		for i in 49:
+			var a := TAU * i / 48.0
+			var q := V.w2s(b.x + cos(a) * b.d.hum * T, b.y + sin(a) * b.d.hum * T, gh)
+			if q.z < 0: pts = PackedVector2Array(); break
+			pts.append(Vector2(q.x, q.y))
+		if pts.size() > 2: c.draw_polyline(pts, Color(0.55, 1.0, 0.65, 0.55), 2.0, true)
+
 # ---------------- HUD drawing ----------------
 func draw_hud(c: Control) -> void:
 	if S.teams.is_empty() or U.overlays.start.visible: return
@@ -1146,6 +1172,7 @@ func draw_hud(c: Control) -> void:
 		if is_b and e.repairing:
 			c.draw_string(U.f_disp7, Vector2(p.x - 5, y - 5 + sin(S.time * 6) * 2), "+", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("7fd68e"))
 	if placing != null and D.rule(S.fac_of(0), "place") == "signal": _draw_signal(c)
+	if placing != null and D.rule(S.fac_of(0), "place") == "hum": _draw_hum(c)
 	_draw_mission_marks(c)
 	# floating "+N" aurite numbers (refinery deliveries, sales)
 	for p in S.parts:

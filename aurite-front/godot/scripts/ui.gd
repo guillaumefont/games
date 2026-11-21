@@ -286,7 +286,7 @@ func _build_hud() -> void:
 	for k in ["all", "inf", "veh", "air", "idle"]:
 		var b := mkbtn(k, func(): main.squad_btn(k), 76.0, 48.0, 12, k)
 		cmd_bot.add_child(b); btn[k] = b
-	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["upgrade", "Upgrade", "up"], ["muster", "Muster", "inf"], ["repair", "Repair", "repair"], ["sell", "Sell", "sell"], ["desel", "", "x"]]:
+	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["upgrade", "Upgrade", "up"], ["muster", "Muster", "inf"], ["fuse", "Fuse", "inf"], ["repair", "Repair", "repair"], ["sell", "Sell", "sell"], ["desel", "", "x"]]:
 		var k: String = pair[0]
 		var b := mkbtn(pair[1], func(): main.cmd_btn(k), 0, 44, 12, pair[2]); cmd_top.add_child(b); btn[k] = b; b.visible = false
 	set_on(btn.sw, true)

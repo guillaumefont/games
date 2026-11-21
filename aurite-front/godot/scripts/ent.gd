@@ -110,3 +110,12 @@ var lz: Ent = null     # dropship: the Landing Zone it is flying to
 var leaving := false   # dropship: cargo set down, flying off the map
 var pump_t := 0.0      # Deep Drill: time since the last pump
 var dry := false       # Deep Drill: nothing left to pump
+# Hollow Choir (redesign)
+var pods := 0          # Garden: ripe Pods waiting to hatch
+var pod_t := 0.0       # Garden: seconds toward the next Pod
+var spread_t := 0.0    # Garden: seconds toward the next tile of crystal
+var inhum := false     # a Choir form inside the Hum: heals and hurries
+var kills := 0         # kills made (a Choir form mutates after a few)
+var mut := false       # mutated: d is this form's own changed copy of its def
+var jam_t := -99.0     # jammed by a Keener's cry until this time: cannot fire
+var cry_t := 0.0       # Keener: seconds until it can cry again
