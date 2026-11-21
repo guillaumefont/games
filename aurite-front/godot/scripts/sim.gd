@@ -1478,7 +1478,7 @@ func upd_sense() -> void:
 		if not o.alive or o.kind != "u": continue
 		if o.under or o.cloak:
 			for e in ents:
-				if not e.alive or e.team == o.team: continue
+				if not e.alive or e.team == o.team or e.captive: continue
 				var r: float = max(float(e.d.get("detect", 0.0)), 1.5 if o.cloak else 0.0)
 				if r > 0 and dist_to_ent(o.x, o.y, e) < r * T:
 					o.reveal_t = time + 1.0; break
@@ -2041,6 +2041,18 @@ func roll_out(tm: Dictionary, type: String, b: Ent, px := -1.0, py := -1.0) -> v
 	var ey := int(py / T) if (b == null or px >= 0) else b.ty + b.h
 	if b != null and b.d.pad:
 		ex = b.tx + b.w / 2; ey = b.ty + b.h / 2
+	if d.mob == 1 and not d.air:
+		# a boat is set down on the nearest open water, however far that is
+		var bd := 1e9; var w = null
+		for i in MW * MH:
+			if passable(1, i % MW, i / MW):
+				var dd := Vector2(i % MW - ex, i / MW - ey).length_squared()
+				if dd < bd: bd = dd; w = Vector2i(i % MW, i / MW)
+		if w == null:
+			tm.credits += d.cost
+			if tm.id == 0: host.toast("No water to set the " + d.name + " down on: refunded", "warn")
+			return
+		ex = w.x; ey = w.y
 	# a pack (Slag Boars, Hornet Drones) comes out as several
 	for k in int(d.pack):
 		var u := spawn_unit(tm.id, type, ex * T + 16 + k * 10, ey * T + 16)
