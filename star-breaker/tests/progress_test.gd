@@ -165,6 +165,8 @@ func _initialize() -> void:
 	check(vg.hud.back() and vg.hud.menu_scr.visible, "back from the map goes home")
 	check(not vg.hud.back() and vg.hud.menu_scr.visible, "back on the home screen is left to the app (it quits)")
 	# the ship: on the home screen (not the map), tap it for the hangar
+	# (the ship flown last is saved, and an earlier test may have left another one)
+	vg.hud.select_ship("lance")
 	check(vg.hud._btn_medals.text.contains("LANCE") and vg.hud._home_ship.is_visible_in_tree(), "home shows the ship you fly")
 	vg.hud._btn_play.pressed.emit()
 	var bar: Node = vg.hud.levels_scr.find_child("bar", true, false)
