@@ -382,28 +382,6 @@ func _lock(c: Vector2, k: float, col: Color, ci: CanvasItem = null) -> void:
 	ci.draw_circle(c + Vector2(0, 3.2) * k, 1.6 * k, C_INK)
 
 
-## A top-down ship in its paint: a dart with swept wings, a canopy and an engine glow.
-static func draw_ship(ci: CanvasItem, c: Vector2, k: float, paint: Dictionary, kind: String) -> void:
-	var hull := Color(String(paint.get("hull", "dfe8f2")))
-	var dark := Color(String(paint.get("dark", "56607a")))
-	var glow := Color(String(paint.get("glow", "4fe3d6")))
-	var flame := Color(String(paint.get("flame", ""))) if String(paint.get("flame", "")) != "" else Color("ff9a40")
-	ci.draw_circle(c + Vector2(0, 17) * k, 7 * k, Color(flame, 0.35))
-	ci.draw_circle(c + Vector2(0, 15) * k, 4 * k, flame)
-	var wing := PackedVector2Array([c + Vector2(0, -6) * k, c + Vector2(17, 10) * k, c + Vector2(14, 14) * k, c + Vector2(0, 9) * k,
-		c + Vector2(-14, 14) * k, c + Vector2(-17, 10) * k])
-	ci.draw_colored_polygon(wing, dark)
-	var body := PackedVector2Array([c + Vector2(0, -22) * k, c + Vector2(6, -4) * k, c + Vector2(5, 13) * k, c + Vector2(-5, 13) * k, c + Vector2(-6, -4) * k])
-	ci.draw_colored_polygon(body, hull)
-	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -14) * k, c + Vector2(3, -6) * k, c + Vector2(0, -2) * k, c + Vector2(-3, -6) * k]), glow)
-	if kind == "warden":
-		# the pod rides ahead of the Warden
-		ci.draw_circle(c + Vector2(0, -32) * k, 6 * k, Color(glow, 0.3))
-		ci.draw_circle(c + Vector2(0, -32) * k, 4 * k, glow)
-	else:
-		ci.draw_line(c + Vector2(0, -22) * k, c + Vector2(0, -30) * k, glow, 2.5 * k, true)
-
-
 func _rounded(r: Rect2, rad: float) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var corners := [
