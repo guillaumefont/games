@@ -23,6 +23,16 @@ const PERIGEE_POINTS := 2 ## times the multiplier
 const MAX_MULT := 5
 const LEAP_POINTS: Array[int] = [0, 3, 9, 18] ## by moons skipped (3 or more: 18), times the multiplier
 
+# Rush, Drift's reward for fast runs (Guillaume, 2026-11-21: "find a way to reward fast runs"). Each block
+# of LAP_MOONS moons is a lap on the clock; reaching its last moon within LAP_PAR seconds wins a speed star,
+# RUSH_POINTS plus RUSH_PER_SECOND for every whole second to spare, and a bonus spark. Moons skipped by a
+# leap count as reached, so shortcuts are how a lap gets really fast (his aiming-skill wish). The bot
+# averages about 16 s a lap (tools/drift_pace.gd), so 18 s takes sharp flinging or leaps.
+const LAP_MOONS := 10
+const LAP_PAR := 18.0
+const RUSH_POINTS := 15
+const RUSH_PER_SECOND := 3
+
 # Kinds of moon (plan: "Content: new kinds of moon"). Each changes the timing or the line, never the controls.
 const KINDS: Array[String] = ["moon", "twin", "retro", "pulsar"]
 const TWIN_RING := 0.72 ## each twin's ring, relative to a single moon's ring at that point of the curve
@@ -124,6 +134,10 @@ var best_combo := 0
 var perigees := 0
 var grazes := 0
 var leaps := 0
+var rush_on := false ## laps and speed stars: Drift only (an empty recipe), set by new_run
+var laps := 0 ## laps of LAP_MOONS moons finished in this run
+var lap_start := 0.0 ## run_t when the current lap began
+var rush_stars := 0 ## laps finished within LAP_PAR: the run's speed stars (each also pays a bonus spark)
 var last_k := 0 ## highest moon number caught (leaps skip the ones in between)
 var flight_id := 0
 var moons_made := 0 ## moons generated so far: the difficulty index (see make_planet)
@@ -323,6 +337,10 @@ func new_run(seed_in: int) -> void:
 	perigees = 0
 	grazes = 0
 	leaps = 0
+	rush_on = recipe.is_empty()
+	laps = 0
+	lap_start = 0.0
+	rush_stars = 0
 	last_k = 0
 	flight_id = 0
 	moons_made = 0
@@ -474,11 +492,33 @@ func capture(pl: Planet) -> void:
 	e.mult = mult
 	pl.flash = 1.0
 	events.append(e)
+	if first and rush_on:
+		_check_lap(p.x, p.y)
 	if first and pl.finish:
 		state = "clear"
 		death_t = t
 		holding = false
 		events.append({"type": "clear", "x": p.x, "y": p.y})
+
+
+## Ends the lap (or laps, after a long leap) that the moons reached so far complete, paying the
+## speed star and Rush points when it was under par.
+func _check_lap(x: float, y: float) -> void:
+	while hops >= (laps + 1) * LAP_MOONS:
+		var lt := run_t - lap_start
+		laps += 1
+		lap_start = run_t
+		var e := {"type": "lap", "x": x, "y": y, "lap": laps, "time": lt, "star": lt <= LAP_PAR, "points": 0}
+		if e.star:
+			rush_stars += 1
+			e.points = RUSH_POINTS + RUSH_PER_SECOND * int(LAP_PAR - lt)
+			score += e.points
+		events.append(e)
+
+
+## Seconds on the current lap's clock.
+func lap_time() -> float:
+	return run_t - lap_start
 
 
 func _add_combo(n: int) -> void:

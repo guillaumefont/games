@@ -25,6 +25,7 @@ const DEFAULTS := {
 	"tutorial_done": false, ## the first-run tutorial was finished (or skipped)
 	"voyage": {}, ## sector id -> {stars, score, time}: best of each
 	"rewards": [], ## Medals reward ids already paid out (bonus sparks, reward cosmetics)
+	"boards": {"farthest": [], "score": []}, ## Drift leaderboards (Leaderboards): best runs, best first
 }
 
 var path := "user://save.json"
