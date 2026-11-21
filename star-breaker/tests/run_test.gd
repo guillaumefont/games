@@ -1,7 +1,7 @@
 extends SceneTree
 ## The canyon run (VRun): stage 1's canyon mouth arrives, the stage holds still, the camera
 ## swings behind the ship, the thumb steers sideways and up/down, rock costs hull points, a clean
-## run earns gold (and the ultimate), and the stage carries on from where it stopped.
+## run earns gold, and the stage carries on from where it stopped.
 
 var vg: Node3D
 var fails := 0
@@ -174,7 +174,6 @@ func _initialize() -> void:
 	check(climbed, "the thumb flies the ship up and down in the canyon")
 	check(vg.G.pb.size() <= guns, "the guns rest during the run")
 	check(vg.G.get("run_medal", -2) == 0, "flying the racing line without a touch earns gold")
-	check(vg.P.ult >= 1.0, "gold fills the ultimate")
 	check(vg.P.hull == vg.HULL, "no hull point lost")
 	check(absf((-vg.camera.global_transform.basis.z).dot(Vector3.FORWARD)) > 0.99 and vg.camera.position.z > 200.0, "the camera is back top-down after the run")
 	check(vg.P.z == 0.0, "the ship is back on the play plane")

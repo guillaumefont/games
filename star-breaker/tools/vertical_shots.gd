@@ -67,19 +67,17 @@ func _initialize() -> void:
 		vg.G.si += 1
 	await play(260, true, 0.5)
 	await snap("v_fortress")
-	vg.P.ult = 1.0
-	vg.inp = {hold = true, fire = true, dx = 0.0, dy = 0.0, ult = true, pause = false}
-	vg.update()
-	await play(30, true)
+	await play(vg.ULT_AT + 5, true)
+	await play(1, false)
+	await play(30, false)
 	await snap("v_shatter")
 	vg.start_stage(7, "lance")
 	vg.G.scroll = VStage.STAGES[7].length - 150
 	vg.G.si = vg.script_list.size() - 1
 	await play(600, true, 0.7)
 	await snap("v_bloom")
-	# the Storm: primed, charge past the Nova and lift
-	vg.P.ult = 1.0
-	await play(vg.STORM_AT + 5, true)
+	# the Storm: charge past the Nova and lift
+	await play(vg.ULT_AT + 5, true)
 	await snap("v_charge_storm")
 	await play(1, false)
 	await play(14, false)

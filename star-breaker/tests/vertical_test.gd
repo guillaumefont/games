@@ -1,8 +1,8 @@
 extends SceneTree
 ## The game (portrait): it opens on the stage menu, drag moves the ship 1:1,
 ## the main weapon fires while the thumb is down, lifting fires Lance's beam (LV 1 up to the
-## Nova) or flings and recalls Warden's pod, a double tap fires Warden's ultimate,
-## charging on past the Nova lets loose Lance's Storm, barriers and
+## Nova) or flings and recalls Warden's pod, holding to the end of the charge bar loads each
+## ship's ultimate (Lance's Storm, Warden's Shatter), barriers and
 ## bullets cost hull points, losing every ship fails the stage, and the three stages of world 1
 ## end with their mid-bosses and the Bloom Mother.
 
@@ -123,46 +123,11 @@ func _initialize() -> void:
 	e.dead = true
 	tick(60, false)
 
-	# double tap: a quick tap then a touch near it fires the ultimate; drags and flicks never do
-	var pu: float = vg.px_per_unit()
-	var spot := Vector2(300, 900)
-	var dt := func(gap: int, first_ms: int, moved: float, far: float) -> bool:
-		vg._ult_latch = false
-		vg._tap_ms = -100000
-		vg._press(spot, 10000)
-		vg._moved = moved
-		vg._release(spot, 10000 + first_ms)
-		vg._press(spot + Vector2(far, 0), 10000 + first_ms + gap)
-		var got: bool = vg._ult_latch
-		vg._release(spot, 10000 + first_ms + gap + 500)
-		vg._ult_latch = false
-		return got
-	check(dt.call(150, 90, 0.0, 0.0), "a quick double tap fires the ultimate")
-	check(dt.call(150, 90, pu * 1.0, pu * 6.0), "a double tap fires even with a little wobble")
-	check(not dt.call(150, 600, 0.0, 0.0), "lifting after a drag and touching again doesn't fire it")
-	check(not dt.call(150, 90, pu * 12.0, 0.0), "a quick flick to dodge doesn't count as a tap")
-	check(not dt.call(500, 90, 0.0, 0.0), "two taps far apart in time don't fire it")
-	check(not dt.call(150, 90, 0.0, pu * 40.0), "two taps far apart on screen don't fire it")
-	var three := func() -> int:
-		var n := 0
-		for k in 3:
-			vg._ult_latch = false
-			vg._press(spot, 20000 + k * 180)
-			n += int(vg._ult_latch)
-			vg._release(spot, 20000 + k * 180 + 80)
-		vg._ult_latch = false
-		return n
-	check(three.call() == 1, "a triple tap fires it once, not twice")
-
 	# Lance's ultimate, the Storm: the charge bar's stage after the Nova, no kills needed
-	check(not vg.hud.has_ult_ring(), "Lance has no separate ultimate gauge")
-	tick(1, true, 0, 0, true)
-	check(vg.G.ult_t == 0 and not vg.G.has("storm"), "a double tap does nothing for Lance")
-	tick(1, false)
+	check(not "ult" in vg.P and not "ult_rect" in vg.hud, "no ship has a separate ultimate gauge any more")
 	tick(60, false)
-	vg.P.ult = 0.0
-	tick(vg.STORM_AT + 20, true)
-	check(vg.P.charge == vg.STORM_AT, "with no kills at all, holding runs the charge on past the Nova to the Storm")
+	tick(vg.ULT_AT + 20, true)
+	check(vg.P.charge == vg.ULT_AT, "with no kills at all, holding runs the charge on past the Nova to the Storm")
 	check(vg.hud.charge >= 1.0 and vg.hud.charge_marks[3] < 1.0, "the bar shows the Storm as its last stage, after the Nova")
 	var foes := []
 	for k in 5:
@@ -260,10 +225,26 @@ func _initialize() -> void:
 	check(vg.pod.state == "back", "lifting again calls the pod back")
 	tick(80, false)
 	check(vg.pod.state == "dock", "the pod docks again")
-	vg.P.ult = 1.0
+	# Shatter: like Lance's Storm, the last stage of the charge bar (no kills needed)
+	tick(vg.ULT_AT - 30, true)
+	check(vg.hud.charge > 0.5 and vg.hud.charge < 1.0, "holding fills Warden's charge bar")
+	tick(1, false)
+	check(vg.pod.state == "out" and vg.G.ult_t == 0, "lifting before the bar is full just flings the pod")
+	tick(5, true)
+	tick(1, false)
+	tick(80, false)
 	for i in 3:
 		vg.E("drifter", 30 + i * 30, 170, {move = "sine", amp = 0.0, ph = 0.0, x0 = 30.0 + i * 30})
-	tick(1, true, 0, 0, true)
+	# (stage 2's canyon run comes up about now: skip it, the ship doesn't charge in there)
+	var guard := 0
+	while vg.P.charge < vg.ULT_AT and guard < 3000:
+		if vg.G.has("run") and vg.G.run.abort == 0:
+			vg.G.run.abort = 1
+		tick(1, true)
+		guard += 1
+	tick(10, true)
+	check(not vg.G.has("run") and vg.P.charge == vg.ULT_AT and vg.hud.charge >= 1.0, "holding on fills the bar to Shatter")
+	tick(1, false)
 	check(vg.pod.state == "shatter" and vg.G.shards.size() == 8, "Shatter bursts the pod into eight shards")
 	var from_ship := true
 	for sh in vg.G.shards:
@@ -273,7 +254,8 @@ func _initialize() -> void:
 	vg.bullet(vg.P.x, vg.P.y, 0, 0)
 	tick(1, true, 0, 0, false, false)
 	check(vg.P.hull == 3, "the ship is shielded during Shatter")
-	tick(200, true)
+	check(vg.P.charge < vg.ULT_AT, "no second Shatter can load while one is going")
+	tick(200, false)
 	check(vg.pod.state == "dock" and vg.G.shards.is_empty(), "the pod reforms after Shatter")
 
 	# --- stages ---
