@@ -2577,7 +2577,7 @@ func _camera_reset() -> void:
 
 ## Where the chase camera at canyon (x, z) must go to stay out of obstacle `o`'s rock (with 3
 ## units to spare), as it passes it.
-static func _cam_dodge(o: Dictionary, c: Vector2) -> Vector2:
+static func _cam_dodge(o: Dictionary, c: Vector2, cu: float) -> Vector2:
 	match o.k:
 		"pillar", "mesa":
 			var px: float = VRun.passage(o.u).x + o.dx
@@ -2589,9 +2589,9 @@ static func _cam_dodge(o: Dictionary, c: Vector2) -> Vector2:
 		"spine":
 			c.y = maxf(c.y, VRun.crest(o, c.x) + 3.0)
 		"window":
-			# into the oval hole, 3 units in from its rim
+			# into the oval hole (or its funnel, wider before the wall), 3 units in from the rock
 			var h := VRun.hole(o)
-			var e := VRun.oval(o, c.x, c.y, 3.0)
+			var e := VRun.oval(o, c.x, c.y, 3.0, VRun.flare(o, cu))
 			if e > 1.0:
 				c = h + (c - h) / e
 	return c
@@ -2648,21 +2648,25 @@ func _camera(j: Vector3) -> void:
 	var cu: float = R.d - 38.0
 	var want := Vector2(cx, cz)
 	for o in VRun.OBS:
-		var gap := absf(o.u - cu) - VRun.half(o)
+		# (a hole's rock funnel reaches out before its wall: front(o))
+		var gap := maxf(o.u - VRun.front(o) - cu, cu - o.u - VRun.half(o))
 		if gap > 30.0:
 			continue
-		want = _cam_dodge(o, want)
+		want = _cam_dodge(o, want, cu)
 	R.cdx = lerpf(R.get("cdx", 0.0), want.x - cx, 0.25)
 	R.cdz = lerpf(R.get("cdz", 0.0), want.y - cz, 0.25)
 	var cam := Vector2(cx + R.cdx, cz + R.cdz)
 	for o in VRun.OBS:
-		if absf(o.u - cu) - VRun.half(o) < 2.0:
-			cam = _cam_dodge(o, cam)
+		if maxf(o.u - VRun.front(o) - cu, cu - o.u - VRun.half(o)) < 2.0:
+			cam = _cam_dodge(o, cam, cu)
 	R.cz = cam.y
 	R.cam_x = cam.x
 	# it looks ahead of the ship itself, so a camera stepped aside round a column (or lagging a
 	# big swing across the canyon) still keeps the ship near the middle of the screen
-	var aim_at := Vector3(lerpf(t.x, X(P.x), 0.6), t.y + 70.0, t.z + 9.0)
+	# and when it has lifted over a ridge while the ship dives for the next bridge, it tips its
+	# gaze down with it, so the ship doesn't sink off the bottom of the screen
+	var lifted := maxf(0.0, R.cz - cz)
+	var aim_at := Vector3(lerpf(t.x, X(P.x), 0.6), t.y + 70.0, t.z + 9.0 - lifted * 0.6)
 	var chase := Transform3D(Basis(), Vector3(X(R.cam_x), t.y - 38.0, R.cz)).looking_at(aim_at, Vector3.BACK)
 	var td := Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	# The swing orbits the ship rather than sliding between the two cameras: a straight slide
