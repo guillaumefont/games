@@ -3,7 +3,7 @@ extends Control
 ## The level map: all 48 stages on one trail climbing from the bottom of the screen to the top,
 ## world after world. Drag to scroll. The sky shifts from one world's colours to the next, and a
 ## banner (planet, name, progress) marks the way into each world. Each stage shows which tiers
-## it is cleared on (three pips); the trail is lit up to the next stage, where your ship waits.
+## it is cleared on (three pips); the trail is lit up to the next stage, marked with a target.
 ## Tap an open stage to open its panel (VHud picks the tier and plays it); a locked stage says
 ## what to clear first. Drawn in code, no child nodes. The stage order follows Normal: a stage
 ## is on the map once it is open on Normal, and its panel shows which harder tiers are open.
@@ -95,7 +95,7 @@ func world_open(w: int) -> bool:
 	return is_open(w * VStage.PER_WORLD)
 
 
-## The next stage on the trail (Normal): where the ship waits.
+## The next stage on the trail (Normal): the one the target marks.
 func next_stage() -> int:
 	return 0 if prog() == null else maxi(0, prog().next_stage(0))
 
@@ -454,7 +454,6 @@ func _draw() -> void:
 	for w in VStage.WORLDS.size():
 		_draw_banner(w)
 	_draw_stages()
-	_draw_ship()
 	_draw_fades()
 
 
@@ -743,20 +742,6 @@ func _draw_label(i: int, open: bool, done: bool) -> void:
 		sub_col = Color(C_MUTED, 0.45)
 	if sub != "":
 		_text(Vector2(x, rect.position.y + 40), sub, 14, sub_col, 700, al, rect.size.x)
-
-
-## Your ship, bobbing beside the next stage.
-func _draw_ship() -> void:
-	var i := next_stage()
-	var c := node_pos(i)
-	if c.y < -60 or c.y > size.y + 60:
-		return
-	var side := -1.0 if not _label_left(i) else 1.0
-	if VStage.STAGES[i].j == VStage.PER_WORLD - 1:
-		side = -1.0
-	var p := c + Vector2(side * (_radius(i) + 34), 4 + 4 * sin(Time.get_ticks_msec() / 300.0))
-	var paint: Dictionary = prog().paint_of(hud.ship) if prog() else {}
-	draw_ship(self, p, 1.0, paint, hud.ship)
 
 
 ## The top and bottom bars fade the trail out under the menu's controls; the bottom one carries
