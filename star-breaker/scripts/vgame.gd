@@ -215,8 +215,8 @@ func _ready() -> void:
 	layer.add_child(hud)
 	hud.stage_chosen.connect(start_stage)
 	hud.resume_pressed.connect(func(): set_paused(false))
-	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship))
-	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship))
+	hud.retry_pressed.connect(func(): start_stage(G.stage, G.ship, G.tier))
+	hud.next_pressed.connect(func(): start_stage(G.stage + 1, G.ship, G.tier))
 	hud.tier_pressed.connect(func(t: int): start_stage(G.stage, G.ship, t))
 	hud.level_pressed.connect(func(ship: String):
 		if prog.buy_level(ship):
@@ -275,6 +275,7 @@ func _load() -> void:
 	hud.set_muted(muted)
 	hud.prog = prog
 	hud.set_bests(bests)
+	hud.focus_next()
 
 
 func _save() -> void:
@@ -724,7 +725,9 @@ func teardown() -> void:
 
 func to_menu() -> void:
 	if not G.is_empty():
-		hud.select_world(G.world)
+		# show the world just played, or the next one when this clear opened it
+		var nx := int(G.get("report", {}).get("unlocked_next", -1))
+		hud.focus_next(nx if nx >= 0 else G.stage)
 	teardown()
 	mode = "menu"
 	paused = false
@@ -750,7 +753,6 @@ func finish(cleared: bool) -> void:
 		bests[G.stage] = G.score
 		hud.set_bests(bests)
 		_save()
-	hud.set_result(cleared, fmt(G.score), G.stage + 1 < VStage.STAGES.size())
 	var id := Progress.stage_id(G.stage)
 	var got := Progress.judge({cleared = cleared, foes = G.foes, foes_killed = G.foes_killed, breakables = G.breakables,
 		broken = G.broken, hits = G.hits, boss_ticks = G.boss_ticks, end = G.end_kind, tier = G.tier,
@@ -759,6 +761,8 @@ func finish(cleared: bool) -> void:
 	rep.flux = prog.bank_run(G.score, G.tier, rep.new_medals.size())
 	rep.merge({cleared = cleared, tier = G.tier, got = got, held = prog.medals(id, G.tier)})
 	G.report = rep
+	# Next only when the following stage is open on the tier just played
+	hud.set_result(cleared, fmt(G.score), G.stage + 1 < VStage.STAGES.size() and prog.open(G.stage + 1, G.tier))
 	_save()
 	hud.refresh_progress()
 	hud.set_report(rep)

@@ -1,5 +1,6 @@
 extends Node
-const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
+const Cutscenes := preload("res://scripts/cutscenes.gd")
+const TD := preload("res://scripts/tutorial_data.gd")  # no class_name: an installed shell would not know a new global class
 class Host:
 	var log := []
 	func toast(m, k = ""): log.append(m)
@@ -129,6 +130,7 @@ func _ready():
 	if not choir_tests(s, h): get_tree().quit(1); return
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
+	if not tutorial_tests(s, h): get_tree().quit(1); return
 	print("SIM TEST DONE")
 	get_tree().quit()
 
@@ -366,4 +368,61 @@ func upgrade_tests(s, h) -> bool:
 		if lv == "normal" and any: return _ufail("campaign AI upgraded on Normal")
 		if lv == "hard" and not any: return _ufail("campaign AI never upgraded on Hard")
 	print("upgrade tests ok")
+	return true
+
+func _tfail(msg: String) -> bool:
+	print("TUTORIAL TEST FAILED: ", msg); return false
+
+## The unit tutorial: every line fits a phone, every unit and building the player can have in a
+## campaign has its card by the mission it first shows up, and every lesson and drill is well formed.
+func tutorial_tests(s, h) -> bool:
+	for k in TD.CARDS:
+		var c: Dictionary = TD.CARDS[k]
+		if c.job.length() > 60 or c.get("tip", "").length() > 60: return _tfail(k + " job or tip too long")
+		if c.say.length() > 64: return _tfail(k + " line too long")
+		if not D.SPEAKERS.has(c.who): return _tfail(k + " unknown speaker " + c.who)
+		if not k.begins_with("l_") and D.def_of(k).is_empty(): return _tfail(k + " is not a unit or building")
+	for camp in TD.ENEMY:
+		for k in TD.ENEMY[camp]:
+			var e: Dictionary = TD.ENEMY[camp][k]
+			if e.text.length() > 64 or e.say.length() > 64: return _tfail("enemy " + k + " text too long")
+	for id in TD.LESSONS:
+		if not D.SPEAKERS.has(TD.LESSONS[id].who): return _tfail("lesson " + id + " unknown speaker")
+		for st in TD.LESSONS[id].steps:
+			if st.hint.length() > 60 or st.get("say", "").length() > 64: return _tfail("lesson " + id + " line too long: " + st.hint)
+	var kinds := ["kill", "heal", "made", "rally", "group_recall", "upgrade", "eng_fix", "launch"]
+	var seen := {}
+	var late := []
+	for camp in TD.MISSIONS:
+		var C: Dictionary = D.camp(camp)
+		if TD.MISSIONS[camp].size() != C.missions.size(): return _tfail(camp + " has " + str(TD.MISSIONS[camp].size()) + " tutorial entries for " + str(C.missions.size()) + " missions")
+		for i in C.missions.size():
+			var T: Dictionary = TD.MISSIONS[camp][i]
+			if T.has("lesson") and not TD.LESSONS.has(T.lesson): return _tfail("unknown lesson " + T.lesson)
+			for k in T.get("cards", []):
+				if not TD.CARDS.has(k): return _tfail("unknown card " + k)
+			for dr in T.get("drills", []):
+				if dr.text.length() > 48: return _tfail("drill text too long: " + dr.text)
+				var ck: Dictionary = dr.check
+				if ck.has("ev") and not kinds.has(ck.ev): return _tfail("unknown drill event " + ck.ev)
+				if not (ck.has("ev") or ck.has("have") or ck.has("raid") or ck.has("arrived") or ck.has("spot")): return _tfail("drill with no check: " + dr.text)
+			# what the player has or can build here must already have its card
+			s.new_game("normal", {"mission": C.missions[i]})
+			# owned from the start: its card is due in this mission. Only buildable: a card must exist (it opens when built).
+			var types := {}
+			for t in D.UN.keys() + D.BLD.keys():
+				if s.avail(0, t) and s.mission.tech != null: types[t] = false
+			for ev in C.missions[i].get("events", []):
+				for t in ev.get("tech", []): types[t] = false
+			for e in s.ents:
+				if e.team == 0: types[e.type] = true
+			for t in types:
+				if TD.LESSON_ONLY.has(t): continue
+				if not TD.CARDS.has(t): return _tfail(C.id + " " + str(i + 1) + ": " + t + " has no card")
+				var hm: Array = TD.CARDS[t].home
+				if types[t] and hm[0] == camp and int(hm[1]) > i: late.append(t + " in " + str(i + 1) + " (card in " + str(int(hm[1]) + 1) + ")")
+				seen[t] = true
+	if late.size(): return _tfail("cards come too late: " + ", ".join(late))
+	print("tutorial: ", TD.CARDS.size(), " cards, ", seen.size(), " met in play, ", TD.LESSONS.size(), " lessons")
+	print("tutorial tests ok")
 	return true

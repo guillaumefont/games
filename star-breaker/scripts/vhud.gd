@@ -51,10 +51,8 @@ var menu_scr: Control
 var pause_scr: Control
 var result_scr: Control
 var _ship_btns := {}
-## The stage map: six world tabs and the selected world's eight stages.
-var _stage_btns: Array = []
-var _world_btns: Array = []
-var _world_lbl: Label
+## The stage map: the six worlds and the selected world's route of eight stages.
+var map: VMap
 var world_sel := 0
 var bests: Array = []
 var _crash: PanelContainer
@@ -73,7 +71,6 @@ var _banner_sub: Label
 var _banner_t := 0
 var btn_pause: Button
 var _tier_btns: Array = []
-var _stage_pips: Array = []
 var _btn_medals: Button
 var medals_scr: Control
 var _medals_total: Label
@@ -224,70 +221,34 @@ func _build_menu() -> Control:
 	return v.get_parent()
 
 
-## World tabs, the world's name, and a grid of its eight stages (2 x 4).
+## The stage map (see VMap): the six worlds, then the chosen world's route of eight stages.
 func _build_map(v: VBoxContainer) -> void:
-	var tabs := HBoxContainer.new()
-	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
-	tabs.add_theme_constant_override("separation", 8)
-	var n: int = VStage.WORLDS.size()
-	for w in n:
-		var b := Button.new()
-		b.text = str(w + 1)
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2((COL_W - 8 * (n - 1)) / n, 56)
-		b.pressed.connect(func(): select_world(w))
-		tabs.add_child(b)
-		_world_btns.append(b)
-	v.add_child(tabs)
-	_world_lbl = _label("", 18, 700, C_LANCE, 3.0)
-	_world_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(_world_lbl)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 10)
-	for j in VStage.PER_WORLD:
-		var b := Button.new()
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2((COL_W - 12) / 2.0, 74)
-		b.pressed.connect(func(): stage_chosen.emit(world_sel * VStage.PER_WORLD + j, ship))
-		var pips := Pips.new()
-		pips.position = Vector2(b.custom_minimum_size.x - 18 - Pips.WIDTH, b.custom_minimum_size.y - Pips.HEIGHT - 12)
-		b.add_child(pips)
-		_stage_pips.append(pips)
-		grid.add_child(b)
-		_stage_btns.append(b)
-	v.add_child(_center(grid))
-	select_world(0)
+	map = VMap.new(self)
+	map.stage_tapped.connect(func(i): stage_chosen.emit(i, ship))
+	map.world_tapped.connect(select_world)
+	v.add_child(_center(map))
+	focus_next()
 
 
 ## Shows world `w` on the stage map.
 func select_world(w: int) -> void:
 	world_sel = clampi(w, 0, VStage.WORLDS.size() - 1)
-	for k in _world_btns.size():
-		_style_button(_world_btns[k], k == world_sel)
-	var wd: Dictionary = Worlds.LIST[world_sel]
-	_world_lbl.text = ("%s  ·  %s" % [wd.sub, wd.name]).to_upper()
-	for j in _stage_btns.size():
-		var b: Button = _stage_btns[j]
-		b.text = stage_label(world_sel * VStage.PER_WORLD + j)
-		_style_button(b, false)
-		b.add_theme_font_size_override("font_size", 17)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if map:
+		map.world = world_sel
+		map.queue_redraw()
 	refresh_progress()
 
 
-## A stage button's text: number and name, and the best score under it.
+## Shows the world holding stage `i` (or the next stage to play on the tier, when -1).
+func focus_next(i := -1) -> void:
+	if i < 0 and prog:
+		i = prog.next_stage(tier)
+	select_world(VStage.world_of(maxi(i, 0)))
+
+
+## A stage's text on the map: number and name, then its best score, NEXT or LOCKED.
 func stage_label(i: int) -> String:
-	var st: Dictionary = VStage.STAGES[i]
-	var t: String = "%d  %s" % [st.j + 1, st.name]
-	if prog and not prog.unlocked(Progress.stage_id(i), tier):
-		t += "\nlocked"
-	elif i < bests.size() and int(bests[i]) > 0:
-		t += "\n" + _fmt(int(bests[i]))
-	else:
-		t += "\n "  # keeps the name on the top line, clear of the medal pips
-	return t.to_upper()
+	return map.stage_text(i) if map else ""
 
 
 ## The crash notice (after a session that didn't end cleanly) and the device row: sound,
@@ -389,7 +350,7 @@ func show_crash_notice(summary: String, report: String) -> void:
 ## Each stage's best score, shown on its button.
 func set_bests(b: Array) -> void:
 	bests = b.duplicate()
-	if _world_lbl != null:
+	if map != null:
 		select_world(world_sel)
 
 
@@ -398,17 +359,8 @@ func set_bests(b: Array) -> void:
 func refresh_progress() -> void:
 	for t in _tier_btns.size():
 		_style_tier(_tier_btns[t], t)
-	for j in _stage_btns.size():
-		var i: int = world_sel * VStage.PER_WORLD + j
-		var b: Button = _stage_btns[j]
-		b.text = stage_label(i)
-		var id := Progress.stage_id(i)
-		var open: bool = prog == null or prog.unlocked(id, tier)
-		b.disabled = not open
-		b.modulate.a = 1.0 if open else 0.45
-		if j < _stage_pips.size():
-			_stage_pips[j].set_medals(prog.medals(id, tier) if prog else 0)
-			_stage_pips[j].visible = open
+	if map:
+		map.queue_redraw()
 	if prog and _btn_medals:
 		_btn_medals.text = "HANGAR  ·  %s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
 		_medals_total.text = "MEDALS %d / %d" % [prog.total(), Progress.max_total()]
@@ -637,7 +589,7 @@ func _build_tier_row() -> Control:
 
 func select_tier(t: int) -> void:
 	tier = clampi(t, 0, Progress.TIERS.size() - 1)
-	refresh_progress()
+	focus_next()
 
 
 func _style_tier(b: Button, t: int) -> void:
@@ -671,6 +623,13 @@ func set_report(r: Dictionary) -> void:
 		lines.append("Clear the stage to earn medals")
 	if int(r.get("unlocked_tier", -1)) > 0:
 		lines.append("%s unlocked for this stage" % Progress.tier(r.unlocked_tier).name)
+	var nx := int(r.get("unlocked_next", -1))
+	if nx >= 0:
+		var ns: Dictionary = VStage.STAGES[nx]
+		if ns.j == 0:
+			lines.append("%s unlocked" % Worlds.LIST[ns.world].name)
+		else:
+			lines.append("Stage %d %s unlocked" % [ns.j + 1, ns.name])
 	if int(r.get("flux", 0)) > 0:
 		lines.append("+%s flux" % _fmt(int(r.flux)))
 	for rw in r.get("rewards", []):

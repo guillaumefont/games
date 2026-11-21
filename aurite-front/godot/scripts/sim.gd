@@ -53,6 +53,13 @@ var m_t := 1.0
 var end_why := ""
 var lvl := "normal"            # campaign difficulty (D.LEVELS)
 var cine := false              # a cutscene runs on this sim: no AI, no goals or win checks, the whole map in view
+## Tutorial hooks (scripts/tutorial.gd): tut_cb(kind, a, b) hears kills, heals, units trained, upgrades and launches.
+var tut_cb := Callable()
+var last_hurt := -99.0         # when one of the player's things last took damage (tutorial cards wait for calm)
+var raids: Array = []          # ids of the enemy units each scripted event sent, one array per event
+
+func _tut(kind: String, a = null, b = null) -> void:
+	if tut_cb.is_valid(): tut_cb.call(kind, a, b)
 
 # ---------------- util ----------------
 static func _u32(v: int) -> int:
@@ -250,6 +257,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	if ef == "" or ef == pf or not D.FACS.has(ef): ef = "ashen" if pf == "vanguard" else "vanguard"
 	time = 0.0; ents = []; nid = 1; proj = []; parts = []; sel = []; over = false; vis_t = 0.0; ai_t = 2.0; fields = []; aura_tick = 0.0
 	last_alert = -99.0; ping = null; stats = {"built": 0, "lost": 0, "killed": 0, "mined": 0}; radio_done = {}; strikes = []; combat = 0.0; delayed = []; by_id = {}
+	last_hurt = -99.0; raids = []
 	terr = PackedByteArray(); terr.resize(MW * MH)
 	ore = PackedInt32Array(); ore.resize(MW * MH)
 	bmap = PackedInt32Array(); bmap.resize(MW * MH)
@@ -952,7 +960,7 @@ func damage(t: Ent, dmg: float, w: String, src) -> void:
 	if not t.alive or t.captive or t.under: return
 	var arm: String = "bld" if t.kind == "b" else t.d.armor
 	t.hp -= dmg * D.MOD[w][arm]; t.hit_t = 3.0
-	if t.team == 0: combat = min(1.0, combat + 0.05)
+	if t.team == 0: combat = min(1.0, combat + 0.05); last_hurt = time
 	if src != null and src.alive and t.kind == "u" and t.target == null and t.order == "none" and t.d.dmg > 0 and can_hit(t.d, src):
 		t.target = src; t.auto = true
 		if t.guard == null: t.guard = Vector2(t.x, t.y)
@@ -960,7 +968,9 @@ func damage(t: Ent, dmg: float, w: String, src) -> void:
 		last_alert = time; ping = {"x": t.x, "y": t.y, "t": time}
 		host.toast("Base under attack" if t.kind == "b" else ("Harvester under attack" if t.d.harv else "Units under attack"), "warn"); host.sfx("alert")
 	if t.team == 0 and t.kind == "u" and t.d.hero and t.hp > 0 and t.hp < t.max_hp * 0.35: radio_cue("hero_hurt")
-	if t.hp <= 0: kill(t)
+	if t.hp <= 0:
+		if t.team == 1: _tut("kill", t, src)
+		kill(t)
 
 func kill(e: Ent) -> void:
 	e.alive = false; e.sel = false
@@ -1129,6 +1139,7 @@ func upd_medic(u: Ent, dt: float) -> void:
 			u.ang = turn_to(u.ang, atan2(t.y - u.y, t.x - u.x), 16 * dt)
 			if u.cd <= 0:
 				t.hp = min(t.max_hp, t.hp + d.heal); u.cd = d.rof; u.flash = 0.25
+				if u.team == 0: _tut("heal", t, u)
 				parts.append({"k": "heal", "x": t.x, "y": t.y, "life": 0.8, "max": 0.8})
 		else:
 			u.rp -= dt
@@ -1159,7 +1170,7 @@ func upd_eng(u: Ent, dt: float) -> void:
 				host.on_world_changed()
 			else:
 				t.hp = t.max_hp
-				if u.team == 0: host.toast(t.d.name + " repaired", "gold"); host.sfx("ready")
+				if u.team == 0: host.toast(t.d.name + " repaired", "gold"); host.sfx("ready"); _tut("eng_fix", t)
 			for k in 6: parts.append({"k": "spark", "x": t.x + (randf() - 0.5) * 20, "y": t.y + (randf() - 0.5) * 20, "vx": (randf() - 0.5) * 50, "vy": (randf() - 0.5) * 50, "life": 0.4, "max": 0.4, "c": Color("#9df5b0"), "s": 2.0})
 			u.alive = false; u.sel = false; _drop_sel(u)
 			return
@@ -1330,7 +1341,7 @@ func launch_sw(b: Ent, x: float, y: float) -> void:
 	strikes.append({"x": x, "y": y, "t": 0.0, "kind": b.type, "team": b.team, "hit": 0, "done": false})
 	if b.team == 1:
 		host.toast("Enemy " + d.name + " launched!", "warn"); ping = {"x": x, "y": y, "t": time}
-	else: host.toast(d.name + " launched", "gold")
+	else: host.toast(d.name + " launched", "gold"); _tut("launch", b.type)
 	host.sfx("siren"); host.on_sel_changed()
 
 func upd_strikes(dt: float) -> void:
@@ -1530,7 +1541,7 @@ func produce_done(tm: Dictionary, type: String) -> void:
 			var s := slots_around(ex, ey + 1, 1 + randi() % 5)
 			var t: Vector2i = s[-1] if s.size() else Vector2i(ex, ey + 1)
 			set_path(u, t.x, t.y)
-	if tm.id == 0: host.toast(d.name + " ready"); host.sfx("ready")
+	if tm.id == 0: host.toast(d.name + " ready"); host.sfx("ready"); _tut("made", type)
 
 func can_place(team: int, type: String, tx: int, ty: int, gap: bool) -> bool:
 	var d: Dictionary = D.BLD[type]
@@ -1627,7 +1638,7 @@ func finish_upgrade(b: Ent) -> void:
 	b.max_hp = nd.hp; b.hp = min(nd.hp, max(fr, 0.0) * nd.hp + (nd.hp - D.BLD[b.type].hp))
 	calc_power()
 	if b.team == 0:
-		host.toast(nd.name + " online", "gold"); host.sfx("ready")
+		host.toast(nd.name + " online", "gold"); host.sfx("ready"); _tut("upgrade", b.type)
 		parts.append({"k": "txt", "x": b.x, "y": b.y, "txt": "UPGRADED", "c": Color("f0b93f"), "life": 2.0, "max": 2.0, "h": D.BH[b.type] + .4})
 	elif visible_to_player(b): host.toast("Enemy " + nd.name + " online", "warn")
 	host.on_world_changed(); host.on_sel_changed()
@@ -1863,7 +1874,11 @@ func radio_cue(on: String) -> void:
 
 func run_event(ev: Dictionary, warn := true) -> void:
 	if ev.has("say"): say(ev, warn)
-	for sp in ev.get("spawn", []): spawn_group(sp)
+	var sent: Array = []
+	for sp in ev.get("spawn", []):
+		for u in spawn_group(sp):
+			if u.team == 1: sent.append(u.id)
+	if sent.size(): raids.append(sent)
 	if ev.get("attack", "") == "hero":
 		var hs := ents.filter(func(e): return e.alive and e.team == 1 and e.kind == "u" and e.d.hero)
 		if hs.size():
@@ -2114,3 +2129,9 @@ func step(dt: float) -> void:
 		for e in ents:
 			if not e.alive: by_id.erase(e.id)
 		ents = ents.filter(func(e): return e.alive)
+
+## True once every unit of one scripted enemy event is dead (a raid wiped out).
+func raid_wiped() -> bool:
+	for ids in raids:
+		if ids.all(func(i): return not by_id.has(i) or not by_id[i].alive): return true
+	return false

@@ -71,7 +71,7 @@ func _initialize() -> void:
 	main.finish(false)
 	var cfg := ConfigFile.new()
 	cfg.load("user://save.cfg")
-	check(int((cfg.get_value("portrait", "bests", [0])[0])) == 4321 and main.hud._stage_btns[0].text.contains("4,321"), "a stage's best score is saved and shown")
+	check(int((cfg.get_value("portrait", "bests", [0])[0])) == 4321 and main.hud.stage_label(0).contains("4,321"), "a stage's best score is saved and shown")
 	main.to_menu()
 
 	# screen shapes: the whole stage width is always visible
