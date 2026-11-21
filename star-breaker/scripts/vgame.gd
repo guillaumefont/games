@@ -804,8 +804,10 @@ func step() -> void:
 	G.t += 1
 	if G.t % 60 == 0:
 		Diag.note("TICK", "t=%d scroll=%d fps=%d enemies=%d eb=%d fx=%d" % [G.t, G.scroll, Engine.get_frames_per_second(), G.enemies.size(), G.eb.size(), fx.size()])
-	# the stage holds still while the canyon run streams past
-	if not G.ended and not G.has("run"):
+	# the stage holds still while the canyon run streams past; it keeps going through the boss
+	# fights (Guillaume, 2026-11-21): bosses fly on the play plane in screen units, so the ground
+	# moves on under them, and the terrain is endless past the stage's length
+	if not G.has("run"):
 		G.scroll += SCROLL
 	# what stands on the ground is built well ahead, out of sight (it scrolls in with the
 	# ground); the rest is sent when its turn comes (`si`, which tools and tests may move on)
@@ -2374,8 +2376,9 @@ func _add_chunk(c: int, g: Node3D) -> void:
 func start_run() -> void:
 	if run_b == null:
 		return
-	while not _run_built:
-		_run_built = run_b.step()
+	if not _run_built:
+		run_b.finish()
+		_run_built = true
 	for e in G.enemies:
 		if not e.get("boss", false):
 			e.dead = true
@@ -2601,9 +2604,32 @@ static func _aim(dir: Vector3) -> Basis:
 	return Basis.looking_at(f, Vector3.RIGHT.cross(f))
 
 
+## The sun's shadow map for the view. Top-down, one orthogonal map covers the whole screen
+## evenly. Behind the ship, the view runs hundreds of units down the canyon, and one map stretched
+## over all of it made the near shadows soft, blocky and pale next to the top-down ones
+## (Guillaume, 2026-11-21: shadows must look the same in both views). So once the camera swings
+## past half way the map splits by distance: the nearest split, round the ship, is as sharp as the
+## top-down map, and the far ones still shade the canyon down to the fog.
+func _sun_shadows(k: float) -> void:
+	var pov := k > 0.5
+	var mode := DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if pov else DirectionalLight3D.SHADOW_ORTHOGONAL
+	if sun.directional_shadow_mode == mode:
+		return
+	sun.directional_shadow_mode = mode
+	if pov:
+		sun.directional_shadow_max_distance = 640.0
+		sun.directional_shadow_split_1 = 0.08
+		sun.directional_shadow_split_2 = 0.2
+		sun.directional_shadow_split_3 = 0.45
+		sun.directional_shadow_blend_splits = true
+	else:
+		sun.directional_shadow_max_distance = CAM_D + 260.0
+
+
 ## Top-down, or swung down behind the ship during the canyon run (`k` of the way).
 func _camera(j: Vector3) -> void:
 	var k: float = G.run.k if G.has("run") else 0.0
+	_sun_shadows(k)
 	if k <= 0.0:
 		_camera_reset()
 		camera.position += j

@@ -79,7 +79,8 @@ func _initialize() -> void:
 		else:
 			turn_out = maxf(turn_out, dk)
 		uu = nu
-	check(turn_out <= turn_in * 1.05, "the camera swings out no faster than it swung in (%.4f vs %.4f a tick)" % [turn_out, turn_in])
+	# Guillaume wants a quick way out (2026-11-21), but not a snap
+	check(turn_out > turn_in * 1.2 and turn_out < turn_in * 3.0, "the camera swings out quicker than it swung in, but smoothly (%.4f vs %.4f a tick)" % [turn_out, turn_in])
 	var last := 0.0
 	for o in VRun.OBS:
 		last = maxf(last, o.u + VRun.half(o) + VRun.DEPTH / 2.0)
