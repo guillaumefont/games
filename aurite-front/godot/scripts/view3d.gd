@@ -633,8 +633,16 @@ func sync_ents(t: float) -> void:
 		var n: Node3D = r.n
 		if e.kind == "u":
 			var air: bool = e.d.air
-			n.position = Vector3(e.x / T, (max(S.h_at(e.x, e.y), 0.0) + D.ALT + sin(t * 2 + e.id) * .06) if air else S.h_at(e.x, e.y), e.y / T)
+			var gy: float = S.h_at(e.x, e.y)
+			if not air and e.d.mob > 0: gy = max(gy, -0.27) + ((0.08 + sin(t * 3 + e.id) * .015) if e.d.mob == 2 else 0.0)   # boats ride the water, hover craft float over anything
+			if e.hop != null: gy += sin(PI * clamp(e.hop.t / e.hop.d, 0.0, 1.0)) * 1.5
+			n.position = Vector3(e.x / T, (max(S.h_at(e.x, e.y), 0.0) + D.ALT + sin(t * 2 + e.id) * .06) if air else gy, e.y / T)
 			n.rotation.y = -e.ang
+			# a cloaked unit of the player's own shows as a pale ghost (the enemy's is simply not drawn)
+			if e.d.cloak > 0 and e.cloak != r.get("ghosted", false):
+				r.ghosted = e.cloak
+				if not r.has("um"): r.um = n.find_children("*", "MeshInstance3D", true, false).filter(func(mi): return not r.sel.is_ancestor_of(mi))
+				for mi in r.um: mi.material_override = Models._ghost_mat(Color(0.6, 0.95, 1.0, 0.35)) if e.cloak else null
 			if air:
 				r.body.rotation.z = -.18 if e.moving else 0.0
 				if r.has("rot"): r.rot.rotation.y = t * 25
@@ -670,6 +678,8 @@ func sync_ents(t: float) -> void:
 		else:
 			r.e = e
 			_anim_build(e, r, t)
+			if e.dark and e.team == 0 and (frame_no + e.id * 7) % 45 == 0:
+				S.parts.append({"k": "spark", "x": e.x, "y": e.y, "vx": 0.0, "vy": 0.0, "life": .5, "max": .5, "c": Color("ff5a4a"), "s": 3.0, "h0": S.h_at(e.x, e.y) + D.BH[e.type] + .2})
 			_anim_upgrade(e, r, t)
 			_bld_idle(e, r, t)
 			if r.has("tur"): r.tur.rotation.y = -e.tang
@@ -707,6 +717,7 @@ func sync_ents(t: float) -> void:
 
 # ---------------- building life: assemble, dismantle, collapse ----------------
 const BUILD_T := 2.2
+const DROP_T := 1.1
 const SELL_T := 1.8
 const DIE_T := 1.6
 
@@ -748,6 +759,15 @@ func _dust(e: Ent, n: int, c := Color8(196, 184, 156)) -> void:
 
 func _anim_build(e: Ent, r: Dictionary, t: float) -> void:
 	var age: float = t - e.born
+	if D.rule(S.fac_of(e.team), "place") == "signal":
+		# a Vanguard prefab comes down from the sky and thumps into place
+		if e.born < -5 or age >= DROP_T:
+			if r.get("anim", "") == "drop":
+				r.n.position.y = S.h_at(e.x, e.y); r.anim = ""; _dust(e, 14)
+			return
+		r.anim = "drop"
+		r.n.position.y = S.h_at(e.x, e.y) + pow(1.0 - clamp(age / DROP_T, 0.0, 1.0), 2.0) * 7.0
+		return
 	if e.born < -5 or age >= BUILD_T:
 		if r.get("anim", "") == "build": _cut_off(r)
 		return

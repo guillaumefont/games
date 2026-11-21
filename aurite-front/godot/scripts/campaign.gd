@@ -17,7 +17,7 @@ extends RefCounted
 ## The Pact names its own: "power" is its Furnace, "barracks" its Muster Hall, "rifle" its Militia (D.FACS.ashen.sub).
 const ASH_EARLY := ["power", "hearth", "refinery", "barracks", "turret", "wall", "rifle", "lancer", "pyro", "harv"]
 const VAN_EARLY := ["power", "refinery", "barracks", "turret", "wall", "rifle", "lancer", "medic", "ranger", "harv"]
-const CHO_EARLY := ["power", "garden", "barracks", "burrow", "turret", "wall", "thrall", "lancer", "medic"]
+const CHO_EARLY := ["garden", "burrow", "spire", "thorn", "thrall", "sapper", "skitter"]
 
 static func all() -> Array:
 	return [
@@ -50,8 +50,8 @@ static func ashen() -> Array:
 	var t2 := _plus(ASH_EARLY, ["factory", "raider", "boars"])
 	var t3 := _plus(t2, ["scorpion", "anvilf", "brute", "kettle", "flak", "arty", "engineer"])
 	var t4 := _plus(t3, ["helipad", "wasp", "tech", "pylon", "arcc", "anvila"])
-	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv"]
-	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk"])
+	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv", "k9"]
+	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk", "jump", "hornets", "spotter"])
 	return [
 		# ---- 1: no base, the hero reaches a hilltop and holds it
 		{"title": "Smoke on the River", "tag": "Light the warning fire", "seed": 1101, "diff": "easy", "credits": [0, 0],
@@ -197,9 +197,9 @@ static func ashen() -> Array:
 # Campaign II: Iron Tide (Vanguard)
 # =====================================================================================
 static func vanguard() -> Array:
-	var t1 := _plus(VAN_EARLY, ["factory", "buggy", "tank"])
-	var t2 := _plus(t1, ["flak", "repair", "arty", "engineer", "comms"])
-	var t3 := _plus(t2, ["helipad", "skyhawk", "tech", "bulwark", "bastion"])
+	var t1 := _plus(VAN_EARLY, ["factory", "buggy", "tank", "k9"])
+	var t2 := _plus(t1, ["flak", "repair", "arty", "engineer", "comms", "jump", "spotter", "hornets", "pk_strike"])
+	var t3 := _plus(t2, ["helipad", "skyhawk", "tech", "bulwark", "bastion", "walker", "dome", "pk_wing", "hydrofoil"])
 	var ash_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "pyro", "raider", "scorpion", "harv", "comms"]
 	var ash_ai2 := _plus(ash_ai, ["flak", "repair", "arty", "helipad", "wasp", "tech", "arcc", "pylon"])
 	return [
@@ -348,11 +348,11 @@ static func vanguard() -> Array:
 # Campaign III: The Hollow Song (Hollow Choir), during the Iron Tide war, against both armies
 # =====================================================================================
 static func choir() -> Array:
-	var t2 := _plus(CHO_EARLY, ["factory", "skitter", "mantis"])
-	var t3 := _plus(t2, ["flak", "repair", "comms", "sapper", "engineer", "helipad", "moth"])
-	var t4 := _plus(t3, ["tech", "geode", "spire", "cantor"])
-	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv"]
-	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk"])
+	var t2 := _plus(CHO_EARLY, ["mantis", "keener"])
+	var t3 := _plus(t2, ["geode", "moth", "undertow"])
+	var t4 := _plus(t3, ["carillon", "cantor", "chorus"])
+	var van_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "tank", "harv", "k9"]
+	var van_ai2 := _plus(van_ai, ["flak", "repair", "arty", "comms", "ranger", "helipad", "skyhawk", "jump", "hornets", "spotter"])
 	var ash_ai := ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "pyro", "raider", "scorpion", "harv", "comms"]
 	var ash_ai2 := _plus(ash_ai, ["flak", "repair", "arty", "helipad", "wasp", "tech", "arcc", "pylon"])
 	return [
@@ -366,7 +366,7 @@ static func choir() -> Array:
 			"mesas": [[20, 24, 3.5], [36, 40, 4], [14, 38, 3], [40, 22, 3], [52, 32, 3]],
 			"ore": [[30, 30, 2.8], [50, 14, 2.6], [22, 50, 2.4]], "roads": [[[8, 54], [22, 44], [30, 30], [48, 15]]]},
 		 "phq": false, "tech": [], "aiTech": [], "aiBuild": false, "aiProd": false, "ehq": "",
-		 "pheroes": ["cantor"], "punits": [["thrall", 10], ["sapper", 3], ["medic", 2]], "keep": ["cantor"],
+		 "pheroes": ["cantor"], "punits": [["thrall", 12], ["sapper", 3]], "keep": ["cantor"],
 		 "posts": [{"at": [22, 42], "u": [["rifle", 2]]},
 			{"at": [30, 27], "b": ["refinery", "power"], "u": [["rifle", 3]], "tag": "drills"},
 			{"at": [48, 13], "b": ["refinery", "power", "turret"], "u": [["rifle", 2], ["lancer", 1]], "tag": "drills"},
@@ -387,7 +387,7 @@ static func choir() -> Array:
 			"rivers": [{"pts": [[0, 30], [20, 32], [36, 26], [63, 30]], "w": 1.3}], "gaps": [[12, 31, 2], [30, 28, 2], [50, 29, 2]],
 			"ore": [[16, 47, 3.2], [6, 42, 3], [24, 40, 3], [30, 52, 3], [8, 22, 3], [36, 36, 3.2], [44, 18, 3], [54, 40, 3]]},
 		 "tech": CHO_EARLY, "aiTech": ash_ai, "aiBuild": false, "aiFirst": 420,
-		 "pbase": ["power", "barracks"], "punits": [["thrall", 6], ["lancer", 2]], "keep": ["hq"],
+		 "pbase": [], "punits": [["thrall", 8]], "keep": ["hq"],
 		 "ehq": "hq", "ebase": ["power", "power", "refinery", "barracks", "factory", "turret"], "eunits": [["rifle", 3], ["raider", 1]],
 		 "events": [
 			{"t": 150, "say": "Raider bikes are heading for your gardens", "spawn": [{"at": [62, 34], "u": [["raider", 2]], "go": "harv"}]},
@@ -404,7 +404,7 @@ static func choir() -> Array:
 			"ridges": [{"pts": [[30, 2], [32, 14], [38, 22]], "w": 1.8}],
 			"ore": [[18, 46, 3.2], [7, 38, 3], [28, 42, 3], [44, 18, 3], [33, 10, 2.6], [56, 26, 2.6]]},
 		 "tech": t2, "aiTech": ["power", "refinery", "barracks", "factory", "turret", "rifle", "lancer", "medic", "buggy", "harv"], "aiBuild": false, "aiFirst": 420,
-		 "pbase": ["power", "power", "barracks", "garden"], "punits": [["thrall", 8], ["lancer", 3], ["skitter", 3]], "keep": ["hq"],
+		 "pbase": ["garden", "spire"], "punits": [["thrall", 8], ["keener", 2], ["skitter", 3]], "keep": ["hq"],
 		 "ehq": "barracks", "ebase": ["power", "power", "refinery", "factory", "turret", "turret"], "eunits": [["rifle", 4], ["lancer", 1], ["buggy", 1]],
 		 "posts": [{"at": [40, 32], "b": ["turret", "turret"], "u": [["rifle", 3]]}, {"at": [24, 22], "u": [["rifle", 3]]}],
 		 "goals": [{"k": "destroy_all", "label": "Vanguard firebase"}]},
@@ -419,7 +419,7 @@ static func choir() -> Array:
 			"gaps": [[8, 35, 1.8], [56, 43, 1.8]], "lakes": [[32, 34, 3.5], [20, 12, 3], [54, 56, 3]],
 			"ore": [[46, 10, 3], [52, 20, 2.6], [18, 50, 2.4]], "roads": [[[7, 56], [18, 44], [30, 26], [48, 14]]]},
 		 "phq": false, "tech": [], "aiTech": [], "aiBuild": false, "aiProd": false, "ehq": "",
-		 "pheroes": ["cantor"], "punits": [["thrall", 6], ["skitter", 3], ["mantis", 2], ["medic", 1]], "keep": ["cantor"],
+		 "pheroes": ["cantor"], "punits": [["thrall", 8], ["skitter", 3], ["mantis", 2]], "keep": ["cantor"],
 		 "posts": [{"at": [48, 15], "b": ["turret", "turret", "barracks", "power"], "u": [["pyro", 3], ["rifle", 4], ["raider", 1]]},
 			{"at": [30, 26], "u": [["rifle", 3], ["lancer", 1]]}, {"at": [18, 42], "u": [["raider", 2]]}],
 		 "captives": [{"at": [50, 10], "u": [["thrall", 6], ["sapper", 2]]}],
@@ -436,7 +436,7 @@ static func choir() -> Array:
 			"rivers": [{"pts": [[0, 30], [20, 32], [44, 28], [63, 32]], "w": 1.6}], "gaps": [[12, 31, 2.2], [32, 30, 2.2], [52, 30, 2.2]],
 			"ore": [[20, 46, 3.4], [44, 46, 3.4], [32, 42, 2.8], [10, 52, 3], [54, 52, 3], [20, 16, 3], [44, 16, 3]]},
 		 "tech": t3, "aiTech": [], "aiBuild": false, "aiProd": false,
-		 "pbase": ["power", "power", "garden", "barracks", "factory", "turret", "turret"], "punits": [["mantis", 3], ["thrall", 8], ["lancer", 3], ["skitter", 2]], "keep": ["hq"],
+		 "pbase": ["garden", "garden", "spire", "spire"], "punits": [["mantis", 3], ["thrall", 8], ["keener", 3], ["skitter", 2]], "keep": ["hq"],
 		 "ehq": "hq", "ebase": ["power", "power", "refinery", "barracks", "factory", "helipad", "turret", "pylon"],
 		 "goals": [{"k": "survive", "t": 600, "label": "Hold the caves",
 			"waves": {"first": 50, "every": 58, "n": 10, "from": [[14, 4], [50, 4], [32, 2]],
@@ -451,7 +451,7 @@ static func choir() -> Array:
 			"lakes": [[20, 22, 4], [30, 42, 4], [46, 32, 3.6], [13, 32, 3], [50, 50, 4], [36, 12, 3], [58, 28, 2.6]],
 			"ore": [[16, 48, 3.2], [6, 40, 2.8], [28, 30, 3], [40, 22, 3], [48, 12, 2.8], [54, 40, 2.8]]},
 		 "tech": t3, "aiTech": van_ai, "aiBuild": false, "aiFirst": 420,
-		 "pbase": ["power", "power", "garden", "barracks", "factory", "burrow", "turret"], "pheroes": ["cantor"], "punits": [["mantis", 3], ["thrall", 6], ["sapper", 2], ["lancer", 2]], "keep": ["cantor"],
+		 "pbase": ["garden", "garden", "burrow", "spire"], "pheroes": ["cantor"], "punits": [["mantis", 3], ["thrall", 6], ["sapper", 2], ["keener", 2]], "keep": ["cantor"],
 		 "ehq": "hq", "ebase": ["power", "power", "power", "refinery", "barracks", "factory", "turret", "flak", "helipad"],
 		 "eheroes": ["harrow"], "eunits": [["tank", 1], ["rifle", 3], ["ranger", 1]],
 		 "posts": [{"at": [46, 22], "b": ["comms", "turret", "flak", "power"], "u": [["rifle", 3], ["ranger", 1], ["tank", 1]], "tag": "post"}, {"at": [34, 30], "u": [["rifle", 3], ["lancer", 1]]}],
@@ -471,7 +471,7 @@ static func choir() -> Array:
 			"rivers": [{"pts": [[0, 34], [22, 34], [34, 30], [63, 22]], "w": 0.9}], "gaps": [[14, 34, 1.5], [30, 31, 1.5], [48, 26, 1.5]],
 			"ore": [[18, 46, 3.2], [8, 38, 3], [30, 48, 3], [36, 14, 3], [46, 24, 3], [54, 34, 2.6]]},
 		 "tech": t4, "aiTech": van_ai2, "aiFirst": 260,
-		 "pbase": ["power", "power", "garden", "barracks", "factory", "comms", "burrow"], "pheroes": ["deepmaw"], "punits": [["mantis", 4], ["thrall", 6], ["lancer", 3], ["medic", 1]], "keep": ["hq"],
+		 "pbase": ["garden", "garden", "burrow", "spire"], "pheroes": ["deepmaw"], "punits": [["mantis", 4], ["thrall", 8], ["keener", 3]], "keep": ["hq"],
 		 "ehq": "hq", "ebase": ["power", "power", "power", "refinery", "barracks", "factory", "repair", "turret", "turret", "flak", "bastion"],
 		 "eheroes": ["saint"], "eunits": [["tank", 3], ["rifle", 4], ["ranger", 2]],
 		 "events": [{"t": 240, "say": "The Iron Saint is rolling for your gardens!", "attack": "hero"}],
@@ -490,8 +490,8 @@ static func choir() -> Array:
 			"ridges": [{"pts": [[38, 4], [40, 18], [48, 26]], "w": 1.8}], "gaps2": [[40, 12, 1.8]],
 			"ore": [[18, 46, 3.4], [8, 38, 3], [28, 48, 3], [26, 14, 3], [46, 32, 3], [56, 26, 2.8], [20, 56, 2.8]]},
 		 "tech": null, "aiTech": null, "aiFirst": 230,
-		 "pbase": ["power", "power", "power", "garden", "barracks", "factory", "comms", "burrow"], "pheroes": ["cantor", "deepmaw"],
-		 "punits": [["mantis", 4], ["geode", 1], ["thrall", 6], ["lancer", 3], ["medic", 2]], "keep": ["cantor"],
+		 "pbase": ["garden", "garden", "garden", "burrow", "spire", "spire"], "pheroes": ["cantor", "deepmaw"],
+		 "punits": [["mantis", 4], ["geode", 1], ["thrall", 8], ["keener", 3]], "keep": ["cantor"],
 		 "ehq": "hq", "ebase": ["power", "power", "power", "power", "refinery", "refinery", "barracks", "factory", "comms", "helipad", "tech", "flak", "flak", "pylon", "pylon", "turret", "rift"],
 		 "eheroes": ["vey"], "eunits": [["scorpion", 3], ["arcc", 2], ["pyro", 3], ["wasp", 2], ["rifle", 4]],
 		 "goals": [{"k": "kill", "types": ["rift", "hq"], "label": "Rift Engine and Command Yard"}]},
