@@ -2603,9 +2603,32 @@ static func _aim(dir: Vector3) -> Basis:
 	return Basis.looking_at(f, Vector3.RIGHT.cross(f))
 
 
+## The sun's shadow map for the view. Top-down, one orthogonal map covers the whole screen
+## evenly. Behind the ship, the view runs hundreds of units down the canyon, and one map stretched
+## over all of it made the near shadows soft, blocky and pale next to the top-down ones
+## (Guillaume, 2026-11-21: shadows must look the same in both views). So once the camera swings
+## past half way the map splits by distance: the nearest split, round the ship, is as sharp as the
+## top-down map, and the far ones still shade the canyon down to the fog.
+func _sun_shadows(k: float) -> void:
+	var pov := k > 0.5
+	var mode := DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if pov else DirectionalLight3D.SHADOW_ORTHOGONAL
+	if sun.directional_shadow_mode == mode:
+		return
+	sun.directional_shadow_mode = mode
+	if pov:
+		sun.directional_shadow_max_distance = 640.0
+		sun.directional_shadow_split_1 = 0.08
+		sun.directional_shadow_split_2 = 0.2
+		sun.directional_shadow_split_3 = 0.45
+		sun.directional_shadow_blend_splits = true
+	else:
+		sun.directional_shadow_max_distance = CAM_D + 260.0
+
+
 ## Top-down, or swung down behind the ship during the canyon run (`k` of the way).
 func _camera(j: Vector3) -> void:
 	var k: float = G.run.k if G.has("run") else 0.0
+	_sun_shadows(k)
 	if k <= 0.0:
 		_camera_reset()
 		camera.position += j
