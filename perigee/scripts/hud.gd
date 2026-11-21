@@ -18,6 +18,8 @@ signal cosmetic_picked(id: String)
 signal hangar_closed
 signal menu_requested ## back to the start card (the main menu) from game over, pause or Voyage
 signal refresh_pressed ## the build line was tapped: restart into the newest build
+signal boards_opened
+signal boards_closed
 
 ## The lab: a run of one new kind of moon, to try each one (plan: "Sandbox three new bodies").
 ## Shown on the start and game over cards while the vertical slice is built; not for release.
@@ -83,6 +85,17 @@ var hangar_next: Label
 var hangar_bar: ProgressBar
 var hangar_items := {} ## item id -> Button
 var over_unlock: Label
+var over_rush_row: Control ## Drift: the run's speed stars
+var over_rush_star: StarIcon
+var over_rush_label: Label
+var over_rank: Label ## Drift: the boards the run made ("New #1 Farthest")
+var boards_card: Control
+var boards_tabs := {} ## board id -> Button
+var boards_list: VBoxContainer
+var boards_note: Label
+var boards_tab := "farthest"
+var _boards_data := {} ## board id -> entries, from the last show_boards
+var _boards_mark := {} ## board id -> rank of the run to highlight
 var settings_card: Control
 var settings_sliders := {} ## setting key -> HSlider
 var settings_toggles := {} ## setting key -> Button
@@ -201,6 +214,10 @@ func _ready() -> void:
 	hangar_button.name = "Hangar"
 	hangar_button.pressed.connect(func() -> void: hangar_opened.emit())
 	menu_row.add_child(hangar_button)
+	var boards_button := _ghost_button("Boards", 15, 44, 22)
+	boards_button.name = "Boards"
+	boards_button.pressed.connect(func() -> void: boards_opened.emit())
+	menu_row.add_child(boards_button)
 	var settings_button := _ghost_button("Settings", 15, 44, 22)
 	settings_button.name = "Settings"
 	settings_button.pressed.connect(func() -> void: settings_opened.emit())
@@ -236,6 +253,23 @@ func _ready() -> void:
 	over_stats = _label("", body_500, 13, MUTED)
 	over_stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_card(over_card).add_child(over_stats)
+	var rrow := HBoxContainer.new()
+	rrow.alignment = BoxContainer.ALIGNMENT_CENTER
+	rrow.add_theme_constant_override("separation", 6)
+	rrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	over_rush_star = StarIcon.new(18.0, true)
+	over_rush_star.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rrow.add_child(over_rush_star)
+	over_rush_label = _label("", body_700, 13, INK)
+	rrow.add_child(over_rush_label)
+	rrow.visible = false
+	over_rush_row = rrow
+	_card(over_card).add_child(rrow)
+	over_rank = _label("", _spaced(body_700, 1.5), 12, TEAL)
+	over_rank.uppercase = true
+	over_rank.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	over_rank.visible = false
+	_card(over_card).add_child(over_rank)
 	over_unlock = _label("", body_700, 14, SAND)
 	over_unlock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	over_unlock.visible = false
@@ -270,12 +304,22 @@ func _ready() -> void:
 	over_voyage_row = vrow
 	over_voyage_row.visible = false
 	_card(over_card).add_child(over_voyage_row)
-	_card(over_card).add_child(_centered(_menu_button()))
+	var orow := HBoxContainer.new()
+	orow.alignment = BoxContainer.ALIGNMENT_CENTER
+	orow.add_theme_constant_override("separation", 8)
+	orow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ob := _ghost_button("Boards", 12, 32, 16)
+	ob.name = "OverBoards"
+	ob.pressed.connect(func() -> void: boards_opened.emit())
+	orow.add_child(ob)
+	orow.add_child(_menu_button())
+	_card(over_card).add_child(orow)
 
 	_build_voyage_card()
 	_build_clear_card()
 	_build_settings_card()
 	_build_hangar_card()
+	_build_boards_card()
 
 	pause_card = _overlay()
 	pause_card.visible = false
@@ -341,12 +385,13 @@ func set_sound(on: bool) -> void:
 	sound_button.text = "SOUND ON" if on else "SOUND OFF"
 
 
-## Voyage clock under the mode tag: teal while under par, coral once over it. Empty hides it.
-func set_timer(run_t: float, par: float) -> void:
+## Voyage clock (or Drift's lap clock, with `label` "Lap 3") under the mode tag: teal while under
+## par, coral once over it. Empty hides it.
+func set_timer(run_t: float, par: float, label := "") -> void:
 	if par <= 0.0:
 		timer_label.text = ""
 		return
-	timer_label.text = "%.1f s · par %d s" % [run_t, int(par)]
+	timer_label.text = ("%s · " % label if label != "" else "") + "%.1f s · par %d s" % [run_t, int(par)]
 	timer_label.add_theme_color_override("font_color", TEAL if run_t <= par else CORAL)
 
 
@@ -359,6 +404,17 @@ func set_over_medal(tier: int, text: String) -> void:
 	over_medal.tier = tier
 	over_medal_label.text = text
 	over_medal_label.add_theme_color_override("font_color", INK if tier > 0 else MUTED)
+
+
+## Drift's game over extras: the run's speed stars (`stars` < 0 hides the row; `text` says what
+## they paid) and the boards it made (`rank_line`, "" hides it).
+func set_over_rush(stars: int, text: String, rank_line: String) -> void:
+	over_rush_row.visible = stars >= 0
+	over_rush_star.lit = stars > 0
+	over_rush_label.text = text
+	over_rush_label.add_theme_color_override("font_color", INK if stars > 0 else MUTED)
+	over_rank.text = rank_line
+	over_rank.visible = rank_line != ""
 
 
 ## The game over card's lower row: lab buttons, or Map and Drift in Voyage.
@@ -645,6 +701,152 @@ func hide_hangar() -> void:
 func set_over_unlock(text: String) -> void:
 	over_unlock.text = text
 	over_unlock.visible = text != ""
+
+
+# ---------- Drift leaderboards ----------
+
+func _build_boards_card() -> void:
+	boards_card = _overlay()
+	boards_card.visible = false
+	boards_card.color = Color(SPACE, 0.94)
+	boards_card.mouse_filter = Control.MOUSE_FILTER_STOP # taps here never start a run
+	var card := _card(boards_card)
+	var title := _label("Drift boards", display_800, 32, INK)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(title)
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 8)
+	for b in Leaderboards.BOARDS:
+		var t := _ghost_button(Leaderboards.NAMES[b], 13, 36, 18)
+		t.name = "Tab_" + b
+		t.custom_minimum_size.x = 130
+		var id: String = b
+		t.pressed.connect(func() -> void: show_board_tab(id))
+		tabs.add_child(t)
+		boards_tabs[b] = t
+	card.add_child(tabs)
+	boards_note = _label("", body_500, 12, MUTED)
+	boards_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boards_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	boards_note.custom_minimum_size.x = 320
+	card.add_child(boards_note)
+	boards_list = VBoxContainer.new()
+	boards_list.name = "List"
+	boards_list.add_theme_constant_override("separation", 4)
+	boards_list.custom_minimum_size.x = 330
+	card.add_child(_centered(boards_list))
+	var key := HBoxContainer.new()
+	key.alignment = BoxContainer.ALIGNMENT_CENTER
+	key.add_theme_constant_override("separation", 6)
+	var ks := StarIcon.new(13.0, true)
+	ks.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	key.add_child(ks)
+	key.add_child(_label("Speed star: %d moons in under %d s" % [Sim.LAP_MOONS, int(Sim.LAP_PAR)], body_500, 12, MUTED))
+	card.add_child(key)
+	var done := _ghost_button("Done", 13, 36, 18)
+	done.name = "Done"
+	done.pressed.connect(func() -> void: boards_closed.emit())
+	card.add_child(_centered(done))
+
+
+## Opens the boards card. `boards` maps each board id to its entries (Leaderboards.top), `mark` maps
+## board ids to the rank of the run just played, to highlight it.
+func show_boards(boards: Dictionary, mark := {}, tab := "") -> void:
+	_boards_data = boards
+	_boards_mark = mark
+	if tab == "":
+		tab = "farthest"
+		# open on the board the last run did best on
+		var r_far := int(mark.get("farthest", 0))
+		var r_score := int(mark.get("score", 0))
+		if r_score > 0 and (r_far == 0 or r_score < r_far):
+			tab = "score"
+	show_board_tab(tab)
+	boards_card.visible = true
+	start_card.visible = false
+	over_card.visible = false
+
+
+func hide_boards() -> void:
+	boards_card.visible = false
+
+
+## Fills the list with board `tab`.
+func show_board_tab(tab: String) -> void:
+	boards_tab = tab
+	for b in boards_tabs:
+		var btn: Button = boards_tabs[b]
+		for st in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
+			var sb: StyleBoxFlat = btn.get_theme_stylebox(st).duplicate()
+			sb.bg_color = Color(SAND, 1.0) if b == tab else Color(1, 1, 1, 0.0)
+			sb.border_color = SAND if b == tab else Color(INK, 0.25)
+			btn.add_theme_stylebox_override(st, sb)
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+			btn.add_theme_color_override(c, SPACE if b == tab else INK)
+	for c in boards_list.get_children():
+		boards_list.remove_child(c)
+		c.queue_free()
+	var entries: Array = _boards_data.get(tab, [])
+	boards_note.text = ("Most moons reached in one run." if tab == "farthest" else "Most points in one run.") \
+		if not entries.is_empty() else "No runs yet. Fly in Drift to set the first mark."
+	var mark := int(_boards_mark.get(tab, 0))
+	for i in entries.size():
+		boards_list.add_child(_board_row(tab, i + 1, entries[i], i + 1 == mark))
+
+
+func _board_row(tab: String, rank: int, e: Dictionary, mine: bool) -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "Row%d" % rank
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(TEAL, 0.16) if mine else Color(1, 1, 1, 0.04)
+	sb.border_color = TEAL if mine else Color(0, 0, 0, 0)
+	sb.set_border_width_all(2 if mine else 0)
+	sb.set_corner_radius_all(12)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	sb.anti_aliasing = true
+	panel.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	var r := _label(str(rank), display_800, 16, SAND if rank <= 3 else MUTED)
+	r.custom_minimum_size.x = 26
+	r.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(r)
+	var mid := VBoxContainer.new()
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mid.add_theme_constant_override("separation", 0)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var big := ("%d moons" % e.moons) if tab == "farthest" else ("%d pts" % e.score)
+	mid.add_child(_label(big, display_500, 15, INK))
+	var bits: Array[String] = []
+	bits.append(("%d pts" % e.score) if tab == "farthest" else ("%d moons" % e.moons))
+	bits.append("%d perigees" % e.perigees)
+	if e.leaps > 0:
+		bits.append("%d %s" % [e.leaps, "leap" if e.leaps == 1 else "leaps"])
+	mid.add_child(_label(" · ".join(bits), body_500, 11, MUTED))
+	row.add_child(mid)
+	# the speed-star badge
+	var badge := HBoxContainer.new()
+	badge.name = "Badge"
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_constant_override("separation", 3)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var star := StarIcon.new(16.0, e.stars > 0)
+	star.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	badge.add_child(star)
+	var n := _label(str(e.stars), display_500, 13, SAND if e.stars > 0 else MUTED)
+	n.name = "Stars"
+	n.custom_minimum_size.x = 18
+	badge.add_child(n)
+	row.add_child(badge)
+	return panel
 
 
 # ---------- settings ----------

@@ -1,7 +1,7 @@
 extends SceneTree
 ## Screenshots of the real game for reviews: start card, first hop with guide dots, a catch,
 ## late game (moon 30+), the fuel gauge (full and low), game over, the lab's twin, retro and pulsar moons, and Voyage (the level
-## map, a level's card, a sector, the clear card). Needs a display:
+## map, a level's card, a sector, the clear card), Drift's speed star and leaderboards. Needs a display:
 ##   xvfb-run -a godot --path perigee --rendering-method gl_compatibility --resolution 824x1720 \
 ##     --script tools/screenshots.gd -- /tmp/perigee-shots
 
@@ -192,6 +192,57 @@ func _initialize() -> void:
 	main.sim.die("Drifted off into the dark")
 	await run(0.8)
 	await shot("15-unlocked")
+	# Drift's speed stars and leaderboards: a few earlier runs on the boards, then a bot run
+	main.go_to_menu()
+	var lb: Leaderboards = main.boards()
+	var day := int(Time.get_unix_time_from_system()) - 86400 * 3
+	for e in [[52, 610, 3, 31, 2], [41, 720, 2, 30, 4], [33, 280, 0, 12, 0], [27, 350, 1, 19, 1], [18, 120, 0, 6, 0]]:
+		lb.submit({"moons": e[0], "score": e[1], "stars": e[2], "perigees": e[3], "leaps": e[4], "time": 60.0, "date": day})
+	await run(0.3)
+	await shot("16-start-boards")
+	main.start_mode("endless")
+	var deep := preload("res://tests/sim_test.gd").Bot.new()
+	deep.deep = true
+	var got_star := false
+	for i in 120 * 300:
+		match deep.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		for p in main.popups:
+			if str(p.text).begins_with("Speed star"):
+				got_star = true
+		if got_star:
+			break
+	await run(0.35)
+	await shot("17-speed-star")
+	for i in 120 * 300:
+		match deep.decide(main.sim):
+			"press":
+				main.on_press()
+			"release":
+				main.on_release()
+			"tap":
+				main.on_press()
+				main.on_release()
+		main.advance(Sim.DT)
+		if main.sim.hops >= 45:
+			break
+	main.on_release()
+	main.sim.die("Ran out of fuel")
+	await run(0.8)
+	await shot("18-drift-over")
+	main.open_boards()
+	await run(0.1)
+	await shot("19-boards")
+	main.hud.show_board_tab("score" if main.hud.boards_tab == "farthest" else "farthest")
+	await run(0.1)
+	await shot("20-boards-other")
 	quit(0)
 
 
