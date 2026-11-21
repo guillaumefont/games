@@ -593,14 +593,15 @@ func pact_tests(s, h) -> bool:
 	if s.wrecks.size() != 0 or gain < D.UN.tank.cost * D.WRECK.strip - 60: return _pfail("a Scrapper should strip an old wreck for aurite")
 	# the Pact AI: builds its own base and army, and holds for ten minutes against the Vanguard
 	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 777})
+	var c = {}   # every type the Pact AI had at some point (the enemy may have destroyed it since)
 	for i in 20 * 60 * 10:
 		s.step(0.05)
-		if i % 20 == 0: s.ai_think(s.teams[0])
+		if i % 20 == 0:
+			s.ai_think(s.teams[0])
+			for e in s.ents:
+				if e.alive and e.team == 0: c[e.type] = maxi(c.get(e.type, 0), s.count(0, e.type))
 		if s.over: break
-	var c = {}
-	for e in s.ents:
-		if e.team == 0: c[e.type] = c.get(e.type, 0) + 1
-	print("pact AI after 10 min: ", c)
+	print("pact AI in 10 min, most of each at once: ", c)
 	if s.find_hq(0) == null: return _pfail("the Pact AI lost its base in 10 minutes")
 	for t in ["kiln", "muster", "workshop", "smelter", "crawler"]:
 		if not c.has(t): return _pfail("the Pact AI never built a " + t)
