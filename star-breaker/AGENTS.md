@@ -7,11 +7,14 @@ Guillaume wants a modern mobile-game look (glass HUD, bloom, Rubik font), not re
 Portrait only since 2026-11-17 (Guillaume: "switch the whole game to portrait now that we are
 committed"); the landscape game was removed, its history is in git before that date.
 Controls: drag anywhere to fly 1:1 (fires while the thumb is down), lift = the ship's release
-(Lance: charge beam; Warden: fling or recall the pod). Ultimates have no gauge, no double tap and
-no kills needed: each ship's is the last stage of its charge bar, `ULT_AT` (7 s) of holding, then
-lift (Guillaume's calls 2026-11-20). Lance's bar runs LV 1-3, the Nova, then the Storm (chain
-lightning on every enemy on screen; the hold length and lighter `STORM_DMG` are its price);
-Warden's runs straight to Shatter, and lifting before it is full flings or recalls the pod; the Starbreak sweeping beam it replaced (2026-11-20) is in git history.
+(Lance: charge beam; Warden: fling or recall the pod). Each ship loads its ultimate its own way, and
+never with a double tap (Guillaume's calls 2026-11-20/21). Lance's is the last stage of its charge
+bar, `ULT_AT` (7 s) of holding, then lift: LV 1-3, the Nova, then the Storm (chain lightning on every
+enemy on screen; the hold length and lighter `STORM_DMG` are its price); the Starbreak sweeping beam
+it replaced is in git history. Warden's hold loads nothing (so a lift is always a pod command): the
+Shatter meter `P.shat` fills from the pod's rams, blocked bullets, shot hits and kills (`SHAT_*`,
+`SHATTER_FULL`), stays stored, and fires when the pod is recalled while out (it bursts where it is).
+Holding to charge Warden's ult conflicted with the pod, which is why it changed.
 
 ## Pull requests
 

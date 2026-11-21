@@ -1,7 +1,7 @@
 extends SceneTree
 ## Screenshots of the portrait game (vertical slice) for reviews: the stage menu, Lance in
 ## open ground charging, the Nova, Warden with its pod flung out, a fortress barrier, the Storm,
-## Shatter and the Bloom Mother, plus a canyon and an island.
+## Shatter stored and fired and the Bloom Mother, plus a canyon and an island.
 ## xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- OUT_DIR
 
 var vg: Node3D
@@ -67,7 +67,13 @@ func _initialize() -> void:
 		vg.G.si += 1
 	await play(260, true, 0.5)
 	await snap("v_fortress")
-	await play(vg.ULT_AT + 5, true)
+	# Shatter: the pod's work fills the meter (topped up here), recalling the pod fires it
+	if vg.pod.state != "out":
+		await play(1, false)
+		await play(40, true, 0.3)
+	vg.P.shat = vg.SHATTER_FULL
+	await play(20, true, 0.3)
+	await snap("v_shatter_ready")
 	await play(1, false)
 	await play(30, false)
 	await snap("v_shatter")

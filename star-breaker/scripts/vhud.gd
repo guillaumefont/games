@@ -35,6 +35,8 @@ var ships := 3
 var ult_ready := false
 var charge := 0.0
 var charge_lv := 0
+## Warden: the pod is out, so a lift recalls it (and fires a stored Shatter).
+var pod_out := false
 ## Lance's bar marks as parts of the whole bar: LV 2, LV 3, the Nova (the Storm is the end).
 var charge_marks := [50.0 / 300.0, 100.0 / 300.0, 160.0 / 300.0, 240.0 / 300.0]
 var boss := -1.0
@@ -530,10 +532,10 @@ func _draw() -> void:
 		draw_string(fonts[700], Vector2(210, 44), boss_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, C_SPORE)
 
 
-## The charge bar under the score while the thumb is down, the same for every ship: it loads the
-## ultimate at its end, a stretch tinted pink whose label (STORM, SHATTER) lights up once the
-## charge runs into it. Lance's bar has LV 1-3 and the Nova before that stretch; Warden's runs
-## straight to it.
+## The ultimate bar under the score. Lance's is the charge bar while the thumb is down: LV 1-3,
+## the Nova, then the Storm's pink stretch whose label lights up once the charge runs into it.
+## Warden's is the Shatter meter, filled by the pod's work and kept through lifts: all pink, and
+## once full its label says how to fire it (recall the pod, or fling it first).
 func _draw_charge_bar(_f: Font) -> void:
 	if charge <= 0.0:
 		return
@@ -561,6 +563,9 @@ func _draw_charge_bar(_f: Font) -> void:
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.012)
 		draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), String(VShips.KITS[ship].ult_name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
 				C_TEXT if charge >= 1.0 else Color(C_SPORE, pulse))
+		if not beam:
+			draw_string(fonts[700], Vector2(bx, by + 30), "LIFT TO RECALL THE POD" if pod_out else "LIFT TO FLING, AGAIN TO RECALL",
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(C_TEXT, pulse))
 
 
 # ---------- tiers, medals and ship colours ----------
