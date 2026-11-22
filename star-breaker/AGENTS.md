@@ -394,3 +394,8 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   in (LEN, OUT, PATH, TURN, OBS are static vars). Outpost props and islands stay out of the ground
   the camera sees behind the ship as it swings. tests/runs_test.gd checks all 48 courses and flies
   every one in the game for gold, camera out of rock (holes' funnels included) and ship in sight. tools/run_shots.gd takes a stage index as a second argument.
+- Story (Guillaume's OK, 2026-11-22): each world has one beat, shown as a line under its banner on
+  the map (`story` in `Worlds.LIST`, drawn in `VMap._draw_banner`): the spore Bloom eating the
+  moon, the signal under the ice and its relay, the hive farming it, the foundry forging drones,
+  the military outpost (Bastion Ring: closer and more fortified every stage), the star they were
+  mining. Keep new stage names, bosses and text consistent with these beats.
