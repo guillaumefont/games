@@ -579,6 +579,8 @@ func apply_world(w: int) -> void:
 			river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
 			lip = Models.std(look.lip[0], look.lip[1], 1.1),
 		}
+	if look.get("premium", false) and not _world_mats[w].has("rock"):
+		_world_mats[w].rock = Terrain.rock_mat_premium(_world_mats[w].ground)
 	_terrain_mats = _world_mats[w]
 	_lip_mat = _terrain_mats.lip
 	_env.background_color = Color(pal.bg)
@@ -758,7 +760,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	_build_islands()
 	if sd.has("run"):
 		VRun.use(sd.course)
-		run_b = VRun.Builder.new(look, {ground = _terrain_mats.ground, lip = _lip_mat, glow = _terrain_mats.fissure_b})
+		run_b = VRun.Builder.new(look, {ground = _terrain_mats.get("rock", _terrain_mats.ground), lip = _lip_mat, glow = _terrain_mats.fissure_b})
 		run_b.node.visible = false
 		world.add_child(run_b.node)
 		_run_built = false
@@ -2340,8 +2342,6 @@ func _build_islands() -> void:
 				var pb: Vector3 = rows[k + 1][0]
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3), Vector3(pb.x - side * 0.8, pb.y, 0.3)])
-		if look.get("premium", false):
-			acc.smooth(65.0)
 		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 		n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 		world.add_child(n)
@@ -2376,8 +2376,6 @@ func _walls_node(c: int) -> Node3D:
 	var acc := Terrain.Acc.new()
 	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
 	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
-	if look.get("premium", false):
-		acc.smooth(65.0)
 	var lip := []
 	for j in rows:
 		for side in [[left, -1.0], [right, 1.0]]:

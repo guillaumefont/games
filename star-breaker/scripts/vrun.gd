@@ -533,7 +533,7 @@ class Builder:
 			return
 		VRun._bend(acc)
 		# the premium look: smooth rock, no triangle shows (sharp folds stay sharp)
-		if VRun.premium and mat == _mats.ground:
+		if VRun.premium and mat == _mats.ground:  # the rock (see vgame's `rock`)
 			acc.smooth(65.0)
 		# a bridge, ridge or wall fades once the ship is through, so it has its own material
 		var fades: bool = not o.is_empty() and o.k in ["arch", "spine", "window"]

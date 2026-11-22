@@ -286,15 +286,15 @@ class Builder:
 
 	## Does the next slice of work; true once `node` is ready.
 	func step() -> bool:
-		# a smooth row costs more (finer, and a normal per corner): one per step
-		var per := 1 if premium else 4
+		if premium:
+			return _step_smooth()
 		if pts.size() < rows + 1:
-			for k in per:
+			for k in 4:
 				if pts.size() < rows + 1:
 					pts.append(_row(pts.size()))
 			return false
 		if row_t < rows:
-			for k in (2 if premium else 4):
+			for k in 4:
 				if row_t < rows:
 					_tris(row_t)
 					row_t += 1
@@ -305,8 +305,6 @@ class Builder:
 	func _row(j: int) -> Array:
 		var row := []
 		var ly := len * j / rows
-		if premium:
-			return _row_smooth(j, ly)
 		var amp := 1.0
 		for i in cols.size():
 			var x: float = cols[i]
@@ -320,30 +318,83 @@ class Builder:
 			row.append(Vector3(x + jx, ly + jy, Terrain.height(x + jx, y0 + ly + jy)))
 		return row
 
+	## The smooth ground is built from a grid of heights reaching PAD rows past each end of the
+	## chunk (normals, the broad shape and the occlusion all read neighbours from it), so every
+	## height is worked out once, and both chunks at a seam see the same numbers.
+	const PAD := 7
+	var hg := []
+
+	func _step_smooth() -> bool:
+		var need := rows + 1 + 2 * PAD
+		if hg.size() < need:
+			for k in 2:
+				if hg.size() < need:
+					var wy := y0 + (hg.size() - PAD) * len / rows
+					var r := PackedFloat32Array()
+					r.resize(cols.size())
+					for i in cols.size():
+						r[i] = Terrain.height(cols[i], wy)
+					hg.append(r)
+			return false
+		if pts.size() < rows + 1:
+			for k in 2:
+				if pts.size() < rows + 1:
+					pts.append(_row_smooth(pts.size()))
+					if pts.size() >= 2:
+						_tris_smooth(pts.size() - 2)
+			return false
+		node = Terrain._features(c, len, pal, mats, ground, y0)
+		return true
+
+	func _h(j: int, i: int) -> float:
+		return (hg[clampi(j, -PAD, rows + PAD) + PAD] as PackedFloat32Array)[clampi(i, 0, cols.size() - 1)]
+
+	## The slope (dh/dx, dh/dy) at corner (j, i) measured `k` cells either side.
+	func _slope(j: int, i: int, k: int) -> Vector2:
+		var i0 := maxi(0, i - k)
+		var i1 := mini(cols.size() - 1, i + k)
+		var dy := len / rows
+		return Vector2((_h(j, i1) - _h(j, i0)) / (float(cols[i1]) - float(cols[i0])), (_h(j + k, i) - _h(j - k, i)) / (2.0 * k * dy))
+
 	## A row of the smooth ground: the corners on a regular grid, each with its normal from the
 	## height field's slope and its colour (height, slope, the painted light, the river's glow).
-	func _row_smooth(j: int, ly: float) -> Array:
+	func _row_smooth(j: int) -> Array:
 		var row := []
 		var nr := []
 		var kr := []
+		var ly := len * j / rows
 		var wy := y0 + ly
 		for i in cols.size():
 			var x: float = cols[i]
-			var p := Vector3(x, ly, Terrain.height(x, wy))
-			var e := 1.5
-			var nrm := Vector3(p.z - Terrain.height(x + e, wy), p.z - Terrain.height(x, wy + e), e).normalized()
-			var col := Terrain.face_color(pc, p.z, nrm.z, 0.0, Terrain.tint(x, wy))
+			var h := _h(j, i)
+			var sl := _slope(j, i, 1)
+			var nrm := Vector3(-sl.x, -sl.y, 1.0).normalized()
+			var col := Terrain.face_color(pc, h, nrm.z, 0.0, Terrain.tint(x, wy))
+			# the broad shape (about 12 units round) for the painted light, and occlusion from
+			# the ground standing round it, near and far
+			var sb := _slope(j, i, 3)
+			var broad := Vector3(-sb.x, -sb.y, 1.0).normalized()
+			var hollow := (_h(j, i - 3) + _h(j, i + 3) + _h(j - 3, i) + _h(j + 3, i)) / 4.0 - h
+			var far := (_h(j, i - 7) + _h(j, i + 7) + _h(j - 7, i) + _h(j + 7, i) + _h(j - 5, i - 5) + _h(j - 5, i + 5) + _h(j + 5, i - 5) + _h(j + 5, i + 5)) / 8.0
+			hollow = maxf(hollow, (far - h) * 0.8)
+			col = Terrain.grade(pc, col, broad, hollow)
 			var rv := Terrain.river_dy(x, wy)
 			var rd := absf(rv.x)
 			var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
-			row.append(p)
+			row.append(Vector3(x, ly, h))
 			nr.append(nrm)
-			kr.append(_graded(col, p).lerp(pc.river[int(rv.y)], rk))
+			kr.append(col.lerp(pc.river[int(rv.y)], rk))
 		pn.append(nr)
 		pk.append(kr)
 		return row
 
 	func _tris_smooth(j: int) -> void:
+		var uvs := []
+		for jj in [j, j + 1]:
+			var r := []
+			for p: Vector3 in pts[jj]:
+				r.append(Vector2(p.x, p.y) / 32.0)
+			uvs.append(r)
 		for i in cols.size() - 1:
 			var q := [[j, i], [j, i + 1], [j + 1, i], [j + 1, i + 1]]
 			# split each cell along the diagonal that follows the ground's fold
@@ -355,7 +406,7 @@ class Builder:
 				var b: Array = t[1]
 				var cc: Array = t[2]
 				ground.tri3n(pts[a[0]][a[1]], pts[b[0]][b[1]], pts[cc[0]][cc[1]], pk[a[0]][a[1]], pk[b[0]][b[1]], pk[cc[0]][cc[1]],
-						pn[a[0]][a[1]], pn[b[0]][b[1]], pn[cc[0]][cc[1]])
+						pn[a[0]][a[1]], pn[b[0]][b[1]], pn[cc[0]][cc[1]], uvs[a[0] - j][a[1]], uvs[b[0] - j][b[1]], uvs[cc[0] - j][cc[1]])
 
 	## A face's colour with the light painted in at corner `p` (chunk space). What the ground
 	## does there is worked out once per corner and shared by the faces round it.
@@ -381,9 +432,6 @@ class Builder:
 		return Terrain.grade(pc, col, sh[0], sh[1])
 
 	func _tris(j: int) -> void:
-		if premium:
-			_tris_smooth(j)
-			return
 		for i in cols.size() - 1:
 			var a: Vector3 = pts[j][i]
 			var b: Vector3 = pts[j][i + 1]
@@ -605,7 +653,7 @@ static func ground_mat() -> StandardMaterial3D:
 
 ## The premium ground: the same, plus a fine cracked-plate relief from a tiling normal map, so
 ## the smooth ground has surface (fissures between plates) without showing a single triangle.
-## Mapped in each chunk's own space with a period that divides the chunk, so chunks meet.
+## Mapped by the chunk's own x and y over 32 units (a period that divides the chunk), so chunks meet.
 static func ground_mat_premium() -> StandardMaterial3D:
 	var m := ground_mat()
 	var nz := FastNoiseLite.new()
@@ -626,6 +674,13 @@ static func ground_mat_premium() -> StandardMaterial3D:
 	m.normal_enabled = true
 	m.normal_texture = t
 	m.normal_scale = 1.5
+	return m
+
+
+## The same relief mapped on any shape (the canyon run's rock, which has no texture
+## coordinates): three samples of the map instead of one, so only the run uses it.
+static func rock_mat_premium(ground: StandardMaterial3D) -> StandardMaterial3D:
+	var m := ground.duplicate() as StandardMaterial3D
 	m.uv1_triplanar = true
 	m.uv1_triplanar_sharpness = 4.0
 	m.uv1_scale = Vector3.ONE / 32.0
@@ -688,11 +743,12 @@ class Acc:
 		col.append(cb)
 
 	## Adds triangle a, b, c (facing up) with a colour and a normal at each corner.
-	func tri3n(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, na: Vector3, nb: Vector3, nc: Vector3) -> void:
+	func tri3n(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, na: Vector3, nb: Vector3, nc: Vector3,
+			ua := Vector2.INF, ub := Vector2.INF, uc := Vector2.INF, dir := Vector3.BACK) -> void:
 		var nrm := (b - a).cross(c - a)
 		if nrm.length_squared() < 1e-10:
 			return
-		if nrm.z < 0.0:
+		if nrm.dot(dir) < 0.0:
 			var t := b
 			b = c
 			c = t
@@ -702,12 +758,19 @@ class Acc:
 			var tn := nb
 			nb = nc
 			nc = tn
+			var tu := ub
+			ub = uc
+			uc = tu
 		v.append(a)
 		v.append(c)
 		v.append(b)
 		n.append(na)
 		n.append(nc)
 		n.append(nb)
+		if ua != Vector2.INF:
+			uv.append(ua)
+			uv.append(uc)
+			uv.append(ub)
 		col.append(ca)
 		col.append(cc)
 		col.append(cb)
@@ -788,6 +851,27 @@ class Acc:
 		n = out_n
 		col = out_c
 
+	## Tangents for a relief map laid flat: u runs along x (v along y) on ground and cliff tops,
+	## along y (v down z) on cliff faces. Each is that axis laid onto the corner's own normal, so
+	## corners shared by several faces get the same tangent and no seam shows.
+	func _tangents() -> PackedFloat32Array:
+		var out := PackedFloat32Array()
+		out.resize(v.size() * 4)
+		var vv := v
+		var nn := n
+		var uu := uv
+		for i in vv.size():
+			var nr := nn[i]
+			var along_x := absf(uu[i].x * 32.0 - vv[i].x) < 0.01
+			var ax := Vector3.RIGHT if along_x else Vector3.UP
+			var bx := Vector3.UP if along_x else Vector3.BACK
+			var t := (ax - nr * nr.dot(ax)).normalized()
+			out[i * 4] = t.x
+			out[i * 4 + 1] = t.y
+			out[i * 4 + 2] = t.z
+			out[i * 4 + 3] = 1.0 if nr.cross(t).dot(bx) >= 0.0 else -1.0
+		return out
+
 	func mesh() -> ArrayMesh:
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
@@ -796,6 +880,7 @@ class Acc:
 		arrays[Mesh.ARRAY_COLOR] = col
 		if uv.size() == v.size() and uv.size() > 0:
 			arrays[Mesh.ARRAY_TEX_UV] = uv
+			arrays[Mesh.ARRAY_TANGENT] = _tangents()
 		var m := ArrayMesh.new()
 		if v.size() > 0:
 			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -837,6 +922,9 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var jx := (h2(wy, m * 5.3 - s) - 0.5) * 2.6 if m > 0 else 0.0
 			face.append(Vector3(e.x - s * (float(FACE_OUT[m]) + jx), e.y, FACE_Z[m]))
 		faces.append(face)
+	if pal.get("premium", false):
+		_cliff_smooth(acc, tops, faces, s, pal)
+		return
 	for j in rows.size() - 1:
 		var wy := wy0 + (rows[j][0] as Vector3).y
 		for k in TOP_OFF.size() - 1:
@@ -866,3 +954,51 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var out := Vector3(-s, 0, 0.35)
 			acc.tri(a, b, d, col, out)
 			acc.tri(a, d, c, col.darkened(0.05), out)
+
+
+## The premium cliff: the same rock, smooth. Each corner of the top and of the face takes its
+## normal from its grid neighbours and its own colour, shared by the faces round it, so no
+## triangle shows; the top and the face still meet at a sharp edge (the lip).
+static func _cliff_smooth(acc: Acc, tops: Array, faces: Array, s: float, pal: Dictionary) -> void:
+	var out := Vector3(-s, 0, 0.35)
+	for part in [[tops, Vector3.BACK, true], [faces, out, false]]:
+		var g: Array = part[0]
+		var dir: Vector3 = part[1]
+		var is_top: bool = part[2]
+		var nj := g.size()
+		var nk: int = (g[0] as Array).size()
+		var nrm := []
+		var col := []
+		var uv := []
+		for j in nj:
+			var nr := []
+			var cr := []
+			var ur := []
+			for k in nk:
+				var p: Vector3 = g[j][k]
+				var du: Vector3 = g[j][mini(k + 1, nk - 1)] - g[j][maxi(k - 1, 0)]
+				var dv: Vector3 = g[mini(j + 1, nj - 1)][k] - g[maxi(j - 1, 0)][k]
+				var n := du.cross(dv).normalized()
+				if n.dot(dir) < 0.0:
+					n = -n
+				nr.append(n)
+				var c: Color
+				if is_top:
+					c = Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
+					c = c.darkened(0.12).lightened(clampf(p.z / 40.0, 0.0, 1.0) * 0.3)
+					ur.append(Vector2(p.x, p.y) / 32.0)
+				else:
+					c = Color(pal.c_face).darkened(float(k) * 0.12)
+					ur.append(Vector2(p.y, p.z) / 32.0)
+				cr.append(c)
+			nrm.append(nr)
+			col.append(cr)
+			uv.append(ur)
+		for j in nj - 1:
+			for k in nk - 1:
+				for t in [[[j, k], [j, k + 1], [j + 1, k + 1]], [[j, k], [j + 1, k + 1], [j + 1, k]]]:
+					var a: Array = t[0]
+					var b: Array = t[1]
+					var c: Array = t[2]
+					acc.tri3n(g[a[0]][a[1]], g[b[0]][b[1]], g[c[0]][c[1]], col[a[0]][a[1]], col[b[0]][b[1]], col[c[0]][c[1]],
+							nrm[a[0]][a[1]], nrm[b[0]][b[1]], nrm[c[0]][c[1]], uv[a[0]][a[1]], uv[b[0]][b[1]], uv[c[0]][c[1]], dir)

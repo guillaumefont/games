@@ -72,6 +72,32 @@ func _initialize() -> void:
 	# --- the premium look (world 1): bigger facets, bevelled edges, a sky for the run ---
 	check(vg.look.get("premium", false) and bl.cols == Terrain.COLS_P and bl.rows == Terrain.ROWS_P,
 		"world 1's ground uses the premium look's bigger facets")
+	# smooth ground: no seam between strips (the corners on the shared edge carry the same normal
+	# and colour in both), and no face picks itself out (corners shared inside a strip agree)
+	var s5 := Terrain.build_chunk(5, vg.CHUNK, vg.look, mats)
+	var s6 := Terrain.build_chunk(6, vg.CHUNK, vg.look, mats)
+	var edge := {}
+	var m5: Array = ((s5.get_child(0) as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)
+	for i in (m5[Mesh.ARRAY_VERTEX] as PackedVector3Array).size():
+		var p: Vector3 = m5[Mesh.ARRAY_VERTEX][i]
+		if is_equal_approx(p.y, vg.CHUNK):
+			edge[snappedf(p.x, 0.01)] = [m5[Mesh.ARRAY_NORMAL][i], m5[Mesh.ARRAY_COLOR][i]]
+	var m6: Array = ((s6.get_child(0) as MeshInstance3D).mesh as ArrayMesh).surface_get_arrays(0)
+	var same := edge.size() > 20
+	var shared := {}
+	for i in (m6[Mesh.ARRAY_VERTEX] as PackedVector3Array).size():
+		var p: Vector3 = m6[Mesh.ARRAY_VERTEX][i]
+		var nrm: Vector3 = m6[Mesh.ARRAY_NORMAL][i]
+		if is_zero_approx(p.y) and edge.has(snappedf(p.x, 0.01)):
+			var e: Array = edge[snappedf(p.x, 0.01)]
+			same = same and (e[0] as Vector3).is_equal_approx(nrm) and (e[1] as Color).is_equal_approx(m6[Mesh.ARRAY_COLOR][i])
+		var k := (p * 100.0).round()
+		if shared.has(k):
+			same = same and (shared[k] as Vector3).is_equal_approx(nrm)
+		shared[k] = nrm
+	check(same, "world 1's ground is smooth: strips meet without a seam and no face shows its own shading")
+	s5.free()
+	s6.free()
 	var plain := Terrain.Builder.new(3, vg.CHUNK, vg.LOOKS[1], mats)
 	check(plain.cols == Terrain.COLS and plain.rows == Terrain.ROWS, "other worlds keep their ground as it was")
 	var bx := Geo.box(4, 2, 3)
@@ -88,6 +114,17 @@ func _initialize() -> void:
 	check(shut, "the bevelled box is closed (every edge shared by two triangles)")
 	check(Geo.box(0.05, 2, 3).size() == 12, "a box too thin to bevel stays a plain box")
 	check(vg._env.background_mode == Environment.BG_SKY and vg._env.sky != null, "world 1 has a gradient sky")
+	var wa := Terrain.Acc.new()
+	Terrain.cliff(wa, [[Vector3(0, 0, 0), 200.0], [Vector3(1, 4, 0), 200.0], [Vector3(0, 8, 0), 200.0]], -1.0, vg.look, 0.0)
+	var cn := {}
+	var cliff_smooth := wa.count() > 0 and wa.uv.size() == wa.count()
+	for i in wa.count():
+		var k := (wa.v[i] * 100.0).round()
+		var key := [k, wa.n[i].z > 0.6]
+		if cn.has(key):
+			cliff_smooth = cliff_smooth and (cn[key] as Vector3).is_equal_approx(wa.n[i])
+		cn[key] = wa.n[i]
+	check(cliff_smooth, "world 1's cliffs are smooth and carry the relief map's coordinates")
 	vg.apply_world(1)
 	check(vg._env.background_mode == Environment.BG_COLOR and not vg._haze.visible, "other worlds keep their flat background")
 	vg.apply_world(0)
