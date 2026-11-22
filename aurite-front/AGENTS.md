@@ -279,3 +279,8 @@ in your PR, keep it short, and mention the change in the PR description.
   (`bake_creases`), and UV.y holds each part's bottom-to-top gradient. Write vertices only through `Builder.buf(par)`
   so the five buffers (verts, normals, colours, uvs, prim index) stay the same length. `gfx_tests()` in
   `tests/sim_test.gd` (`AF_ONLY=gfx`) checks every level builds the same named parts.
+- Ground (premium levels, phase 2): `scripts/ground.gd` (preloaded as `Ground`) builds one smooth indexed terrain mesh
+  over `S.H` and paints it per pixel from a splat texture (R soil, G sand/shore, B rock, A ore ground; 4 px per tile)
+  with noise-wobbled borders and a darker rim, slope cliffs, wet banks, and a contact shadow from `S.bmap`
+  (`Ground.update_occ`, called from `View3D.refresh_decor` whenever buildings change). Classic keeps the old faceted
+  terrain. `AF_MODE=themes` shoots the same map in all six themes, near, far and at the river.

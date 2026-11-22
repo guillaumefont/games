@@ -1412,6 +1412,8 @@ func _autotest(dir: String) -> void:
 		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "fields":
 		await _field_shots(dir); get_tree().quit(); return
+	if mode == "themes":
+		await _theme_shots(dir); get_tree().quit(); return
 	if mode == "tut":
 		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
@@ -1715,6 +1717,30 @@ func _camp_shots(dir: String) -> void:
 			await get_tree().create_timer(0.5).timeout
 			await _shot(dir + "/%s_%d_wide.png" % [C.id, i + 1])
 			paused = true
+
+## AF_MODE=themes: the same skirmish map drawn in each of the six map themes, near and zoomed out (ground and decor checks).
+func _theme_shots(dir: String) -> void:
+	play({"fac": "vanguard", "enemy": "ashen", "diff": "normal", "seed": 4242})
+	paused = true
+	for v in S.vis.size(): S.vis[v] = 2
+	S.update_vision(); V.fog_clear(true)
+	var hq: Ent = S.find_hq(0)
+	for th in D.THEMES:
+		S.theme = th; V.build_world()
+		for z in [[1.2, "near"], [2.6, "far"]]:
+			V.cam_z = z[0]; V.center_on(hq.x + T * 3, hq.y - T * 4)
+			await get_tree().create_timer(.35).timeout
+			await _shot(dir + "/theme_%s_%s.png" % [th, z[1]])
+		# the nearest river bank to the base
+		var best := Vector2(-1, -1); var bd := 1e9
+		for i in S.terr.size():
+			if S.terr[i] == D.WATER:
+				var p := Vector2(i % 64, i / 64); var dd := p.distance_to(Vector2(hq.tx, hq.ty))
+				if dd < bd: bd = dd; best = p
+		if best.x >= 0:
+			V.cam_z = 1.6; V.center_on(best.x * T, best.y * T)
+			await get_tree().create_timer(.35).timeout
+			await _shot(dir + "/theme_%s_river.png" % th)
 
 ## AF_MODE=fields: living fields. One ore field fresh, one tired (half its vitality), one killed (grey stumps).
 func _field_shots(dir: String) -> void:
