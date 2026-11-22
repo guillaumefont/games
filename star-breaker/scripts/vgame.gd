@@ -573,7 +573,7 @@ func apply_world(w: int) -> void:
 	look = LOOKS[w]
 	if not _world_mats.has(w):
 		_world_mats[w] = {
-			ground = _ground_mats[0],
+			ground = Terrain.ground_mat_premium() if look.get("premium", false) else _ground_mats[0],
 			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], 0.9), Terrain.crystal_mat(look.cry[2], look.cry[3], 0.85)],
 			fissure_a = Models.basic(look.fis[0], 1.15), fissure_b = Models.basic(look.fis[1], 1.1),
 			river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
@@ -2340,6 +2340,8 @@ func _build_islands() -> void:
 				var pb: Vector3 = rows[k + 1][0]
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3), Vector3(pb.x - side * 0.8, pb.y, 0.3)])
+		if look.get("premium", false):
+			acc.smooth(65.0)
 		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 		n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 		world.add_child(n)
@@ -2353,8 +2355,7 @@ func _walls_node(c: int) -> Node3D:
 	var n := Node3D.new()
 	n.name = "Walls"
 	n.position.z = -GROUND_Z + 50.0 - 7.0
-	# the premium look builds the rock from fewer, bigger facets
-	var rows := 10 if look.get("premium", false) else 16
+	var rows := 16
 	var seen := false
 	for j in rows + 1:
 		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows - G.get("foff", 0.0))
@@ -2375,6 +2376,8 @@ func _walls_node(c: int) -> Node3D:
 	var acc := Terrain.Acc.new()
 	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
 	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
+	if look.get("premium", false):
+		acc.smooth(65.0)
 	var lip := []
 	for j in rows:
 		for side in [[left, -1.0], [right, 1.0]]:

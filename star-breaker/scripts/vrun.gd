@@ -532,6 +532,9 @@ class Builder:
 		if acc.count() == 0:
 			return
 		VRun._bend(acc)
+		# the premium look: smooth rock, no triangle shows (sharp folds stay sharp)
+		if VRun.premium and mat == _mats.ground:
+			acc.smooth(65.0)
 		# a bridge, ridge or wall fades once the ship is through, so it has its own material
 		var fades: bool = not o.is_empty() and o.k in ["arch", "spine", "window"]
 		var mi := Terrain._mi(acc.mesh(), mat.duplicate() if fades else mat, shadow)

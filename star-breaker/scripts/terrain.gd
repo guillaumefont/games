@@ -15,14 +15,15 @@ const X1 := 170.0
 const COLS := [-300.0, -230.0, -170.0, -140.0, -116.0, -96.0, -80.0, -68.0, -58.0, -48.0, -40.0, -32.0, -24.0, -16.0, -8.0, 0.0,
 	8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 58.0, 68.0, 80.0, 96.0, 116.0, 140.0, 170.0, 230.0, 300.0]
 const ROWS := 10
-## The premium look (a look with `premium`): fewer, bigger facets, laid out on purpose. The
-## middle of the floor gets cells half again as wide and long, the ridges coarser still.
-const COLS_P := [-300.0, -220.0, -160.0, -124.0, -96.0, -76.0, -60.0, -46.0, -34.0, -22.0, -11.0, 0.0,
-	11.0, 22.0, 34.0, 46.0, 60.0, 76.0, 96.0, 124.0, 160.0, 220.0, 300.0]
-const ROWS_P := 6
-## How much of each facet's own tilt shows in its shading (the rest follows the broad shape):
-## facets still read, but the hills read first, as smooth light.
-const FACET := 0.85
+## The premium look (a look with `premium`): smooth ground, no triangle shows (Guillaume,
+## 2026-11-22: "I don't want to see triangles"). A finer, regular grid with no jitter; every
+## corner has its own normal (from the height field) and colour, shared by the faces round it,
+## so light and colour flow across the faces instead of picking them out.
+const COLS_P := [-300.0, -250.0, -205.0, -170.0, -145.0, -124.0, -106.0, -92.0, -80.0, -70.0, -62.0, -58.0,
+	-54.0, -50.0, -46.0, -42.0, -38.0, -34.0, -30.0, -26.0, -22.0, -18.0, -14.0, -10.0, -6.0, -2.0, 2.0, 6.0, 10.0,
+	14.0, 18.0, 22.0, 26.0, 30.0, 34.0, 38.0, 42.0, 46.0, 50.0, 54.0, 58.0, 62.0, 70.0, 80.0, 92.0, 106.0, 124.0,
+	145.0, 170.0, 205.0, 250.0, 300.0]
+const ROWS_P := 16
 ## Crater cells: one chance of a crater per this many world units.
 const CRATER_CELL := 52.0
 
@@ -268,6 +269,8 @@ class Builder:
 	var premium := false
 	var cols: Array = COLS
 	var rows := ROWS
+	var pn := []  ## premium: each corner's normal, by row
+	var pk := []  ## premium: each corner's colour, by row
 
 	func _init(c_: int, len_: float, pal_: Dictionary, mats_: Dictionary) -> void:
 		c = c_
@@ -283,13 +286,15 @@ class Builder:
 
 	## Does the next slice of work; true once `node` is ready.
 	func step() -> bool:
+		# a smooth row costs more (finer, and a normal per corner): one per step
+		var per := 1 if premium else 4
 		if pts.size() < rows + 1:
-			for k in 4:
+			for k in per:
 				if pts.size() < rows + 1:
 					pts.append(_row(pts.size()))
 			return false
 		if row_t < rows:
-			for k in 4:
+			for k in (2 if premium else 4):
 				if row_t < rows:
 					_tris(row_t)
 					row_t += 1
@@ -300,8 +305,9 @@ class Builder:
 	func _row(j: int) -> Array:
 		var row := []
 		var ly := len * j / rows
-		# premium facets are bigger, so their corners can wander further
-		var amp := 1.7 if premium else 1.0
+		if premium:
+			return _row_smooth(j, ly)
+		var amp := 1.0
 		for i in cols.size():
 			var x: float = cols[i]
 			# jitter inner vertices so the grid never reads as a grid (same in every chunk)
@@ -313,6 +319,43 @@ class Builder:
 				jy = (Terrain.h2(x + 7.0, y0 + ly) - 0.5) * 2.4 * amp
 			row.append(Vector3(x + jx, ly + jy, Terrain.height(x + jx, y0 + ly + jy)))
 		return row
+
+	## A row of the smooth ground: the corners on a regular grid, each with its normal from the
+	## height field's slope and its colour (height, slope, the painted light, the river's glow).
+	func _row_smooth(j: int, ly: float) -> Array:
+		var row := []
+		var nr := []
+		var kr := []
+		var wy := y0 + ly
+		for i in cols.size():
+			var x: float = cols[i]
+			var p := Vector3(x, ly, Terrain.height(x, wy))
+			var e := 1.5
+			var nrm := Vector3(p.z - Terrain.height(x + e, wy), p.z - Terrain.height(x, wy + e), e).normalized()
+			var col := Terrain.face_color(pc, p.z, nrm.z, 0.0, Terrain.tint(x, wy))
+			var rv := Terrain.river_dy(x, wy)
+			var rd := absf(rv.x)
+			var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
+			row.append(p)
+			nr.append(nrm)
+			kr.append(_graded(col, p).lerp(pc.river[int(rv.y)], rk))
+		pn.append(nr)
+		pk.append(kr)
+		return row
+
+	func _tris_smooth(j: int) -> void:
+		for i in cols.size() - 1:
+			var q := [[j, i], [j, i + 1], [j + 1, i], [j + 1, i + 1]]
+			# split each cell along the diagonal that follows the ground's fold
+			var za: float = pts[j][i].z + pts[j + 1][i + 1].z
+			var zb: float = pts[j][i + 1].z + pts[j + 1][i].z
+			var tris := [[q[0], q[1], q[3]], [q[0], q[3], q[2]]] if absf(za - zb) < 0.01 or za < zb else [[q[0], q[1], q[2]], [q[1], q[3], q[2]]]
+			for t in tris:
+				var a: Array = t[0]
+				var b: Array = t[1]
+				var cc: Array = t[2]
+				ground.tri3n(pts[a[0]][a[1]], pts[b[0]][b[1]], pts[cc[0]][cc[1]], pk[a[0]][a[1]], pk[b[0]][b[1]], pk[cc[0]][cc[1]],
+						pn[a[0]][a[1]], pn[b[0]][b[1]], pn[cc[0]][cc[1]])
 
 	## A face's colour with the light painted in at corner `p` (chunk space). What the ground
 	## does there is worked out once per corner and shared by the faces round it.
@@ -337,11 +380,10 @@ class Builder:
 		var sh: Array = _shape[key]
 		return Terrain.grade(pc, col, sh[0], sh[1])
 
-	## The broad normal at corner `p` (see `_graded`, which must have seen `p`).
-	func _broad(p: Vector3) -> Vector3:
-		return (_shape[Vector2(p.x, p.y)] as Array)[0]
-
 	func _tris(j: int) -> void:
+		if premium:
+			_tris_smooth(j)
+			return
 		for i in cols.size() - 1:
 			var a: Vector3 = pts[j][i]
 			var b: Vector3 = pts[j][i + 1]
@@ -358,9 +400,6 @@ class Builder:
 				var nrm := (p1 - p0).cross(p2 - p0).normalized()
 				var nz := absf(nrm.z)
 				var jit := Terrain.h2(p0.x + p2.y, y0 + p1.y) - 0.5
-				if premium:
-					# no random shade per face: the light alone picks the facets out
-					jit = 0.0
 				var zc := (p0.z + p1.z + p2.z) / 3.0
 				var col := Terrain.face_color(pc, zc, nz, jit, tn)
 				var cx := (p0.x + p1.x + p2.x) / 3.0
@@ -372,21 +411,10 @@ class Builder:
 				var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
 				if not pc.has("warm"):
 					ground.tri(p0, p1, p2, col.lerp(rc, rk), Vector3.BACK)
-				elif premium:
-					var c0 := _graded(col, p0).lerp(rc, rk)
-					var c1 := _graded(col, p1).lerp(rc, rk)
-					var c2 := _graded(col, p2).lerp(rc, rk)
-					var fn := nrm if nrm.z > 0.0 else -nrm
-					ground.tri3n(p0, p1, p2, c0, c1, c2, _soft(fn, p0), _soft(fn, p1), _soft(fn, p2))
 				else:
 					# the painted light is worked out at each corner and blends across the
 					# face, so it models hills and hollows without picking out the triangles
 					ground.tri3(p0, p1, p2, _graded(col, p0).lerp(rc, rk), _graded(col, p1).lerp(rc, rk), _graded(col, p2).lerp(rc, rk), Vector3.BACK)
-
-
-	## A corner's normal for the premium look: part facet, mostly the broad shape.
-	func _soft(fn: Vector3, p: Vector3) -> Vector3:
-		return fn.lerp(_broad(p), 1.0 - FACET).normalized()
 
 
 ## The chunk's node: the ground mesh plus crystals, boulders and the odd fissure.
@@ -575,6 +603,35 @@ static func ground_mat() -> StandardMaterial3D:
 	return m
 
 
+## The premium ground: the same, plus a fine cracked-plate relief from a tiling normal map, so
+## the smooth ground has surface (fissures between plates) without showing a single triangle.
+## Mapped in each chunk's own space with a period that divides the chunk, so chunks meet.
+static func ground_mat_premium() -> StandardMaterial3D:
+	var m := ground_mat()
+	var nz := FastNoiseLite.new()
+	nz.noise_type = FastNoiseLite.TYPE_CELLULAR
+	nz.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_SUB
+	nz.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+	nz.frequency = 0.018
+	nz.fractal_type = FastNoiseLite.FRACTAL_FBM
+	nz.fractal_octaves = 3
+	nz.seed = 7
+	var t := NoiseTexture2D.new()
+	t.width = 512
+	t.height = 512
+	t.seamless = true
+	t.as_normal_map = true
+	t.bump_strength = 10.0
+	t.noise = nz
+	m.normal_enabled = true
+	m.normal_texture = t
+	m.normal_scale = 1.5
+	m.uv1_triplanar = true
+	m.uv1_triplanar_sharpness = 4.0
+	m.uv1_scale = Vector3.ONE / 32.0
+	return m
+
+
 ## Crystal material: lit facets with an inner glow that still feeds the bloom.
 static func crystal_mat(c: String, e: String, ei: float) -> StandardMaterial3D:
 	var m := Models.std(c, e, ei)
@@ -680,6 +737,56 @@ class Acc:
 			for i in 3:
 				n.append(Vector3.BACK)
 				col.append(color)
+
+	## Smooth shading (the premium look: no triangle shows): every corner takes the area-weighted
+	## average normal, and colour, of the faces that meet at its point and lean less than
+	## `crease` degrees from its own face; sharper folds stay sharp. Colours blend only with
+	## `colors`. Work on local copies: writing a packed array of another object element by
+	## element copies it each time.
+	func smooth(crease := 60.0, colors := true) -> void:
+		var vv := v
+		var nn := n
+		var cc := col
+		var cnt := vv.size()
+		var groups := {}
+		var fn := PackedVector3Array()
+		fn.resize(cnt / 3)
+		for t in cnt / 3:
+			var a := vv[t * 3]
+			var w := (vv[t * 3 + 1] - a).cross(vv[t * 3 + 2] - a).length() * 0.5
+			fn[t] = nn[t * 3] * w
+			for k in 3:
+				var key := Vector3i((vv[t * 3 + k] * 64.0).round())
+				if groups.has(key):
+					(groups[key] as Array).append(t * 3 + k)
+				else:
+					groups[key] = [t * 3 + k]
+		var cmin := cos(deg_to_rad(crease))
+		var out_n := nn.duplicate()
+		var out_c := cc.duplicate()
+		for key in groups:
+			var ids: Array = groups[key]
+			if ids.size() < 2:
+				continue
+			for i in ids:
+				var own := nn[i]
+				var sum := Vector3.ZERO
+				var csum := Color(0, 0, 0, 0)
+				var wsum := 0.0
+				for j in ids:
+					if nn[j].dot(own) < cmin:
+						continue
+					var f: Vector3 = fn[j / 3]
+					sum += f
+					var w := f.length()
+					csum += cc[j] * w
+					wsum += w
+				if sum.length_squared() > 1e-12:
+					out_n[i] = sum.normalized()
+				if colors and wsum > 0.0:
+					out_c[i] = csum / wsum
+		n = out_n
+		col = out_c
 
 	func mesh() -> ArrayMesh:
 		var arrays := []
