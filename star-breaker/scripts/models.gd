@@ -80,6 +80,10 @@ static func std(c: String, e: String = "", ei := 0.0) -> StandardMaterial3D:
 	m.albedo_color = Color(c)
 	m.roughness = 0.78
 	m.metallic = 0.06
+	# a soft rim of light round every lit model, so ships and enemies stand off the ground
+	m.rim_enabled = true
+	m.rim = 0.45
+	m.rim_tint = 0.35
 	if e != "" and ei > 0.0:
 		m.emission_enabled = true
 		m.emission = Color(e)

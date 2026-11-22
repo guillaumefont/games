@@ -5,6 +5,9 @@ extends RefCounted
 ## transformed before being baked into an ArrayMesh.
 
 static var _cache: Dictionary = {}
+## Bevelled edges on boxes and prisms (the premium look): a narrow chamfer on every edge
+## catches the sun, so ships and structures read as machined rather than as blocks.
+static var bevel := true
 
 
 ## Returns a cached mesh, building it with `f` the first time `key` is asked for.
@@ -254,6 +257,9 @@ static func cone(r: float, h: float, seg: int) -> Array:
 
 
 static func box(w: float, h: float, d: float) -> Array:
+	var c := minf(minf(w, minf(h, d)) * 0.16, 1.1)
+	if bevel and c > 0.02:
+		return bevel_box(w, h, d, c)
 	var v := []
 	for x in [-w / 2, w / 2]:
 		for y in [-h / 2, h / 2]:
@@ -263,8 +269,55 @@ static func box(w: float, h: float, d: float) -> Array:
 	return _faces(v, [0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3])
 
 
-## Convex polygon in XY, extruded along Z and centred on z = 0.
+## A box with every edge chamfered by `c`: 6 faces, 12 edge strips, 8 corner triangles.
+static func bevel_box(w: float, h: float, d: float, c: float) -> Array:
+	var e := Vector3(w / 2.0, h / 2.0, d / 2.0)
+	var i := e - Vector3(c, c, c)
+	# corner (sx, sy, sz) -> its three points: on the x face, the y face, the z face
+	var pt := func(sx: float, sy: float, sz: float, axis: int) -> Vector3:
+		var q := Vector3(sx * i.x, sy * i.y, sz * i.z)
+		q[axis] = [sx, sy, sz][axis] * e[axis]
+		return q
+	var tris := []
+	var quad := func(a: Vector3, b: Vector3, cc: Vector3, dd: Vector3) -> void:
+		tris.append(orient([a, b, cc], Vector3.ZERO))
+		tris.append(orient([a, cc, dd], Vector3.ZERO))
+	for ax in 3:
+		var u := (ax + 1) % 3
+		var v := (ax + 2) % 3
+		for s in [-1.0, 1.0]:
+			# the main face on side s of axis ax
+			var pts := []
+			for k in [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]:
+				var sg := [0.0, 0.0, 0.0]
+				sg[ax] = s
+				sg[u] = k[0]
+				sg[v] = k[1]
+				pts.append(pt.call(sg[0], sg[1], sg[2], ax))
+			quad.call(pts[0], pts[1], pts[2], pts[3])
+		# the four edges running along axis ax
+		for a in [-1.0, 1.0]:
+			for b in [-1.0, 1.0]:
+				var sg0 := [0.0, 0.0, 0.0]
+				sg0[ax] = -1.0
+				sg0[u] = a
+				sg0[v] = b
+				var sg1 := sg0.duplicate()
+				sg1[ax] = 1.0
+				quad.call(pt.call(sg0[0], sg0[1], sg0[2], u), pt.call(sg1[0], sg1[1], sg1[2], u),
+						pt.call(sg1[0], sg1[1], sg1[2], v), pt.call(sg0[0], sg0[1], sg0[2], v))
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				tris.append(orient([pt.call(sx, sy, sz, 0), pt.call(sx, sy, sz, 1), pt.call(sx, sy, sz, 2)], Vector3.ZERO))
+	return tris
+
+
+## Convex polygon in XY, extruded along Z and centred on z = 0. With `bevel` on, the rim of
+## each cap is chamfered.
 static func prism(pts: Array, depth: float) -> Array:
+	if bevel and depth > 0.12:
+		return _bevel_prism(pts, depth)
 	var f := []
 	var b := []
 	for p in pts:
@@ -279,6 +332,40 @@ static func prism(pts: Array, depth: float) -> Array:
 		var j := (i + 1) % n
 		tris.append([f[i], b[i], b[j]])
 		tris.append([f[i], b[j], f[j]])
+	return tris
+
+
+static func _bevel_prism(pts: Array, depth: float) -> Array:
+	var c := minf(depth * 0.3, 0.6)
+	var ctr := Vector2.ZERO
+	for p in pts:
+		ctr += Vector2(p[0], p[1])
+	ctr /= float(pts.size())
+	var f := []  # inset cap, front
+	var b := []
+	var fo := []  # full outline, just behind the front cap
+	var bo := []
+	for p in pts:
+		var q := Vector2(p[0], p[1])
+		var dq := ctr - q
+		var ins := q + dq.normalized() * minf(c * 1.2, dq.length() * 0.4)
+		f.append(Vector3(ins.x, ins.y, depth / 2.0))
+		b.append(Vector3(ins.x, ins.y, -depth / 2.0))
+		fo.append(Vector3(q.x, q.y, depth / 2.0 - c))
+		bo.append(Vector3(q.x, q.y, -depth / 2.0 + c))
+	var tris := []
+	var n := pts.size()
+	for i in range(1, n - 1):
+		tris.append([f[0], f[i], f[i + 1]])
+		tris.append([b[0], b[i], b[i + 1]])
+	for i in n:
+		var j := (i + 1) % n
+		tris.append([fo[i], bo[i], bo[j]])
+		tris.append([fo[i], bo[j], fo[j]])
+		tris.append([f[i], fo[i], fo[j]])
+		tris.append([f[i], fo[j], f[j]])
+		tris.append([b[i], bo[i], bo[j]])
+		tris.append([b[i], bo[j], b[j]])
 	return tris
 
 
