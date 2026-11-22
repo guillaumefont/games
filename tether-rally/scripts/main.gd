@@ -1446,6 +1446,10 @@ func _run_demo(arg: String) -> void:
 			shot += 1
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(out.path_join("race_%d.png" % shot))
+			if OS.get_environment("SHOT_STATS") != "":
+				print("STATS shot %d: %d triangles, %d draw calls" % [shot,
+					RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+					RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
 	get_tree().quit()
 
 # Tutorial screenshots: play the tutorial with a scripted thumb and save a frame every

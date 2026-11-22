@@ -7,6 +7,10 @@ const TrackData = preload("res://scripts/track.gd")
 const Themes = preload("res://scripts/themes.gd")
 const Race = preload("res://scripts/race.gd")
 const TrackObjects = preload("res://scripts/track_objects.gd")
+const Premium = preload("res://scripts/premium.gd")
+# "Premium low-poly" look (scripts/premium.gd): curated palettes, gradient-shaded props,
+# soft rim light, swaying trees, sparkling snow. On by default on this preview branch.
+static var premium := true
 
 const U := 0.01
 # Model detail. 1 = the game (light enough for phones). 2 = artwork renders
@@ -82,6 +86,7 @@ var grade_tex: GradientTexture1D
 # trees, towers and cars throw longer shadows that show the land's shape.
 const SUN_PITCH := -42.0
 const SUN_YAW := -35.0
+const PREMIUM_SUN_PITCH := -33.0
 const SUN_ENERGY := 1.45
 const AMBIENT_ENERGY := 0.48
 const SKY_TINT := 0.4       # how far the ambient leans from the world colour to its sky
@@ -94,6 +99,8 @@ const GRADE_SHADE := 0.10   # how much the shadows lean to the world's "shade" c
 const GRADE_GLINT := 0.6    # how much the highlights lean to its "glint" colour
 
 func _ready() -> void:
+	if "--look=classic" in OS.get_cmdline_user_args():
+		premium = false
 	camera = Camera3D.new()
 	camera.fov = FOV
 	camera.near = 0.5
@@ -106,6 +113,10 @@ func _ready() -> void:
 	light.light_energy = SUN_ENERGY
 	light.light_color = Color("#fff3e4")
 	light.shadow_enabled = true
+	if premium:
+		# a lower, warmer sun: longer shadows that model the land and the props
+		light.rotation = Vector3(deg_to_rad(PREMIUM_SUN_PITCH), deg_to_rad(SUN_YAW), 0)
+		light.shadow_blur = 1.6
 	# one shadow map, not cascades: the camera looks almost straight down, so all the ground
 	# it sees is at about the same distance and splits would only spend pixels on empty air
 	light.directional_shadow_max_distance = 60.0
@@ -216,7 +227,10 @@ func build_steps(tr: TrackData) -> Array:
 
 func _clear(tr: TrackData) -> void:
 	track = tr
-	th = Themes.get_theme(theme_override if theme_override != "" else String(tr.def.get("theme", "snow")))
+	var th_name := theme_override if theme_override != "" else String(tr.def.get("theme", "snow"))
+	th = Themes.get_theme(th_name)
+	if premium:
+		th = Premium.restyle(th_name, th)
 	_apply_light()
 	for ch in static_root.get_children():
 		ch.queue_free()
@@ -268,6 +282,7 @@ uniform vec3 near_col : source_color;
 uniform sampler2D ao_tex : filter_linear, repeat_disable;
 uniform vec4 ao_rect;   // world xz of the AO map's corner, then its size
 uniform vec3 ao_col : source_color;
+uniform float fancy = 0.0;   // premium look: wind ripples and sun glints in the snow
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -294,6 +309,20 @@ void fragment() {
 	float ao = COLOR.r * texture(ao_tex, (wp.xz - ao_rect.xy) / ao_rect.zw).r;
 	ALBEDO = c * mix(ao_col, vec3(1.0), ao);
 	ROUGHNESS = 1.0;
+	if (fancy > 0.0) {
+		// wind-carved ripples running across the field
+		vec2 r = vec2(wp.x * 0.8 + wp.z * 0.45, wp.z * 0.8 - wp.x * 0.45);
+		float rip = sin(r.x * 9.0 + vnoise(r * 1.5) * 6.0) * 0.5 + 0.5;
+		rip *= smoothstep(0.35, 0.75, vnoise(r * 0.4));
+		ALBEDO *= 1.0 - 0.05 * fancy * rip;
+		// glints: a few snow crystals catch the sun and twinkle as the view moves
+		vec2 cell = floor(wp.xz * 12.0);
+		float hs = hash(cell);
+		float tw = step(0.992, hs) * pow(max(0.0, sin(TIME * 1.7 + hs * 517.0 + dot(CAMERA_POSITION_WORLD.xz, vec2(2.3, 1.7)))), 6.0);
+		vec2 f = fract(wp.xz * 12.0) - 0.5;
+		tw *= smoothstep(0.3, 0.0, length(f));
+		EMISSION = vec3(1.0, 0.97, 0.9) * tw * 2.2 * fancy * ao;
+	}
 }
 """
 	var sm := ShaderMaterial.new()
@@ -303,6 +332,7 @@ void fragment() {
 	sm.set_shader_parameter("dot_col", th["ground_dots"])
 	sm.set_shader_parameter("far_col", gc.darkened(0.25))
 	sm.set_shader_parameter("near_col", gc.lightened(0.12))
+	sm.set_shader_parameter("fancy", 1.0 if premium and th.has("pine") else 0.0)
 	_ao_begin(sm)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _relief_mesh()
@@ -1113,6 +1143,8 @@ func _road_mat() -> ShaderMaterial:
 	_road_m.set_shader_parameter("dot_col", th["ground_dots"])
 	_road_m.set_shader_parameter("far_col", gc.darkened(0.25))
 	_road_m.set_shader_parameter("near_col", gc.lightened(0.12))
+	_road_m.set_shader_parameter("fancy", 1.0 if premium and th.has("pine") else 0.0)
+	_road_m.set_shader_parameter("gamma", Premium.gamma())
 	return _road_m
 
 func _make_road_mat() -> void:
@@ -1130,6 +1162,8 @@ uniform vec3 base_col : source_color;
 uniform vec3 dot_col : source_color;
 uniform vec3 far_col : source_color;
 uniform vec3 near_col : source_color;
+uniform float fancy = 0.0;   // premium look: the lane is lit by the sun, with packed tyre ruts
+uniform float gamma = 2.2;
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -1140,6 +1174,17 @@ float vnoise(vec2 p) {
 void fragment() {
 	vec3 c = COLOR.rgb;
 	float rough = 0.9;
+	if (UV.x > 0.5 && fancy > 0.0) {
+		NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+		c = pow(c, vec3(gamma));   // vertex colours are sRGB; the lit lane needs them linear
+		// two packed ruts per lane where the wheels run: darker, smoother, glossier
+		float u = abs(UV.y) + (vnoise(wp.xz * 0.7) - 0.5) * 0.06;
+		float rut = smoothstep(0.1, 0.0, abs(u - 0.32)) + smoothstep(0.1, 0.0, abs(u - 0.62)) * 0.7;
+		c = mix(c, c * 0.86, rut * fancy);
+		// loose snow ridged between the ruts and along the crown
+		float crown = smoothstep(0.2, 0.0, u) * (0.6 + 0.4 * vnoise(wp.xz * 3.0));
+		c = mix(c, edge_col, crown * 0.18 * fancy);
+	}
 	if (UV.x > 0.5) {
 		vec2 q = wp.xz;
 		float n = vnoise(q * 0.6) * 0.7 + vnoise(q * 2.0) * 0.3;
@@ -1175,7 +1220,7 @@ void fragment() {
 	}
 	ALBEDO = c;
 	ROUGHNESS = rough;
-	SPECULAR = 0.5;
+	SPECULAR = 0.5 - 0.25 * fancy;
 }
 """
 	_road_m = ShaderMaterial.new()
@@ -1257,7 +1302,7 @@ static func _shack_mesh(wood := COL_WOOD, roof_top := COL_SNOW, shingle := Color
 	faces.call([Vector3(-hx, 0, -hz), Vector3(-hx, 0, hz), Vector3(-hx, wall, hz), Vector3(-hx, ridge - 4, 0), Vector3(-hx, wall, -hz)], wood.darkened(0.2))
 	# door and window on the front
 	faces.call([Vector3(-20, 0, hz + 0.5), Vector3(4, 0, hz + 0.5), Vector3(4, 38, hz + 0.5), Vector3(-20, 38, hz + 0.5)], Color("#a8342a"))
-	faces.call([Vector3(22, 22, hz + 0.5), Vector3(48, 22, hz + 0.5), Vector3(48, 42, hz + 0.5), Vector3(22, 42, hz + 0.5)], Color("#ffd98a"))
+	faces.call([Vector3(22, 22, hz + 0.5), Vector3(48, 22, hz + 0.5), Vector3(48, 42, hz + 0.5), Vector3(22, 42, hz + 0.5)], Color("#ffd98a", 0.5 if premium else 1.0))
 	# roof: snow on top, dark wood edge under the eaves
 	var ex := hx + eave; var ez := hz + eave
 	for side: float in [1.0, -1.0]:
@@ -1368,7 +1413,7 @@ static func _hut_mesh(wall: Color, roof: Color) -> ArrayMesh:
 	return st.commit()
 
 # instances go into ~16 m tiles so the camera only draws (and shadows) the nearby ones
-func _multi(mesh: Mesh, xforms: Array) -> void:
+func _multi(mesh: Mesh, xforms: Array, m: Material = null) -> void:
 	var tiles := {}
 	for xf: Transform3D in xforms:
 		var key := Vector2i(floori(xf.origin.x / 16.0), floori(xf.origin.z / 16.0))
@@ -1376,9 +1421,9 @@ func _multi(mesh: Mesh, xforms: Array) -> void:
 			tiles[key] = []
 		tiles[key].append(xf)
 	for key in tiles:
-		_multi_tile(mesh, tiles[key])
+		_multi_tile(mesh, tiles[key], m)
 
-func _multi_tile(mesh: Mesh, xforms: Array) -> void:
+func _multi_tile(mesh: Mesh, xforms: Array, m: Material = null) -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = mesh
@@ -1387,7 +1432,7 @@ func _multi_tile(mesh: Mesh, xforms: Array) -> void:
 		mm.set_instance_transform(k, xforms[k])
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
-	mi.material_override = _vert_mat
+	mi.material_override = m if m != null else _vert_mat
 	static_root.add_child(mi)
 
 func _build_scenery() -> void:
@@ -1484,10 +1529,13 @@ func _build_scenery() -> void:
 				ao_stamp(p, 60.0 * rs, 0.45)
 				mark.call(p, 40.0, 2)
 		y += step
-	_multi(kit["a"], pines_a)
-	_multi(kit["b"], pines_b)
-	_multi(kit["hut"], shacks)
-	_multi(kit["rock"], rocks)
+	_multi(kit["a"], pines_a, kit.get("mat_a"))
+	_multi(kit["b"], pines_b, kit.get("mat_b"))
+	_multi(kit["hut"], shacks, kit.get("mat"))
+	_multi(kit["rock"], rocks, kit.get("mat"))
+	if premium and quality > 0 and kit.has("chimney"):
+		for xf: Transform3D in shacks:
+			dyn_root.add_child(Premium.smoke(xf * (kit["chimney"] as Vector3)))
 
 # the scenery of each theme: two kinds of "tree", a hut, a rock, and how dense
 func _prop_kit() -> Dictionary:
@@ -1504,6 +1552,13 @@ func _prop_kit() -> Dictionary:
 			return { "a": _cactus_mesh(140.0, Color("#5f8f4a")), "b": _palm_mesh(220.0, Color("#5f9a3e")),
 				"hut": _hut_mesh(Color("#d9a874"), Color("#b98858")), "rock": _rock_mesh(Color("#c08a58"), Color("#d9a874")),
 				"density": 0.06, "rocks": 0.05 }
+	if premium and th.has("pine"):
+		var rim: Color = th["rim"]
+		return { "a": Premium.pine(4, 160.0, 50.0, th, 11), "b": Premium.pine(5, 230.0, 58.0, th, 23),
+			"hut": _shack_mesh(th["wood"], th["roof"], th["shingle"]), "rock": Premium.boulder(th, 5),
+			"mat_a": Premium.prop_mat(rim, 0.05, 1.6), "mat_b": Premium.prop_mat(rim, 0.06, 2.3),
+			"mat": Premium.prop_mat(rim), "chimney": Vector3(0, 128, 0) * U,
+			"density": 0.35, "rocks": 0.035 }
 	return { "a": _pine_mesh(3, 150.0, 48.0), "b": _pine_mesh(4, 210.0, 56.0),
 		"hut": _shack_mesh(), "rock": _rock_mesh(), "density": 0.35, "rocks": 0.035 }
 
@@ -1712,6 +1767,17 @@ func _build_weather() -> void:
 	m.vertex_color_use_as_albedo = true
 	m.albedo_color = col
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if premium and kind == "snow":
+		# soft round flakes of mixed sizes, falling slower, a few big ones close to the eye
+		m.albedo_texture = Premium.soft_dot()
+		q.size = Vector2(0.13, 0.13)
+		snowfall.amount = 130
+		snowfall.initial_velocity_min = 0.5
+		snowfall.initial_velocity_max = 1.0
+		snowfall.scale_amount_min = 0.3
+		snowfall.scale_amount_max = 1.3
+		snowfall.lifetime = 6.0
+		snowfall.preprocess = 6.0
 	q.material = m
 	snowfall.mesh = q
 	snowfall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1788,9 +1854,20 @@ func _build_start() -> void:
 	g.position = w3(q["pos"], track.height_at(track.start_s))
 	g.rotation.y = -d.angle()
 	var span := HW + KERB_W + RAIL_W + 14.0
+	var gcol: Color = th.get("gantry", COL_TOWER)
+	var old_detail := detail
+	if premium:
+		detail = 2   # bevelled posts and beam
 	for side: float in [1.0, -1.0]:
-		g.add_child(box(Vector3(14, 190, 14), COL_TOWER, Vector3(0, 95, span * side)))
-	var beam := box(Vector3(20, 34, span * 2 + 14), COL_TOWER, Vector3(0, 190, 0))
+		g.add_child(box(Vector3(14, 190, 14), gcol, Vector3(0, 95, span * side)))
+		if premium:
+			# a snow-capped stone footing for each post
+			g.add_child(box(Vector3(30, 16, 30), th.get("stone", [COL_ROCK])[0], Vector3(0, 8, span * side)))
+			g.add_child(box(Vector3(32, 5, 32), th.get("roof", COL_SNOW), Vector3(0, 18, span * side)))
+	var beam := box(Vector3(20, 34, span * 2 + 14), gcol, Vector3(0, 190, 0))
+	detail = old_detail
+	if premium:
+		g.add_child(box(Vector3(24, 6, span * 2 + 18), th.get("roof", COL_SNOW), Vector3(0, 209, 0)))
 	g.add_child(beam)
 	var bm := StandardMaterial3D.new()
 	bm.albedo_texture = _checker_tex(16, 2)
