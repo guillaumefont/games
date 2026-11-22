@@ -5,6 +5,7 @@ const T := 32
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
+const GFX := preload("res://scripts/gfx.gd")    # graphics level: premium look levels, Classic kept to compare
 
 var S: Sim
 var V: View3D
@@ -54,6 +55,7 @@ func _ready() -> void:
 	headless = DisplayServer.get_name() == "headless"
 	randomize()
 	S = Sim.new(); S.host = self
+	GFX.init_level(_load_prefs())
 	V = View3D.new(); V.S = S; add_child(V)
 	var layer := CanvasLayer.new(); add_child(layer)
 	U = UI.new(); U.main = self; layer.add_child(U); U.build()
@@ -61,6 +63,7 @@ func _ready() -> void:
 	cut = CutscenePlayer.new(); cut.main = self; layer.add_child(cut); cut.build(U, V)
 	tut = Tutor.new(); tut.main = self; add_child(tut); tut.build()
 	U.set_tab("bld")
+	U.btn.gfx.text = gfx_label()
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
 	U.mode_btn.visible = false  # box selection is a hold-and-drag (or a plain drag with PAN_FINGERS 2)
@@ -496,6 +499,17 @@ func quit_to_menu() -> void:
 
 func toggle_sound() -> void:
 	A.muted = not A.muted; U.btn.sound.text = "SOUND: " + ("OFF" if A.muted else "ON")
+
+func gfx_label() -> String:
+	return "GRAPHICS: " + GFX.NAMES[GFX.level].to_upper()
+
+## Pause menu: next graphics level, saved in prefs, applied at once (materials, every model and the world rebuilt).
+func cycle_gfx() -> void:
+	GFX.level = GFX.next_level(GFX.level)
+	var p := _load_prefs(); p.gfx = GFX.level; _save_prefs(p)
+	U.btn.gfx.text = gfx_label()
+	V.apply_gfx()
+	if not headless: render_icons(icons_for)
 
 func toggle_music() -> void:
 	A.music_on = not A.music_on; U.btn.music.text = "MUSIC: " + ("ON" if A.music_on else "OFF")

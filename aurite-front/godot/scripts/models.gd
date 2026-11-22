@@ -2,6 +2,11 @@ class_name Models
 extends RefCounted
 ## Low-poly models built from primitives, baked into one vertex-coloured mesh per moving part.
 ## Vertex colour alpha: 1 = lit, 0 = unlit (glow), in between = lit plus some glow.
+## Premium look (graphics level above Classic, see gfx.gd): boxes get rounded edges, round cylinders shade smooth,
+## and UV carries two baked darkenings: UV.x = crease shadow from nearby parts and the ground, UV.y = each part's
+## soft bottom-to-top gradient. Meshes without UV (terrain, decor) read 0 and stay as they are.
+
+const GFX := preload("res://scripts/gfx.gd")
 
 static var material: ShaderMaterial
 static var ghost_ok: StandardMaterial3D
@@ -15,7 +20,7 @@ const PAINT_SIDE := 0.15
 
 const LIT_SHADER := """
 shader_type spatial;
-render_mode diffuse_lambert, specular_disabled;
+render_mode diffuse_lambert, %SPEC%;
 uniform sampler2D fog_tex : filter_linear, repeat_disable;
 uniform float fog_on = 1.0;
 %LOOK%
@@ -23,8 +28,9 @@ void fragment() {
 	vec3 wp = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float f = mix(1.0, texture(fog_tex, wp.xz / 64.0).r, fog_on);
 	float sh = look_shade(wp, normalize(wn), fog_on, TIME);
-	ALBEDO = COLOR.rgb * COLOR.a * f * sh;
+	ALBEDO = look_paint(COLOR.rgb, UV) * COLOR.a * f * sh;
 	EMISSION = (COLOR.rgb * (1.0 - COLOR.a) + look_rim(NORMAL, VIEW, COLOR.rgb) * COLOR.a * fog_on) * f;
+	look_spec(COLOR.a * f, ROUGHNESS, SPECULAR);
 }
 """
 
@@ -32,7 +38,7 @@ void fragment() {
 ## Used only while a building is being assembled or dismantled.
 const CUT_SHADER := """
 shader_type spatial;
-render_mode diffuse_lambert, specular_disabled, cull_disabled;
+render_mode diffuse_lambert, %SPEC%, cull_disabled;
 uniform sampler2D fog_tex : filter_linear, repeat_disable;
 uniform float fog_on = 1.0;
 uniform float cut_y = 100.0;
@@ -42,8 +48,9 @@ void fragment() {
 	if (wp.y > cut_y) discard;
 	float f = mix(1.0, texture(fog_tex, wp.xz / 64.0).r, fog_on);
 	float seam = 1.0 - smoothstep(0.0, 0.045, cut_y - wp.y);
-	ALBEDO = mix(COLOR.rgb * COLOR.a, vec3(0.0), seam * 0.6) * f * look_shade(wp, normalize(wn), fog_on, TIME);
+	ALBEDO = mix(look_paint(COLOR.rgb, UV) * COLOR.a, vec3(0.0), seam * 0.6) * f * look_shade(wp, normalize(wn), fog_on, TIME);
 	EMISSION = (COLOR.rgb * (1.0 - COLOR.a) + vec3(1.0, 0.5, 0.12) * seam * 0.85) * f;
+	look_spec(COLOR.a * f, ROUGHNESS, SPECULAR);
 }
 """
 ## Shared look for both lit shaders, pasted in place of %LOOK% (no include file, so nothing extra to export).
@@ -66,22 +73,46 @@ vec3 look_rim(vec3 n_view, vec3 v_view, vec3 base) {
 	float r = pow(1.0 - clamp(dot(n_view, v_view), 0.0, 1.0), 3.0);
 	return (vec3(1.0, 0.86, 0.66) * 0.10 + base * 0.12) * r;
 }
+// premium look: baked crease shadow (uv.x) and part gradient (uv.y), and a soft sheen that lights rounded edges
+vec3 look_paint(vec3 c, vec2 uv) {
+#ifdef PREMIUM
+	// calmer paint: a little less saturation and lifted blacks, so team colour and aurite are the strong accents
+	float l = dot(c, vec3(0.3, 0.59, 0.11));
+	c = mix(vec3(l), c, 0.95) * 0.97 + 0.012;
+	return c * (1.0 - uv.x) * (1.0 - uv.y);
+#else
+	return c;
+#endif
+}
+void look_spec(float lit, inout float rough, inout float spec) {
+#ifdef PREMIUM
+	rough = 0.55; spec = 0.34 * lit;
+#endif
+}
 """
 
 static var cut_shader: Shader
 static var fog_texture: Texture2D
 
+## Shader source for the current graphics level: Classic keeps the old flat, unlit-specular look.
+static func shader_code(src: String) -> String:
+	var code := src.replace("%LOOK%", LOOK).replace("%SPEC%", "specular_schlick_ggx" if GFX.premium() else "specular_disabled")
+	if GFX.premium(): code = code.replace("shader_type spatial;", "shader_type spatial;\n#define PREMIUM")
+	return code
+
 static func cut_material() -> ShaderMaterial:
 	if cut_shader == null:
-		cut_shader = Shader.new(); cut_shader.code = CUT_SHADER.replace("%LOOK%", LOOK)
+		cut_shader = Shader.new(); cut_shader.code = shader_code(CUT_SHADER)
 	var m := ShaderMaterial.new(); m.shader = cut_shader
 	m.set_shader_parameter("fog_tex", fog_texture)
 	m.set_shader_parameter("fog_on", material.get_shader_parameter("fog_on") if material.get_shader_parameter("fog_on") != null else 1.0)
 	return m
 
+## Builds the shared materials for the current graphics level. Call again after changing GFX.level: it also empties
+## the model cache, since cached meshes were built for the old level.
 static func init_materials(fog_tex: Texture2D) -> void:
-	var sh := Shader.new(); sh.code = LIT_SHADER.replace("%LOOK%", LOOK)
-	fog_texture = fog_tex
+	var sh := Shader.new(); sh.code = shader_code(LIT_SHADER)
+	fog_texture = fog_tex; cut_shader = null; cache.clear()
 	material = ShaderMaterial.new(); material.shader = sh
 	material.set_shader_parameter("fog_tex", fog_tex)
 	ghost_ok = _ghost_mat(Color(0.5, 0.84, 0.56, 0.45))
@@ -165,10 +196,78 @@ static func prim_tris(kind: String, p: Dictionary = {}) -> Array:
 static func prim_center(kind: String) -> Vector3:
 	return Vector3(0, 0.45, 0) if kind == "prism" else Vector3.ZERO
 
+## Half-size of a primitive in unit space around prim_box_center: what the crease shadow bake treats it as.
+static func prim_ext(kind: String) -> Vector3:
+	match kind:
+		"ico", "oct": return Vector3.ONE
+		"cyl", "cone": return Vector3(1, .5, 1)
+	return Vector3(.5, .5, .5)
+
+static func prim_box_center(kind: String) -> Vector3:
+	return Vector3(0, 0.5, 0) if kind == "prism" else Vector3.ZERO
+
+## A unit box with rounded (chamfered) edges, c = chamfer per axis in unit space (at most 0.25).
+## Triangles are [a, b, c, na, nb, nc]: each vertex keeps the normal of the face it sits on, so the chamfer strips
+## shade like a smooth rounded edge and catch a thin highlight.
+static func bevel_box(c: Vector3) -> Array:
+	var out: Array = []
+	var h := Vector3(.5, .5, .5); var i := h - c
+	# vertex of corner (sx, sy, sz) lying on the face of axis ax
+	var vx := func(sx: float, sy: float, sz: float, ax: int) -> Vector3:
+		match ax:
+			0: return Vector3(sx * h.x, sy * i.y, sz * i.z)
+			1: return Vector3(sx * i.x, sy * h.y, sz * i.z)
+		return Vector3(sx * i.x, sy * i.y, sz * h.z)
+	var nx := func(sx: float, sy: float, sz: float, ax: int) -> Vector3:
+		return [Vector3(sx, 0, 0), Vector3(0, sy, 0), Vector3(0, 0, sz)][ax]
+	var S := [-1.0, 1.0]
+	# six faces
+	for ax in 3:
+		for sg in S:
+			var q: Array = []
+			for uv in [[-1, -1], [1, -1], [1, 1], [-1, 1]]:
+				var co := [0.0, 0.0, 0.0]; co[ax] = sg; co[(ax + 1) % 3] = uv[0]; co[(ax + 2) % 3] = uv[1]
+				q.append(vx.call(co[0], co[1], co[2], ax))
+			var n: Vector3 = nx.call(sg, sg, sg, ax)
+			out.append([q[0], q[1], q[2], n, n, n]); out.append([q[0], q[2], q[3], n, n, n])
+	# twelve edge strips, between the faces of axes a1 and a2, running along axis ax
+	for ax in 3:
+		var a1 := (ax + 1) % 3; var a2 := (ax + 2) % 3
+		for s1 in S:
+			for s2 in S:
+				var co0 := [0.0, 0.0, 0.0]; co0[ax] = -1.0; co0[a1] = s1; co0[a2] = s2
+				var co1 := co0.duplicate(); co1[ax] = 1.0
+				var p0: Vector3 = vx.call(co0[0], co0[1], co0[2], a1); var p1: Vector3 = vx.call(co1[0], co1[1], co1[2], a1)
+				var p2: Vector3 = vx.call(co1[0], co1[1], co1[2], a2); var p3: Vector3 = vx.call(co0[0], co0[1], co0[2], a2)
+				var n1: Vector3 = nx.call(s1, s1, s1, a1); var n2: Vector3 = nx.call(s2, s2, s2, a2)
+				out.append([p0, p1, p2, n1, n1, n2]); out.append([p0, p2, p3, n1, n2, n2])
+	# eight corners
+	for sx in S:
+		for sy in S:
+			for sz in S:
+				out.append([vx.call(sx, sy, sz, 0), vx.call(sx, sy, sz, 1), vx.call(sx, sy, sz, 2), Vector3(sx, 0, 0), Vector3(0, sy, 0), Vector3(0, 0, sz)])
+	return out
+
+## A unit cylinder (bottom radius 1, top radius rt) with smooth sides and flat caps, as [a, b, c, na, nb, nc].
+static func smooth_cyl(rt: float, seg: int) -> Array:
+	var out: Array = []
+	for k in seg:
+		var a0 := TAU * k / seg; var a1 := TAU * (k + 1) / seg
+		var b0 := Vector3(sin(a0), -.5, cos(a0)); var b1 := Vector3(sin(a1), -.5, cos(a1))
+		var t0 := Vector3(sin(a0) * rt, .5, cos(a0) * rt); var t1 := Vector3(sin(a1) * rt, .5, cos(a1) * rt)
+		var n0 := Vector3(sin(a0), 1.0 - rt, cos(a0)).normalized(); var n1 := Vector3(sin(a1), 1.0 - rt, cos(a1)).normalized()
+		out.append([b0, b1, t1, n0, n1, n1]); out.append([b0, t1, t0, n0, n1, n0])
+		if rt > 0.0001: out.append([Vector3(0, .5, 0), t0, t1, Vector3.UP, Vector3.UP, Vector3.UP])
+		out.append([Vector3(0, -.5, 0), b0, b1, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
+	return out
+
 # ---------------- builder ----------------
 class Builder:
 	var root := Node3D.new()
-	var bufs := {}  # Node3D -> [PackedVector3Array verts, PackedVector3Array normals, PackedColorArray cols]
+	## Node3D -> [verts, normals, colours, uvs (crease shadow, gradient), prim index per vertex (-1 = none)]
+	var bufs := {}
+	## Every primitive added: [part node, transform in the part, kind]. The crease shadow bake reads it in finish().
+	var prims: Array = []
 	var team := 0
 	var tm: Dictionary
 	var P: Dictionary
@@ -194,23 +293,53 @@ class Builder:
 		par.add_child(g)
 		return g
 
+	func buf(par: Node3D) -> Array:
+		if not bufs.has(par): bufs[par] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array(), PackedInt32Array()]
+		return bufs[par]
+
 	func add(kind: String, prm: Dictionary, col: Color, par: Node3D, xf: Transform3D) -> void:
-		if not bufs.has(par): bufs[par] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray()]
-		var b: Array = bufs[par]
+		var b: Array = buf(par)
 		var ctr: Vector3 = xf * Models.prim_center(kind)
-		var painted: bool = unit and col == tm.col and min(xf.basis.get_scale().x, min(xf.basis.get_scale().y, xf.basis.get_scale().z)) > Models.ACCENT_MAX
-		for tri in Models.prim_tris(kind, prm):
+		var sc := xf.basis.get_scale()
+		var smin := minf(sc.x, minf(sc.y, sc.z))
+		var painted: bool = unit and col == tm.col and smin > Models.ACCENT_MAX
+		# premium look: rounded boxes and smooth round cylinders; everything else stays faceted
+		var tris: Array
+		var bev := Models.GFX.bevel(smin)
+		if bev > 0.0 and kind == "box" and smin >= Models.GFX.bevel_min():
+			tris = Models.bevel_box(Vector3(minf(bev / sc.x, .25), minf(bev / sc.y, .25), minf(bev / sc.z, .25)))
+		elif bev > 0.0 and kind == "cyl" and int(prm.seg) >= Models.GFX.SMOOTH_SEG:
+			tris = Models.smooth_cyl(prm.rt, maxi(prm.seg, Models.GFX.round_seg()))
+		else:
+			tris = Models.prim_tris(kind, prm)
+		var nb := xf.basis.inverse().transposed()
+		var pi := prims.size(); prims.append([par, xf, kind])
+		# each part darkens softly towards its own bottom (premium only; tall parts more than flat ones)
+		var y0 := INF; var y1 := -INF
+		if Models.GFX.premium():
+			for tri in tris:
+				for k in 3:
+					var y: float = (xf * tri[k]).y; y0 = minf(y0, y); y1 = maxf(y1, y)
+		var gk := 0.17 * clampf((y1 - y0) / 0.12, 0.0, 1.0) if y1 > y0 else 0.0
+		for tri in tris:
 			var a: Vector3 = xf * tri[0]; var bb: Vector3 = xf * tri[1]; var c: Vector3 = xf * tri[2]
 			var n := (bb - a).cross(c - a)
 			if n.length_squared() < 1e-12: continue
 			n = n.normalized()
-			if n.dot((a + bb + c) / 3.0 - ctr) < 0:
-				n = -n; var tmp := bb; bb = c; c = tmp
+			var vn := [n, n, n]
+			if tri.size() > 3:
+				vn = [(nb * tri[3]).normalized(), (nb * tri[4]).normalized(), (nb * tri[5]).normalized()]
+				if n.dot(vn[0] + vn[1] + vn[2]) < 0: n = -n; var tmp := bb; bb = c; c = tmp; var tn = vn[1]; vn[1] = vn[2]; vn[2] = tn
+			elif n.dot((a + bb + c) / 3.0 - ctr) < 0:
+				n = -n; var tmp := bb; bb = c; c = tmp; vn = [n, n, n]
 			# Godot front faces are clockwise
 			b[0].append(a); b[0].append(c); b[0].append(bb)
+			b[1].append(vn[0]); b[1].append(vn[2]); b[1].append(vn[1])
 			var fc := col
 			if painted: fc = hull.lerp(tm.col, Models.PAINT_TOP if n.y > .6 else Models.PAINT_SIDE)
-			for k in 3: b[1].append(n); b[2].append(fc)
+			for p in [a, c, bb]:
+				b[2].append(fc); b[4].append(pi)
+				b[3].append(Vector2(0, gk * (1.0 - (p.y - y0) / (y1 - y0)) if gk > 0.0 else 0.0))
 
 	static func xf(sx: float, sy: float, sz: float, x: float, y: float, z: float, rot := Vector3.ZERO) -> Transform3D:
 		return Transform3D(Basis.from_euler(rot) * Basis.from_scale(Vector3(sx, sy, sz)), Vector3(x, y, z))
@@ -237,8 +366,7 @@ class Builder:
 	func cone(c: Color, seg: int, sx: float, sy: float, sz: float, x: float, y: float, z: float, par: Node3D, rot := Vector3.ZERO) -> void:
 		add("cone", {"seg": seg}, c, par, xf(sx, sy, sz, x, y, z, rot))
 	func torus(c: Color, R: float, r: float, rs: int, ts: int, par: Node3D) -> void:
-		if not bufs.has(par): bufs[par] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray()]
-		var b: Array = bufs[par]
+		var b: Array = buf(par)
 		for j in ts:
 			for i in rs:
 				var pts: Array = []
@@ -251,7 +379,7 @@ class Builder:
 					var n := (bb - a).cross(cc - a).normalized()
 					if n.dot((a + bb + cc) / 3.0 - ctr) < 0: n = -n; var tmp := bb; bb = cc; cc = tmp
 					b[0].append(a); b[0].append(cc); b[0].append(bb)
-					for k in 3: b[1].append(n); b[2].append(c)
+					for k in 3: b[1].append(n); b[2].append(c); b[3].append(Vector2.ZERO); b[4].append(-1)
 
 	## A single primitive that animates on its own: a named group at (x,y,z).
 	func solo(nm: String, par: Node3D, x: float, y: float, z: float, rot := Vector3.ZERO) -> Node3D:
@@ -318,11 +446,87 @@ class Builder:
 			if along_z: box(c, .06, .012, ln / n, x, y, z + f * ln, par)
 			else: box(c, ln / n, .012, .06, x + f * ln, y, z, par)
 
+	## Transform from a part's space to the model root's space (parts are nested groups made by grp()).
+	func to_root(n: Node) -> Transform3D:
+		var t := Transform3D.IDENTITY
+		while n != null and n != root:
+			t = (n as Node3D).transform * t; n = n.get_parent()
+		return t
+
+	## Premium look: bake a soft shadow into each vertex from the parts around it and from the ground (UV.x).
+	## Every primitive stands in as its bounding box; a grid keeps each vertex to the few boxes near it.
+	func bake_creases() -> void:
+		var occ: Array = []  # [T, T inverse, centre, half size, smallest size]
+		var lo := Vector3(INF, INF, INF); var hi := -lo
+		var ptr := {}
+		for pr in prims:
+			if not ptr.has(pr[0]): ptr[pr[0]] = to_root(pr[0])
+			var T: Transform3D = ptr[pr[0]] * (pr[1] as Transform3D)
+			var c0 := Models.prim_box_center(pr[2]); var e := Models.prim_ext(pr[2])
+			var sz := T.basis.get_scale() * e * 2.0
+			var bl := Vector3(INF, INF, INF); var bh := -bl
+			for sx in [-1, 1]:
+				for sy in [-1, 1]:
+					for sz2 in [-1, 1]:
+						var w := T * (c0 + e * Vector3(sx, sy, sz2)); bl = bl.min(w); bh = bh.max(w)
+			lo = lo.min(bl); hi = hi.max(bh)
+			occ.append([T, T.affine_inverse(), c0, e, minf(sz.x, minf(sz.y, sz.z)), bl, bh])
+		if occ.is_empty(): return
+		var R := clampf(0.11 * maxf(hi.x - lo.x, hi.z - lo.z), 0.03, 0.2)
+		var grid := {}
+		for oi in occ.size():
+			var o: Array = occ[oi]
+			if o[4] < 0.01: continue  # wires and specks cast no crease shadow
+			var a := ((o[5] as Vector3) - Vector3.ONE * R) / R; var z := ((o[6] as Vector3) + Vector3.ONE * R) / R
+			for gx in range(floori(a.x), floori(z.x) + 1):
+				for gy in range(floori(a.y), floori(z.y) + 1):
+					for gz in range(floori(a.z), floori(z.z) + 1):
+						var k := Vector3i(gx, gy, gz)
+						if not grid.has(k): grid[k] = PackedInt32Array()
+						grid[k].append(oi)
+		var gh := R * 1.6
+		for part in bufs:
+			var b: Array = bufs[part]
+			var PT := to_root(part)
+			var memo := {}
+			for vi in (b[0] as PackedVector3Array).size():
+				var p: Vector3 = PT * (b[0][vi] as Vector3)
+				var n: Vector3 = (PT.basis * (b[1][vi] as Vector3)).normalized()
+				var own: int = b[4][vi]
+				var mk := [p.snapped(Vector3.ONE * 0.001), n.snapped(Vector3.ONE * 0.05), own]
+				if memo.has(mk): b[3][vi] = Vector2(memo[mk], b[3][vi].y); continue
+				var o := 0.0
+				var cell := Vector3i(floori(p.x / R), floori(p.y / R), floori(p.z / R))
+				if grid.has(cell):
+					for oi in grid[cell]:
+						if oi == own: continue
+						var oc: Array = occ[oi]
+						var bl: Vector3 = oc[5]; var bh: Vector3 = oc[6]
+						if p.x < bl.x - R or p.x > bh.x + R or p.y < bl.y - R or p.y > bh.y + R or p.z < bl.z - R or p.z > bh.z + R: continue
+						var q: Vector3 = (oc[1] as Transform3D) * p - (oc[2] as Vector3)
+						var e: Vector3 = oc[3]
+						var cq := q.clamp(-e, e)
+						if cq.is_equal_approx(q): o += 0.5; continue  # buried in another part
+						var cw: Vector3 = (oc[0] as Transform3D) * (cq + (oc[2] as Vector3))
+						var d := cw - p; var dist := d.length()
+						if dist >= R: continue
+						var w := 0.7 if dist < R * 0.06 else clampf(n.dot(d / dist), 0.0, 1.0)
+						var fall := 1.0 - dist / R
+						o += fall * fall * w * clampf(float(oc[4]) / R, 0.25, 1.0)
+				if p.y < gh:
+					var g := 1.0 - maxf(p.y, 0.0) / gh
+					o += g * g * (0.35 if n.y > 0.5 else 0.6 + 0.4 * maxf(-n.y, 0.0))
+				var dark := clampf(o * 0.42, 0.0, 0.5)
+				memo[mk] = dark
+				b[3][vi] = Vector2(dark, b[3][vi].y)
+
 	func finish() -> Node3D:
+		if Models.GFX.premium(): bake_creases()
 		for n in bufs:
 			var b: Array = bufs[n]
 			var arr := []; arr.resize(Mesh.ARRAY_MAX)
 			arr[Mesh.ARRAY_VERTEX] = b[0]; arr[Mesh.ARRAY_NORMAL] = b[1]; arr[Mesh.ARRAY_COLOR] = b[2]
+			if Models.GFX.premium(): arr[Mesh.ARRAY_TEX_UV] = b[3]
 			var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 			am.surface_set_material(0, Models.material)
 			var mi := MeshInstance3D.new(); mi.mesh = am; mi.name = "m"
@@ -807,8 +1011,7 @@ static func unit_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 	return B.finish()
 
 static func _ring(B: Builder, par: Node3D, r0: float, r1: float, c: Color) -> void:
-	if not B.bufs.has(par): B.bufs[par] = [PackedVector3Array(), PackedVector3Array(), PackedColorArray()]
-	var b: Array = B.bufs[par]; var n := 20
+	var b: Array = B.buf(par); var n := 20
 	for i in n:
 		var a0 := TAU * i / n; var a1 := TAU * (i + 1) / n
 		var p0 := Vector3(cos(a0) * r0, 0, sin(a0) * r0); var p1 := Vector3(cos(a0) * r1, 0, sin(a0) * r1)
@@ -818,7 +1021,7 @@ static func _ring(B: Builder, par: Node3D, r0: float, r1: float, c: Color) -> vo
 			var a: Vector3 = tri[0]; var bb: Vector3 = tri[1]; var cc: Vector3 = tri[2]
 			if (bb - a).cross(cc - a).y < 0: var tmp := bb; bb = cc; cc = tmp
 			b[0].append(a); b[0].append(cc); b[0].append(bb)
-			for k in 3: b[1].append(Vector3.UP); b[2].append(c)
+			for k in 3: b[1].append(Vector3.UP); b[2].append(c); b[3].append(Vector2.ZERO); b[4].append(-1)
 
 static func bld_model(type: String, team: int, fac: String, lv := 1) -> Node3D:
 	var B := Builder.new(team, fac); var M := MAT; var tm := B.tm; var P := B.P

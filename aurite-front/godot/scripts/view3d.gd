@@ -2,6 +2,8 @@ class_name View3D
 extends Node3D
 ## Draws the battle: terrain, water, decor, ore, units, buildings, effects, fog of war.
 
+const GFX := preload("res://scripts/gfx.gd")
+
 ## Terrain look (2026-11-16 overhaul, "calm the terrain"): vertex jitter, per-triangle colour noise,
 ## grass desaturation, grass variation scale and how much flat-ground normals lean up (less facet contrast).
 const TERR_JIT := 0.18
@@ -394,8 +396,12 @@ func build_world() -> void:
 
 func _apply_light(TH: Dictionary) -> void:
 	var L: Dictionary = D.DUSK if S.dusk else TH
-	sun.light_color = Color(L.sun); sun.light_energy = L.sunE
-	env.ambient_light_color = Color(L.amb); env.ambient_light_energy = L.ambE
+	GFX.light(sun, env, L)
+
+## Graphics level changed (pause menu): rebuild the materials, every model and the world at the new level.
+func apply_gfx() -> void:
+	Models.init_materials(fog_tex)
+	if S and S.teams.size(): build_world()
 
 ## Objective rings with a light beam (reach, escort, hold, survive zones), coloured by who holds them.
 func upd_marks() -> void:
@@ -543,7 +549,7 @@ func update_cam() -> void:
 	var cz := fz - d * .25
 	sun.position = Vector3(fx - 12, 24, cz + 9)
 	sun.look_at(Vector3(fx, 0, cz), Vector3.UP)
-	sun.directional_shadow_max_distance = d * 2.6 + 6
+	sun.directional_shadow_max_distance = d * GFX.shadow_reach() + 6
 	env.fog_depth_begin = d * 1.15; env.fog_depth_end = d * 2.8 + 12
 
 ## Window pixels per UI unit (stretch mode). Camera3D project/unproject already work in UI units.

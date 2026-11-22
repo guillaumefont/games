@@ -262,3 +262,20 @@ in your PR, keep it short, and mention the change in the PR description.
   `PAINT_SIDE`; parts thinner than `ACCENT_MAX` keep the full team colour. Buildings are unchanged.
   Effects go through an `Sfx` bus (glue compressor) and the Music bus ducks under it (sidechain compressor);
   nothing is louder.
+
+## Premium low-poly look (Guillaume 2026-11-22: "go for b")
+
+- Plan: Claude Doc "Aurite Front: premium low-poly plan" (https://claude.ai/artifact/XWgUVVi5rV7LVkCJt3QYdN), 7 phases,
+  each its own PR with a before/after preview. Target: the "premium low-poly" concept render (rounded edges, clean calm
+  paint, soft crease shadow, faceted tidy nature, warm sun with cool shadow). Everything stays built in code; CC0 assets
+  are allowed but credited.
+- Graphics levels live in `scripts/gfx.gd` (preloaded as `GFX`, no class_name): 0 Classic (the old look, kept only to
+  compare, REMOVED in the last phase), 1 Low, 2 Medium, 3 High (Pixel 11 Pro). The pause menu cycles them
+  (`main.cycle_gfx`, saved as `prefs.gfx`); `AF_GFX=0..3` forces one for tests and screenshots. Changing the level calls
+  `View3D.apply_gfx()`: materials, the model cache and the world are rebuilt. New look features read `GFX.level` /
+  `GFX.premium()` and must keep Classic unchanged until it is removed.
+- Models (premium levels): `Builder.add` rounds boxes (`Models.bevel_box`) and shades round cylinders smooth
+  (`Models.smooth_cyl`); `Builder.finish` bakes a crease shadow from nearby parts and the ground into UV.x
+  (`bake_creases`), and UV.y holds each part's bottom-to-top gradient. Write vertices only through `Builder.buf(par)`
+  so the five buffers (verts, normals, colours, uvs, prim index) stay the same length. `gfx_tests()` in
+  `tests/sim_test.gd` (`AF_ONLY=gfx`) checks every level builds the same named parts.
