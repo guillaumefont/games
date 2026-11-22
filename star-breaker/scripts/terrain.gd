@@ -623,6 +623,11 @@ void fragment() {
 	vec3 ra = texture(r_a, ur).rgb;
 	vec3 rm = texture(r_m, ur).rgb;
 	float rk = smoothstep(0.035, 0.15, slope + (rm.r - 0.7) * 0.12);
+	if (local) {
+		// in the canyon the floor is the walls' own rubble: rock everywhere, and wholly
+		// rock as it nears a wall (the mesh's alpha says how near)
+		rk = max(rk, mix(0.55, 1.0, 1.0 - COLOR.a));
+	}
 	alb = mix(alb, ra, rk);
 	bump = mix(bump, (texture(r_n, ur).rg - 0.5) * 2.6, rk);
 	arm = mix(arm, rm, rk);

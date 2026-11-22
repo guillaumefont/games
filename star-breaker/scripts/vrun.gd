@@ -659,7 +659,7 @@ static func floor_pt(u: float, t: float) -> Vector3:
 	var x := p.x - p.y - TUCK + w * t
 	# distance into the passage from the nearer wall (negative under the rock)
 	var d := minf(x - (p.x - p.y), (p.x + p.y) - x)
-	var scree := 10.0 * exp(-maxf(d, 0.0) / 3.5) + maxf(-d, 0.0) * 0.9
+	var scree := 7.0 * exp(-maxf(d, 0.0) / 3.0) + 3.5 * exp(-maxf(d, 0.0) / 11.0) + maxf(-d, 0.0) * 0.9
 	var swell := sin(u * 0.043 + x * 0.11) * 0.7 + sin(u * 0.017 - x * 0.05) * 0.9
 	return Vector3(sx(x), u, floor_z(u) + scree + swell)
 
@@ -682,7 +682,9 @@ static func _floor_fine(rock: Terrain.Acc, u0: float, u1: float, pal: Dictionary
 			var pa := passage(u)
 			var x := p.x + 63.0
 			var d := minf(x - (pa.x - pa.y), (pa.x + pa.y) - x)
-			var col := base.darkened(0.16 * exp(-maxf(d, 0.0) / 16.0) + 0.24 * exp(-maxf(d, 0.0) / 5.0) + (0.3 if d < 0.0 else 0.0))
+			var col := base.darkened(0.2 * exp(-maxf(d, 0.0) / 20.0) + 0.24 * exp(-maxf(d, 0.0) / 7.0) + (0.3 if d < 0.0 else 0.0))
+			# alpha: how far from the walls (the shader turns the floor to bare rock near them)
+			col.a = 1.0 - exp(-maxf(d, 0.0) / 14.0)
 			row.append([p, n, col])
 		pts.append(row)
 	for i in cols:
@@ -696,12 +698,14 @@ static func _floor_fine(rock: Terrain.Acc, u0: float, u1: float, pal: Dictionary
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(u0 * 13.0) + 7
 	for s in [-1.0, 1.0]:
-		if rng.randf() < 0.55:
+		for k in 2:
+			if rng.randf() > 0.6:
+				continue
 			var pa := passage(u0)
-			var r := rng.randf_range(1.6, 3.4)
+			var r := rng.randf_range(1.2, 3.2) * (1.0 if k == 0 else 0.6)
 			var t := 0.0
 			var edge := sx(pa.x + s * pa.y)
-			var at := Vector3(edge + s * r * 0.35, u0 + rng.randf_range(0.0, u1 - u0), 0.0)
+			var at := Vector3(edge + s * r * 0.35 - s * (0.0 if k == 0 else rng.randf_range(3.0, 7.0)), u0 + rng.randf_range(0.0, u1 - u0), 0.0)
 			var w := pa.y * 2.0 + TUCK * 2.0
 			t = (at.x + 63.0 - (pa.x - pa.y - TUCK)) / w
 			at.z = floor_pt(at.y, clampf(t, 0.0, 1.0)).z - r * 0.2
