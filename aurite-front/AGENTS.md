@@ -262,3 +262,41 @@ in your PR, keep it short, and mention the change in the PR description.
   `PAINT_SIDE`; parts thinner than `ACCENT_MAX` keep the full team colour. Buildings are unchanged.
   Effects go through an `Sfx` bus (glue compressor) and the Music bus ducks under it (sidechain compressor);
   nothing is louder.
+
+## Premium low-poly look (Guillaume 2026-11-22: "go for b")
+
+- Plan: Claude Doc "Aurite Front: premium low-poly plan" (https://claude.ai/artifact/XWgUVVi5rV7LVkCJt3QYdN), 7 phases,
+  each its own PR with a before/after preview. Target: the "premium low-poly" concept render (rounded edges, clean calm
+  paint, soft crease shadow, faceted tidy nature, warm sun with cool shadow). Everything stays built in code; CC0 assets
+  are allowed but credited.
+- Graphics levels live in `scripts/gfx.gd` (preloaded as `GFX`, no class_name): 1 Low, 2 Medium, 3 High (Pixel 11
+  Pro). The old flat "Classic" look (level 0) was removed in phase 7; a saved 0 or any unknown value loads as High
+  (`GFX._valid`). The pause menu cycles High, Medium, Low (`main.cycle_gfx`, saved as `prefs.gfx`); `AF_GFX=1..3`
+  forces one for tests and screenshots. Changing the level calls `View3D.apply_gfx()`: materials, the model cache and
+  the world are rebuilt. New look features read `GFX.level`; every level gets the premium look, levels only trade
+  detail (rounding, fir tiers, shadows) for speed.
+- Models: `Builder.add` rounds boxes (`Models.bevel_box`) and shades round cylinders smooth
+  (`Models.smooth_cyl`); `Builder.finish` bakes a crease shadow from nearby parts and the ground into UV.x
+  (`bake_creases`), and UV.y holds each part's bottom-to-top gradient. Write vertices only through `Builder.buf(par)`
+  so the five buffers (verts, normals, colours, uvs, prim index) stay the same length. `gfx_tests()` in
+  `tests/sim_test.gd` (`AF_ONLY=gfx`) checks every level builds the same named parts and High rounds more than Low.
+- Ground (phase 2): `scripts/ground.gd` (preloaded as `Ground`) builds one smooth indexed terrain mesh
+  over `S.H` and paints it per pixel from a splat texture (R soil, G sand/shore, B rock, A ore ground; 4 px per tile)
+  with noise-wobbled borders and a darker rim, slope cliffs, wet banks, and a contact shadow from `S.bmap`
+  (`Ground.update_occ`, called from `View3D.refresh_decor` whenever buildings change). `AF_MODE=themes` shoots the same map in all six themes, near, far and at the river.
+- Nature (phase 3): `scripts/nature.gd` (preloaded as `Nature`) makes the decor meshes: tiered faceted
+  firs (pine, snowpine with a snow cap instance), round faceted crowns (broad), bushes, rocks and five-crystal aurite
+  clusters. Vertex colours hold only shade (and glow alpha on crystal tips); MultiMesh instance colours give the hue.
+  `View3D.refresh_decor` places them; dead trees (ash) are bare trunk and branch sticks. `Nature.reset()`
+  runs on a level change.
+- Light and mood (phase 4): `GFX.MOOD[theme]` sets how warm the sun and how cool the shadows are, the
+  ambient energy and tint, and the ground brightness; `GFX.GRADE` grades by chapter from the player's faction in a
+  campaign mission (`GFX.mood_of`): Ashen Pact "pulp" (warm, punchy), Vanguard "neutral", Hollow Choir "grim" (cold,
+  flat, dimmer sun). Saturation and contrast only apply on the Mobile renderer (GL Compatibility has no adjustments).
+- Faction polish (phase 5): `Models.pal()` lifts the near-black paints (`PREMIUM_PAL`, keyed by MAT
+  name) and `Models.HULL` holds the lighter unit hull colours, so Pact iron and Choir earth read as material; on buildings,
+  big team-coloured slabs (second-largest side over 0.3) are toned 35% toward the faction metal. Use MAT colours (not
+  hand-made ones) for new parts so the palette applies.
+- Battle effects (phase 6): smoke, flashes and flames use `Nature.puff()` (a smooth round puff) with
+  rims that fade by `dot(NORMAL, VIEW)`, so smoke reads soft and fire as glowing balls. `View3D.apply_gfx` rebuilds the
+  effect batches. `AF_MODE=battle` shoots two armies trading fire.

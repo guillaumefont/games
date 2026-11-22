@@ -107,23 +107,31 @@ var beam_light: OmniLight3D
 var boom_lights: Array = []
 var charge_ph := 0.0
 ## Each world's lighting and ground colours (sRGB), Hollow Moon first.
-const LOOKS := [{sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640", t_low2 = "2a1440", t_mid = "3a3070", t_high = "7a6cc0",
-	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560", river_a = "3ff0e0", river_b = "ff4fa3",
+## A look with `warm` and `cool` is graded: a warm key light against a cool fill, light painted
+## into the ground (Terrain.grade), a little more contrast.
+const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e", t_low2 = "1e1658", t_mid = "3a2e8a", t_high = "d07ab0",
+	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
+	warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"]},
-	{sun = "e8f4ff", amb = "4a6a9a", fog = "0c1c30", t_low = "17283f", t_low2 = "1d3050", t_mid = "3c5a80", t_high = "b8d8f0",
-	t_cliff = "1a2a46", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "2f4a6a", river_a = "bff6ff", river_b = "4fb8ff",
+	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
+	t_cliff = "12244a", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "22406c", river_a = "bff6ff", river_b = "4fb8ff",
+	warm = "f0d0c8", cool = "0a2a70", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["dff8ff", "9fe8ff", "7fd8ff", "3fa8ff"], fis = ["4fb8ff", "bff6ff"], lip = ["d0f4ff", "7fe8ff"]},
-	{sun = "fff0c0", amb = "5a6a30", fog = "101e0c", t_low = "17260f", t_low2 = "223012", t_mid = "40562a", t_high = "a0b860",
-	t_cliff = "1c2a12", t_rock = "54663a", c_top = "7a8a4a", c_top2 = "4e5e30", c_face = "34421e", river_a = "ffb547", river_b = "c8f560",
+	{sun = "ffe6a8", amb = "3a8a70", fog = "0c1e12", t_low = "0e2a1e", t_low2 = "1a3014", t_mid = "40582a", t_high = "b0c060",
+	t_cliff = "122a1c", t_rock = "54663a", c_top = "7a8a4a", c_top2 = "4e5e30", c_face = "243e22", river_a = "ffb547", river_b = "c8f560",
+	warm = "e8c868", cool = "0a3a38", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffc860", "ff9a20", "c8f560", "8ac020"], fis = ["ff9a20", "c8f560"], lip = ["ffe0a0", "ffb547"]},
-	{sun = "ffd8b0", amb = "6a4a40", fog = "1c100c", t_low = "201410", t_low2 = "2a1a14", t_mid = "4a3a34", t_high = "9a8478",
-	t_cliff = "22160f", t_rock = "5a4a44", c_top = "7a6a62", c_top2 = "4e4440", c_face = "362a26", river_a = "ff7a1a", river_b = "ffcc33",
+	{sun = "ffd0a0", amb = "5a5a90", fog = "16101a", t_low = "1a1620", t_low2 = "2a1a18", t_mid = "4c3a34", t_high = "a88878",
+	t_cliff = "1c1622", t_rock = "5a4a44", c_top = "7a6a62", c_top2 = "4e4440", c_face = "2c2630", river_a = "ff7a1a", river_b = "ffcc33",
+	warm = "d89070", cool = "1a2046", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffb070", "ff6a00", "ffd060", "ffaa00"], fis = ["ff5a00", "ffcc33"], lip = ["ffc890", "ff7a1a"]},
-	{sun = "e0e8ff", amb = "4a5090", fog = "0c0e22", t_low = "121630", t_low2 = "181c3c", t_mid = "343c6a", t_high = "8890c8",
-	t_cliff = "141834", t_rock = "4a5280", c_top = "7078a0", c_top2 = "50587e", c_face = "30365a", river_a = "ff4fa3", river_b = "4fe3d6",
+	{sun = "f0e8ff", amb = "3450b8", fog = "0a0e28", t_low = "0c1438", t_low2 = "161a44", t_mid = "343c72", t_high = "9a94d0",
+	t_cliff = "0e1638", t_rock = "4a5280", c_top = "7078a0", c_top2 = "50587e", c_face = "242c5c", river_a = "ff4fa3", river_b = "4fe3d6",
+	warm = "a4a8e4", cool = "0a184e", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ff7ac0", "ff2f8f", "6ff3e6", "2fd6c8"], fis = ["ff2f8f", "3fc0c0"], lip = ["c0c8ff", "ff4fa3"]},
-	{sun = "fff0c8", amb = "7a3a20", fog = "260a06", t_low = "2a0c08", t_low2 = "34100a", t_mid = "5a2414", t_high = "c0602a",
-	t_cliff = "2a0e08", t_rock = "6b2a2a", c_top = "7a3a2a", c_top2 = "552222", c_face = "3a1610", river_a = "ffcc40", river_b = "ff6a00",
+	{sun = "ffe8b8", amb = "7a3a70", fog = "220a12", t_low = "260a16", t_low2 = "34100c", t_mid = "5c2414", t_high = "cc6a2c",
+	t_cliff = "260c18", t_rock = "6b2a2a", c_top = "7a3a2a", c_top2 = "552222", c_face = "34121c", river_a = "ffcc40", river_b = "ff6a00",
+	warm = "e46c48", cool = "2c0a3c", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffe080", "ffb000", "ff8a40", "ff4000"], fis = ["ff4000", "ffcc40"], lip = ["ffe0a0", "ffcc40"]},
 ]
 var look: Dictionary = {}
@@ -487,7 +495,13 @@ func apply_world(w: int) -> void:
 	_env.ambient_light_color = Color(look.amb)
 	_env.fog_light_color = Color(look.fog)
 	sun.light_color = Color(look.sun)
+	sun.light_energy = look.get("sun_e", 1.35)
 	_rim.light_color = Color(pal.rim)
+	_rim.light_energy = look.get("rim_e", 0.55)
+	_env.ambient_light_energy = look.get("amb_e", 0.4)
+	_env.adjustment_enabled = look.has("contrast")
+	_env.adjustment_contrast = look.get("contrast", 1.0)
+	_env.adjustment_saturation = look.get("sat", 1.0)
 	for k in stars.size():
 		var mi: MultiMeshInstance3D = stars[k].get_child(0)
 		(mi.multimesh.mesh.material as StandardMaterial3D).albedo_color = Color(pal.star_a if k == 0 else pal.star_b)

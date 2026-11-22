@@ -16,7 +16,7 @@ const STEP := 56.0
 
 const LIST := [
 	{
-		name = "The Hollow Moon", sub = "World 1", boss = "bloom", boss_name = "Bloom Mother", song = "stage", boss_song = "boss",
+		name = "The Hollow Moon", sub = "World 1", story = "A spore Bloom is eating this dead moon from the inside. Burn it out.", boss = "bloom", boss_name = "Bloom Mother", song = "stage", boss_song = "boss",
 		boss_at = 7300.0, clear = "Bloom Mother cut down",
 		pal = {bg = "0c0a26", top = "1c1046", mid = "0c0a26", bot = "071225", fog = "120f26", amb = "8f8cc4", rim = "ff4fa3",
 			planet = "5a3d8f", planet_e = "1a0c2e", ring = "8a74c9", far = "2c2656", star_a = "9a93c8", star_b = "e8e4f6",
@@ -28,7 +28,7 @@ const LIST := [
 			forts = [{a = 3400.0, b = 4700.0, gap = 54.0, seed = 3.0}, {a = 5900.0, b = 6960.0, gap = 48.0, seed = 7.0}]},
 	},
 	{
-		name = "Frost Rift", sub = "World 2", boss = "prism", boss_name = "Prism Warden", song = "frost", boss_song = "boss",
+		name = "Frost Rift", sub = "World 2", story = "The Bloom fed on a signal buried under the ice. The Prism Warden guards its relay.", boss = "prism", boss_name = "Prism Warden", song = "frost", boss_song = "boss",
 		boss_at = 7300.0, clear = "Prism Warden shattered",
 		pal = {bg = "08162a", top = "16365a", mid = "0a1a33", bot = "050c1a", fog = "0c1c30", amb = "9cc4e8", rim = "7fe8ff",
 			planet = "8fb8e0", planet_e = "1a3050", ring = "cfefff", far = "2a4060", star_a = "a8c8e8", star_b = "f0f8ff",
@@ -42,7 +42,7 @@ const LIST := [
 			forts = [{a = 3500.0, b = 4800.0, gap = 52.0, seed = 11.0}, {a = 5900.0, b = 6960.0, gap = 48.0, seed = 13.0}]},
 	},
 	{
-		name = "Verdant Hive", sub = "World 3", boss = "queen", boss_name = "Hive Queen", song = "hive", boss_song = "boss",
+		name = "Verdant Hive", sub = "World 3", story = "A hive farms the signal's energy for its Queen. Cut through to her chamber.", boss = "queen", boss_name = "Hive Queen", song = "hive", boss_song = "boss",
 		boss_at = 7300.0, clear = "Hive Queen brought down",
 		pal = {bg = "0c1a0c", top = "1e3a14", mid = "0c1a0c", bot = "060c06", fog = "101e0c", amb = "b8d08f", rim = "c8f560",
 			planet = "7aa040", planet_e = "1a2a08", ring = "d8e890", far = "263a20", star_a = "c8d8a0", star_b = "f4ffe0",
@@ -55,7 +55,7 @@ const LIST := [
 			forts = [{a = 2500.0, b = 3700.0, gap = 54.0, seed = 17.0}, {a = 5300.0, b = 6900.0, gap = 48.0, seed = 19.0}]},
 	},
 	{
-		name = "Iron Foundry", sub = "World 4", boss = "titan", boss_name = "Furnace Titan", song = "foundry", boss_song = "boss",
+		name = "Iron Foundry", sub = "World 4", story = "The machines that built the relays still forge drones. Shut down the Furnace Titan.", boss = "titan", boss_name = "Furnace Titan", song = "foundry", boss_song = "boss",
 		boss_at = 7300.0, clear = "Furnace Titan melted down",
 		pal = {bg = "1a0f0c", top = "3a1c10", mid = "1a0f0c", bot = "0c0808", fog = "1c100c", amb = "c4a08f", rim = "ff8a3d",
 			planet = "8f4a2a", planet_e = "2e120a", ring = "c99a74", far = "3a2a26", star_a = "c8a893", star_b = "fff0e0",
@@ -68,7 +68,7 @@ const LIST := [
 			forts = [{a = 3500.0, b = 4900.0, gap = 50.0, seed = 23.0}, {a = 5900.0, b = 6960.0, gap = 46.0, seed = 29.0}]},
 	},
 	{
-		name = "Bastion Ring", sub = "World 5", boss = "bastion", boss_name = "Bastion Core", song = "bastion", boss_song = "boss",
+		name = "Bastion Ring", sub = "World 5", story = "The military outpost behind it all. Each stage brings you closer to its core.", boss = "bastion", boss_name = "Bastion Core", song = "bastion", boss_song = "boss",
 		boss_at = 7300.0, clear = "Bastion Core breached",
 		pal = {bg = "0a0c1e", top = "1a1e44", mid = "0a0c1e", bot = "05060f", fog = "0c0e22", amb = "a0a8e0", rim = "ff4fa3",
 			planet = "4a5aa0", planet_e = "10183a", ring = "a0b0ff", far = "222848", star_a = "a0a8d8", star_b = "eef0ff",
@@ -81,7 +81,7 @@ const LIST := [
 				{a = 5800.0, b = 6960.0, gap = 46.0, seed = 41.0}]},
 	},
 	{
-		name = "Star Core", sub = "Final world", boss = "heart", boss_name = "Star Heart", song = "core", boss_song = "final",
+		name = "Star Core", sub = "Final world", story = "They were mining a star. Break it.", boss = "heart", boss_name = "Star Heart", song = "core", boss_song = "final",
 		boss_at = 7300.0, clear = "The star is broken",
 		pal = {bg = "200808", top = "4a1408", mid = "200808", bot = "100404", fog = "260a06", amb = "e0a080", rim = "ffcc40",
 			planet = "ffb040", planet_e = "ff6a00", ring = "ffd890", far = "4a1a10", star_a = "ffc890", star_b = "fff4d0",

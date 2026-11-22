@@ -12,7 +12,7 @@ on:
       - ".github/workflows/perigee-*.yml"
 
 jobs:
-  # The Godot game: rules, replay and difficulty (sim_test), the scene (game_test), Voyage sectors (voyage_test), the tutorial and settings (onboarding_test), the unlock track (unlocks_test), the self-update (update_test), and the Drift boards (boards_test).
+  # The Godot game: rules, replay and difficulty (sim_test), the scene (game_test), Voyage sectors (voyage_test), the tutorial and settings (onboarding_test), the unlock track (unlocks_test), the self-update (update_test), the Drift boards (boards_test), and the light and feel pass (fx_test).
   godot:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -67,6 +67,12 @@ jobs:
           set -o pipefail
           $RUNNER_TEMP/godot --headless --path . --script tests/boards_test.gd 2>&1 | tee "$RUNNER_TEMP/boards.log"
           grep -q "^BOARDS TEST DONE" "$RUNNER_TEMP/boards.log"
+      - name: Light and feel test (sky, glow, shockwaves, screen flash, popping score text)
+        working-directory: perigee
+        run: |
+          set -o pipefail
+          $RUNNER_TEMP/godot --headless --path . --script tests/fx_test.gd 2>&1 | tee "$RUNNER_TEMP/fx.log"
+          grep -q "^FX TEST DONE" "$RUNNER_TEMP/fx.log"
 
   # The original web prototype (perigee/web/), kept as the reference until the Godot game
   # feels the same.

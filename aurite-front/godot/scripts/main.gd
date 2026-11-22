@@ -5,6 +5,7 @@ const T := 32
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
+const GFX := preload("res://scripts/gfx.gd")    # graphics level: Low, Medium, High
 
 var S: Sim
 var V: View3D
@@ -54,6 +55,7 @@ func _ready() -> void:
 	headless = DisplayServer.get_name() == "headless"
 	randomize()
 	S = Sim.new(); S.host = self
+	GFX.init_level(_load_prefs())
 	V = View3D.new(); V.S = S; add_child(V)
 	var layer := CanvasLayer.new(); add_child(layer)
 	U = UI.new(); U.main = self; layer.add_child(U); U.build()
@@ -61,6 +63,7 @@ func _ready() -> void:
 	cut = CutscenePlayer.new(); cut.main = self; layer.add_child(cut); cut.build(U, V)
 	tut = Tutor.new(); tut.main = self; add_child(tut); tut.build()
 	U.set_tab("bld")
+	U.btn.gfx.text = gfx_label()
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
 	U.mode_btn.visible = false  # box selection is a hold-and-drag (or a plain drag with PAN_FINGERS 2)
@@ -496,6 +499,17 @@ func quit_to_menu() -> void:
 
 func toggle_sound() -> void:
 	A.muted = not A.muted; U.btn.sound.text = "SOUND: " + ("OFF" if A.muted else "ON")
+
+func gfx_label() -> String:
+	return "GRAPHICS: " + GFX.NAMES[GFX.level].to_upper()
+
+## Pause menu: next graphics level, saved in prefs, applied at once (materials, every model and the world rebuilt).
+func cycle_gfx() -> void:
+	GFX.level = GFX.next_level(GFX.level)
+	var p := _load_prefs(); p.gfx = GFX.level; _save_prefs(p)
+	U.btn.gfx.text = gfx_label()
+	V.apply_gfx()
+	if not headless: render_icons(icons_for)
 
 func toggle_music() -> void:
 	A.music_on = not A.music_on; U.btn.music.text = "MUSIC: " + ("ON" if A.music_on else "OFF")
@@ -1398,6 +1412,10 @@ func _autotest(dir: String) -> void:
 		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "fields":
 		await _field_shots(dir); get_tree().quit(); return
+	if mode == "themes":
+		await _theme_shots(dir); get_tree().quit(); return
+	if mode == "battle":
+		await _battle_shots(dir); get_tree().quit(); return
 	if mode == "tut":
 		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
@@ -1701,6 +1719,46 @@ func _camp_shots(dir: String) -> void:
 			await get_tree().create_timer(0.5).timeout
 			await _shot(dir + "/%s_%d_wide.png" % [C.id, i + 1])
 			paused = true
+
+## AF_MODE=battle: two armies meet in the open; shots a few moments apart show muzzle flashes, smoke, fire and wrecks.
+func _battle_shots(dir: String) -> void:
+	play({"fac": "vanguard", "enemy": "ashen", "diff": "normal", "seed": 4242})
+	for v in S.vis.size(): S.vis[v] = 2
+	var hq: Ent = S.find_hq(0)
+	var x0: float = hq.x + T * 8; var y0: float = hq.y - T * 10
+	for i in 6:
+		for t in [[0, "tank", 0.0], [1, "tank", 4.0], [0, "rifle", -1.0], [1, "rifle", 5.0]]:
+			var u := S.spawn_unit(t[0], t[1], x0 + i * T * .9, y0 + float(t[2]) * T)
+			u.ang = -PI / 2 if t[0] == 0 else PI / 2; u.tang = u.ang
+	S.update_vision(); V.fog_clear(true)
+	V.cam_z = 1.5; V.center_on(x0 + T * 2.5, y0 + T * 2)
+	for k in 4:
+		await get_tree().create_timer(1.2).timeout
+		await _shot(dir + "/battle_%d.png" % k)
+
+## AF_MODE=themes: the same skirmish map drawn in each of the six map themes, near and zoomed out (ground and decor checks).
+func _theme_shots(dir: String) -> void:
+	play({"fac": "vanguard", "enemy": "ashen", "diff": "normal", "seed": 4242})
+	paused = true
+	for v in S.vis.size(): S.vis[v] = 2
+	S.update_vision(); V.fog_clear(true)
+	var hq: Ent = S.find_hq(0)
+	for th in D.THEMES:
+		S.theme = th; V.build_world()
+		for z in [[1.2, "near"], [2.6, "far"]]:
+			V.cam_z = z[0]; V.center_on(hq.x + T * 3, hq.y - T * 4)
+			await get_tree().create_timer(.35).timeout
+			await _shot(dir + "/theme_%s_%s.png" % [th, z[1]])
+		# the nearest river bank to the base
+		var best := Vector2(-1, -1); var bd := 1e9
+		for i in S.terr.size():
+			if S.terr[i] == D.WATER:
+				var p := Vector2(i % 64, i / 64); var dd := p.distance_to(Vector2(hq.tx, hq.ty))
+				if dd < bd: bd = dd; best = p
+		if best.x >= 0:
+			V.cam_z = 1.6; V.center_on(best.x * T, best.y * T)
+			await get_tree().create_timer(.35).timeout
+			await _shot(dir + "/theme_%s_river.png" % th)
 
 ## AF_MODE=fields: living fields. One ore field fresh, one tired (half its vitality), one killed (grey stumps).
 func _field_shots(dir: String) -> void:

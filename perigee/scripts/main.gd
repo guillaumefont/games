@@ -41,7 +41,13 @@ var tutorial_misses := 0
 var _miss_t := -10.0 ## sim time of the last tutorial rescue, for its hint
 var particles: Array[Dictionary] = []
 var popups: Array[Dictionary] = [] ## score text floating up in the world: {x, y, text, col, life}
-var stars: Array[Dictionary] = []
+var shockwaves: Array[Dictionary] = [] ## rings a catch sends out: {x, y, r0, r1, col, w, al, life, max}
+var pulse := 0.0 ## the screen flash on a perigee, leap or clear (additive alpha, fades fast)
+var pulse_col := Color.WHITE
+var sky: SkyLayer ## the living background (behind)
+var glow: GlowLayer ## the light pass (additive, on top)
+var _bloom: Texture2D
+var _shake_off := Vector2.ZERO
 var _acc := 0.0
 var _alpha := 1.0 ## how far between the last two steps we draw
 var _vis := RandomNumberGenerator.new() ## looks only (particles, stars, shake); never the game
@@ -88,10 +94,21 @@ func _ready() -> void:
 		_vis.seed = vis_seed
 	else:
 		_vis.randomize()
-	for i in 140:
-		stars.append({"x": _vis.randf(), "y": _vis.randf(), "z": _vis.randf_range(0.15, 1.0), "tw": _vis.randf() * 6.0})
+	# the old star field drew 560 numbers here; keep drawing them so the worlds' seeds (which
+	# come next from _vis, and which tests pin with vis_seed) stay the same
+	for i in 560:
+		_vis.randf()
 	_crescent = _make_crescent()
 	_glow = _make_glow()
+	_bloom = _make_bloom()
+	sky = SkyLayer.new()
+	sky.name = "Sky"
+	add_child(sky)
+	sky.setup(self, vis_seed if vis_seed >= 0 else randi())
+	glow = GlowLayer.new()
+	glow.name = "Glow"
+	add_child(glow)
+	glow.setup(self)
 	var size := get_viewport_rect().size
 	sim = Sim.new(_new_seed(), size.x, size.y)
 	sim.next_seed = _new_seed()
@@ -485,7 +502,7 @@ func advance(delta: float) -> void:
 			else:
 				hud.show_pause(true, ceili(resume_left))
 		_alpha = 1.0
-		queue_redraw()
+		_redraw_all()
 		return
 	_acc = minf(_acc + delta, Sim.DT * MAX_STEPS_PER_FRAME)
 	while _acc >= Sim.DT:
@@ -495,7 +512,13 @@ func advance(delta: float) -> void:
 	_alpha = _acc / Sim.DT
 	_update_effects(delta)
 	_update_hud()
+	_redraw_all()
+
+
+func _redraw_all() -> void:
 	queue_redraw()
+	sky.queue_redraw()
+	glow.queue_redraw()
 
 
 func _handle_events() -> void:
@@ -519,39 +542,57 @@ func _handle_events() -> void:
 			"launch":
 				sfx.play("launch")
 			"capture":
+				# score text sits above the caught moon, clear of its body, and pops in
+				var pl = sim.player.planet
+				var mc := Vector2(e.x, e.y)
+				var top: float = e.y - 14.0
+				if pl != null:
+					mc = Vector2(Sim.planet_x(pl, sim.t), pl.y)
+					top = mc.y - pl.pr - 16.0
 				if e.kind == "retro":
-					_popup(e.x, e.y + 22.0, "Reverse", LILAC)
+					_popup(mc.x, mc.y + (pl.pr if pl != null else 0.0) + 30.0, "Reverse", LILAC)
 				if not e.first:
 					sfx.play("revisit")
 				elif e.perigee:
 					sfx.play("perigee")
-					_popup(e.x, e.y - 14.0, "Perigee +%d" % e.points, TEAL)
+					_popup(mc.x, top, "Perigee +%d" % e.points, TEAL, 1.25)
+					_wave(mc, pl, TEAL, 1.0)
+					_wave(mc, pl, INK, 0.6, 0.12)
+					_flash(TEAL, 0.07 + 0.02 * mini(e.mult, 5))
 					_vibrate(18)
 				else:
 					sfx.play(sfx.catch_sound(e.hops))
-					_popup(e.x, e.y - 14.0, "+%d" % e.points, INK)
+					_popup(mc.x, top, "+%d" % e.points, INK)
+					_wave(mc, pl, _palette[e.col], 0.6)
 				if e.skipped > 0:
 					sfx.play("leap")
-					_popup(e.x, e.y - 32.0, "Leap ×%d  +%d" % [e.skipped, e.leap_points], CORAL)
+					_popup(mc.x, top - 22.0, "Leap ×%d  +%d" % [e.skipped, e.leap_points], CORAL, 1.25)
 					_burst(e.x, e.y, CORAL, 24, 120.0)
+					_wave(mc, pl, CORAL, 1.0, 0.0, 1.6)
+					_flash(CORAL, 0.14)
 					shake = maxf(shake, 4.0)
 					_vibrate(30)
 				_burst(e.x, e.y, _palette[e.col], 10, 55.0)
 				_vibrate(12)
 			"lap":
 				if e.star:
-					_popup(e.x, e.y - 64.0, "Speed star  %.1f s  +%d" % [e.time, e.points], SAND)
+					_popup(e.x, e.y - 64.0, "Speed star  %.1f s  +%d" % [e.time, e.points], SAND, 1.3)
 					_burst(e.x, e.y, SAND, 28, 150.0)
+					_wave(Vector2(e.x, e.y), null, SAND, 1.0, 0.0, 1.8)
+					_flash(SAND, 0.12)
 					sfx.play("star", 0.5)
 					_vibrate(25)
 				else:
 					_popup(e.x, e.y - 50.0, "%d moons in %.1f s" % [Sim.LAP_MOONS, e.time], Hud.MUTED)
 			"spark":
 				_burst(e.x, e.y, SAND, 10, 70.0)
+				shockwaves.append({"x": e.x, "y": e.y, "r0": 4.0, "r1": 30.0, "col": SAND, "w": 2.0, "al": 0.8, "life": 0.35, "max": 0.35})
 				_popup(e.x, e.y - 12.0, "+%d" % e.points, SAND)
 				sfx.play("spark")
 			"clear":
 				_burst(e.x, e.y, SAND, 40, 180.0)
+				_wave(Vector2(e.x, e.y), null, SAND, 1.0, 0.0, 3.0)
+				_flash(SAND, 0.2)
 				sfx.play("clear")
 				_vibrate(40)
 				if mode == "tutorial":
@@ -570,6 +611,7 @@ func _handle_events() -> void:
 				sfx.play("graze")
 			"die":
 				_burst(e.x, e.y, INK, 30, 160.0)
+				shockwaves.append({"x": e.x, "y": e.y, "r0": 6.0, "r1": 90.0, "col": CORAL, "w": 3.0, "al": 0.7, "life": 0.6, "max": 0.6})
 				shake = 10.0
 				sfx.play("die")
 				_vibrate(60)
@@ -722,15 +764,52 @@ func _run_stats() -> String:
 	return " · ".join(parts)
 
 
-func _popup(x: float, y: float, text: String, col: Color) -> void:
-	popups.append({"x": x, "y": y, "text": text, "col": col, "life": 1.1})
+## Score text in the world. `big` scales the font; it pops in with a little overshoot.
+func _popup(x: float, y: float, text: String, col: Color, big := 1.0) -> void:
+	popups.append({"x": x, "y": y, "text": text, "col": col, "life": POPUP_LIFE, "big": big})
+
+
+const POPUP_LIFE := 1.2
+
+
+## A shockwave ring from a caught moon: from its surface out past its capture ring.
+func _wave(c: Vector2, pl, col: Color, strength: float, delay := 0.0, reach := 1.0) -> void:
+	var pr: float = pl.pr if pl != null else 14.0
+	var ring: float = pl.ring if pl != null else 70.0
+	var life := 0.45 + 0.2 * strength + delay
+	shockwaves.append({"x": c.x, "y": c.y, "r0": pr, "r1": lerpf(pr, ring * 1.05, reach) if reach <= 1.0 else ring * reach * 0.7,
+		"col": col, "w": 1.5 + 2.0 * strength, "al": 0.5 + 0.4 * strength, "life": life, "max": life})
+
+
+## A quick flash of the whole screen (left out with reduced motion).
+func _flash(col: Color, amount: float) -> void:
+	if bool(save.get_setting("reduced_motion")):
+		return
+	if amount >= pulse:
+		pulse_col = col
+	pulse = maxf(pulse, amount)
+
+
+## How a popup is scaled `age` seconds after it appeared: 0.4 -> 1.25 -> 1.0 (ease out back).
+static func popup_scale(age: float) -> float:
+	var k := clampf(age / 0.22, 0.0, 1.0)
+	var c1 := 2.2
+	var e := 1.0 + (c1 + 1.0) * pow(k - 1.0, 3.0) + c1 * pow(k - 1.0, 2.0)
+	return lerpf(0.4, 1.0, e)
 
 
 func _update_effects(delta: float) -> void:
 	for q in popups:
-		q.y -= delta * 28.0
+		# rise fast then settle
+		var age: float = POPUP_LIFE - q.life
+		q.y -= delta * (14.0 + 40.0 * exp(-age * 5.0))
 		q.life -= delta
 	popups = popups.filter(func(q: Dictionary) -> bool: return q.life > 0.0)
+	for wv in shockwaves:
+		wv.life -= delta
+	shockwaves = shockwaves.filter(func(wv: Dictionary) -> bool: return wv.life > 0.0)
+	pulse = maxf(0.0, pulse - delta * 0.7)
+	sky.tick(delta)
 	for q in particles:
 		q.x += q.vx * delta
 		q.y += q.vy * delta
@@ -776,17 +855,10 @@ func _draw() -> void:
 	var p := sim.player
 
 	var reduce_motion := bool(save.get_setting("reduced_motion"))
-	# background gradient and parallax stars (screen space)
-	draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(w, 0), Vector2(w, h), Vector2(0, h)]),
-		PackedColorArray([SPACE, SPACE, SPACE_2, SPACE_2]))
-	for s in stars:
-		var yy := fposmod(s.y * h - cam.y * s.z * 0.25, h)
-		var al: float = (0.35 + (0.0 if reduce_motion else 0.35 * sin(t * 1.5 + s.tw))) * s.z
-		var r: float = s.z * 1.6 + 0.3
-		draw_rect(Rect2(s.x * w, yy, r, r), Color(INK, al))
-
+	# the sky (gradient, nebula, far planets, stars) is drawn behind by the Sky node
 	var sk := _vis.randf_range(-shake, shake) if shake > 0.0 and not reduce_motion else 0.0
-	draw_set_transform(Vector2(w / 2.0 - cam.x + sk, h / 2.0 - cam.y + sk * 0.6))
+	_shake_off = Vector2(w / 2.0 - cam.x + sk, h / 2.0 - cam.y + sk * 0.6)
+	draw_set_transform(_shake_off)
 
 	var ship := Vector2(lerpf(p.px, p.x, a), lerpf(p.py, p.y, a))
 	var pos := {}
@@ -901,11 +973,17 @@ func _draw() -> void:
 	for q in particles:
 		draw_rect(Rect2(q.x - 1.5, q.y - 1.5, 3, 3), Color(q.col, clampf(q.life / 0.9, 0.0, 1.0)))
 	# score popups
+	# score popups: pop in with an overshoot, outlined dark so they read over moons and rings
+	var font: Font = hud.body_700
 	for q in popups:
-		var font: Font = hud.body_700
-		var fs := 13
+		var fs := int(round(14.0 * q.big))
+		var sc := 1.0 if reduce_motion else popup_scale(POPUP_LIFE - q.life)
 		var tw := font.get_string_size(q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(font, Vector2(q.x - tw / 2.0, q.y), q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(q.col, clampf(q.life / 0.5, 0.0, 1.0)))
+		var al := clampf(q.life / 0.5, 0.0, 1.0)
+		draw_set_transform(_shake_off + Vector2(q.x, q.y), 0.0, Vector2(sc, sc))
+		var at := Vector2(-tw / 2.0, 0.0)
+		draw_string_outline(font, at, q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color(SPACE, 0.85 * al))
+		draw_string(font, at, q.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(q.col, al))
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -972,6 +1050,40 @@ func _make_crescent() -> PackedVector2Array:
 	mid /= pts.size()
 	pts.sort_custom(func(u: Vector2, v: Vector2) -> bool: return (u - mid).angle() < (v - mid).angle())
 	return PackedVector2Array(pts)
+
+
+## Where the world is drawn this frame (camera plus shake), for the Glow layer.
+func world_offset() -> Vector2:
+	return _shake_off
+
+
+## The camera between the last two steps, as the view draws it.
+func view_cam() -> Vector2:
+	return Vector2(lerpf(sim.cam_px, sim.cam_x, _alpha), lerpf(sim.cam_py, sim.cam_y, _alpha))
+
+
+## The sim clock between the last two steps, as the view draws it.
+func view_time() -> float:
+	return sim.t - (1.0 - _alpha) * Sim.DT
+
+
+func bloom_texture() -> Texture2D:
+	return _bloom
+
+
+## The bloom halo: a smooth, almost Gaussian falloff from a bright centre to nothing at the edge.
+func _make_bloom() -> Texture2D:
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.15, 0.35, 0.6, 1.0])
+	g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.7), Color(1, 1, 1, 0.3), Color(1, 1, 1, 0.08), Color(1, 1, 1, 0)])
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 64
+	tex.height = 64
+	return tex
 
 
 ## The moons' soft glow: alpha 0.33 out to 0.27 of the radius, fading to 0 at the edge

@@ -201,8 +201,34 @@ static func face_color(pc: Dictionary, zc: float, up: float, jit: float, tn := 0
 
 
 static func colors(pal: Dictionary) -> Dictionary:
-	return {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
+	var out := {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
 		river = [Color(pal.river_a), Color(pal.river_b)]}
+	# a graded look paints light into the ground itself (see `grade`)
+	if pal.has("warm"):
+		out.warm = Color(pal.warm)
+		out.cool = Color(pal.cool)
+	return out
+
+
+## Where the sun stands, for the light painted into a graded ground (it matches the game's sun).
+const TO_SUN := Vector3(-0.376, 0.457, 0.806)
+
+
+## Paints light into a face of a graded look: slopes that face the sun go warm, slopes turned
+## away go cool and dark, hollows sink and crests catch the light. It costs nothing to draw.
+## `n`: the normal of the ground's broad shape there (up), `hollow`: how far the ground
+## around stands above it.
+static func grade(pc: Dictionary, c: Color, n: Vector3, hollow: float) -> Color:
+	var d := n.dot(TO_SUN) - TO_SUN.z
+	if d > 0.0:
+		c = c.lerp(pc.warm, clampf(d * 2.8, 0.0, 0.5))
+	else:
+		c = c.lerp(pc.cool, clampf(-d * 1.6, 0.0, 0.7))
+	if hollow > 0.0:
+		c = c.lerp(pc.cool, clampf(hollow / 10.0, 0.0, 0.45)).darkened(clampf(hollow / 14.0, 0.0, 0.35))
+	else:
+		c = c.lightened(clampf(-hollow / 16.0, 0.0, 0.22))
+	return c
 
 
 ## Builds chunk `c` (CHUNK units long) in chunk space: x across, y along (0..len), z up.
@@ -226,6 +252,7 @@ class Builder:
 	var ground := Acc.new()
 	var row_t := 0
 	var node: Node3D
+	var _shape := {}  ## corner (x, y) -> [the ground's broad normal there, how hollow it is]
 
 	func _init(c_: int, len_: float, pal_: Dictionary, mats_: Dictionary) -> void:
 		c = c_
@@ -266,6 +293,20 @@ class Builder:
 			row.append(Vector3(x + jx, ly + jy, Terrain.height(x + jx, y0 + ly + jy)))
 		return row
 
+	## A face's colour with the light painted in at corner `p` (chunk space). What the ground
+	## does there is worked out once per corner and shared by the faces round it.
+	func _graded(col: Color, p: Vector3) -> Color:
+		var key := Vector2(p.x, p.y)
+		if not _shape.has(key):
+			var wy := y0 + p.y
+			var hw := Terrain.height(p.x - 13.0, wy)
+			var he := Terrain.height(p.x + 13.0, wy)
+			var hs := Terrain.height(p.x, wy - 13.0)
+			var hn := Terrain.height(p.x, wy + 13.0)
+			_shape[key] = [Vector3((hw - he) / 26.0, (hs - hn) / 26.0, 1.0).normalized(), (hw + he + hs + hn) / 4.0 - p.z]
+		var sh: Array = _shape[key]
+		return Terrain.grade(pc, col, sh[0], sh[1])
+
 	func _tris(j: int) -> void:
 		for i in COLS.size() - 1:
 			var a: Vector3 = pts[j][i]
@@ -280,18 +321,24 @@ class Builder:
 				var p0: Vector3 = t[0]
 				var p1: Vector3 = t[1]
 				var p2: Vector3 = t[2]
-				var nz := absf((p1 - p0).cross(p2 - p0).normalized().z)
+				var nrm := (p1 - p0).cross(p2 - p0).normalized()
+				var nz := absf(nrm.z)
 				var jit := Terrain.h2(p0.x + p2.y, y0 + p1.y) - 0.5
-				var col := Terrain.face_color(pc, (p0.z + p1.z + p2.z) / 3.0, nz, jit, tn)
-				# the river's light spills onto its banks
+				var zc := (p0.z + p1.z + p2.z) / 3.0
+				var col := Terrain.face_color(pc, zc, nz, jit, tn)
 				var cx := (p0.x + p1.x + p2.x) / 3.0
 				var cwy := y0 + (p0.y + p1.y + p2.y) / 3.0
+				# the river's light spills onto its banks
 				var rv := Terrain.river_dy(cx, cwy)
 				var rd := absf(rv.x)
-				if rd < 30.0:
-					var rc: Color = pc.river[int(rv.y)]
-					col = col.lerp(rc, exp(-pow(rd / 15.0, 2.0)) * 0.55)
-				ground.tri(p0, p1, p2, col, Vector3.BACK)
+				var rc: Color = pc.river[int(rv.y)]
+				var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
+				if not pc.has("warm"):
+					ground.tri(p0, p1, p2, col.lerp(rc, rk), Vector3.BACK)
+				else:
+					# the painted light is worked out at each corner and blends across the
+					# face, so it models hills and hollows without picking out the triangles
+					ground.tri3(p0, p1, p2, _graded(col, p0).lerp(rc, rk), _graded(col, p1).lerp(rc, rk), _graded(col, p2).lerp(rc, rk), Vector3.BACK)
 
 
 ## The chunk's node: the ground mesh plus crystals, boulders and the odd fissure.
@@ -511,6 +558,29 @@ class Acc:
 			b = c
 			c = t
 		_add(a, b, c, nrm, color)
+
+	## Adds triangle a, b, c facing `dir`, with a colour at each corner.
+	func tri3(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, dir: Vector3) -> void:
+		var nrm := (b - a).cross(c - a)
+		if nrm.length_squared() < 1e-10:
+			return
+		nrm = nrm.normalized()
+		if nrm.dot(dir) < 0.0:
+			nrm = -nrm
+			var t := b
+			b = c
+			c = t
+			var tc := cb
+			cb = cc
+			cc = tc
+		v.append(a)
+		v.append(c)
+		v.append(b)
+		for i in 3:
+			n.append(nrm)
+		col.append(ca)
+		col.append(cc)
+		col.append(cb)
 
 	## Adds triangle a, b, c facing away from `center`.
 	func convex(a: Vector3, b: Vector3, c: Vector3, color: Color, center: Vector3) -> void:
