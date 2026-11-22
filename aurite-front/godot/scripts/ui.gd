@@ -703,6 +703,8 @@ func _build_overlays() -> void:
 	var r3 := HBoxContainer.new(); r3.add_theme_constant_override("separation", 8); d.add_child(r3)
 	btn.tut_mode = ghost("Tutorial: full", func(): main.tut.cycle_mode()); btn.tut_mode.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(btn.tut_mode)
 	var fmu := ghost("Field manual", func(): main.tut.open_manual("menu")); fmu.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(fmu)
+	# graphics level (scripts/gfx.gd): High, Medium, Low, Classic; main.cycle_gfx() rebuilds the battle at the new level
+	btn.gfx = ghost("Graphics: high", func(): main.cycle_gfx()); btn.gfx.size_flags_horizontal = Control.SIZE_EXPAND_FILL; d.add_child(btn.gfx)
 	# ---- end
 	c = _overlay("end", 700)
 	d = frame(c, 12)

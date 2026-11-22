@@ -133,6 +133,8 @@ func _ready():
 		print("ONLY ", choir_tests(s, h, OS.get_environment("AF_ONLY") == "choirsoak")); get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "vanguard":
 		print("ONLY ", vanguard_tests(s, h)); get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "gfx":
+		print("ONLY ", gfx_tests()); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
 	print("setup ms ", Time.get_ticks_msec() - t0, " ents ", s.ents.size())
 	t0 = Time.get_ticks_msec()
@@ -201,6 +203,7 @@ func _ready():
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
 	if not tutorial_tests(s, h): get_tree().quit(1); return
+	if not gfx_tests(): get_tree().quit(1); return
 	print("SIM TEST DONE")
 	get_tree().quit()
 
@@ -996,4 +999,46 @@ func vanguard_tests(s, h) -> bool:
 	if not (c.has("tank") or c.has("buggy") or c.has("railtank")): return _vfail("the Vanguard AI flew in no vehicles")
 	if c.has("power") or c.has("refinery") or c.has("harv") or c.has("factory"): return _vfail("the Vanguard AI built something from the old rules")
 	print("vanguard tests ok")
+	return true
+
+## Premium look (scripts/gfx.gd): every level builds the same models with the same named parts; premium levels add
+## rounded edges (more vertices) and a baked crease shadow in UV that stays in range; Classic has no UV.
+func gfx_tests() -> bool:
+	var GFX = load("res://scripts/gfx.gd")
+	var keep: int = GFX.level
+	var fog := ImageTexture.create_from_image(Image.create(4, 4, false, Image.FORMAT_L8))
+	var rb: Array = Models.bevel_box(Vector3(.1, .1, .1))
+	if rb.size() != 44:
+		print("GFX TEST FAILED: a rounded box has ", rb.size(), " triangles, not 44"); return false
+	var counts := {}
+	for lvl in [0, 1, 2, 3]:
+		GFX.level = lvl
+		Models.init_materials(fog)
+		for m in [["b", "hq", "vanguard"], ["u", "tank", "vanguard"], ["b", "hq", "ashen"], ["u", "tank", "ashen"], ["b", "hq", "choir"], ["u", "rifle", "choir"]]:
+			var n: Node3D = Models.get_model(m[0], m[1], 0, m[2])
+			var nv := 0
+			for mi in n.find_children("*", "MeshInstance3D", true, false):
+				var arr: Array = (mi as MeshInstance3D).mesh.surface_get_arrays(0)
+				nv += (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+				var uv = arr[Mesh.ARRAY_TEX_UV]
+				if lvl == 0 and uv != null:
+					print("GFX TEST FAILED: Classic ", m, " has UVs"); GFX.level = keep; Models.init_materials(fog); return false
+				if lvl > 0:
+					if uv == null or (uv as PackedVector2Array).size() != (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size():
+						print("GFX TEST FAILED: ", m, " at level ", lvl, " has no crease shadow UVs"); GFX.level = keep; Models.init_materials(fog); return false
+					for v in uv:
+						if v.x < 0.0 or v.x > 0.5 or v.y < 0.0 or v.y > 0.2:
+							print("GFX TEST FAILED: ", m, " UV out of range ", v); GFX.level = keep; Models.init_materials(fog); return false
+			var names := n.find_children("*", "Node3D", true, false).map(func(c): return String(c.name)).filter(func(x): return x != "m")
+			names.sort()
+			var k: String = str(m)
+			if lvl == 0: counts[k] = [nv, names]
+			elif names != counts[k][1]:
+				print("GFX TEST FAILED: ", m, " parts differ from Classic at level ", lvl); GFX.level = keep; Models.init_materials(fog); return false
+			elif lvl == 3 and nv <= counts[k][0]:
+				print("GFX TEST FAILED: ", m, " is not rounded at High (", nv, " vs ", counts[k][0], " vertices)"); GFX.level = keep; Models.init_materials(fog); return false
+			if lvl == 3: print("gfx ", m, " vertices classic ", counts[k][0], " high ", nv)
+	GFX.level = keep
+	Models.init_materials(fog)
+	print("GFX TESTS OK")
 	return true
