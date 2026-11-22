@@ -261,10 +261,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
 - Clear `user://diag.log` / `settings.cfg` before taking screenshots: a killed run counts as a
   crash and the next launch turns safe graphics on (no glow, no shadows).
 
-## Premium low poly (preview, 2026-11-22, not merged)
+## Premium low poly (2026-11-22, world 1)
 
-- Guillaume: "I like the low poly esthetics but it felt blocky and cheap". Preview on branch
-  `star-breaker-premium-lowpoly`, world 1 only, DO NOT MERGE until he decides. Look key `premium`
+- Guillaume: "I like the low poly esthetics but it felt blocky and cheap". Built as a world 1
+  preview (PR 104) and merged on his word. Look key `premium`
   (LOOKS[0]) gates: bigger ground facets (`Terrain.COLS_P`, `ROWS_P`), normals blended toward the
   broad shape (`FACET`), no random shade per facet (ground, cliffs, the run's rock via
   `VRun.premium`), wider baked occlusion, a gradient sky with the sun's glow (`_premium_env()`),
