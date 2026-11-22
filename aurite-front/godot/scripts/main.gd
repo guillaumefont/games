@@ -1414,6 +1414,8 @@ func _autotest(dir: String) -> void:
 		await _field_shots(dir); get_tree().quit(); return
 	if mode == "themes":
 		await _theme_shots(dir); get_tree().quit(); return
+	if mode == "battle":
+		await _battle_shots(dir); get_tree().quit(); return
 	if mode == "tut":
 		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
@@ -1717,6 +1719,22 @@ func _camp_shots(dir: String) -> void:
 			await get_tree().create_timer(0.5).timeout
 			await _shot(dir + "/%s_%d_wide.png" % [C.id, i + 1])
 			paused = true
+
+## AF_MODE=battle: two armies meet in the open; shots a few moments apart show muzzle flashes, smoke, fire and wrecks.
+func _battle_shots(dir: String) -> void:
+	play({"fac": "vanguard", "enemy": "ashen", "diff": "normal", "seed": 4242})
+	for v in S.vis.size(): S.vis[v] = 2
+	var hq: Ent = S.find_hq(0)
+	var x0: float = hq.x + T * 8; var y0: float = hq.y - T * 10
+	for i in 6:
+		for t in [[0, "tank", 0.0], [1, "tank", 4.0], [0, "rifle", -1.0], [1, "rifle", 5.0]]:
+			var u := S.spawn_unit(t[0], t[1], x0 + i * T * .9, y0 + float(t[2]) * T)
+			u.ang = -PI / 2 if t[0] == 0 else PI / 2; u.tang = u.ang
+	S.update_vision(); V.fog_clear(true)
+	V.cam_z = 1.5; V.center_on(x0 + T * 2.5, y0 + T * 2)
+	for k in 4:
+		await get_tree().create_timer(1.2).timeout
+		await _shot(dir + "/battle_%d.png" % k)
 
 ## AF_MODE=themes: the same skirmish map drawn in each of the six map themes, near and zoomed out (ground and decor checks).
 func _theme_shots(dir: String) -> void:
