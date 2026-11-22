@@ -3,15 +3,17 @@ extends ShipKit
 ## of your path on the other half of the screen, firing as you do (it is a ghost: nothing can
 ## hit it). Lifting swaps you with the twin: you are across the screen at once, safe for a
 ## moment, and the link that flashes between the two places wipes the bullets on it and hits
-## the enemies it crosses. Link hits and wiped bullets load the Eclipse: for its length the
+## the enemies it crosses. The twin's shots that land, link hits and wiped bullets load the
+## Eclipse (the link alone left the gauge empty: Guillaume, 2026-11-22): for its length the
 ## link burns the whole time.
 
 const SPLIT := 8          ## ticks for the twin to slide out
 const LINK_H := 7.0       ## half height of the link
 const LINK_DMG := 8.0
 const SAFE := 16          ## ticks of safety after a swap
-const HIT_GAIN := 1.0 / 8.0
-const WIPE_GAIN := 1.0 / 20.0
+const HIT_GAIN := 1.0 / 5.0
+const WIPE_GAIN := 1.0 / 12.0
+const TWIN_GAIN := 1.0 / 45.0   ## each of the twin's shots that lands
 const ECLIPSE_T := 360
 const ECLIPSE_DMG := 0.6
 
@@ -46,8 +48,14 @@ func out() -> bool:
 func fire() -> void:
 	var sp: float = VShips.KITS.gemini.shot_speed
 	for x in [g.P.x] + ([twin().x] if split > 0.5 else []):
-		g.shot(x - 2.0, g.P.y + 8, 0, sp, Models.M.shot, 1, "b38cff")
-		g.shot(x + 2.0, g.P.y + 8, 0, sp, Models.M.shot, 1, "b38cff")
+		for dx in [-2.0, 2.0]:
+			g.shot(x + dx, g.P.y + 8, 0, sp, Models.M.shot, 1, "b38cff")
+			# the twin's own shots load the Eclipse when they land
+			g.G.pb.back().kit = x != g.P.x
+
+
+func on_hit(_b: Dictionary) -> void:
+	gain(TWIN_GAIN)
 
 
 func hold() -> void:

@@ -13,7 +13,7 @@ const JAM := 110
 const VENT_MIN := 0.25
 const VENT_R := 34.0
 const VENT_DMG := 16.0
-const HIT_GAIN := 1.0 / 26.0
+const HIT_GAIN := 1.0 / 14.0
 const MELT_T := 330
 
 var heat := 0.0

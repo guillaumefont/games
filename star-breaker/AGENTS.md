@@ -53,6 +53,13 @@ lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced is i
   with heat squared), full heat jams the gun instead. The Meltdown is full rate with no heat.
 - Twelve ships is the roster Guillaume asked for (2026-11-21). A thirteenth needs a hold and a
   lift that none of these already has: a new weapon alone is a reskin.
+- Gauges must fill in ordinary play (Guillaume, 2026-11-22: Weaver's and Gemini's would not, and
+  Anvil's bomb was beaten to every kill by its own guns). Small enemies have 1 to 5 hit points,
+  so any gun firing ahead kills them before a slower signature move lands. Rules since then:
+  every kill loads any kit's gauge a little (`ShipKit.KILL_TRICKLE`); a gauge never loads only
+  from a move that needs live enemies in a precise place; Anvil's guns fire out in a V
+  (`GUN_A`) and never ahead; the play screen prints `KITS[ship].loads` under the gauge, so keep
+  that sentence true. `tools/playbot.gd` prints Anvil's bombs landed and Weaver's cuts.
 - Kits hit things through `targets()`, `strike()`, `blast()`, `wipe()` in shipkit.gd. A boss part
   is known by its `o`: the game rebuilds `G.bparts` every tick, so never keep a part dictionary.
 - Unlocks: `VShips.KITS[ship].unlock` Normal stages cleared (`Progress.ship_open()`). The hangar

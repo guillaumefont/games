@@ -657,6 +657,73 @@ func _initialize() -> void:
 	tick(60, true)
 	check(fk.melt > 0 and fk.heat == 0.0 and fk.fire_every() == fk.FAST_EVERY, "a full meter and a lift starts the Meltdown: full fire rate, no heat")
 
+	# --- the gauges fill in normal play (Guillaume, 2026-11-22) ---
+	# Anvil: the guns fire out to the sides, so what is ahead is left for the bomb
+	vg.start_stage(1, "anvil")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var av_front: Dictionary = vg.E("shell", vg.P.x, vg.P.y + 70.0, {hold = vg.P.y + 70.0})
+	av_front.hp = 500.0
+	var av_side: Dictionary = vg.E("shell", vg.P.x + 70.0 * tan(vg.kit.GUN_A) + 4.0, vg.P.y + 77.0, {hold = vg.P.y + 77.0})
+	av_side.hp = 500.0
+	tick(8, true)
+	var av_x: float = av_front.x
+	var av_seen := false
+	for k in 50:
+		tick(1, true)
+		av_front.x = av_x
+		av_side.x = av_x + 70.0 * tan(vg.kit.GUN_A) + 4.0
+		av_seen = av_seen or absf(vg.kit.aim().y - av_front.y) < 3.0
+	check(av_front.hp == 500.0 and av_side.hp < 500.0, "Anvil's guns hit what is off to the sides and never what is dead ahead")
+	check(av_seen, "its reticle reaches an enemy 70 ahead within a second")
+	av_front.dead = true
+	av_side.dead = true
+	# every kill loads a little, whatever made it
+	vg.start_stage(1, "wraith")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var tr_e: Dictionary = vg.E("drifter", vg.P.x, vg.P.y + 30.0, {move = "sine", amp = 0.0, ph = 0.0, x0 = vg.P.x})
+	tr_e.foe = true
+	tick(30, true)
+	check(tr_e.get("killed", false) and absf(vg.kit.meter - ShipKit.KILL_TRICKLE) < 0.0001, "a kill with the gun loads any ship's gauge a little")
+	# Weaver: the thread's burns load the Loom, and so do the bullets a loop cuts
+	vg.start_stage(1, "weaver")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	var wv_e: Dictionary = vg.E("shell", vg.P.x - 30.0, vg.P.y + 3.0, {hold = vg.P.y + 3.0})
+	wv_e.hp = 500.0
+	for k in 12:
+		tick(1, true, -2.5, 0.0)
+		wv_e.x = vg.P.x
+		wv_e.y = vg.P.y
+	check(wv_e.hp < 500.0 and vg.kit.meter >= vg.kit.BURN_GAIN, "Weaver's thread loads the Loom when it burns something")
+	wv_e.dead = true
+	# Gemini: the twin's shots load the Eclipse
+	vg.start_stage(1, "gemini")
+	settle()
+	vg.G.si = vg.script_list.size()
+	for e0 in vg.G.enemies:
+		e0.dead = true
+	tick(2, false)
+	tick(1, true, 25.0, 0.0)
+	tick(12, true)
+	var gm_e: Dictionary = vg.E("shell", vg.kit.twin().x, vg.P.y + 40.0, {hold = vg.P.y + 40.0})
+	gm_e.hp = 500.0
+	for k in 40:
+		tick(1, true)
+		gm_e.x = vg.kit.twin().x
+	check(gm_e.hp < 500.0 and vg.kit.meter >= vg.kit.TWIN_GAIN, "Gemini's twin loads the Eclipse with the shots it lands")
+	gm_e.dead = true
+
 	# --- stages ---
 	check(VStage.STAGES.size() == 48, "six worlds of eight stages")
 	for st in VStage.STAGES.size():

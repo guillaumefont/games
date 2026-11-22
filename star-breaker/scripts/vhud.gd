@@ -847,6 +847,9 @@ func _draw_meter_bar() -> void:
 	draw_string(fonts[800], Vector2(bx + bw + 10, by + 10), String(VShips.KITS[ship].ult_name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 16,
 			C_TEXT if full else Color(C_SPORE, 0.6))
 	draw_string(fonts[700], Vector2(bx, by + 30), kit_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(C_TEXT, pulse) if full else Color(C_MUTED, 0.9))
+	# what loads the gauge, said in play too (Guillaume, 2026-11-22: "how am I supposed to charge")
+	if not full and charge < 1.0:
+		draw_string(fonts[700], Vector2(bx, by + 52), String(VShips.KITS[ship].get("loads", "")).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(C_SPORE, 0.75))
 
 
 # ---------- tiers, medals and ship colours ----------
