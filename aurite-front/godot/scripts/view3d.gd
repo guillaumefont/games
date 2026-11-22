@@ -3,6 +3,7 @@ extends Node3D
 ## Draws the battle: terrain, water, decor, ore, units, buildings, effects, fog of war.
 
 const GFX := preload("res://scripts/gfx.gd")
+const Ground := preload("res://scripts/ground.gd")
 
 ## Terrain look (2026-11-16 overhaul, "calm the terrain"): vertex jitter, per-triangle colour noise,
 ## grass desaturation, grass variation scale and how much flat-ground normals lean up (less facet contrast).
@@ -35,6 +36,7 @@ var fog_tex: ImageTexture
 var world := Node3D.new()
 var ents_root := Node3D.new()
 var recs := {}
+var ground_mi: MeshInstance3D   # premium ground (scripts/ground.gd); null on Classic
 var wrecks_n := {}   # Pact salvage: wreck id -> its burnt model
 var burnt_mat: StandardMaterial3D
 var decor := {}
@@ -309,7 +311,10 @@ func build_world() -> void:
 	var G0: Vector3 = desat.call(v3.call(TH.grass)); var GV: Vector3 = v3.call(TH.gvar) * TERR_GVAR; var CL: Vector3 = v3.call(TH.cliff); var RK: Vector3 = v3.call(TH.rock)
 	var BED: Vector3 = v3.call(TH.bed); var SND: Vector3 = v3.call(TH.sand)
 	var H := S.H
-	for j in HN - 1:
+	ground_mi = null
+	if GFX.premium():
+		ground_mi = Ground.build(S, fog_tex, MW, MH, HN); world.add_child(ground_mi)
+	for j in (0 if GFX.premium() else HN - 1):
 		for i in HN - 1:
 			var a := Vector3(i / 2.0 + JX[j * HN + i], H[j * HN + i], j / 2.0 + JZ[j * HN + i])
 			var b := Vector3((i + 1) / 2.0 + JX[j * HN + i + 1], H[j * HN + i + 1], j / 2.0 + JZ[j * HN + i + 1])
@@ -349,8 +354,9 @@ func build_world() -> void:
 					norms.append(n)
 	var arr := []; arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts; arr[Mesh.ARRAY_NORMAL] = norms; arr[Mesh.ARRAY_COLOR] = cols
-	var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr); am.surface_set_material(0, Models.material)
-	var terr := MeshInstance3D.new(); terr.mesh = am; world.add_child(terr)
+	if not GFX.premium():
+		var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr); am.surface_set_material(0, Models.material)
+		var terr := MeshInstance3D.new(); terr.mesh = am; world.add_child(terr)
 	# water
 	var wm := PlaneMesh.new(); wm.size = Vector2(MW, MH); wm.subdivide_width = 40; wm.subdivide_depth = 40
 	var water := MeshInstance3D.new(); water.mesh = wm; water.position = Vector3(MW / 2.0, -0.24, MH / 2.0)
@@ -439,6 +445,7 @@ func _xf(x: float, y: float, z: float, sx: float, sy: float, sz: float, rx := 0.
 
 func refresh_decor() -> void:
 	if decor.is_empty(): return
+	if ground_mi: Ground.update_occ(ground_mi, S, MW, MH)
 	var TH: Dictionary = D.THEMES[S.theme]
 	var tc: Array = TH.tcol.map(func(h): return Color(h))
 	var trunk_c := Color(TH.trunk).srgb_to_linear(); var rock_c := Color(TH.stone).srgb_to_linear(); var bush_c := Color(TH.bush).srgb_to_linear()
