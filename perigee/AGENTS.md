@@ -96,6 +96,15 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   a stop opens its level card (goals, each medal's next tier and sparks, best run, Play). The test bot waits for a
   pulsar's ring to be lit; sector seeds were picked so both bots clear every sector, then `tools/par_times.gd` set the
   pars and points marks.
+- Light and feel (Guillaume, 2026-11-22: "what would drastically improve graphics"), looks only, never the sim:
+  `scripts/sky.gd` (SkyLayer, a child of Main with `show_behind_parent`) draws the sky gradient, a nebula made once
+  from seamless noise (96x192, tiled up the sky), far planets, twinkling stars and the odd shooting star, each at its
+  own parallax. `scripts/glow.gd` (GlowLayer, a child drawn over Main with additive blending) is a cheap bloom: halos
+  from one texture (`main.bloom_texture()`) on moons, ship, combo-tinted trail (`GlowLayer.combo_color`), sparks and
+  particles, plus catch shockwaves (`main.shockwaves`) and the screen flash (`main.pulse`). Score text pops in
+  (`main.popup_scale`), outlined, above the caught moon. Reduced motion drops the flash, the pop and shooting stars;
+  high contrast dims the nebula. Main still draws 560 throwaway numbers from `_vis` where the old star field did,
+  so the worlds' seeds that tests pin with `vis_seed` stay the same. `tests/fx_test.gd` covers it.
 - Medals (`scripts/medals.gd`, drawn by `scripts/medal_icon.gd`), Guillaume's ask of 2026-11-17: each sector has a
   speed medal (bronze at par, silver at 88%, gold at 76% of par), a points medal (the sector's `points` marks,
   suggested by `tools/par_times.gd`: 40/75/110% of the bot's all-perigee score) and an all-stars medal (3 of 3 stars);
@@ -167,8 +176,8 @@ The full-game plan (Claude Doc): https://claude.ai/artifact/5FQoqmDzx2NUVddVyQR8
   (scene: input, HUD, save, pause/resume, settings) and `tests/voyage_test.gd` (sectors, stars, unlocks, Voyage
   screens) `tests/onboarding_test.gd` (tutorial, settings), `tests/unlocks_test.gd` (unlock track, hangar) and
   `tests/update_test.gd` (self-update: pack download and checks, APK offer, Play build) and `tests/boards_test.gd`
-  (Drift boards, speed stars on the game over card) run in `perigee-test.yml` (check "Perigee headless test").
-  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` / `BOARDS TEST DONE` last; CI greps for it. A new test file gets a step there.
+  (Drift boards, speed stars on the game over card) and `tests/fx_test.gd` (light and feel) run in `perigee-test.yml` (check "Perigee headless test").
+  Each prints `SIM TEST DONE` / `GAME TEST DONE` / `VOYAGE TEST DONE` / `ONBOARDING TEST DONE` / `UNLOCKS TEST DONE` / `BOARDS TEST DONE` / `FX TEST DONE` last; CI greps for it. A new test file gets a step there.
 - `tests/prototype_play_test.cjs` tests the web game in Chromium; CI greps for its last line, `PLAY TEST DONE`.
 - Every change comes with a test of what it should do; a bug fix gets a regression test.
 - Screenshots of the Godot game for reviews: `tools/screenshots.gd` (see README).
