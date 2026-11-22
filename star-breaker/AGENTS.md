@@ -62,16 +62,32 @@ lighter `STORM_DMG` are its price); the Starbreak sweeping beam it replaced is i
   that sentence true. `tools/playbot.gd` prints Anvil's bombs landed and Weaver's cuts.
 - Kits hit things through `targets()`, `strike()`, `blast()`, `wipe()` in shipkit.gd. A boss part
   is known by its `o`: the game rebuilds `G.bparts` every tick, so never keep a part dictionary.
+- Power order (Guillaume, 2026-11-22: "ships sorted in power order (lance seems op)"): `VShips.ORDER`
+  is the hangar's order, the unlock order and the power order, weakest first: Lance, Warden, Forge,
+  Weaver, Wraith, Gemini, Vortex, Siphon, Echo, Anvil, Halo, Hornet. `KITS[ship].might` multiplies
+  every hit of the ship (it goes into `G.power` with the ship's level): the starters are 1.0, every
+  later ship is above. The order came from bot runs at equal might (Hornet, Halo and Anvil were the
+  strongest kits, Forge and Wraith the weakest), not from taste: after changing a kit, rerun the
+  sweep (below) and move the ship or its `might` so kills and boss times still climb along `ORDER`.
+  The hangar prints "POWER n / 12" (`VShips.rank_text`). Each ship keeps a job the others lack
+  (Warden eats bullets, Siphon heals, Wraith phases, Halo cuts bullets), so an early ship is weaker,
+  not useless: don't flatten that with a plain damage ladder. Lance's Storm is `STORM_DMG` 12 (it
+  was 20): it clears early waves and only dents late ones.
 - Unlocks: `VShips.KITS[ship].unlock` Normal stages cleared (`Progress.ship_open()`). The hangar
   shows locked ships dark with what opens them: `hud.view_ship` is the ship shown, `hud.ship` the
   one flown (saved under `[game] ship`). Ships without their own list in `Progress.SCHEMES` use
   the shared paints (`COMMON`, `COMMON_AT`). Models come from `VShips.craft()` (a spec of hull
   sections, wings, fin, engines) plus a few boxes; add each new model to `_warm_up()`.
 - The bot dodges and holds; it can't judge a mechanic that needs intent (it rarely closes
-  Weaver loops round enemies). Use it for "does the ship clear", not for balance.
+  Weaver loops round enemies), and it reads bullets better than a person does. Use it to compare
+  ships and stages with each other, not to say what a person can clear. Each run ends with a
+  `CSV,ship,stage,tier,cleared,hits,lives,seconds,kills,foes,boss ticks,barrier hits` line; a
+  sweep of every ship over one stage in four is about 4 minutes on 4 cores (one process per
+  ship, each with its own `XDG_DATA_HOME` so they don't share the save).
 - New ship checklist: `KITS` + `ORDER` in vships.gd, a model in `VShips.model()`, paints and
   levels in progress.gd, the kit, a block in tests/vertical_test.gd, a bot run
-  (`tools/playbot.gd -- 0,15,31 <ship>`: it must clear) and a GIF (`tools/ship_shots.gd`).
+  (`tools/playbot.gd -- 0,15,31 <ship>`: it must clear the stages of the worlds open when it
+  unlocks; the starters are meant to lose in world 6 at level 1) and a GIF (`tools/ship_shots.gd`).
 - Tests read the real save: clear `user://save.cfg` before running them after playing or after
   a bot run (a higher tier picked on the menu changes enemy hit points).
 
@@ -121,6 +137,7 @@ godot --headless --path . --script tests/run_test.gd     # canyon run: course is
 godot --headless --path . --script tests/runs_test.gd    # a canyon run in every stage: all 48 courses fair and flyable, gold in one stage per world, built a little per frame
 godot --headless --path . --script tests/popin_test.gd   # every stage on a tall phone: no model or shadow appears inside the screen (-- <stages> vp=WxH)
 godot --headless --path . --script tests/progress_test.gd # replay tiers, medals, medal track, ship colours, flux, ship levels
+godot --headless --path . --script tests/curve_test.gd    # difficulty rises with heat (waves, hit points, fire, parting shots), ships in power order
 ```
 
 Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/vertical_shots.gd -- /tmp/vshots`
@@ -297,6 +314,19 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   on the ground, more every stage and crowding round the fortress (`VStage._outpost`).
 - Guillaume wants dense stages ("the ships can handle much more"): keep the group spacing and
   sizes in `VStage.build()` / `_group()` rising with stage and world.
+- The difficulty curve (Guillaume, 2026-11-22: "with the same ship I can win almost any level"):
+  one number, `VStage.heat(i)`, 0 at world 1 stage 1 to 1 at world 6 stage 8, dipping a little at
+  each new world. Everything that makes a stage harder reads it, so tune the constants in
+  vstage.gd (`HP_GROW`, `BOSS_GROW`, `WORLD_BOSS_GROW`, `FIRE_GROW`) rather than adding per-world
+  special cases: group size and spacing, paired groups (every second one from mid-campaign), big
+  flyers escorting waves (`heat >= 0.66`), enemy and boss hit points, bullet speed (`bspeed()`),
+  fire rate (`fire_mul()`: use it, not `tier_mul("fire")`, for any new cooldown), fuller patterns
+  (`volley()` adds shots to fans and rings) and parting shots (`_parting_shot`: from world 2 some
+  small flyers fire once as they die, never from near the ship). Hit points alone don't make a
+  stage harder (small flyers still die in a shot or two), which is why pressure comes from the
+  rest. World 1 stage 1 is as it was before the curve. Before it, the bot took 2 to 3 hits a stage
+  from world 1 to world 6 with any ship; now a level 1 starter loses in world 6. A nest's brood
+  rate grows with the square root of `fire_mul()` (at the full rate Twin Nests flooded the screen).
 - The menu's device row: sound, graphics (safe = no glow/MSAA), and the build line; the crash
   notice with "Copy crash report" sits above it after a session that didn't end cleanly.
 - Back on the menu quits the app; on a result it goes to the menu; in play it pauses.

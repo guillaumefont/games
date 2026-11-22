@@ -7,35 +7,50 @@ extends RefCounted
 ## lift and ultimate meter (`loads` says what fills it). No ship has a detached thing to steer:
 ## Guillaume dropped Warden's pod on 2026-11-21.
 
+## Ships come in power order (Guillaume, 2026-11-22: "ships sorted in power order"): `ORDER` is
+## both the hangar's order and the unlock order, weakest first, as measured with the bot
+## (`tools/playbot.gd`: kills, boss fight length, hits taken, over stages of every world).
+## `might` multiplies every hit of the ship; it is what puts a ship on its rung, so a kit can
+## keep its feel and still sit where it should. Both starters are 1.0.
 ## `unlock`: how many stages must be cleared on Normal before the ship opens (0: from the start).
 ## `sub` is what hold and lift do, `loads` what fills the ultimate; both show in the hangar.
 const KITS := {
 	lance = {name = "Lance", sub = "Hold to charge the beam, lift to fire", release = "beam", ult = "storm", ult_name = "Storm",
-		fire_every = 6, shot_speed = 6.5, unlock = 0, loads = "Keep holding past the Nova"},
+		fire_every = 6, shot_speed = 6.5, unlock = 0, might = 1.0, loads = "Keep holding past the Nova"},
 	warden = {name = "Warden", sub = "Hold to raise a shield that eats bullets, lift to throw them back", release = "shield", ult = "shatter", ult_name = "Shatter",
-		fire_every = 8, shot_speed = 5.5, kit = "warden", loads = "Bullets eaten load Shatter", unlock = 0},
+		fire_every = 8, shot_speed = 5.5, kit = "warden", loads = "Bullets eaten load Shatter", unlock = 0, might = 1.0},
 	hornet = {name = "Hornet", sub = "Hold and fly under enemies to lock them, lift to fire a missile per lock", ult = "hive", ult_name = "Hive",
-		fire_every = 7, shot_speed = 7.0, kit = "hornet", loads = "Missile hits load the Hive", unlock = 2},
+		fire_every = 7, shot_speed = 7.0, kit = "hornet", loads = "Missile hits load the Hive", unlock = 28, might = 1.45},
 	weaver = {name = "Weaver", sub = "Hold to trail a burning thread, close a loop and lift to cut what's inside", ult = "loom", ult_name = "Loom",
-		fire_every = 6, shot_speed = 6.0, kit = "weaver", loads = "Thread burns, loop cuts and bullets cut load the Loom", unlock = 4},
+		fire_every = 6, shot_speed = 6.0, kit = "weaver", loads = "Thread burns, loop cuts and bullets cut load the Loom", unlock = 4, might = 1.35},
 	anvil = {name = "Anvil", sub = "Hold to run the reticle up the screen, lift to drop a bomb on it", ult = "barrage", ult_name = "Barrage",
-		fire_every = 11, shot_speed = 5.0, kit = "anvil", loads = "Bomb hits load the Barrage, ground targets most", unlock = 6},
+		fire_every = 11, shot_speed = 5.0, kit = "anvil", loads = "Bomb hits load the Barrage, ground targets most", unlock = 20, might = 1.45},
 	gemini = {name = "Gemini", sub = "Hold and a twin mirrors you across the screen, lift to swap places with it", ult = "eclipse", ult_name = "Eclipse",
-		fire_every = 7, shot_speed = 6.5, kit = "gemini", loads = "Your twin's hits and the swap's link load the Eclipse", unlock = 8},
+		fire_every = 7, shot_speed = 6.5, kit = "gemini", loads = "Your twin's hits and the swap's link load the Eclipse", unlock = 8, might = 1.35},
 	halo = {name = "Halo", sub = "Blades circle the ship. Hold to widen the ring, lift to burst it", ult = "sawstorm", ult_name = "Sawstorm",
-		fire_every = 8, shot_speed = 6.0, kit = "halo", loads = "Bullets the blades cut load the Sawstorm", unlock = 11},
+		fire_every = 8, shot_speed = 6.0, kit = "halo", loads = "Bullets the blades cut load the Sawstorm", unlock = 24, might = 1.3},
 	vortex = {name = "Vortex", sub = "Hold to grow a gravity well at the nose, lift to leave it there: it drags enemies in and implodes", ult = "horizon", ult_name = "Event Horizon",
-		fire_every = 7, shot_speed = 6.0, kit = "vortex", loads = "What the wells swallow loads the Event Horizon", unlock = 14},
+		fire_every = 7, shot_speed = 6.0, kit = "vortex", loads = "What the wells swallow loads the Event Horizon", unlock = 11, might = 1.45},
 	siphon = {name = "Siphon", sub = "Hold and a beam latches onto the nearest enemy, draining it and mending your hull. Lift to fire what you drained", ult = "leech", ult_name = "Leech",
-		fire_every = 7, shot_speed = 6.0, kit = "siphon", loads = "Draining loads the Leech", unlock = 17},
+		fire_every = 7, shot_speed = 6.0, kit = "siphon", loads = "Draining loads the Leech", unlock = 14, might = 1.7},
 	echo = {name = "Echo", sub = "Lift and an echo of the ship flies your last seconds again, firing as you did", ult = "chorus", ult_name = "Chorus",
-		fire_every = 6, shot_speed = 6.5, kit = "echo", loads = "Echo shots that land load the Chorus", unlock = 20},
+		fire_every = 6, shot_speed = 6.5, kit = "echo", loads = "Echo shots that land load the Chorus", unlock = 17, might = 1.5},
 	wraith = {name = "Wraith", sub = "Lift to phase out: nothing can touch you, and you don't fire. Touch again to burst", ult = "possession", ult_name = "Possession",
-		fire_every = 7, shot_speed = 6.0, kit = "wraith", loads = "What passes through you loads the Possession", unlock = 24},
+		fire_every = 7, shot_speed = 6.0, kit = "wraith", loads = "What passes through you loads the Possession", unlock = 6, might = 1.6},
 	forge = {name = "Forge", sub = "The gun speeds up and heats as you hold. Lift to vent the heat as a ring of fire, before it jams", ult = "meltdown", ult_name = "Meltdown",
-		fire_every = 9, shot_speed = 6.5, kit = "forge", loads = "Vent hits load the Meltdown", unlock = 28},
+		fire_every = 9, shot_speed = 6.5, kit = "forge", loads = "Vent hits load the Meltdown", unlock = 2, might = 1.8},
 }
-const ORDER := ["lance", "warden", "hornet", "weaver", "anvil", "gemini", "halo", "vortex", "siphon", "echo", "wraith", "forge"]
+const ORDER := ["lance", "warden", "forge", "weaver", "wraith", "gemini", "vortex", "siphon", "echo", "anvil", "halo", "hornet"]
+
+
+## A ship's place in the power order, as the hangar prints it: "POWER 3 / 12".
+static func rank_text(kind: String) -> String:
+	return "POWER %d / %d" % [ORDER.find(kind) + 1, ORDER.size()]
+
+
+## How hard a ship hits, as a multiple of the starters: every hit goes through it (`G.power`).
+static func might(kind: String) -> float:
+	return float(KITS[kind].get("might", 1.0))
 
 
 ## Turns a model built for the side-scroller (nose along +X, top along +Y) so that, seen by the

@@ -8,7 +8,7 @@ extends ShipKit
 const RAISE := 8         ## ticks for the shield to come up
 const R := 13.0          ## shield radius from the ship
 const ARC := 1.25        ## half the arc's angle (radians) either side of straight up
-const STORE := 12        ## bullets it holds before it must be emptied by a lift
+const STORE := 8         ## bullets it holds before it must be emptied by a lift
 const EAT_GAIN := 1.0 / 24.0
 const HIT_GAIN := 1.0 / 80.0
 const THROW_DMG := 2

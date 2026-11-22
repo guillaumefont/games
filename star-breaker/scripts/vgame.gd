@@ -30,7 +30,7 @@ const BEAM_W := [0, 2.0, 3.0, 4.2, 7.0]
 ## for STORM_LIFE ticks. It also wipes the enemy bullets on screen. The long hold and the
 ## lighter hit are its price for being free.
 const ULT_AT := 420
-const STORM_DMG := 20
+const STORM_DMG := 12
 const STORM_SPREAD := 24
 const STORM_LIFE := 70
 ## After a lift, time runs at this speed for SLOW_TICKS ticks, so the thumb can land again.
@@ -643,8 +643,8 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	var td: Dictionary = Progress.tier(tr)
 	Diag.note("VSTAGE", "%d %s tier %d" % [i, kind, tr])
 	G = {stage = i, ship = kind, scroll = 0.0, t = 0, si = 0, bi = 0, enemies = [], eb = [], pb = [], items = [], bars = [], beams = [],
-		boss = {}, bparts = [], props = [], score = 0, world = sd.world, j = sd.j, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
-		power = Progress.power(prog.level(kind)), flux = 0,
+		boss = {}, bparts = [], props = [], score = 0, world = sd.world, j = sd.j, heat = sd.heat, lives = int(td.ships), clear_t = 0, fail_t = 0, ended = false, ult_t = 0, shards = [], length = sd.length,
+		power = Progress.power(prog.level(kind)) * VShips.might(kind), flux = 0,
 		tier = tr, foes = 0, foes_killed = 0, breakables = 0, broken = 0, hits = 0, boss_t0 = -1, boss_ticks = -1, end_kind = ""}
 	P = {x = W / 2.0, y = -12.0, alive = true, entering = true, inv = 120, hull = HULL, laser = 0, fire_cd = 0, charge = 0, ready_lv = 0,
 		held = false, storm_rdy = false, vx = 0.0, respawn = 0, hit_t = 0, scrape = false}
@@ -748,7 +748,7 @@ func finish(cleared: bool) -> void:
 	var id := Progress.stage_id(G.stage)
 	var got := Progress.judge({cleared = cleared, foes = G.foes, foes_killed = G.foes_killed, breakables = G.breakables,
 		broken = G.broken, hits = G.hits, boss_ticks = G.boss_ticks, end = G.end_kind, tier = G.tier,
-		boss_scale = 1.0 if G.end_kind == "bloom" else 1.0 + 0.2 * G.world + 0.03 * G.j})
+		boss_scale = 1.0 if G.end_kind == "bloom" else (VStage.boss_scale(G.heat) if G.end_kind.contains(":") else VStage.world_boss_scale(G.heat))})
 	var rep := prog.record(id, G.tier, cleared, got)
 	rep.flux = prog.bank_run(G.score, G.tier, rep.new_medals.size())
 	rep.merge({cleared = cleared, tier = G.tier, got = got, held = prog.medals(id, G.tier)})
@@ -1274,7 +1274,18 @@ func bullet(x: float, y: float, vx: float, vy: float) -> void:
 
 ## Enemy bullets get faster stage by stage and world by world.
 func bspeed() -> float:
-	return (1.0 + 0.03 * G.j + 0.07 * G.world) * tier_mul("bullet")
+	return (1.0 + 0.55 * G.get("heat", 0.0)) * tier_mul("bullet")
+
+
+## How fast enemy fire cooldowns run down: the tier's share times the stage's (`VStage.heat`).
+func fire_mul() -> float:
+	return tier_mul("fire") * VStage.fire_scale(G.get("heat", 0.0))
+
+
+## Late in the campaign enemies fire fuller patterns: 0 in worlds 1-2, 1 from world 3 stage 4
+## or so, 2 in the last stages. Fans and rings add shots by it.
+func volley() -> int:
+	return int(G.get("heat", 0.0) * 2.5)
 
 
 ## How much the stage's tier (Normal, Nova, Supernova) scales `key`: bullet, fire, hp or score.
@@ -1411,19 +1422,23 @@ func _spawn_end(kind: String) -> void:
 		spawn_gboss(kind)
 		return
 	var wd: Dictionary = VStage.WORLDS[G.world]
-	var hk: float = 1.0 + 0.2 * G.world + 0.03 * G.j
+	var hk: float = VStage.boss_scale(G.heat)
 	var parts := kind.split(":")
 	var k: String = parts[1] if parts.size() > 1 else wd.big
 	if parts[0] == "twins":
-		E(k, 36, top() + 20, {boss = true, hp = 60.0 * hk, hold = 160.0})
-		E(k, W - 36, top() + 30, {boss = true, hp = 60.0 * hk, hold = 175.0})
+		E(k, 36, top() + 20, {boss = true, hp = MID_HP * 0.55 * hk, hold = 160.0})
+		E(k, W - 36, top() + 30, {boss = true, hp = MID_HP * 0.55 * hk, hold = 175.0})
 		hud.boss_name = VStage.BIG_NAMES[k][1]
 	else:
 		var giant := parts[0] == "giant"
 		var sc := 1.9 if giant else 1.5
-		E(k, W / 2, top() + 24, {boss = true, hp = (220.0 if giant else 110.0) * hk, hold = 160.0, sc = sc})
+		E(k, W / 2, top() + 24, {boss = true, hp = (MID_HP * 2.0 if giant else MID_HP) * hk, hold = 160.0, sc = sc})
 		hud.boss_name = Worlds.LIST[G.world].boss_name if giant else VStage.BIG_NAMES[k][0]
 	_boss_warn()
+
+
+## A mid-boss's hit points in world 1 stage 1 (a pair has 0.55 of it each).
+const MID_HP := 130.0
 
 
 func _boss_warn() -> void:
@@ -1435,7 +1450,7 @@ func _boss_warn() -> void:
 
 func E(type: String, x: float, y: float, o := {}) -> Dictionary:
 	var d: Array = DEF[type]
-	var hp := float(d[2]) if type in ["block", "carrier"] else ceilf(d[2] * (1.0 + 0.15 * G.get("world", 0)))
+	var hp := float(d[2]) if type in ["block", "carrier"] else ceilf(d[2] * VStage.hp_scale(G.get("heat", 0.0)))
 	var e := {id = uid(), type = type, x = x, y = y, hw = d[0], hh = d[1], hp = hp, max = hp, score = d[3], t = 0, cd = 60, flash = 0,
 		ground = type in GROUND}
 	e.merge(o, true)
@@ -1542,7 +1557,7 @@ func _update_enemies() -> void:
 				if e.move == "sine":
 					e.y -= 0.9
 					e.x = clampf(e.x0 + sin(e.t * 0.04 + e.ph) * e.amp, 4, W - 4)
-					if e.t % 150 == 90 and e.y > 80:
+					if e.t % int(150.0 / VStage.fire_scale(G.heat)) == 60 and e.y > 80:
 						aim(e.x, e.y, 1.1)
 				else:
 					# dive: drop in, hang, take aim, then dive at the ship
@@ -1646,9 +1661,9 @@ func _update_enemies() -> void:
 						e.y += e.vy
 			"turret", "wallgun":
 				if e.y < H - 4 and e.y > 20:
-					e.cd -= tier_mul("fire")
+					e.cd -= fire_mul()
 					if e.cd <= 0:
-						aim(e.x, e.y, 1.15)
+						fan(e.x, e.y, 1.15, 1 + volley(), 0.17)
 						e.cd = 110 if e.type == "turret" else 90
 			"carrier":
 				e.y = minf(e.y, H - 34)
@@ -1681,34 +1696,36 @@ func _update_big(e: Dictionary) -> void:
 		e.y -= 0.8
 		return
 	e.x += sin(e.t * 0.012) * 0.35
-	e.cd -= tier_mul("fire")
+	# a nest's brood comes only a little faster late on: at the full rate its wasps flood the screen
+	e.cd -= sqrt(fire_mul()) if e.type == "nest" else fire_mul()
+	var vl := volley()
 	if e.cd <= 0:
 		match e.type:
 			"shell":
-				fan(e.x, e.y - 6, 1.0, 5 if boss else 3, 0.28)
+				fan(e.x, e.y - 6, 1.0, (5 if boss else 3) + 2 * vl, 0.28)
 				e.cd = 70 if boss else 110
 				if boss and e.t % 4 == 0:
-					ring(e.x, e.y, 10, 0.75)
+					ring(e.x, e.y, 10 + 3 * vl, 0.75)
 			"hulk":
-				fan(e.x, e.y - 8, 1.1, 7 if boss else 5, 0.22)
+				fan(e.x, e.y - 8, 1.1, (7 if boss else 5) + 2 * vl, 0.22)
 				e.cd = 60 if boss else 80
 			"sentinel":
 				e.n = e.get("n", 0) + 1
 				if e.n % 2:
-					ring(e.x, e.y, 14 if boss else 10, 0.75)
+					ring(e.x, e.y, (14 if boss else 10) + 3 * vl, 0.75)
 				else:
-					fan(e.x, e.y - 8, 1.2, 3, 0.3)
+					fan(e.x, e.y - 8, 1.2, 3 + 2 * vl, 0.3)
 				e.cd = 55 if boss else 70
 			"nest":
 				if G.enemies.size() < 40:
 					for k in 3:
 						E("wasp", e.x + (k - 1) * 8.0, e.y - 6, {x0 = e.x + (k - 1) * 8.0, ph = k * 1.3, st = 0, vx = 0.0, vy = 0.0, score = 0})
-				if boss:
-					aim(e.x, e.y, 1.2)
+				if boss or vl > 0:
+					fan(e.x, e.y, 1.2, 1 + vl, 0.2)
 				e.cd = 80 if boss else 100
 			"bulwark":
 				e.n = e.get("n", 0) + 1
-				ring(e.x, e.y - 4, 8 + (e.n % 2) * 4, 0.7)
+				ring(e.x, e.y - 4, 8 + (e.n % 2) * 4 + 3 * vl, 0.7)
 				if boss:
 					aim(e.x, e.y, 1.3)
 				e.cd = 70 if boss else 90
@@ -1736,6 +1753,7 @@ func kill_e(e: Dictionary) -> void:
 		G.foes_killed += 1
 		if kit:
 			kit.gain(ShipKit.KILL_TRICKLE)
+		_parting_shot(e)
 	var big: bool = e.type in BIG
 	boom(e.x, e.y, 14 if big else 6, big)
 	audio.play("boom" if big else "small")
@@ -1749,6 +1767,24 @@ func kill_e(e: Dictionary) -> void:
 			if b.key == e.key:
 				b.locked = false
 				audio.play("pick")
+
+
+## From world 2 on, some small flyers (one in ten, up to half by the end) get a shot off as they die: one slow aimed bullet,
+## never from close by. Killing a wave in one sweep no longer leaves an empty sky, which is what
+## made late stages feel like early ones (small flyers die in a shot or two whatever their hit
+## points). `e.id % 10` picks which ones, so a stage plays the same every time.
+const PARTING_FROM := 0.2
+const PARTING_NEAR := 55.0
+
+
+func _parting_shot(e: Dictionary) -> void:
+	var h: float = G.get("heat", 0.0)
+	if h < PARTING_FROM or e.ground or e.type in BIG or e.get("boss", false) or not P.alive:
+		return
+	if e.y < P.y + 20.0 or Vector2(e.x - P.x, e.y - P.y).length() < PARTING_NEAR:
+		return
+	if int(e.id) % 10 < int((h - PARTING_FROM) * 5.0) + 1:
+		aim(e.x, e.y, 0.85)
 
 
 func add_score(n: int) -> void:
@@ -1959,7 +1995,7 @@ func update_boss() -> void:
 			continue
 		alive += 1
 		if not B.enter:
-			p.cd -= tier_mul("fire")
+			p.cd -= fire_mul()
 			if p.cd <= 0:
 				aim(p.x, p.y, 1.1)
 				p.cd = 120
@@ -1999,7 +2035,7 @@ func update_boss() -> void:
 	if T.alive:
 		var tip: Dictionary = T.segs[T.n - 1]
 		if not B.enter:
-			T.cd -= tier_mul("fire")
+			T.cd -= fire_mul()
 			if T.cd <= 0:
 				fan(tip.x, tip.y, 0.9, 2, 0.35)
 				T.cd = 140
@@ -3003,7 +3039,7 @@ func _part(key: String, hp: float, r: float, o := {}) -> Dictionary:
 
 
 func spawn_gboss(kind: String) -> void:
-	var k: float = 1.0 + 0.15 * G.world
+	var k: float = VStage.world_boss_scale(G.heat)
 	var B := {kind = kind, x = W / 2.0, y = top() + 60.0, t = 0, bt = 0, enter = true, phase2 = false, phase3 = false, dying = 0, lid = 0.0,
 		open = false, parts = {}, rot = 0.0}
 	var list: Array = []
@@ -3126,7 +3162,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guards += 1
 				if B.enter:
 					continue
-				p.cd -= tier_mul("fire")
+				p.cd -= fire_mul()
 				if p.cd <= 0 and p.burst == 0:
 					p.burst = 5
 					p.cd = 150
@@ -3167,7 +3203,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guns += 1
 				if B.enter:
 					continue
-				p.cd -= tier_mul("fire")
+				p.cd -= fire_mul()
 				if p.cd <= 0:
 					fan(p.x, p.y - 6, 1.1, 3, 0.24)
 					p.cd = 110
@@ -3204,7 +3240,7 @@ func _update_gboss(B: Dictionary) -> void:
 				wings += 1
 				if B.enter:
 					continue
-				p.cd -= tier_mul("fire")
+				p.cd -= fire_mul()
 				if p.cd <= 0:
 					fan(p.x, p.y - 4, 1.0, 5, 0.22)
 					p.cd = 130
@@ -3212,7 +3248,7 @@ func _update_gboss(B: Dictionary) -> void:
 			sac.y = B.y + 16.0
 			sac.x = B.x
 			if sac.alive and not B.enter:
-				sac.cd -= tier_mul("fire")
+				sac.cd -= fire_mul()
 				if sac.cd <= 0 and G.enemies.size() < 30:
 					for j in 3:
 						var wx: float = sac.x + (j - 1) * 10.0
@@ -3247,7 +3283,7 @@ func _update_gboss(B: Dictionary) -> void:
 				guns += 1
 				if B.enter:
 					continue
-				p.cd -= tier_mul("fire")
+				p.cd -= fire_mul()
 				if p.cd <= 0:
 					aim(p.x, p.y - 5, 1.2)
 					p.cd = 120
@@ -3284,7 +3320,7 @@ func _update_gboss(B: Dictionary) -> void:
 				nodes += 1
 				if B.enter:
 					continue
-				p.cd -= tier_mul("fire")
+				p.cd -= fire_mul()
 				if p.cd <= 0:
 					aim(p.x, p.y, 1.1)
 					p.cd = 150

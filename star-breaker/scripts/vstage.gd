@@ -49,6 +49,41 @@ static func world_of(i: int) -> int:
 	return i / PER_WORLD
 
 
+## How far into the campaign stage `i` is, 0 (world 1 stage 1) to 1 (world 6 stage 8). Everything
+## that makes a stage harder reads this one number (Guillaume, 2026-11-22: "with the same ship I
+## can win almost any level"): how close and how big the waves are, how often two come at once,
+## hit points, how often and how much the enemies fire. A new world opens a little under the
+## last stage of the world before it, so each world starts with a breath.
+static func heat(i: int) -> float:
+	return clampf((6.0 * world_of(i) + i % PER_WORLD) / 37.0, 0.0, 1.0)
+
+
+## Hit points of ordinary enemies, as a multiple of world 1 stage 1.
+static func hp_scale(h: float) -> float:
+	return 1.0 + HP_GROW * h
+
+
+## Hit points of a stage's mid-boss or world boss (the Swift medal's par follows it).
+static func boss_scale(h: float) -> float:
+	return 1.0 + BOSS_GROW * h
+
+
+## Hit points of the bosses of worlds 2 to 6 (their fights are long already).
+static func world_boss_scale(h: float) -> float:
+	return 1.0 + WORLD_BOSS_GROW * h
+
+
+## How much faster enemies fire (their cooldowns run down this much quicker).
+static func fire_scale(h: float) -> float:
+	return 1.0 + FIRE_GROW * pow(h, 0.75)
+
+
+const HP_GROW := 1.8
+const BOSS_GROW := 2.6
+const FIRE_GROW := 1.1
+const WORLD_BOSS_GROW := 1.3
+
+
 static func _make() -> Array:
 	var out: Array = []
 	for w in WORLDS.size():
@@ -99,7 +134,7 @@ static func _make() -> Array:
 				var isl_len := 150.0 + rng.randf_range(0.0, 20.0)
 				var x := 63.0 + rng.randf_range(-14.0, 14.0)
 				islands.append([roundf(spots[k]), isl_len, roundf(x), 13.0 + rng.randf_range(0.0, 2.0)])
-			var st := {id = "w%ds%d" % [w + 1, j + 1], name = wd.names[j], sub = "%s · %d" % [Worlds.LIST[w].name, j + 1], world = w, j = j, length = length,
+			var st := {heat = heat(w * PER_WORLD + j), id = "w%ds%d" % [w + 1, j + 1], name = wd.names[j], sub = "%s · %d" % [Worlds.LIST[w].name, j + 1], world = w, j = j, length = length,
 				seed = rng.seed, fort = [fa, fb], end = end, canyons = canyons, islands = islands}
 			# every stage has a canyon run (VRun) in the stretch before the fortress, where it takes
 			# the place of rock: stage 1's long hand-made one, a short generated one everywhere else
@@ -123,9 +158,13 @@ static func build(i: int) -> Array:
 	var pool: Array = wd.pool.slice(0, mini(wd.pool.size(), 3 + j / 2))
 	if j >= 4:
 		pool.append(wd.late)
-	# open ground: a group of enemies every ~130 units (closer each stage and world), and from
-	# the third stage on every third group comes with a second one on top of it
-	var lv: int = j + 2 * s.world
+	# open ground: a group of enemies every ~130 units at the start of the campaign, down to ~75
+	# at its end (`heat`); from the third stage on every third group comes with a second one on
+	# top of it, every second group from mid-campaign, and in the last third a big flyer escorts
+	# every fourth
+	var h: float = s.heat
+	var lv: int = roundi(h * 18.0)
+	var pair_every := 3 if h < 0.45 else 2
 	var d := 220.0
 	var k := j
 	var run: float = s.get("run", -9999.0)
@@ -137,10 +176,12 @@ static func build(i: int) -> Array:
 			d = fb + 140
 			continue
 		_group(ev, pool[k % pool.size()], d, rng, lv)
-		if j >= 2 and k % 3 == 2:
+		if (j >= 2 or s.world > 0) and k % pair_every == pair_every - 1:
 			_group(ev, pool[(k + 2) % pool.size()], d + 40.0, rng, lv)
+		if h >= 0.66 and k % 4 == 1:
+			ev.append({d = d + 70.0, type = wd.big, x = rng.randf_range(40, W - 40)})
 		k += 1
-		d += maxf(80.0, rng.randf_range(115, 145) - 3.0 * j - 4.0 * s.world)
+		d += maxf(62.0, rng.randf_range(115, 145) - 58.0 * h)
 	# item carriers: a laser item early and one after the fortress
 	ev.append({d = fa * 0.45, type = "carrier", x = 20.0, dir = 1.0, item = "L"})
 	ev.append({d = fb + 60, type = "carrier", x = W - 20, dir = -1.0, item = "L"})
@@ -200,7 +241,7 @@ static func in_reach(ev: Array, e: Dictionary) -> bool:
 
 
 static func _group(ev: Array, kind: String, d: float, rng: RandomNumberGenerator, stage: int) -> void:
-	var lv := mini(stage, 10)
+	var lv := mini(stage, 18)
 	match kind:
 		"sine":
 			# a snake of drifters weaving down the screen
@@ -238,7 +279,7 @@ static func _group(ev: Array, kind: String, d: float, rng: RandomNumberGenerator
 		"wasps":
 			ev.append({d = d, type = "wasps", x = rng.randf_range(30, W - 30), n = rng.randi_range(5, 6) + lv / 4})
 		"lancers":
-			ev.append({d = d, type = "lancers", x = W / 2, n = rng.randi_range(2, 3)})
+			ev.append({d = d, type = "lancers", x = W / 2, n = rng.randi_range(2, 3) + lv / 9})
 
 
 ## Barriers across the screen: fixed, sliding, a wall to shoot through and one locked by a

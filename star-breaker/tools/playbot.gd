@@ -73,6 +73,7 @@ func play(st: int, ship: String) -> void:
 	var shat_fired := 0
 	var off_boss := 0
 	var lift_cd := 0
+	var causes := {}
 	while vg.mode == "play" and n < 60 * 60 * 6:
 		n += 1
 		var dx := 0.0
@@ -108,6 +109,15 @@ func play(st: int, ship: String) -> void:
 			if ship == "warden" and (not vg.G.boss.is_empty() or vg.G.get("mid_boss", false)):
 				ty = 60.0
 			var wy := 0.15
+			if ship == "halo":
+				# the blades only reach what is close: ride up under the nearest target
+				var hy := 1e9
+				for t in vg.kit.targets():
+					if t.y > vg.P.y and absf(t.x - tx) < 30.0:
+						hy = minf(hy, t.y - t.hh)
+				if hy < 1e9:
+					ty = clampf(hy - 16.0, 45.0, 150.0)
+					wy = 0.3
 			if ship == "weaver":
 				# fly loops round the nearest enemy in reach
 				var cd := 60.0
@@ -151,6 +161,11 @@ func play(st: int, ship: String) -> void:
 						hold_t = 0
 						lift_cd = 8
 						break
+			if ship == "forge":
+				# hold until the gun is nearly at full heat, then vent (never jam)
+				hold_t = 0
+				if vg.kit.heat > 0.9 and vg.kit.melt == 0:
+					hold = false
 			if vg.kit and lift_cd == 0 and (vg.kit.ready() or hold_t > 90 or ("stored" in vg.kit and vg.kit.stored >= 8)):
 				if vg.kit.ready():
 					shat_fired += 1
@@ -208,6 +223,8 @@ func play(st: int, ship: String) -> void:
 			if vg.G.has("run"):
 				near.append("run")
 			cause = str(near)
+			for c in near:
+				causes[c] = causes.get(c, 0) + 1
 			L("  t=%d HIT at (%.0f,%.0f) scroll %.0f hull %d lives %d %s" % [n, vg.P.x, vg.P.y, vg.G.scroll, vg.P.get("hull", 0), vg.G.lives, cause])
 		hull = vg.P.get("hull", hull) if vg.P.get("alive", false) else 3
 		lives = vg.G.lives
@@ -219,6 +236,8 @@ func play(st: int, ship: String) -> void:
 				L("  t=%d enemy %s alive 40 s at (%.0f,%.0f)" % [n, e.type, e.x, e.y])
 	var rep: Dictionary = vg.G.get("report", {})
 	L("  END mode=%s after %.1f s, cleared=%s score=%d hits=%d lives=%d foes %d/%d breakables %d/%d boss_ticks %d" % [vg.mode, n / 60.0, rep.get("cleared", "?"), vg.G.get("score", 0), vg.G.get("hits", 0), vg.G.get("lives", 0), vg.G.get("foes_killed", 0), vg.G.get("foes", 0), vg.G.get("broken", 0), vg.G.get("breakables", 0), vg.G.get("boss_ticks", -1)])
+	# one line per run for tables (tools/balance.py reads these)
+	L("CSV,%s,%d,%d,%s,%d,%d,%.1f,%d,%d,%d,%d" % [ship, st, int(vg.G.get("tier", 0)), rep.get("cleared", false), vg.G.get("hits", 0), vg.G.get("lives", 0), n / 60.0, vg.G.get("foes_killed", 0), vg.G.get("foes", 0), vg.G.get("boss_ticks", -1), causes.get("bar", 0)])
 	if off_boss > 0:
 		L("  boss off screen for %.1f s during the fight" % (off_boss / 60.0))
 	if ship == "anvil":
