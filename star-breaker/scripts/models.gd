@@ -64,7 +64,8 @@ static func init() -> void:
 				["plate2", "6a6d72"], ["armor", "b4b7bc"], ["gate", "8c8f94"], ["shell", "5a6468"], ["rust", "9a5a3a"], ["hazard", "c8a030"],
 				["fort_a", "8e9094"], ["fort_b", "707278"], ["fort_trim", "55585e"], ["fort_dark", "3a3c42"], ["fort_back", "4a4c52"]]:
 			var m := M[e[0]] as BaseMaterial3D
-			m.albedo_color = Color(e[1]) * 1.5
+			if e[0] != "hull":  # the stock hull colour stays: paints are measured against it
+				m.albedo_color = Color(e[1]) * 1.15
 			m.uv1_triplanar = true
 			m.uv1_scale = Vector3.ONE * 0.11
 			m.albedo_texture = load("res://assets/scan/hull_Diffuse.jpg")
