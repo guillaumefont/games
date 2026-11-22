@@ -58,41 +58,6 @@ static func init() -> void:
 	(M.disc as BaseMaterial3D).no_depth_test = true
 	(M.disc as BaseMaterial3D).render_priority = 1
 
-	if Geo.detail:
-		# worn painted metal for hulls and structures, in plain greys
-		for e in [["hull", "c9ccd0"], ["hull_dark", "5c6066"], ["steel", "9a9da2"], ["steel_dark", "45484e"], ["plate", "8a8d92"],
-				["plate2", "6a6d72"], ["armor", "b4b7bc"], ["gate", "8c8f94"], ["shell", "5a6468"], ["rust", "9a5a3a"], ["hazard", "c8a030"],
-				["fort_a", "8e9094"], ["fort_b", "707278"], ["fort_trim", "55585e"], ["fort_dark", "3a3c42"], ["fort_back", "4a4c52"]]:
-			var m := M[e[0]] as BaseMaterial3D
-			if e[0] != "hull":  # the stock hull colour stays: paints are measured against it
-				m.albedo_color = Color(e[1]) * 1.15
-			m.uv1_triplanar = true
-			m.uv1_scale = Vector3.ONE * 0.11
-			m.albedo_texture = load("res://assets/scan/hull_Diffuse.jpg")
-			m.normal_enabled = true
-			m.normal_texture = load("res://assets/scan/metal_plate_02_nor_gl.jpg")
-			m.normal_scale = 1.3
-			m.ao_enabled = true
-			m.ao_texture = load("res://assets/scan/metal_plate_02_arm.jpg")
-			m.roughness_texture = m.ao_texture
-			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
-			m.roughness = 0.75
-			m.metallic = 0.55
-			m.metallic_specular = 0.6
-			m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		M.glass = std("0a1018")
-		(M.glass as BaseMaterial3D).roughness = 0.06
-		(M.glass as BaseMaterial3D).metallic = 0.9
-		_surface(["spore", "spore_dark", "flesh", "flesh_dark", "bone", "beetle", "moth", "core_skin", "petal", "chitin", "wasp_y",
-				"sac", "wing", "pod"], "hide", 0.2, 0.55, 0.0)
-		for k in ["rock", "rock2", "ice_rock", "ice_rock2", "metal_rock", "metal_rock2", "magma_rock", "magma_rock2", "hive_rock", "hive_rock2"]:
-			var m := M[k] as BaseMaterial3D
-			m.uv1_triplanar = true
-			m.uv1_scale = Vector3.ONE * 0.08
-			m.normal_enabled = true
-			m.normal_texture = load("res://assets/scan/marble_cliff_03_nor_gl.jpg")
-			m.normal_scale = 1.6
-
 	var g := Gradient.new()
 	g.set_offset(0, 0.0)
 	g.set_color(0, Color(1, 1, 1, 1))
@@ -108,21 +73,6 @@ static func init() -> void:
 	gt.fill_to = Vector2(1.0, 0.5)
 	glow_tex = gt
 	font_bold = load("res://assets/fonts/rubik-latin-800-normal.woff2")
-
-
-## Gives materials a surface: a tiling shade and relief texture wrapped round the model.
-static func _surface(keys: Array, tex: String, scale: float, rough: float, metal: float) -> void:
-	for k in keys:
-		var m := M[k] as BaseMaterial3D
-		m.uv1_triplanar = true
-		m.uv1_scale = Vector3.ONE * scale
-		m.albedo_texture = load("res://assets/tex/%s_a.png" % tex)
-		m.normal_enabled = true
-		m.normal_texture = load("res://assets/tex/%s_n.png" % tex)
-		m.normal_scale = 1.4
-		m.roughness = rough
-		m.metallic = metal
-		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
 
 static func std(c: String, e: String = "", ei := 0.0) -> StandardMaterial3D:
@@ -296,8 +246,8 @@ static func pod() -> Node3D:
 
 static func drifter() -> Node3D:
 	var g := Node3D.new()
-	g.add_child(mesh(geo("dr", func(): return Geo.ico(3.1, 2) if Geo.detail else Geo.dodeca(3.1)), M.spore))
-	var tg := geo("drT", func(): return Geo.xf(Geo.cone(1.0, 2.6, 5), Geo.move(0, 3.6, 0)) if Geo.detail else Geo.xf(Geo.tetra(1.4), Geo.move(0, 3, 0)))
+	g.add_child(mesh(geo("dr", func(): return Geo.dodeca(3.1)), M.spore))
+	var tg := geo("drT", func(): return Geo.xf(Geo.tetra(1.4), Geo.move(0, 3, 0)))
 	for i in 3:
 		var t := mesh(tg, M.spore_dark)
 		t.rotation.z = i * 2.09
