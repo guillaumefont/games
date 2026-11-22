@@ -284,3 +284,8 @@ in your PR, keep it short, and mention the change in the PR description.
   with noise-wobbled borders and a darker rim, slope cliffs, wet banks, and a contact shadow from `S.bmap`
   (`Ground.update_occ`, called from `View3D.refresh_decor` whenever buildings change). Classic keeps the old faceted
   terrain. `AF_MODE=themes` shoots the same map in all six themes, near, far and at the river.
+- Nature (premium levels, phase 3): `scripts/nature.gd` (preloaded as `Nature`) makes the decor meshes: tiered faceted
+  firs (pine, snowpine with a snow cap instance), round faceted crowns (broad), bushes, rocks and five-crystal aurite
+  clusters. Vertex colours hold only shade (and glow alpha on crystal tips); MultiMesh instance colours give the hue.
+  `View3D.refresh_decor` and `upd_ore` have premium branches; dead trees keep the classic sticks. `Nature.reset()`
+  runs on a level change.

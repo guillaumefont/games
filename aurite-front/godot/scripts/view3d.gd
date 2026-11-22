@@ -4,6 +4,7 @@ extends Node3D
 
 const GFX := preload("res://scripts/gfx.gd")
 const Ground := preload("res://scripts/ground.gd")
+const Nature := preload("res://scripts/nature.gd")
 
 ## Terrain look (2026-11-16 overhaul, "calm the terrain"): vertex jitter, per-triangle colour noise,
 ## grass desaturation, grass variation scale and how much flat-ground normals lean up (less facet contrast).
@@ -384,16 +385,21 @@ func build_world() -> void:
 			elif t == D.ROCK and R.randf() < .18: rocks.append({"tx": tx, "ty": ty, "x": tx + R.randf(), "z": ty + R.randf(), "s": .18 + R.randf() * .25, "ry": R.randf() * 6})
 			elif (t == D.DIRT or t == D.SAND) and R.randf() < .05: rocks.append({"tx": tx, "ty": ty, "x": tx + R.randf(), "z": ty + R.randf(), "s": .06 + R.randf() * .07, "ry": R.randf() * 6})
 	var lit := Models.material
+	# premium: tiered firs, round crowns, chunky rocks and bushes (scripts/nature.gd); dead trees keep the classic sticks
+	var pm := GFX.premium()
+	var crown_m: Mesh = _mesh_from("ico" if TH.trees == "broad" else "cone", {"seg": 5})
+	if pm and TH.trees in ["pine", "snowpine"]: crown_m = Nature.fir()
+	elif pm and TH.trees == "broad": crown_m = Nature.crown()
 	decor = {"trees": trees, "rocks": rocks, "bushes": bushes,
 		"trunk": _wbatch(_mesh_from("cyl", {"rt": .7, "seg": 5}), lit, trees.size()),
-		"crown": _wbatch(_mesh_from("ico" if TH.trees == "broad" else "cone", {"seg": 5}), lit, trees.size() * 2),
-		"rk": _wbatch(_mesh_from("ico"), lit, rocks.size()),
-		"bu": _wbatch(_mesh_from("ico"), lit, bushes.size())}
+		"crown": _wbatch(crown_m, lit, trees.size() * 2),
+		"rk": _wbatch(Nature.rock() if pm else _mesh_from("ico"), lit, rocks.size()),
+		"bu": _wbatch(Nature.bush() if pm else _mesh_from("ico"), lit, bushes.size())}
 	# ore
 	ore_list = []
 	for i in MW * MH:
 		if S.ore[i]: ore_list.append(i)
-	var om := _mesh_from("oct")
+	var om: Mesh = Nature.crystals() if GFX.premium() else _mesh_from("oct")
 	var mm := MultiMesh.new(); mm.transform_format = MultiMesh.TRANSFORM_3D; mm.use_colors = true; mm.mesh = om; mm.instance_count = max(1, ore_list.size() * 5)
 	var zb := PackedFloat32Array(); zb.resize(mm.instance_count * 16); mm.buffer = zb; mm.visible_instance_count = 0
 	ore_mm = MultiMeshInstance3D.new(); ore_mm.multimesh = mm; ore_mm.material_override = lit; world.add_child(ore_mm)
@@ -406,7 +412,7 @@ func _apply_light(TH: Dictionary) -> void:
 
 ## Graphics level changed (pause menu): rebuild the materials, every model and the world at the new level.
 func apply_gfx() -> void:
-	Models.init_materials(fog_tex)
+	Models.init_materials(fog_tex); Nature.reset()
 	if S and S.teams.size(): build_world()
 
 ## Objective rings with a light beam (reach, escort, hold, survive zones), coloured by who holds them.
@@ -456,6 +462,22 @@ func refresh_decor() -> void:
 		var s: float = 0.001 if S.bmap[t.ty * MW + t.tx] else t.s
 		var y := S.h_at(t.x * T, t.z * T)
 		var c: Color = tc[int(t.c * 4)].srgb_to_linear()
+		var pm := GFX.premium()
+		if pm and style != "broad": c = c.lerp(Color(0.32, 0.42, 0.2), 0.3)   # firs a little lighter, so tiers read from above
+		if pm and style in ["pine", "snowpine", "broad"]:
+			var hide := _xf(t.x, y - 2.0, t.z, .001, .001, .001)
+			if style == "broad":
+				tr.set_instance_transform(k, _xf(t.x, y + .16 * s, t.z, .05 * s, .32 * s, .05 * s)); tr.set_instance_color(k, trunk_c)
+				cr.set_instance_transform(k * 2, _xf(t.x, y, t.z, s * 1.05, s * 1.05, s * 1.05, 0, t.c * 6.0)); cr.set_instance_color(k * 2, c)
+				cr.set_instance_transform(k * 2 + 1, hide)
+			else:
+				tr.set_instance_transform(k, _xf(t.x, y + .1 * s, t.z, .05 * s, .2 * s, .05 * s)); tr.set_instance_color(k, trunk_c)
+				cr.set_instance_transform(k * 2, _xf(t.x, y, t.z, s * .95, s * (0.95 + t.c * .2), s * .95, 0, t.c * 6.0)); cr.set_instance_color(k * 2, c)
+				if style == "snowpine":
+					cr.set_instance_transform(k * 2 + 1, _xf(t.x, y + .52 * s, t.z, s * .5, s * .5, s * .5, 0, t.c * 6.0 + .3)); cr.set_instance_color(k * 2 + 1, snow_c)
+				else: cr.set_instance_transform(k * 2 + 1, hide)
+			k += 1
+			continue
 		match style:
 			"dead":
 				tr.set_instance_transform(k, _xf(t.x, y + .22 * s, t.z, .045 * s, .45 * s, .045 * s, (t.c - .5) * .2, 0, (t.c - .5) * .25)); tr.set_instance_color(k, trunk_c)
@@ -477,11 +499,14 @@ func refresh_decor() -> void:
 	k = 0
 	for t in decor.bushes:
 		var s: float = 0.001 if S.bmap[t.ty * MW + t.tx] else t.s
-		bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) + s * .4, t.z, s * 1.2, s * .8, s * 1.2, 0, k)); bu.set_instance_color(k, bush_c); k += 1
+		if GFX.premium(): bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) - s * .05, t.z, s * 1.1, s * .95, s * 1.1, 0, k))
+		else: bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) + s * .4, t.z, s * 1.2, s * .8, s * 1.2, 0, k))
+		bu.set_instance_color(k, bush_c); k += 1
 
 func upd_ore() -> void:
 	if ore_mm == null: return
 	var mm := ore_mm.multimesh; var n := 0; var gc := Color("f2c443").srgb_to_linear(); gc.a = 0.75
+	if GFX.premium(): gc = Color("f0a83a").srgb_to_linear(); gc.a = 0.85   # deeper amber, glow mostly in the tips
 	var dull := Color("8a8478").srgb_to_linear(); dull.a = 0.75   # tired crystal fades toward this; dead crystal is grey stumps
 	for i in ore_list:
 		var a: int = S.ore[i]
@@ -490,6 +515,16 @@ func upd_ore() -> void:
 		if dead: a = 60   # two small grey stumps
 		var c := dull if dead else gc.lerp(dull, (100 - S.vit[i]) / 140.0)
 		var tx: int = i % MW; var ty: int = i / MW; var cnt := mini(5, 1 + a / 110)
+		if GFX.premium():
+			# a few crystal clusters per tile, bigger while the tile is rich; a dead tile keeps one grey stub
+			cnt = 1 if dead else mini(3, 1 + a / 170)
+			for k in cnt:
+				var h1 := Sim.hash2(tx, ty, k * 3 + 1); var h2 := Sim.hash2(tx, ty, k * 3 + 2); var h3 := Sim.hash2(tx, ty, k * 3 + 3)
+				var x := tx + .2 + h1 * .6; var z := ty + .2 + h2 * .6
+				var s: float = (.19 + h3 * .11 + min(1.0, a / 400.0) * .13) * (0.5 if dead else 1.0)
+				mm.set_instance_transform(n, _xf(x, S.h_at(x * T, z * T), z, s, s * (1.0 + h1 * .3), s, (h1 - .5) * .2, h3 * 6, (h2 - .5) * .2))
+				mm.set_instance_color(n, c); n += 1
+			continue
 		for k in cnt:
 			var h1 := Sim.hash2(tx, ty, k * 3 + 1); var h2 := Sim.hash2(tx, ty, k * 3 + 2); var h3 := Sim.hash2(tx, ty, k * 3 + 3)
 			var x := tx + .15 + h1 * .7; var z := ty + .15 + h2 * .7; var s: float = .05 + h3 * .045 + min(1.0, a / 400.0) * .04
