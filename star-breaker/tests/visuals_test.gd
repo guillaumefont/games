@@ -69,6 +69,29 @@ func _initialize() -> void:
 	check(steps >= 4 and bl.node != null, "a strip of ground can be built over several frames (%d steps)" % steps)
 	bl.node.free()
 
+	# --- the premium look (world 1): bigger facets, bevelled edges, a sky for the run ---
+	check(vg.look.get("premium", false) and bl.cols == Terrain.COLS_P and bl.rows == Terrain.ROWS_P,
+		"world 1's ground uses the premium look's bigger facets")
+	var plain := Terrain.Builder.new(3, vg.CHUNK, vg.LOOKS[1], mats)
+	check(plain.cols == Terrain.COLS and plain.rows == Terrain.ROWS, "other worlds keep their ground as it was")
+	var bx := Geo.box(4, 2, 3)
+	check(bx.size() == 44, "a box is bevelled: 6 faces, 12 edge strips, 8 corners (%d triangles)" % bx.size())
+	var closed := {}
+	for t in bx:
+		for k in 3:
+			var e := [(t[k] as Vector3).snapped(Vector3.ONE * 0.001), (t[(k + 1) % 3] as Vector3).snapped(Vector3.ONE * 0.001)]
+			e.sort()
+			closed[e] = closed.get(e, 0) + 1
+	var shut := true
+	for e in closed:
+		shut = shut and closed[e] == 2
+	check(shut, "the bevelled box is closed (every edge shared by two triangles)")
+	check(Geo.box(0.05, 2, 3).size() == 12, "a box too thin to bevel stays a plain box")
+	check(vg._env.background_mode == Environment.BG_SKY and vg._env.sky != null, "world 1 has a gradient sky")
+	vg.apply_world(1)
+	check(vg._env.background_mode == Environment.BG_COLOR and not vg._haze.visible, "other worlds keep their flat background")
+	vg.apply_world(0)
+
 	# --- the stage: ground ahead is pre-built ---
 	vg.hud.stage_chosen.emit(0, "lance")
 	tick(150)
