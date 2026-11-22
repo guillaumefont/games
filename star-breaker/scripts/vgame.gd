@@ -222,6 +222,23 @@ func _ready() -> void:
 			_save()
 			hud.refresh_progress())
 	hud.ship_chosen.connect(func(_ship: String): _save())
+	hud.ship_buy_pressed.connect(func(ship: String):
+		if prog.buy_ship(ship):
+			audio.play("oneup")
+			_save()
+			hud.select_ship(ship)
+			hud.refresh_progress())
+	hud.paint_buy_pressed.connect(func(ship: String, id: String):
+		if prog.buy_paint(ship, id):
+			prog.set_paint(ship, id)
+			audio.play("pick")
+			_save()
+			hud.refresh_progress())
+	hud.flux_buy_pressed.connect(func():
+		if prog.buy_flux():
+			audio.play("pick")
+			_save()
+			hud.refresh_progress())
 	hud.paint_chosen.connect(func(ship: String, id: String):
 		if prog.set_paint(ship, id):
 			_save()

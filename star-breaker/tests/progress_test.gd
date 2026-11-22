@@ -4,7 +4,8 @@ extends SceneTree
 ## enforces it, clearing a tier opens the next one for that stage, Nova and Supernova make enemies tougher (faster bullets, more fire, more
 ## hit points, two ships on Supernova), the four medals are judged from a run, medals are
 ## counted once and saved, the medal track unlocks ship colours that repaint the ship, runs bank
-## flux, and flux buys ship levels that raise damage.
+## flux, flux buys ship levels that raise damage, and prisms (from medal sets and world clears)
+## open ships and colours early or buy flux.
 
 var vg: Node3D
 var fails := 0
@@ -323,6 +324,77 @@ func _initialize() -> void:
 	vg.hud._level_btns.warden.pressed.emit()
 	check(vg.prog.level("warden") == 2 and vg.prog.flux == 0 and vg.hud._level_btns.warden.disabled, "levelling up from the hangar spends the flux")
 	check(vg.hud._level_lbls.warden.text.contains("LV 2"), "the hangar shows the new level")
+
+	# --- prisms ---
+	var pp := Progress.new()
+	var pr := pp.record("w1s1", 0, true, ["sweep", "untouched", "breaker"])
+	check(pr.prisms == 0 and pp.prisms == 0, "three medals of four pay no prisms")
+	pr = pp.record("w1s1", 0, true, ["swift"])
+	check(pr.prisms == Progress.SET_PRISMS[0] and pp.prisms == Progress.SET_PRISMS[0], "completing a stage's medal set pays prisms")
+	pr = pp.record("w1s1", 0, true, ["sweep", "untouched", "breaker", "swift"])
+	check(pr.prisms == 0, "a set pays only once")
+	pr = pp.record("w1s1", 1, true, ["sweep", "untouched", "breaker", "swift"])
+	check(pr.prisms == Progress.SET_PRISMS[1], "a Nova set pays more")
+	var before_p: int = pp.prisms
+	pr = pp.record("w1s8", 0, true, [])
+	check(pr.prisms == Progress.WORLD_PRISMS[0] and pp.prisms == before_p + Progress.WORLD_PRISMS[0], "the first clear of a world's last stage pays prisms")
+	check(pp.record("w1s8", 0, true, []).prisms == 0, "clearing it again pays none")
+	check(pp.record("w1s2", 0, false, ["sweep", "untouched", "breaker", "swift"]).prisms == 0, "a failed run pays none")
+	var locked := "hornet"
+	var price: int = pp.ship_price(locked)
+	check(price == Progress.SHIP_PRISMS * (int(VShips.KITS[locked].unlock) - pp.cleared_count()), "a locked ship costs prisms for each stage it still needs")
+	pp.prisms = price - 1
+	check(not pp.buy_ship(locked) and not pp.ship_open(locked), "no ship without the prisms")
+	pp.prisms = price + 30
+	check(pp.buy_ship(locked) and pp.ship_open(locked) and pp.prisms == 30 and pp.ship_price(locked) == 0, "prisms open a ship early")
+	check(not pp.buy_ship("lance"), "an open ship can't be bought")
+	check(not pp.scheme_open(locked, "prism") and pp.buy_paint(locked, "prism") and pp.scheme_open(locked, "prism") and pp.prisms == 30 - Progress.PAINT_PRISMS, "prisms open a colour early")
+	check(pp.set_paint(locked, "prism") and not pp.buy_paint(locked, "prism"), "a bought colour can be worn and isn't sold twice")
+	var fl: int = pp.flux
+	check(pp.buy_flux() and pp.flux == fl + Progress.FLUX_PACK and pp.prisms == 20 - Progress.FLUX_PACK_PRISMS, "prisms buy a pack of flux")
+	pp.prisms = 0
+	check(not pp.buy_flux() and not pp.buy_paint("lance", "prism"), "nothing sells at zero prisms")
+	pp.prisms = 7
+	var pc := ConfigFile.new()
+	pp.save_to(pc)
+	var pq := Progress.new()
+	pq.load_from(pc)
+	check(pq.prisms == 7 and pq.ship_open(locked) and pq.paint_of(locked).id == "prism", "prisms and what they bought are saved")
+	# in the hangar
+	vg.prog = Progress.new()
+	vg.hud.prog = vg.prog
+	vg.prog.prisms = 200
+	vg.hud.show_screen("medals")
+	vg.hud.select_ship(locked)
+	vg.hud.refresh_progress()
+	check(vg.hud._btn_ship_buy.visible and not vg.hud._btn_ship_buy.disabled and vg.hud._btn_ship_buy.text.contains(str(vg.prog.ship_price(locked))), "a locked ship shows its price in prisms")
+	check(vg.hud.ship != locked, "looking at a locked ship doesn't fly it")
+	vg.hud._btn_ship_buy.pressed.emit()
+	check(vg.prog.ship_open(locked) and vg.hud.ship == locked and not vg.hud._btn_ship_buy.visible, "unlock now opens the ship and flies it")
+	check(vg.hud._flux_lbl.text.contains("PRISMS"), "the hangar shows the prisms in the bank")
+	var sw: Button = null
+	for b in vg.hud._paint_btns[locked]:
+		if b.get_meta("scheme") == "obsidian":
+			sw = b
+	sw.pressed.emit()
+	var pbuy: Button = vg.hud._paint_buy[locked]
+	check(pbuy.visible and pbuy.text.contains("OBSIDIAN") and vg.prog.paint_of(locked).id == "stock", "tapping a locked colour offers it for prisms without spending")
+	var p0: int = vg.prog.prisms
+	pbuy.pressed.emit()
+	check(vg.prog.paint_of(locked).id == "obsidian" and vg.prog.prisms == p0 - Progress.PAINT_PRISMS and not pbuy.visible, "the offer buys the colour and puts it on")
+	vg.prog.prisms = 0
+	vg.hud.select_ship("hornet" if locked != "hornet" else "halo")
+	vg.hud.refresh_progress()
+	check(vg.hud._btn_ship_buy.visible and vg.hud._btn_ship_buy.disabled and vg.hud._btn_flux_buy.disabled, "prism buttons are off when you can't afford them")
+	vg.start_stage(0, "lance", 0)
+	vg.G.foes_killed = vg.G.foes
+	vg.G.broken = vg.G.breakables
+	vg.G.hits = 0
+	vg.G.boss_ticks = 60
+	vg.G.end_kind = String(VStage.STAGES[0].end)
+	vg.G.clear_t = 1
+	vg.finish(true)
+	check(vg.prog.prisms == Progress.SET_PRISMS[0] and vg.hud._result_lines.text.contains("PRISMS"), "a perfect run banks its prisms and the result says so")
 
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails > 0 else 0)
