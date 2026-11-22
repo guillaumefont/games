@@ -190,7 +190,7 @@ static func mat(c: Color, unshaded := false, emission := 0.0) -> StandardMateria
 
 static func box(size: Vector3, c: Color, pos := Vector3.ZERO) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	if detail > 1:
+	if detail > 1 or premium:
 		mi.mesh = bevel_box(size, mat(c))
 		mi.position = pos * U
 		return mi
@@ -282,7 +282,8 @@ uniform vec3 near_col : source_color;
 uniform sampler2D ao_tex : filter_linear, repeat_disable;
 uniform vec4 ao_rect;   // world xz of the AO map's corner, then its size
 uniform vec3 ao_col : source_color;
-uniform float fancy = 0.0;   // premium look: wind ripples and sun glints in the snow
+uniform float fancy = 0.0;   // premium look: wind ripples (and sun glints in the snow)
+uniform float glints = 0.0;
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -321,7 +322,7 @@ void fragment() {
 		float tw = step(0.992, hs) * pow(max(0.0, sin(TIME * 1.7 + hs * 517.0 + dot(CAMERA_POSITION_WORLD.xz, vec2(2.3, 1.7)))), 6.0);
 		vec2 f = fract(wp.xz * 12.0) - 0.5;
 		tw *= smoothstep(0.3, 0.0, length(f));
-		EMISSION = vec3(1.0, 0.97, 0.9) * tw * 2.2 * fancy * ao;
+		EMISSION = vec3(1.0, 0.97, 0.9) * tw * 2.2 * glints * ao;
 	}
 }
 """
@@ -332,7 +333,8 @@ void fragment() {
 	sm.set_shader_parameter("dot_col", th["ground_dots"])
 	sm.set_shader_parameter("far_col", gc.darkened(0.25))
 	sm.set_shader_parameter("near_col", gc.lightened(0.12))
-	sm.set_shader_parameter("fancy", 1.0 if premium and th.has("pine") else 0.0)
+	sm.set_shader_parameter("fancy", 1.0 if premium and th.has("rim") else 0.0)
+	sm.set_shader_parameter("glints", 1.0 if th["weather"] == "snow" else 0.0)
 	_ao_begin(sm)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _relief_mesh()
@@ -1143,7 +1145,7 @@ func _road_mat() -> ShaderMaterial:
 	_road_m.set_shader_parameter("dot_col", th["ground_dots"])
 	_road_m.set_shader_parameter("far_col", gc.darkened(0.25))
 	_road_m.set_shader_parameter("near_col", gc.lightened(0.12))
-	_road_m.set_shader_parameter("fancy", 1.0 if premium and th.has("pine") else 0.0)
+	_road_m.set_shader_parameter("fancy", 1.0 if premium and th.has("rim") else 0.0)
 	_road_m.set_shader_parameter("gamma", Premium.gamma())
 	return _road_m
 
@@ -1539,6 +1541,8 @@ func _build_scenery() -> void:
 
 # the scenery of each theme: two kinds of "tree", a hut, a rock, and how dense
 func _prop_kit() -> Dictionary:
+	if premium and th.has("rim") and String(th["props"]) != "snow":
+		return _premium_kit()
 	match String(th["props"]):
 		"forest":
 			return { "a": _leafy_mesh(170.0, 52.0, COL_LEAF), "b": _pine_mesh(4, 210.0, 56.0, false),
@@ -1561,6 +1565,32 @@ func _prop_kit() -> Dictionary:
 			"density": 0.35, "rocks": 0.035 }
 	return { "a": _pine_mesh(3, 150.0, 48.0), "b": _pine_mesh(4, 210.0, 56.0),
 		"hut": _shack_mesh(), "rock": _rock_mesh(), "density": 0.35, "rocks": 0.035 }
+
+# the premium look of the forest, sand and rock worlds: the same shapes in the world's
+# curated colours, gradient-shaded, with a sky rim light, and the trees swaying
+func _premium_kit() -> Dictionary:
+	var rim: Color = th["rim"]
+	var G := Premium.gradient
+	var still := Premium.prop_mat(rim)
+	match String(th["props"]):
+		"forest":
+			return { "a": G.call(_leafy_mesh(170.0, 52.0, th["leaf"]), 220.0, 0.7, 1.0), "b": G.call(_pine_mesh(4, 210.0, 56.0, false), 230.0),
+				"hut": G.call(_shack_mesh(th["wood"], th["roof"], th["shingle"]), 110.0, 0.8, 1.08),
+				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0),
+				"mat_a": Premium.prop_mat(rim, 0.06, 2.0), "mat_b": Premium.prop_mat(rim, 0.06, 2.3), "mat": still,
+				"chimney": Vector3(0, 128, 0) * U, "density": 0.6, "rocks": 0.04 }
+		"rock":
+			return { "a": G.call(_spire_mesh(260.0, 60.0, th["spire"]), 260.0, 0.65, 1.15, 0.1), "b": G.call(_shrub_mesh(26.0, th["heather"]), 40.0),
+				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
+				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0, 0.65, 1.15, 0.1),
+				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.03, 0.4), "mat": still,
+				"density": 0.12, "rocks": 0.11 }
+		_:
+			return { "a": G.call(_cactus_mesh(140.0, th["cactus"]), 160.0), "b": G.call(_palm_mesh(220.0, th["palm"]), 240.0, 0.7, 1.0),
+				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
+				"rock": G.call(_rock_mesh(th["stone"][0], th["stone"][1]), 34.0, 0.65, 1.15, 0.1),
+				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.08, 2.4), "mat": still,
+				"density": 0.06, "rocks": 0.05 }
 
 # Graphics quality (Settings "quality"): 0 Low, 1 Medium, 2 High.
 #   Low:    3D drawn at 70% resolution, no shadows, glow, weather, MSAA or release wind, half the trees
@@ -1767,6 +1797,8 @@ func _build_weather() -> void:
 	m.vertex_color_use_as_albedo = true
 	m.albedo_color = col
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if premium and kind != "snow" and kind != "leaves":
+		m.albedo_texture = Premium.soft_dot()   # soft round motes instead of squares
 	if premium and kind == "snow":
 		# soft round flakes of mixed sizes, falling slower, a few big ones close to the eye
 		m.albedo_texture = Premium.soft_dot()
@@ -1863,11 +1895,11 @@ func _build_start() -> void:
 		if premium:
 			# a snow-capped stone footing for each post
 			g.add_child(box(Vector3(30, 16, 30), th.get("stone", [COL_ROCK])[0], Vector3(0, 8, span * side)))
-			g.add_child(box(Vector3(32, 5, 32), th.get("roof", COL_SNOW), Vector3(0, 18, span * side)))
+			g.add_child(box(Vector3(32, 5, 32), th["cap"], Vector3(0, 18, span * side)))
 	var beam := box(Vector3(20, 34, span * 2 + 14), gcol, Vector3(0, 190, 0))
 	detail = old_detail
 	if premium:
-		g.add_child(box(Vector3(24, 6, span * 2 + 18), th.get("roof", COL_SNOW), Vector3(0, 209, 0)))
+		g.add_child(box(Vector3(24, 6, span * 2 + 18), th["cap"], Vector3(0, 209, 0)))
 	g.add_child(beam)
 	var bm := StandardMaterial3D.new()
 	bm.albedo_texture = _checker_tex(16, 2)
@@ -2058,7 +2090,7 @@ static func paint(c: Color, rough := 0.32) -> StandardMaterial3D:
 
 static func pbox(size: Vector3, m: Material, pos: Vector3) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	if detail > 1:
+	if detail > 1 or premium:   # premium: every panel gets softened, light-catching edges
 		mi.mesh = bevel_box(size, m)
 		mi.position = pos * U
 		return mi

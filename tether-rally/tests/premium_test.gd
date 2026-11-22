@@ -1,6 +1,7 @@
 extends SceneTree
 # Premium low-poly look (scripts/premium.gd, preview branch):
-# - the snow palette replaces only colours, and keeps every key the world already had
+# - every world's palette replaces only colours, and keeps every key the world already had
+# - gradient() lightens a prop towards its top and keeps the glow alpha
 # - pines and boulders are shaded with gradients (many distinct vertex colours, not flat fills),
 #   snow sits on the upper faces and green below
 # - props stay cheap: a pine under 600 triangles, a boulder under 120
@@ -14,15 +15,27 @@ func fail(msg: String) -> void:
 	printerr(msg)
 
 func _initialize() -> void:
-	var base := Themes.get_theme("snow")
-	var th := Premium.restyle("snow", base)
-	for k in base:
-		if not th.has(k):
-			fail("premium snow drops the key %s" % k)
-	if th["road"] == base["road"]:
-		fail("premium snow keeps the old road colour")
-	if Premium.restyle("sand", Themes.get_theme("sand")) != Themes.get_theme("sand"):
-		fail("an untuned world changed")
+	for w in Themes.ORDER:
+		var base := Themes.get_theme(w)
+		var t := Premium.restyle(w, base)
+		for k in base:
+			if not t.has(k):
+				fail("premium %s drops the key %s" % [w, k])
+		if t["road"] == base["road"] or not t.has("rim"):
+			fail("premium %s is not tuned" % w)
+	var th := Premium.restyle("snow", Themes.get_theme("snow"))
+	# the other worlds' props get gradients: the top of a gradient prop is lighter than its foot
+	var flat := ArrayMesh.new()
+	var tri := []
+	tri.resize(Mesh.ARRAY_MAX)
+	tri[Mesh.ARRAY_VERTEX] = PackedVector3Array([Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 1, 0)])
+	tri[Mesh.ARRAY_COLOR] = PackedColorArray([Color(0.5, 0.5, 0.5), Color(0.5, 0.5, 0.5), Color(0.5, 0.5, 0.5, 0.5)])
+	flat.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, tri)
+	var gc: PackedColorArray = Premium.gradient(flat, 100.0).surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+	if gc[2].r <= gc[0].r:
+		fail("gradient: the top is not lighter than the foot")
+	if absf(gc[2].a - 0.5) > 0.01:
+		fail("gradient: lost the window glow alpha")
 	for case in [["pine", Premium.pine(5, 230.0, 58.0, th, 23), 600], ["boulder", Premium.boulder(th, 5), 120]]:
 		var m: ArrayMesh = case[1]
 		var arr := m.surface_get_arrays(0)

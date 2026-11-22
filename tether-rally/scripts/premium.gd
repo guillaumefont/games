@@ -30,6 +30,42 @@ const PALETTE := {
 		"stone": [Color("#5d6380"), Color("#8a8fa8")], "wood": Color("#8f5a3c"),
 		"roof": Color("#fbf9f5"), "shingle": Color("#7a3f2e"), "gantry": Color("#3b3f52"),
 	},
+	"forest": {
+		"ground": Color("#5a8a3a"), "ground_dots": Color("#4f7d33"),
+		"ambient": Color("#bcd3c0"), "sun": Color("#ffe4bc"),
+		"road": Color("#6e5844"), "patch": Color("#5a4632"), "patch_amt": 0.4, "patch_rough": 0.5,
+		"streak": Color("#86705a"), "edge": Color("#9c8a5e"), "road_rough": 0.95,
+		"verge": Color("#6b9444"), "bank_face": Color("#86643f"),
+		"rail_top": Color("#6fa048"), "column": Color("#6e6a5a"), "cap": Color("#6fa048"),
+		"foot": Color("#5f8f3e"), "hub": Color("#6fa048"),
+		"drift_a": Color("#5f913c"), "drift_b": Color("#8a6640"),
+		"sky": Color("#8ec2e6"), "shade": Color("#263f5e"), "glint": Color("#ffe8c0"),
+		"rim": Color("#d4f0ff"), "leaf": Color("#3a7030"), "leaf_b": Color("#3f7a3a"),
+		"stone": [Color("#6a6e66"), Color("#9a9c8e")], "moss": Color("#79a848"),
+		"wood": Color("#8f5f3e"), "roof": Color("#5e8f3a"), "shingle": Color("#5a3e2c"), "gantry": Color("#4a3a2e"),
+	},
+	"sand": {
+		"ground": Color("#e3b47c"), "ground_dots": Color("#d8a46c"),
+		"ambient": Color("#f0cdb8"), "sun": Color("#ffe2b8"),
+		"road": Color("#92684e"), "patch": Color("#7e5a42"), "patch_amt": 0.35, "patch_rough": 1.0,
+		"streak": Color("#d4a674"), "edge": Color("#efcc98"), "road_rough": 0.95,
+		"verge": Color("#d9a874"), "bank_face": Color("#cf9a66"),
+		"sky": Color("#9ccbec"), "shade": Color("#6a3a62"), "glint": Color("#fff0d4"),
+		"rim": Color("#ffe2cc"), "cactus": Color("#4f8f6a"), "palm": Color("#457f3e"),
+		"stone": [Color("#b06e48"), Color("#dca476")], "wall": Color("#e2b585"), "hut_roof": Color("#c98c5a"),
+		"gantry": Color("#5a3a2e"),
+	},
+	"rock": {
+		"ground": Color("#767b6c"), "ground_dots": Color("#6a6f60"),
+		"ambient": Color("#c3c8d6"), "sun": Color("#ffe6c8"),
+		"road": Color("#5c5a58"), "patch": Color("#6c6864"), "patch_amt": 0.4, "patch_rough": 0.9,
+		"streak": Color("#87837e"), "edge": Color("#aaaca2"), "road_rough": 0.9,
+		"verge": Color("#7e8274"), "bank_face": Color("#787b70"),
+		"sky": Color("#a6b8dc"), "shade": Color("#3a3458"), "glint": Color("#ffecd0"),
+		"rim": Color("#dce4ff"), "spire": Color("#6a6c6c"), "heather": Color("#8a6a9a"),
+		"stone": [Color("#5a5d5e"), Color("#8e908c")], "moss": Color("#7d9a50"),
+		"wall": Color("#9a988e"), "hut_roof": Color("#5a5c66"), "gantry": Color("#3e3c40"),
+	},
 }
 
 static func restyle(name: String, th: Dictionary) -> Dictionary:
@@ -166,6 +202,28 @@ static func boulder(pal: Dictionary, seed_: int) -> ArrayMesh:
 					st.set_color(col)
 					st.add_vertex(v * U)
 	return st.commit()
+
+# Any vertex-coloured prop shaded with a soft gradient: darker at its foot, lighter towards
+# its top, and each facet a touch lighter or darker than its neighbour (hand-cut facets
+# instead of one flat fill per part). Alpha is kept (glowing windows).
+static func gradient(mesh: ArrayMesh, h: float, lo := 0.7, hi := 1.12, facet := 0.06) -> ArrayMesh:
+	var out := ArrayMesh.new()
+	for si in mesh.get_surface_count():
+		var arr := mesh.surface_get_arrays(si)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		if cs.size() != vs.size():
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		for k in vs.size():
+			var f := lerpf(lo, hi, clampf(vs[k].y / (h * U), 0.0, 1.0))
+			var tri := k / 3
+			f *= 1.0 + facet * (fposmod(sin(tri * 12.9898) * 43758.5453, 1.0) * 2.0 - 1.0)
+			var c := cs[k]
+			cs[k] = Color(minf(c.r * f, 1.0), minf(c.g * f, 1.0), minf(c.b * f, 1.0), c.a)
+		arr[Mesh.ARRAY_COLOR] = cs
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return out
 
 # ---------------------------------------------------------------- materials
 static var _shader: Shader
