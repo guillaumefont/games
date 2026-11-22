@@ -160,6 +160,13 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   Cleared = finished with ships left; medals don't count. `Progress.open(i, t)` is the rule.
   Only the map and the
   result's Next enforce it; `start_stage()` plays any stage (tests and tools rely on that).
+- Prisms (Guillaume, 2026-11-22: "Go for prism"): the rare currency, `Progress.prisms`. Earned in
+  `record()` only: a stage's full medal set on a tier (`SET_PRISMS`) and the first clear of a
+  world's last stage on a tier (`WORLD_PRISMS`). Spent in the hangar on a locked ship
+  (`ship_price`: 3 per stage it still needs), a locked colour (10) or a flux pack. Rule: prisms
+  only shortcut what play also opens, never gate a stage. `ship_open` / `scheme_open` already
+  count what was bought, so check those, not the stage or medal counts. No real-money purchase
+  exists yet.
 
 ## App icon
 
