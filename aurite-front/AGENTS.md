@@ -293,3 +293,7 @@ in your PR, keep it short, and mention the change in the PR description.
   ambient energy and tint, and the ground brightness; `GFX.GRADE` grades by chapter from the player's faction in a
   campaign mission (`GFX.mood_of`): Ashen Pact "pulp" (warm, punchy), Vanguard "neutral", Hollow Choir "grim" (cold,
   flat, dimmer sun). Saturation and contrast only apply on the Mobile renderer (GL Compatibility has no adjustments).
+- Faction polish (premium levels, phase 5): `Models.pal()` lifts the near-black paints (`PREMIUM_PAL`, keyed by MAT
+  name) and `PREMIUM_HULL` replaces the unit hull colours, so Pact iron and Choir earth read as material; on buildings,
+  big team-coloured slabs (second-largest side over 0.3) are toned 35% toward the faction metal. Use MAT colours (not
+  hand-made ones) for new parts so the palette applies.
