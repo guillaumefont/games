@@ -40,9 +40,12 @@ func _initialize() -> void:
 	# a player part way through world 1: stage 1 done on Normal and Nova, stage 2 on Normal
 	vg.prog = Progress.new()
 	vg.prog.stages = {w1s1 = {m = [15, 5, 0], c = 3}, w1s2 = {m = [11, 0, 0], c = 1}}
-	vg.prog.paint = {lance = "violet", warden = "moss"}
+	vg.prog.paint.lance = "violet"
+	vg.prog.paint.warden = "moss"
 	vg.prog.flux = 1840
-	vg.prog.levels = {lance = 7, warden = 3}
+	vg.prog.levels.lance = 7
+	vg.prog.levels.warden = 3
+	vg.prog.prisms = 46
 	vg.hud.prog = vg.prog
 	var bs: Array = []
 	bs.resize(VStage.STAGES.size())
@@ -57,11 +60,22 @@ func _initialize() -> void:
 	await snap("p_menu_nova")
 	vg.hud.show_screen("medals")
 	await snap("p_medals")
+	# prisms: a locked colour offered, then a locked ship with its price
+	for b in vg.hud._paint_btns[vg.hud.view_ship]:
+		if b.get_meta("scheme") == "obsidian":
+			b.pressed.emit()
+	await snap("p_prism_colour")
+	vg.hud.select_ship("vortex")
+	vg.hud.refresh_progress()
+	await snap("p_prism_ship")
+	vg.hud.select_ship("lance")
 	vg.hud.show_screen("menu")
 	vg.start_stage(1, "lance", 1)
 	await play(520, true, 0.6)
 	await snap("p_play_nova")
 	vg.G.foes_killed = vg.G.foes
+	vg.G.broken = vg.G.breakables
+	vg.G.hits = 0
 	vg.G.clear_t = 1
 	vg.G.boss_ticks = 300
 	vg.G.end_kind = "twins:shell"
