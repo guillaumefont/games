@@ -111,27 +111,27 @@ var charge_ph := 0.0
 ## into the ground (Terrain.grade), a little more contrast.
 const LOOKS := [{sun = "fff2e0", amb = "a8bcd8", fog = "5c544a", t_low = "6e6860", t_low2 = "766e64", t_mid = "8a8074", t_high = "a69a8a",
 	t_cliff = "605850", t_rock = "8c8274", c_top = "8e8476", c_top2 = "7c7266", c_face = "70665a", river_a = "3a8aa0", river_b = "3a8aa0",
-	detail = true, scan = ["aerial_ground_rock", "marble_cliff_03", "cliff_side"], warm = "b8a890", cool = "4a4e5a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.14, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["aerial_ground_rock", "marble_cliff_03", "cliff_side"], warm = "b8a890", cool = "4a4e5a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 0.14, contrast = 1.1, sat = 1.05,
 	cry = ["d8e4e8", "6a8a90", "e0d8d0", "8a7a6a"], cry_e = 0.12, fis = ["2a2622", "2a2622"], lip = ["d8d0c0", "6a6258"], lip_e = 0.25},
 	{sun = "f4f6ff", amb = "b4c8e8", fog = "7a8496", t_low = "6c7078", t_low2 = "747880", t_mid = "868a90", t_high = "a4a8ae",
 	t_cliff = "5c6068", t_rock = "888c92", c_top = "8c9096", c_top2 = "787c84", c_face = "6c7078", river_a = "9fd8f0", river_b = "7fc0e8",
-	detail = true, scan = ["snow_field_aerial", "marble_cliff_01", "marble_cliff_01"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.3, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["snow_field_aerial", "marble_cliff_01", "marble_cliff_01"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 0.3, contrast = 1.1, sat = 1.05,
 	cry = ["e8f6ff", "8fc8e8", "d0ecff", "6aa8d8"], cry_e = 0.25, fis = ["3a4654", "3a4654"], lip = ["e8f2ff", "8a9ab0"], lip_e = 0.3},
 	{sun = "fff0d0", amb = "a8c0c8", fog = "4c5646", t_low = "666a5e", t_low2 = "6e7264", t_mid = "80846e", t_high = "9ca088",
 	t_cliff = "585c50", t_rock = "84886e", c_top = "888c78", c_top2 = "747866", c_face = "686c5c", river_a = "3a7a80", river_b = "3a7a80",
-	detail = true, scan = ["aerial_grass_rock", "mossy_rock", "rock_face_03"], warm = "b0b090", cool = "465048", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.16, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["aerial_grass_rock", "mossy_rock", "rock_face_03"], warm = "b0b090", cool = "465048", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 0.16, contrast = 1.1, sat = 1.05,
 	cry = ["ffc860", "b07020", "c8e070", "6a8a20"], cry_e = 0.3, fis = ["2a2c20", "2a2c20"], lip = ["dcd8b8", "6a6a50"], lip_e = 0.25},
 	{sun = "ffe4c4", amb = "9aa0b8", fog = "3c3836", t_low = "666260", t_low2 = "6e6a66", t_mid = "807a76", t_high = "9c948e",
 	t_cliff = "58524e", t_rock = "847c76", c_top = "888078", c_top2 = "746c66", c_face = "68605a", river_a = "ff7a1a", river_b = "ffb030",
-	detail = true, scan = ["aerial_asphalt_01", "dark_rock_02", "rock_face_03"], warm = "b4a698", cool = "48485a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.8, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["aerial_asphalt_01", "dark_rock_02", "rock_face_03"], warm = "b4a698", cool = "48485a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 0.8, contrast = 1.1, sat = 1.05,
 	cry = ["ffb070", "c05a10", "ffd060", "c08010"], cry_e = 0.5, fis = ["ff5a00", "ffcc33"], lip = ["d0c8c0", "7a5a40"], lip_e = 0.4},
 	{sun = "f4f2ff", amb = "a0acc8", fog = "3a3e48", t_low = "6c7078", t_low2 = "747880", t_mid = "868a90", t_high = "a4a8ae",
 	t_cliff = "5c6068", t_rock = "888c92", c_top = "8c9096", c_top2 = "787c84", c_face = "6c7078", river_a = "4fd0d0", river_b = "4fd0d0",
-	detail = true, scan = ["hangar_concrete_floor", "metal_plate_02", "concrete_panels"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.6, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["hangar_concrete_floor", "metal_plate_02", "concrete_panels"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 0.6, contrast = 1.1, sat = 1.05,
 	cry = ["bfe8f0", "3fa0b0", "ffb0d0", "b04070"], cry_e = 0.5, fis = ["2a2c30", "2a2c30"], lip = ["d0d8e8", "5a6a80"], lip_e = 0.5},
 	{sun = "ffe0b8", amb = "a09098", fog = "3a2c28", t_low = "666260", t_low2 = "6e6a66", t_mid = "807a76", t_high = "9c948e",
 	t_cliff = "58524e", t_rock = "847c76", c_top = "888078", c_top2 = "746c66", c_face = "68605a", river_a = "ffb030", river_b = "ff5a00",
-	detail = true, scan = ["burned_ground_01", "dark_rock", "dark_rock_02"], warm = "b4a698", cool = "48485a", sun_e = 1.7, amb_e = 0.45, rim_e = 0.12, rim = "c8d4e8", river_e = 1.0, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["burned_ground_01", "dark_rock", "dark_rock_02"], warm = "b4a698", cool = "48485a", sun_e = 1.7, amb_e = 0.45, rim_e = 0.12, rim = "c8d4e8", run_fog = "a8b4c4", river_e = 1.0, contrast = 1.1, sat = 1.05,
 	cry = ["ffe080", "e09000", "ff8a40", "d03000"], cry_e = 0.7, fis = ["ff4000", "ffcc40"], lip = ["e8c8a0", "a05a20"], lip_e = 0.6},
 ]
 var look: Dictionary = {}
@@ -507,6 +507,12 @@ func apply_world(w: int) -> void:
 		_env.sky = Sky.new()
 		_env.sky.sky_material = sm
 		_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+		# it is also the sky of the canyon run, turned so that its zenith faces the camera's up
+		_env.background_mode = Environment.BG_SKY
+		_env.sky_rotation = Vector3(PI / 2.0, 0, 0)
+		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		for st in stars:
+			st.visible = false
 	_env.ambient_light_energy = look.get("amb_e", 0.4)
 	_env.adjustment_enabled = look.has("contrast")
 	_env.adjustment_contrast = look.get("contrast", 1.0)
@@ -2670,7 +2676,7 @@ func _camera(j: Vector3) -> void:
 	_env.fog_depth_begin = lerpf(CAM_D + 30.0, 140.0, k)
 	# the depth of the canyon glows, so near rock stands dark against it and every way through
 	# shows as the bright part ahead
-	_env.fog_light_color = Color(look.fog).lerp(Color("4a3590"), k)
+	_env.fog_light_color = Color(look.fog).lerp(Color(look.get("run_fog", "4a3590")), k)
 	_env.fog_depth_end = lerpf(CAM_D + 210.0, 520.0, k)
 
 
