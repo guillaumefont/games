@@ -2318,6 +2318,14 @@ func _rock_player() -> void:
 		spark(P.x + side * 4.0, P.y - 2)
 
 
+## Heights of the glowing lip on a cliff's edge: at the edge, and 0.9 in. On the premium look's
+## rounded shoulder it lies along the slope just above the rock.
+func _lip_z() -> Vector2:
+	if look.get("premium", false):
+		return Vector2(float(Terrain.SHOULDER[0][1]) + 0.35, -1.6)
+	return Vector2(0.3, 0.3)
+
+
 ## The islands of the stage: one node each, placed by the scroll in `_process`.
 func _build_islands() -> void:
 	G.islands = []
@@ -2327,6 +2335,7 @@ func _build_islands() -> void:
 		var cx: float = X(isl[2])
 		var acc := Terrain.Acc.new()
 		var lip := []
+		var lz := _lip_z()
 		for side in [-1.0, 1.0]:
 			var rows := []
 			for k in steps + 1:
@@ -2340,8 +2349,8 @@ func _build_islands() -> void:
 			for k in steps:
 				var pa: Vector3 = rows[k][0]
 				var pb: Vector3 = rows[k + 1][0]
-				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
-				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3), Vector3(pb.x - side * 0.8, pb.y, 0.3)])
+				lip.append([Vector3(pa.x - side * 0.8, pa.y, lz.y), Vector3(pa.x, pa.y, lz.x), Vector3(pb.x, pb.y, lz.x)])
+				lip.append([Vector3(pa.x - side * 0.8, pa.y, lz.y), Vector3(pb.x, pb.y, lz.x), Vector3(pb.x - side * 0.8, pb.y, lz.y)])
 		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 		n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 		world.add_child(n)
@@ -2376,14 +2385,15 @@ func _walls_node(c: int) -> Node3D:
 	var acc := Terrain.Acc.new()
 	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
 	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
+	var lz := _lip_z()
 	var lip := []
 	for j in rows:
 		for side in [[left, -1.0], [right, 1.0]]:
 			var a: Vector3 = side[0][j][0]
 			var b: Vector3 = side[0][j + 1][0]
 			var s: float = side[1]
-			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(a.x, a.y, 0.3), Vector3(b.x, b.y, 0.3)])
-			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(b.x, b.y, 0.3), Vector3(b.x + s * 0.9, b.y, 0.3)])
+			lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(a.x, a.y, lz.x), Vector3(b.x, b.y, lz.x)])
+			lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(b.x, b.y, lz.x), Vector3(b.x + s * 0.9, b.y, lz.y)])
 	n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 	n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 	return n

@@ -270,7 +270,10 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   and colour per corner shared by the faces round it (`_row_smooth`), cliffs, islands and the run's
   rock smoothed by `Acc.smooth()` (folds over 65 degrees stay sharp), and a cracked-plate relief
   from a tiling normal map (`Terrain.ground_mat_premium()`, period 32 so chunks meet); one smooth
-  row per builder step (they cost more); no random shade per facet; wider baked occlusion, a gradient sky with the sun's glow (`_premium_env()`),
+  row per builder step (they cost more); no random shade per facet; wider baked occlusion;
+  cliffs as one smooth sheet (`_cliff_smooth`): a scree foot (`FOOT_Z`, `FOOT_OUT`) turning to the
+  ground's colour, the face, a rounded shoulder (`SHOULDER`, "rocks are very rarely 90 degrees")
+  with the lip lowered onto it (`_lip_z()`), then the top; the collision edge does not move; a gradient sky with the sun's glow (`_premium_env()`),
   lighter haze (`haze`, `haze_run`), a sun-side screen haze quad, a wider softer bloom.
   Global: `Geo.bevel` chamfers boxes and prisms, `Models.std` has a rim light.
   Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).

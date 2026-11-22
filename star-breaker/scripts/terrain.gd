@@ -895,6 +895,15 @@ const TOP_PEAK := [0.0, 0.0, 1.0, 7.0, 18.0, 34.0, 46.0]
 ## Bands of a cliff face: depth below the edge and how far the face leans out at that depth.
 const FACE_Z := [0.0, -9.0, -22.0, -38.0, -62.0]
 const FACE_OUT := [0.0, 1.2, 3.4, 5.0, 8.0]
+## The premium cliff's foot (Guillaume, 2026-11-22: "smooth the limit between canyon walls and the
+## ground"): below the face, a slope of scree flares out and dives under the floor, its colour
+## turning to the ground's, so the wall settles into the ground instead of standing on a line.
+const FOOT_Z := [-50.0, -60.0, -69.0, -80.0]
+const FOOT_OUT := [8.5, 12.0, 17.0, 23.0]
+## And its shoulder (Guillaume: "rocks are very rarely 90 degrees"): the top rolls over into the
+## face instead of meeting it at a right angle. Points from the edge into the rock: how far in,
+## and how far below the plateau's edge height. The edge itself stays where the ship collides.
+const SHOULDER := [[0.0, -4.5], [0.8, -2.2], [2.2, -0.7]]
 
 
 ## Rock with a faceted top and a banded cliff face. `rows` are [edge point (z = 0 is the
@@ -918,12 +927,18 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			top.append(Vector3(e.x + s * o, e.y + jy, tz * (o / maxf(0.001, TOP_OFF[k]) if k > 0 else 0.0) + jz))
 		tops.append(top)
 		var face := []
-		for m in FACE_Z.size():
+		var prem: bool = pal.get("premium", false)
+		# the premium face stops a band early: its foot takes over from there
+		for m in (FACE_Z.size() - 1 if prem else FACE_Z.size()):
 			var jx := (h2(wy, m * 5.3 - s) - 0.5) * 2.6 if m > 0 else 0.0
 			face.append(Vector3(e.x - s * (float(FACE_OUT[m]) + jx), e.y, FACE_Z[m]))
+		if prem:
+			for m in FOOT_Z.size():
+				var jx := (h2(wy, m * 7.1 + s) - 0.5) * 4.0
+				face.append(Vector3(e.x - s * (float(FOOT_OUT[m]) + jx), e.y, FOOT_Z[m]))
 		faces.append(face)
 	if pal.get("premium", false):
-		_cliff_smooth(acc, tops, faces, s, pal)
+		_cliff_smooth(acc, rows, tops, faces, s, pal)
 		return
 	for j in rows.size() - 1:
 		var wy := wy0 + (rows[j][0] as Vector3).y
@@ -956,49 +971,67 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			acc.tri(a, d, c, col.darkened(0.05), out)
 
 
-## The premium cliff: the same rock, smooth. Each corner of the top and of the face takes its
-## normal from its grid neighbours and its own colour, shared by the faces round it, so no
-## triangle shows; the top and the face still meet at a sharp edge (the lip).
-static func _cliff_smooth(acc: Acc, tops: Array, faces: Array, s: float, pal: Dictionary) -> void:
-	var out := Vector3(-s, 0, 0.35)
-	for part in [[tops, Vector3.BACK, true], [faces, out, false]]:
-		var g: Array = part[0]
-		var dir: Vector3 = part[1]
-		var is_top: bool = part[2]
-		var nj := g.size()
-		var nk: int = (g[0] as Array).size()
-		var nrm := []
-		var col := []
-		var uv := []
-		for j in nj:
-			var nr := []
-			var cr := []
-			var ur := []
-			for k in nk:
-				var p: Vector3 = g[j][k]
-				var du: Vector3 = g[j][mini(k + 1, nk - 1)] - g[j][maxi(k - 1, 0)]
-				var dv: Vector3 = g[mini(j + 1, nj - 1)][k] - g[maxi(j - 1, 0)][k]
-				var n := du.cross(dv).normalized()
-				if n.dot(dir) < 0.0:
-					n = -n
-				nr.append(n)
-				var c: Color
-				if is_top:
-					c = Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
-					c = c.darkened(0.12).lightened(clampf(p.z / 40.0, 0.0, 1.0) * 0.3)
-					ur.append(Vector2(p.x, p.y) / 32.0)
-				else:
-					c = Color(pal.c_face).darkened(float(k) * 0.12)
-					ur.append(Vector2(p.y, p.z) / 32.0)
-				cr.append(c)
-			nrm.append(nr)
-			col.append(cr)
-			uv.append(ur)
-		for j in nj - 1:
-			for k in nk - 1:
-				for t in [[[j, k], [j, k + 1], [j + 1, k + 1]], [[j, k], [j + 1, k + 1], [j + 1, k]]]:
-					var a: Array = t[0]
-					var b: Array = t[1]
-					var c: Array = t[2]
-					acc.tri3n(g[a[0]][a[1]], g[b[0]][b[1]], g[c[0]][c[1]], col[a[0]][a[1]], col[b[0]][b[1]], col[c[0]][c[1]],
-							nrm[a[0]][a[1]], nrm[b[0]][b[1]], nrm[c[0]][c[1]], uv[a[0]][a[1]], uv[b[0]][b[1]], uv[c[0]][c[1]], dir)
+## The premium cliff: the same rock as one smooth sheet from the floor up the face, over a
+## rounded shoulder and across the top. Each corner takes its normal from its neighbours along
+## and across the sheet and its own colour (the ground's at the foot, the face's, then the
+## top's), shared by the faces round it, so no triangle and no right angle shows.
+static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: float, pal: Dictionary) -> void:
+	var pc := colors(pal)
+	var floor_c := grade(pc, face_color(pc, -2.0, 0.9, 0.0, 0.5), Vector3.BACK, 4.0)
+	var face_c := Color(pal.c_face)
+	var g := []  # rows of points, bottom of the foot first
+	var cols := []
+	for j in rows.size():
+		var e: Vector3 = (rows[j] as Array)[0]
+		var face: Array = faces[j]
+		var top: Array = tops[j]
+		var pr := []
+		var cr := []
+		var nf := face.size()
+		for m in range(nf - 1, 0, -1):
+			pr.append(face[m])
+			# the foot and the low face turn to the ground's colour
+			var f := clampf(float(m - 1) / float(nf - 2), 0.0, 1.0)
+			cr.append(face_c.darkened(0.1).lerp(floor_c, pow(f, 1.3)))
+		for sh in SHOULDER:
+			var o: float = sh[0]
+			pr.append(Vector3(e.x + s * o, e.y, float(sh[1])))
+			cr.append(face_c.lerp(Color(pal.c_top), o / 2.2 * 0.6 + 0.2))
+		for k in range(2, top.size()):
+			var p: Vector3 = top[k]
+			pr.append(p)
+			var c := Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
+			cr.append(c.darkened(0.12).lightened(clampf(p.z / 40.0, 0.0, 1.0) * 0.3))
+		g.append(pr)
+		cols.append(cr)
+	var nj := g.size()
+	var nk: int = (g[0] as Array).size()
+	var nrm := []
+	var uv := []
+	for j in nj:
+		var nr := []
+		var ur := []
+		var arc := 0.0
+		for k in nk:
+			var p: Vector3 = g[j][k]
+			if k > 0:
+				arc += p.distance_to(g[j][k - 1])
+			var du: Vector3 = g[j][mini(k + 1, nk - 1)] - g[j][maxi(k - 1, 0)]
+			var dv: Vector3 = g[mini(j + 1, nj - 1)][k] - g[maxi(j - 1, 0)][k]
+			var n := du.cross(dv).normalized()
+			# outwards: into the canyon low down, up on the top
+			if n.dot(Vector3(-s, 0, 0) if k < nk / 2 else Vector3.BACK) < 0.0:
+				n = -n
+			nr.append(n)
+			ur.append(Vector2(p.y / 32.0, arc / 32.0))
+		nrm.append(nr)
+		uv.append(ur)
+	for j in nj - 1:
+		for k in nk - 1:
+			for t in [[[j, k], [j, k + 1], [j + 1, k + 1]], [[j, k], [j + 1, k + 1], [j + 1, k]]]:
+				var a: Array = t[0]
+				var b: Array = t[1]
+				var c: Array = t[2]
+				var dir: Vector3 = nrm[a[0]][a[1]] + nrm[b[0]][b[1]] + nrm[c[0]][c[1]]
+				acc.tri3n(g[a[0]][a[1]], g[b[0]][b[1]], g[c[0]][c[1]], cols[a[0]][a[1]], cols[b[0]][b[1]], cols[c[0]][c[1]],
+						nrm[a[0]][a[1]], nrm[b[0]][b[1]], nrm[c[0]][c[1]], uv[a[0]][a[1]], uv[b[0]][b[1]], uv[c[0]][c[1]], dir)
