@@ -280,6 +280,22 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).
   Compatibility has no SSAO: occlusion is baked into vertex colours, keep it that way.
 
+## One decor per world (2026-11-22)
+
+- Guillaume dropped the moon terrain look for world 1 ("forget everything about the current and
+  suggest something new"), picked the Bloom canopy from four concepts (`tools/concept_shots.gd`
+  renders them) and said: "Let's keep bloom for the first world and we'll go from there. One
+  decor per world". A look with `decor` builds its own chunks instead of `Terrain`
+  (`_new_builder()` in vgame.gd); worlds without one keep the terrain.
+- Bloom (`scripts/bloom.gd`, `decor = "bloom"`): a fungal canopy seen from above. Caps on a hashed
+  grid (`Bloom.canopy`, chunks agree), heights and clearings from `openness()`; low caps darken so
+  the play field reads, canyon walls and islands are rows of the tallest, brightest caps
+  (`wall_caps`) that never cross the collision edge (`Bloom.wall`, `_bloom_island`), under the
+  usual glowing lip. Floor: dark, glowing mycelium (UV = world position). Pods and rising spores
+  in clearings. All MultiMesh (a few draws per chunk), built in 5 `step()`s. Props and fortress
+  walls get clearings (`_clearings()`) and stand on the floor (height 0). The low canopy casts no
+  shadow (cost). No screen haze or wide bloom with a decor. The canyon run still uses its rock.
+
 ## The game
 
 - `scenes/main.tscn` runs `scripts/vgame.gd` (game, menu flow, save, updates), with

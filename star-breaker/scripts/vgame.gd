@@ -113,6 +113,9 @@ const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e
 	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
 	warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"],
+	decor = "bloom", caps = [["2c1e5c", "8f6bff"], ["1c2c5c", "3ff0e0"], ["361a54", "ff7ac0"], ["241a4c", "b98aff"]],
+	wall_caps = [["6a2c86", "ff4fa3"], ["3e2e8e", "8f6bff"], ["7a3070", "ff7ac0"], ["1e4a78", "3ff0e0"]],
+	floor = "0b0720", vein = "2fd6c8", stem = "24163a", pods = ["3ff0e0", "ff7ac0", "ffd080"], spore = "ffe0a0",
 	premium = true, haze = "1e1650", haze_run = "6a4a9a", haze_a = 35.0, haze_b = 230.0, sky_top = "0e0830", sky_mid = "2c1c62",
 	sky_hor = "9a5c92", sun_glow = "ffb890"},
 	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
@@ -554,7 +557,8 @@ void fragment() {
 		_haze.material = hm
 		l.add_child(_haze)
 	if _sky != null:
-		_haze.visible = on and not Diag.safe
+		# the Bloom keeps the play field crisp: no screen haze, no wide bloom
+		_haze.visible = on and not look.has("decor") and not Diag.safe
 		if on:
 			_sky_mat.set_shader_parameter("top", Color(look.sky_top))
 			_sky_mat.set_shader_parameter("mid", Color(look.sky_mid))
@@ -576,7 +580,7 @@ void fragment() {
 		var lv := 0.0
 		if i in [2, 3, 4, 5]:
 			lv = 1.0
-		elif on and i == 6:
+		elif on and i == 6 and not look.has("decor"):
 			lv = 0.6
 		_env.set("glow_levels/%d" % i, lv)
 
@@ -2296,7 +2300,10 @@ func update_fx() -> void:
 ## One strip of ground, CHUNK units long (see `Terrain`), with the canyon walls that reach it.
 func build_chunk(c: int, g: Node3D = null) -> Node3D:
 	if g == null:
-		g = Terrain.build_chunk(c, CHUNK, look, _terrain_mats)
+		var bl = _new_builder(c)
+		while not bl.step():
+			pass
+		g = bl.node
 	if not G.is_empty():
 		var wn := _walls_node(c)
 		if wn:
@@ -2351,16 +2358,46 @@ func _build_islands() -> void:
 				# jitter the drawn rock inwards, never past the collision edge
 				var jh := maxf(0.0, h - VStage.hash(Vector2(ly, side)) * 1.2) if k > 0 and k < steps else 0.0
 				rows.append([Vector3(cx + side * jh, ly, 0), jh])
-			Terrain.cliff(acc, rows, -side, look, float(isl[0]) + side * 1000.0)
+			if not look.has("decor"):
+				Terrain.cliff(acc, rows, -side, look, float(isl[0]) + side * 1000.0)
 			for k in steps:
 				var pa: Vector3 = rows[k][0]
 				var pb: Vector3 = rows[k + 1][0]
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pa.x, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3)])
 				lip.append([Vector3(pa.x - side * 0.8, pa.y, 0.3), Vector3(pb.x, pb.y, 0.3), Vector3(pb.x - side * 0.8, pb.y, 0.3)])
-		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
+		if look.get("decor", "") == "bloom":
+			_bloom_island(n, isl, cx)
+		else:
+			n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 		n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 		world.add_child(n)
 		G.islands.append({d = float(isl[0]), m = n})
+
+
+## A Bloom island: a lozenge packed with tall caps, each disc inside the island's collision
+## shape (its radius is the narrowest half-width over its span), smaller ones filling the tips.
+func _bloom_island(n: Node3D, isl: Array, cx: float) -> void:
+	var caps := []
+	var ln := float(isl[1])
+	var y := 0.0
+	var k := 0
+	while y < ln:
+		var r := INF
+		for t in 9:
+			var yy := y + (t / 8.0 - 0.5) * 2.0 * minf(r if is_finite(r) else 12.0, 12.0)
+			r = minf(r, VStage.island_half(isl, isl[0] + clampf(yy, 0.0, ln)) if yy >= 0.0 and yy <= ln else 0.0)
+		r = minf(r, 14.0)
+		if r > 1.2:
+			var h := Bloom.h(float(isl[0]), k)
+			caps.append([cx, y, r, -h * 1.5, int(h * 4.0) % 4, h])
+			y += r * 1.3
+		else:
+			y += 1.0
+		k += 1
+	var stems := []
+	var bm := Bloom.mats(look)
+	n.add_child(Bloom.mm_node(Bloom.fill_caps(caps, look, stems, "wall_caps"), bm.cap, true))
+	n.add_child(Bloom.mm_node(Bloom.fill_stems(stems, GROUND_Z - 50.0 + 7.0), bm.stem, false))
 
 
 ## The canyon walls of chunk `c` (null when no wall reaches the screen there), built in the
@@ -2389,10 +2426,18 @@ func _walls_node(c: int) -> Node3D:
 		# jitter the drawn rock a little, but never past the collision edge
 		left.append([Vector3(X(w.x) - VStage.hash(Vector2(d, 3.0)) * 1.4, ly, 0), 200.0])
 		right.append([Vector3(X(w.y) + VStage.hash(Vector2(d, 7.0)) * 1.4, ly, 0), 200.0])
-	var acc := Terrain.Acc.new()
-	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
-	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
 	var lip := []
+	if look.get("decor", "") == "bloom":
+		var caps := Bloom.wall(left.map(func(e): return e[0]), -1.0, c * CHUNK, look) + Bloom.wall(right.map(func(e): return e[0]), 1.0, c * CHUNK + 500.0, look)
+		var stems := []
+		var bm := Bloom.mats(look)
+		n.add_child(Bloom.mm_node(Bloom.fill_caps(caps, look, stems, "wall_caps"), bm.cap, true))
+		n.add_child(Bloom.mm_node(Bloom.fill_stems(stems, -n.position.z), bm.stem, false))
+	else:
+		var acc := Terrain.Acc.new()
+		Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
+		Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
+		n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 	for j in rows:
 		for side in [[left, -1.0], [right, 1.0]]:
 			var a: Vector3 = side[0][j][0]
@@ -2400,9 +2445,33 @@ func _walls_node(c: int) -> Node3D:
 			var s: float = side[1]
 			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(a.x, a.y, 0.3), Vector3(b.x, b.y, 0.3)])
 			lip.append([Vector3(a.x + s * 0.9, a.y, 0.3), Vector3(b.x, b.y, 0.3), Vector3(b.x + s * 0.9, b.y, 0.3)])
-	n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
 	n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
 	return n
+
+
+## The builder of chunk `c`: the world's own decor (`decor` in its look) or the moon's terrain.
+func _new_builder(c: int) -> Object:
+	if look.get("decor", "") == "bloom":
+		return Bloom.Builder.new(c, CHUNK, look, _clearings(c))
+	return Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+
+
+## Ground the Bloom keeps free in chunk `c`: [x, wy, radius] round each prop and across each
+## fortress wall, so what stands on the floor is never buried under a cap.
+func _clearings(c: int) -> Array:
+	var out := []
+	var y0 := c * CHUNK - 30.0
+	var y1 := (c + 1) * CHUNK + 30.0
+	for s in script_list:
+		var d: float = s.get("d", -1e9)
+		if d < y0 or d > y1:
+			continue
+		if s.type == "prop":
+			out.append([X(s.x), d, 9.0])
+		elif s.type == "barrier":
+			for k in 13:
+				out.append([-90.0 + k * 15.0, d, 12.0])
+	return out
 
 
 func update_chunks(scroll: float) -> void:
@@ -2420,20 +2489,20 @@ func update_chunks(scroll: float) -> void:
 	for c in range(a, b + 1):
 		if not chunks.has(c):
 			# needed now: finish it here (only on a jump, e.g. the first frame of a stage)
-			var bl: Terrain.Builder = _building.get(c)
+			var bl = _building.get(c)
 			_building.erase(c)
 			if bl == null:
-				bl = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+				bl = _new_builder(c)
 			while not bl.step():
 				pass
 			_add_chunk(c, bl.node)
 	# the next strips are built a slice per frame ahead of time, so new ground never hitches
 	for c in [b + 1, b + 2]:
 		if not chunks.has(c) and not _building.has(c):
-			_building[c] = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+			_building[c] = _new_builder(c)
 	if not _building.is_empty():
 		var c: int = _building.keys().min()
-		var bl: Terrain.Builder = _building[c]
+		var bl = _building[c]
 		if bl.step():
 			_building.erase(c)
 			_add_chunk(c, bl.node)
@@ -3067,7 +3136,8 @@ func _sync_e(e: Dictionary) -> void:
 
 func _sync_prop(pr: Dictionary) -> void:
 	var m: Node3D = pr.m
-	m.position = Vector3(X(pr.x), Y(pr.wy - G.scroll), GROUND_Z - 50.0 + Terrain.height(X(pr.x), pr.wy))
+	var gz := 0.0 if look.has("decor") else Terrain.height(X(pr.x), pr.wy)
+	m.position = Vector3(X(pr.x), Y(pr.wy - G.scroll), GROUND_Z - 50.0 + gz)
 	if m.has_meta("spin"):
 		(m.get_meta("spin") as Node3D).rotation.z = pr.t * 0.02
 	if m.has_meta("blink"):
