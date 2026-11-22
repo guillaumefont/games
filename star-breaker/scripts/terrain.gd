@@ -524,12 +524,12 @@ static func _cluster(acc: Acc, at: Vector3, rng: RandomNumberGenerator, s: float
 
 
 ## A squashed faceted boulder (an icosahedron with jittered vertices).
-static func _boulder(acc: Acc, at: Vector3, r: float, rng: RandomNumberGenerator, pal: Dictionary) -> void:
+static func _boulder(acc: Acc, at: Vector3, r: float, rng: RandomNumberGenerator, pal: Dictionary, sub := 2) -> void:
 	var col := Color(pal.t_rock).darkened(rng.randf_range(0.0, 0.2))
 	var fine: bool = Geo.detail and pal.has("detail")
 	var jit := {}
 	var seed_v := Vector3(rng.randf(), rng.randf(), rng.randf()) * 9.0
-	for t in Geo.ico(1.0, 2 if fine else 0):
+	for t in Geo.ico(1.0, sub if fine else 0):
 		var tri := []
 		var nrm := []
 		for vv in t:
@@ -637,6 +637,11 @@ void fragment() {
 	if (side > 0.0) {
 		bool xf = abs(n.x) > abs(n.y);
 		vec2 uc = vec2((xf ? wp.y : wp.x) / 34.0, wp.z / 34.0);
+		if (UV.x > 500.0) {
+			// a detailed canyon wall: laid exactly where its height map raised the rock
+			uc = vec2(UV.x - 1000.0, UV.y);
+			side = 1.0;
+		}
 		vec2 cb = (texture(c_n, uc).rg - 0.5) * 2.6;
 		vec3 t = xf ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 		vec3 fn = normalize(n + t * cb.x + vec3(0.0, 0.0, 1.0) * cb.y);
@@ -783,6 +788,8 @@ class Acc:
 		arrays[Mesh.ARRAY_VERTEX] = v
 		arrays[Mesh.ARRAY_NORMAL] = n
 		arrays[Mesh.ARRAY_COLOR] = col
+		while uv.size() > 0 and uv.size() < v.size():
+			uv.append(Vector2.ZERO)
 		if uv.size() == v.size() and uv.size() > 0:
 			arrays[Mesh.ARRAY_TEX_UV] = uv
 		var m := ArrayMesh.new()

@@ -10,3 +10,7 @@ downloaded at 1k:
   burned_ground_01, dark_rock; metal_plate_02 also skins hulls and structures
 - sky.hdr: kloofendal_48d_partly_cloudy_puresky, used for reflections only
 - hull_Diffuse.jpg: metal_plate_02 Diffuse lightened and mostly desaturated (airframe grey)
+- *_disp.png: each cliff material's Displacement map, shrunk to 256 px; it raises the canyon
+  walls' geometry (see `VRun._wall_fine`)
+- rocks/moon_rock_02, rocks/moon_rock_03: Poly Haven scanned rock models (glTF, 1k textures),
+  CC0, scattered at the foot of the canyon walls and tinted to each world's cliff colour

@@ -475,6 +475,10 @@ class Builder:
 		_pal = pal
 		_mats = mats
 		node.name = "CanyonRun"
+		if Geo.detail and pal.has("detail"):
+			# loaded up front: the first rock otherwise cost one frame ~140 ms
+			VRun.rock_scene(0)
+			VRun._height_map(pal.scan[2])
 
 	## Does units of work for up to `budget_ms` (at least one); true once the canyon is built.
 	## A budget of 0 does a single unit.
@@ -519,8 +523,32 @@ class Builder:
 		for o in VRun.OBS:
 			if o.u >= _u and o.u < _u + SLICE:
 				_todo.append(o)
+		if Geo.detail and _pal.has("detail"):
+			_place_rocks(_u)
 		_slice = []
 		_u += SLICE
+
+	## Scanned boulders fallen at the foot of the walls in this slice: real 3D rocks, a few per
+	## slice, each its own node so the ones off screen are culled.
+	func _place_rocks(u0: float) -> void:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = int(u0 * 7.0) + 101
+		for s in [-1.0, 1.0]:
+			if rng.randf() > 0.7:
+				continue
+			var u := u0 + rng.randf_range(4.0, SLICE - 4.0)
+			var pa := VRun.passage(u)
+			var w := rng.randf_range(5.0, 9.0) if rng.randf() < 0.6 else rng.randf_range(10.0, 15.0)
+			var edge := VRun.sx(pa.x + s * pa.y)
+			var at := Vector3(edge + s * w * 0.3, u, 0.0)
+			var t := (at.x + 63.0 - (pa.x - pa.y - VRun.TUCK)) / (pa.y * 2.0 + VRun.TUCK * 2.0)
+			at.z = VRun.floor_pt(u, clampf(t, 0.0, 1.0)).z + w * 0.12
+			var rock: Node3D = VRun.rock_scene(rng.randi() % 2).instantiate()
+			# the scans stand on Y; the canyon's up is Z
+			rock.basis = Basis(Vector3.BACK, VRun.heading(u) + rng.randf() * TAU) * Basis(Vector3.RIGHT, PI / 2.0) * Basis().scaled(Vector3.ONE * w / 0.25)
+			rock.position = VRun.warp(at)
+			VRun.tint_rock(rock, _pal)
+			node.add_child(rock)
 
 	func _done() -> bool:
 		return _u >= VRun.LEN + 300.0 and _todo.is_empty() and _ready.is_empty() and _slice.is_empty()
@@ -566,11 +594,21 @@ const BANDS := [-104.0, -26.0, -12.0, 2.0, 18.0, RIM]
 static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: float, u1: float, pal: Dictionary) -> void:
 	var pa := passage(u0)
 	var pb := passage(u1)
+	var fine: bool = Geo.detail and pal.has("detail")
 	for s in [-1.0, 1.0]:
 		var ea := sx(pa.x + s * pa.y)
 		var eb := sx(pb.x + s * pb.y)
+		if fine:
+			_wall_fine(rock, u0, u1, s, pal)
+			# under the scree: a plain face down to where the moon's ground can show below
+			var lo := [Vector3(ea + s * 0.4, u0, BANDS[0]), Vector3(eb + s * 0.4, u1, BANDS[0]), Vector3(ea + s * 0.4, u0, WALL_Z0 + 2.0), Vector3(eb + s * 0.4, u1, WALL_Z0 + 2.0)]
+			var lc := Color(pal.c_face).darkened(0.3)
+			rock.tri(lo[0], lo[1], lo[3], lc, Vector3(-s, 0, 0))
+			rock.tri(lo[0], lo[3], lo[2], lc, Vector3(-s, 0, 0))
 		# the face: banded strata, jittered only outwards (into the rock), never into the passage
 		for m in BANDS.size() - 1:
+			if fine:
+				break
 			var za: float = BANDS[m]
 			var zb: float = BANDS[m + 1]
 			var ja := VStage.hash(Vector2(u0, m * 3.0 + s)) * 2.2 if m > 0 else 0.0
@@ -646,6 +684,149 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 			glow.tri(Vector3(x0, u0, z), Vector3(x1, u0 + 1.4, z), Vector3(x0, u0 + 1.4, z), Color.WHITE, Vector3.BACK)
 
 
+## The detailed walls' relief: each world's cliff scan comes with a height map, which pushes
+## the face back into the rock (never into the passage) so ledges and layers stand out for real.
+## Two scales: the scan's own tile (34 units, as the shader lays its colour) and a broad one
+## for whole ledges.
+static var _disp := {}
+const WALL_TILE := 34.0
+const WALL_AMP := 4.5
+const LEDGE_TILE := 118.0
+const LEDGE_AMP := 7.0
+## Wall rows: from under the scree up to the rim, every WALL_DZ; along the canyon every WALL_DU.
+const WALL_Z0 := FLOOR - 7.0
+const WALL_DZ := 4.0
+const WALL_DU := 5.0
+
+
+static func _height_map(name: String) -> Array:
+	if not _disp.has(name):
+		var img: Image = (load("res://assets/scan/%s_disp.png" % name) as Texture2D).get_image()
+		img.decompress()
+		img.convert(Image.FORMAT_L8)
+		_disp[name] = [img.get_data(), img.get_width()]
+	return _disp[name]
+
+
+## Bilinear, tiling sample (0..1) of a height map at texture coordinates `uv`.
+static func _hsample(hm: Array, uv: Vector2) -> float:
+	var data: PackedByteArray = hm[0]
+	var n: int = hm[1]
+	var x := fposmod(uv.x, 1.0) * n - 0.5
+	var y := fposmod(uv.y, 1.0) * n - 0.5
+	var x0 := floori(x)
+	var y0 := floori(y)
+	var fx := x - x0
+	var fy := y - y0
+	var a := posmod(x0, n)
+	var b := posmod(x0 + 1, n)
+	var c := posmod(y0, n) * n
+	var d := posmod(y0 + 1, n) * n
+	return lerpf(lerpf(data[c + a], data[c + b], fx), lerpf(data[d + a], data[d + b], fx), fy) / 255.0
+
+
+## A point of a detailed wall at (u, z), before the canyon bends; `e` is the wall's edge
+## there and `top` its rim. Returns the point and how far it is pushed back into the rock.
+static func wall_pt(hm: Array, u: float, z: float, s: float, e: float, top: float) -> Vector3:
+	# full relief between the scree and the rim, none where the face meets the lip and mountains
+	var k := smoothstep(top, top - 6.0, z) * smoothstep(WALL_Z0, WALL_Z0 + 8.0, z)
+	var fine := 1.0 - _hsample(hm, Vector2(u / WALL_TILE, z / WALL_TILE))
+	var broad := 1.0 - _hsample(hm, Vector2(u / LEDGE_TILE + 0.31, z / (LEDGE_TILE * 0.45) + 0.17))
+	return Vector3(e + s * (0.4 + (fine * WALL_AMP + broad * LEDGE_AMP) * k), u, z)
+
+
+static func _wall_fine(rock: Terrain.Acc, u0: float, u1: float, s: float, pal: Dictionary) -> void:
+	var hm := _height_map(pal.scan[2])
+	var nu := int(round((u1 - u0) / WALL_DU))
+	var grid := []
+	var edges := []
+	# one extra ring all round, for the normals
+	for j in nu + 3:
+		var u := u0 + (j - 1) * (u1 - u0) / nu
+		var top := rim_z(u, s)
+		var pu := passage(u)
+		var e := sx(pu.x + s * pu.y)
+		var nz := int(ceil((top - WALL_Z0) / WALL_DZ))
+		var col := []
+		for i in nz + 3:
+			col.append(wall_pt(hm, u, minf(WALL_Z0 + (i - 1) * (top - WALL_Z0) / nz, top + 4.0), s, e, top))
+		edges.append(e)
+		grid.append(col)
+	var base := Color(pal.c_face).lightened(0.12)
+	var out := Vector3(-s, 0, 0)
+	for j in range(1, nu + 1):
+		var m := mini(grid[j].size(), grid[j + 1].size()) - 2
+		for i in range(1, m):
+			var pts := []
+			var nrm := []
+			var uvs := []
+			var cols := []
+			for jq in [[j, i], [j + 1, i], [j, i + 1], [j + 1, i + 1]]:
+				var a: Array = grid[jq[0] - 1]
+				var b: Array = grid[jq[0] + 1]
+				var c: Array = grid[jq[0]]
+				var p: Vector3 = c[jq[1]]
+				var nb: Vector3 = (b[mini(jq[1], b.size() - 1)] - a[mini(jq[1], a.size() - 1)]).cross(c[jq[1] + 1] - c[jq[1] - 1]).normalized()
+				if nb.dot(out) < 0.0:
+					nb = -nb
+				pts.append(p)
+				nrm.append(nb)
+				uvs.append(Vector2(1000.0 + p.y / WALL_TILE, p.z / WALL_TILE))
+				# the deeper the rock is pushed back, the more it sits in shade
+				var back := absf(p.x - float(edges[jq[0]]))
+				cols.append(base.darkened(clampf(back / (WALL_AMP + LEDGE_AMP) * 0.35, 0.0, 0.35)))
+			_tri_uv(rock, pts[0], pts[1], pts[3], cols[0], cols[1], cols[3], nrm[0], nrm[1], nrm[3], uvs[0], uvs[1], uvs[3], out)
+			_tri_uv(rock, pts[0], pts[3], pts[2], cols[0], cols[3], cols[2], nrm[0], nrm[3], nrm[2], uvs[0], uvs[3], uvs[2], out)
+
+
+## Adds a triangle with per-corner colours, normals and texture coordinates (pre-bend wall
+## coordinates, for the shader to lay the cliff scan exactly where its height map raised it).
+static func _tri_uv(acc: Terrain.Acc, a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, na: Vector3, nb: Vector3, nc: Vector3, ua: Vector2, ub: Vector2, uc: Vector2, dir: Vector3) -> void:
+	while acc.uv.size() < acc.v.size():
+		acc.uv.append(Vector2.ZERO)
+	var k := acc.v.size()
+	acc.tri3n(a, b, c, ca, cb, cc, na, nb, nc, dir)
+	for i in range(k, acc.v.size()):
+		var p: Vector3 = acc.v[i]
+		acc.uv.append(ua if p == a else (ub if p == b else uc))
+
+
+## The scanned rock models (Poly Haven, CC0), loaded once.
+static var _rock_scenes: Array = []
+static var _rock_mats := {}
+
+
+static func rock_scene(i: int) -> PackedScene:
+	if _rock_scenes.is_empty():
+		for n in ["moon_rock_02", "moon_rock_03"]:
+			_rock_scenes.append(load("res://assets/scan/rocks/%s/%s.gltf" % [n, n]))
+	return _rock_scenes[i % _rock_scenes.size()]
+
+
+## Tints a scanned rock to the world's rock colour (one material per world and model).
+static func tint_rock(n: Node, pal: Dictionary) -> void:
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		for k in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(k) as StandardMaterial3D
+			if m == null:
+				continue
+			var key := "%s %s" % [m.get_instance_id(), pal.c_face]
+			if not _rock_mats.has(key):
+				var t: StandardMaterial3D = m.duplicate()
+				# the grey scans take on the mean colour of the world's cliff scan
+				var img: Image = (load("res://assets/scan/%s_Diffuse.jpg" % pal.scan[2]) as Texture2D).get_image()
+				img.decompress()
+				img.resize(1, 1, Image.INTERPOLATE_BILINEAR)
+				var c := img.get_pixel(0, 0)
+				t.albedo_color = Color(c.r, c.g, c.b) * 2.2
+				_rock_mats[key] = t
+			mi.set_surface_override_material(k, _rock_mats[key])
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	for c in n.get_children():
+		tint_rock(c, pal)
+
+
 ## How far the detailed floor reaches under each wall, past the passage's edge.
 const TUCK := 12.0
 
@@ -709,7 +890,7 @@ static func _floor_fine(rock: Terrain.Acc, u0: float, u1: float, pal: Dictionary
 			var w := pa.y * 2.0 + TUCK * 2.0
 			t = (at.x + 63.0 - (pa.x - pa.y - TUCK)) / w
 			at.z = floor_pt(at.y, clampf(t, 0.0, 1.0)).z - r * 0.2
-			Terrain._boulder(rock, at, r, rng, pal)
+			Terrain._boulder(rock, at, r, rng, pal, 1)
 
 
 ## The height of the canyon's rim edge on side `s` at `u`: it rises and dips along the canyon
