@@ -266,6 +266,9 @@ class Builder:
 	var row_t := 0
 	var node: Node3D
 	var _shape := {}  ## corner (x, y) -> [the ground's broad normal there, how hollow it is]
+	## More work to do once the ground is built (an object with `step() -> bool` and `node`): the
+	## chunk's canyon walls. Its node joins the chunk, which is marked `walls`.
+	var after: Object = null
 	var premium := false
 	var cols: Array = COLS
 	var rows := ROWS
@@ -299,7 +302,19 @@ class Builder:
 					_tris(row_t)
 					row_t += 1
 			return false
-		node = Terrain._features(c, len, pal, mats, ground, y0)
+		return _end()
+
+	## The chunk's features (one step), then the `after` work a step at a time.
+	func _end() -> bool:
+		if node == null:
+			node = Terrain._features(c, len, pal, mats, ground, y0)
+			return after == null
+		if after != null:
+			if not after.step():
+				return false
+			if after.node != null:
+				node.add_child(after.node)
+			node.set_meta("walls", true)
 		return true
 
 	func _row(j: int) -> Array:
@@ -343,8 +358,7 @@ class Builder:
 					if pts.size() >= 2:
 						_tris_smooth(pts.size() - 2)
 			return false
-		node = Terrain._features(c, len, pal, mats, ground, y0)
-		return true
+		return _end()
 
 	func _h(j: int, i: int) -> float:
 		return (hg[clampi(j, -PAD, rows + PAD) + PAD] as PackedFloat32Array)[clampi(i, 0, cols.size() - 1)]
@@ -702,6 +716,8 @@ class Acc:
 	var n := PackedVector3Array()
 	var col := PackedColorArray()
 	var uv := PackedVector2Array()
+	## Indices, when the mesh is built from shared corners (`grid`): then every part is indexed.
+	var idx := PackedInt32Array()
 
 	func count() -> int:
 		return v.size()
@@ -774,6 +790,51 @@ class Acc:
 		col.append(ca)
 		col.append(cc)
 		col.append(cb)
+
+	## Adds a sheet of rows of corners (`g[j][k]`) whose corners are shared by the triangles
+	## round them, with a colour, normal and texture coordinate each (same shapes as `g`).
+	## Faces turn to the corners' normals. Indexed: an Acc holding a grid holds only grids.
+	func grid(g: Array, cols: Array, nrm: Array, uvs: Array) -> void:
+		var nj := g.size()
+		var nk: int = (g[0] as Array).size()
+		var base := v.size()
+		var vv := v
+		var nn := n
+		var cc := col
+		var uu := uv
+		var ii := idx
+		for j in nj:
+			var gr: Array = g[j]
+			var cr: Array = cols[j]
+			var nr: Array = nrm[j]
+			var ur: Array = uvs[j]
+			for k in nk:
+				vv.append(gr[k])
+				nn.append(nr[k])
+				cc.append(cr[k])
+				uu.append(ur[k])
+		# one winding for the whole sheet, from a cell in its middle
+		var mj := nj / 2
+		var mk := nk / 2
+		var a: Vector3 = g[mj][mk]
+		var fc := ((g[mj][mk + 1] as Vector3) - a).cross((g[mj + 1][mk] as Vector3) - a)
+		var flip := fc.dot(nrm[mj][mk]) > 0.0
+		for j in nj - 1:
+			for k in nk - 1:
+				var i0 := base + j * nk + k
+				var i1 := i0 + 1
+				var i2 := i0 + nk
+				var i3 := i2 + 1
+				# (i0, i1, i2) has the cell's winding; Godot's front faces are clockwise
+				if flip:
+					ii.append_array([i0, i2, i1, i1, i2, i3])
+				else:
+					ii.append_array([i0, i1, i2, i1, i3, i2])
+		v = vv
+		n = nn
+		col = cc
+		uv = uu
+		idx = ii
 
 	## Adds triangle a, b, c facing away from `center`.
 	func convex(a: Vector3, b: Vector3, c: Vector3, color: Color, center: Vector3) -> void:
@@ -881,6 +942,8 @@ class Acc:
 		if uv.size() == v.size() and uv.size() > 0:
 			arrays[Mesh.ARRAY_TEX_UV] = uv
 			arrays[Mesh.ARRAY_TANGENT] = _tangents()
+		if idx.size() > 0:
+			arrays[Mesh.ARRAY_INDEX] = idx
 		var m := ArrayMesh.new()
 		if v.size() > 0:
 			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -938,7 +1001,7 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 				face.append(Vector3(e.x - s * (float(FOOT_OUT[m]) + jx), e.y, FOOT_Z[m]))
 		faces.append(face)
 	if pal.get("premium", false):
-		_cliff_smooth(acc, rows, tops, faces, s, pal)
+		_cliff_smooth(acc, rows, tops, faces, s, pal, wy0)
 		return
 	for j in rows.size() - 1:
 		var wy := wy0 + (rows[j][0] as Vector3).y
@@ -971,11 +1034,58 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			acc.tri(a, d, c, col.darkened(0.05), out)
 
 
+static var _rock_noise: FastNoiseLite
+
+
+## Makes a premium cliff's profile rocky without a facet showing (Guillaume, 2026-11-22: "more
+## rocky, but not triangle-y"): the profile gets a point between each two, then the rock swells
+## and sinks in lumps of a few units (smooth noise of the world position, so chunks meet),
+## the face steps in ledges, and the colour lightens on the bulges. The edge the ship collides
+## with never moves out into the canyon, and nothing on the top rises past the edge's line.
+static func _rocky(pr: Array, cr: Array, e: Vector3, s: float, wy0: float) -> void:
+	if _rock_noise == null:
+		_rock_noise = FastNoiseLite.new()
+		_rock_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		_rock_noise.frequency = 0.085
+		_rock_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+		_rock_noise.fractal_octaves = 3
+		_rock_noise.seed = 11
+	# a point between each two
+	var p2 := []
+	var c2 := []
+	for k in pr.size():
+		if k > 0:
+			p2.append((pr[k - 1] as Vector3).lerp(pr[k], 0.5))
+			c2.append((cr[k - 1] as Color).lerp(cr[k], 0.5))
+		p2.append(pr[k])
+		c2.append(cr[k])
+	pr.clear()
+	cr.clear()
+	for k in p2.size():
+		var p: Vector3 = p2[k]
+		var w := Vector3(p.x, wy0 + p.y, p.z)
+		var nz := _rock_noise.get_noise_3dv(w)
+		var into := (p.x - e.x) * s  # how far into the rock (negative: out over the canyon, the face)
+		var q := p
+		if into < 0.5:
+			# the face and its foot: lumps bulge out and sink in, and ledges step along the face
+			var ledge := smoothstep(0.35, 0.65, fposmod(p.z / 11.0 + nz * 0.4, 1.0)) * 1.6
+			var amp := 3.2 * smoothstep(-1.0, -8.0, p.z)
+			q.x -= s * (nz * amp + ledge * smoothstep(-2.0, -10.0, p.z))
+		else:
+			# the top: knolls and hollows, growing away from the edge
+			var amp := 6.5 * smoothstep(0.5, 9.0, into)
+			var big := _rock_noise.get_noise_3d(w.x * 0.45, w.y * 0.45, 17.0)
+			q.z += (nz * 0.6 + big) * amp + absf(_rock_noise.get_noise_3d(w.x * 2.1, w.y * 2.1, 5.0)) * amp * 0.5
+		pr.append(q)
+		cr.append((c2[k] as Color).lightened(clampf(nz, 0.0, 1.0) * 0.14).darkened(clampf(-nz, 0.0, 1.0) * 0.16))
+
+
 ## The premium cliff: the same rock as one smooth sheet from the floor up the face, over a
 ## rounded shoulder and across the top. Each corner takes its normal from its neighbours along
 ## and across the sheet and its own colour (the ground's at the foot, the face's, then the
 ## top's), shared by the faces round it, so no triangle and no right angle shows.
-static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: float, pal: Dictionary) -> void:
+static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: float, pal: Dictionary, wy0: float) -> void:
 	var pc := colors(pal)
 	var floor_c := grade(pc, face_color(pc, -2.0, 0.9, 0.0, 0.5), Vector3.BACK, 4.0)
 	var face_c := Color(pal.c_face)
@@ -1002,6 +1112,7 @@ static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: f
 			pr.append(p)
 			var c := Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
 			cr.append(c.darkened(0.12).lightened(clampf(p.z / 40.0, 0.0, 1.0) * 0.3))
+		_rocky(pr, cr, e, s, wy0)
 		g.append(pr)
 		cols.append(cr)
 	var nj := g.size()
@@ -1026,12 +1137,4 @@ static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: f
 			ur.append(Vector2(p.y / 32.0, arc / 32.0))
 		nrm.append(nr)
 		uv.append(ur)
-	for j in nj - 1:
-		for k in nk - 1:
-			for t in [[[j, k], [j, k + 1], [j + 1, k + 1]], [[j, k], [j + 1, k + 1], [j + 1, k]]]:
-				var a: Array = t[0]
-				var b: Array = t[1]
-				var c: Array = t[2]
-				var dir: Vector3 = nrm[a[0]][a[1]] + nrm[b[0]][b[1]] + nrm[c[0]][c[1]]
-				acc.tri3n(g[a[0]][a[1]], g[b[0]][b[1]], g[c[0]][c[1]], cols[a[0]][a[1]], cols[b[0]][b[1]], cols[c[0]][c[1]],
-						nrm[a[0]][a[1]], nrm[b[0]][b[1]], nrm[c[0]][c[1]], uv[a[0]][a[1]], uv[b[0]][b[1]], uv[c[0]][c[1]], dir)
+	acc.grid(g, cols, nrm, uv)

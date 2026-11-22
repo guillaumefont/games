@@ -273,7 +273,11 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   row per builder step (they cost more); no random shade per facet; wider baked occlusion;
   cliffs as one smooth sheet (`_cliff_smooth`): a scree foot (`FOOT_Z`, `FOOT_OUT`) turning to the
   ground's colour, the face, a rounded shoulder (`SHOULDER`, "rocks are very rarely 90 degrees")
-  with the lip lowered onto it (`_lip_z()`), then the top; the collision edge does not move; a gradient sky with the sun's glow (`_premium_env()`),
+  with the lip lowered onto it (`_lip_z()`), then the top; the collision edge does not move;
+  rocky without facets ("more rocky, but not triangle-y"): `_rocky()` doubles the profile's points
+  and sculpts lumps, ledges and knolls from smooth world-space noise, 24 wall rows a chunk; cliff
+  sheets are indexed (`Acc.grid`); walls are built a piece per step after the ground
+  (`WallsJob`, `Terrain.Builder.after`), each piece about 3 ms on a desktop; a gradient sky with the sun's glow (`_premium_env()`),
   lighter haze (`haze`, `haze_run`), a sun-side screen haze quad, a wider softer bloom.
   Global: `Geo.bevel` chamfers boxes and prisms, `Models.std` has a rim light.
   Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).

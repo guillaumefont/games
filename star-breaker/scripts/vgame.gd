@@ -2282,11 +2282,19 @@ func update_fx() -> void:
 func build_chunk(c: int, g: Node3D = null) -> Node3D:
 	if g == null:
 		g = Terrain.build_chunk(c, CHUNK, look, _terrain_mats)
-	if not G.is_empty():
+	if not G.is_empty() and not g.has_meta("walls"):
 		var wn := _walls_node(c)
 		if wn:
 			g.add_child(wn)
 	return g
+
+
+## A new strip's builder, with its canyon walls built in its later steps.
+func _builder(c: int) -> Terrain.Builder:
+	var bl := Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+	if not G.is_empty():
+		bl.after = WallsJob.new(self, c)
+	return bl
 
 
 ## Rock: touching a canyon wall or an island costs a hull point and the ship never goes inside
@@ -2361,42 +2369,72 @@ func _build_islands() -> void:
 ## chunk's frame but raised to the ship's plane: a faceted cliff top, a glowing lip on the
 ## exact edge the ship collides with, and a banded face dropping to the floor.
 func _walls_node(c: int) -> Node3D:
-	var n := Node3D.new()
-	n.name = "Walls"
-	n.position.z = -GROUND_Z + 50.0 - 7.0
-	var rows := 16
-	var seen := false
-	for j in rows + 1:
-		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows - G.get("foff", 0.0))
-		# wide screens show well past the stage's sides
-		seen = seen or wj.x > view.position.x - 4.0 or wj.y < view.end.x + 4.0
-	if not seen:
-		n.free()
-		return null
+	var job := WallsJob.new(self, c)
+	while not job.step():
+		pass
+	return job.node
+
+
+## Builds a chunk's canyon walls a piece per step (which edge rows, the left cliff, the right
+## cliff, the meshes), so the sculpted rock of the premium look never lands in a single frame.
+## The chunk's Builder runs it after the ground (`Terrain.Builder.after`).
+class WallsJob:
+	var vg: Node3D
+	var c: int
+	var phase := 0
 	var left := []
 	var right := []
-	for j in rows + 1:
-		var ly := CHUNK * j / rows
-		var d: float = c * CHUNK + ly - G.get("foff", 0.0)
-		var w := VStage.walls(G.stage, d)
-		# jitter the drawn rock a little, but never past the collision edge
-		left.append([Vector3(X(w.x) - VStage.hash(Vector2(d, 3.0)) * 1.4, ly, 0), 200.0])
-		right.append([Vector3(X(w.y) + VStage.hash(Vector2(d, 7.0)) * 1.4, ly, 0), 200.0])
+	var rows := 16
 	var acc := Terrain.Acc.new()
-	Terrain.cliff(acc, left, -1.0, look, c * CHUNK)
-	Terrain.cliff(acc, right, 1.0, look, c * CHUNK + 500.0)
-	var lz := _lip_z()
-	var lip := []
-	for j in rows:
-		for side in [[left, -1.0], [right, 1.0]]:
-			var a: Vector3 = side[0][j][0]
-			var b: Vector3 = side[0][j + 1][0]
-			var s: float = side[1]
-			lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(a.x, a.y, lz.x), Vector3(b.x, b.y, lz.x)])
-			lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(b.x, b.y, lz.x), Vector3(b.x + s * 0.9, b.y, lz.y)])
-	n.add_child(Terrain._mi(acc.mesh(), _terrain_mats.ground, true))
-	n.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), _lip_mat))
-	return n
+	var node: Node3D = null
+
+	func _init(vg_: Node3D, c_: int) -> void:
+		vg = vg_
+		c = c_
+
+	## Does the next piece; true once done (`node` is then the walls, or null when none show).
+	func step() -> bool:
+		var look: Dictionary = vg.look
+		match phase:
+			0:
+				# the premium look sculpts lumps into the rock: finer rows keep them smooth
+				rows = 24 if look.get("premium", false) else 16
+				var seen := false
+				for j in rows + 1:
+					var wj := VStage.walls(vg.G.stage, c * vg.CHUNK + vg.CHUNK * j / rows - vg.G.get("foff", 0.0))
+					# wide screens show well past the stage's sides
+					seen = seen or wj.x > vg.view.position.x - 4.0 or wj.y < vg.view.end.x + 4.0
+				if not seen:
+					return true
+				for j in rows + 1:
+					var ly: float = vg.CHUNK * j / rows
+					var d: float = c * vg.CHUNK + ly - vg.G.get("foff", 0.0)
+					var w := VStage.walls(vg.G.stage, d)
+					# jitter the drawn rock a little, but never past the collision edge
+					left.append([Vector3(vg.X(w.x) - VStage.hash(Vector2(d, 3.0)) * 1.4, ly, 0), 200.0])
+					right.append([Vector3(vg.X(w.y) + VStage.hash(Vector2(d, 7.0)) * 1.4, ly, 0), 200.0])
+			1:
+				Terrain.cliff(acc, left, -1.0, look, c * vg.CHUNK)
+			2:
+				Terrain.cliff(acc, right, 1.0, look, c * vg.CHUNK + 500.0)
+			3:
+				node = Node3D.new()
+				node.name = "Walls"
+				node.position.z = -vg.GROUND_Z + 50.0 - 7.0
+				var lz: Vector2 = vg._lip_z()
+				var lip := []
+				for j in rows:
+					for side in [[left, -1.0], [right, 1.0]]:
+						var a: Vector3 = side[0][j][0]
+						var b: Vector3 = side[0][j + 1][0]
+						var s: float = side[1]
+						lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(a.x, a.y, lz.x), Vector3(b.x, b.y, lz.x)])
+						lip.append([Vector3(a.x + s * 0.9, a.y, lz.y), Vector3(b.x, b.y, lz.x), Vector3(b.x + s * 0.9, b.y, lz.y)])
+				node.add_child(Terrain._mi(acc.mesh(), vg._terrain_mats.ground, true))
+				node.add_child(Models.mesh(Geo.build_facing(lip, Vector3.BACK), vg._lip_mat))
+				return true
+		phase += 1
+		return false
 
 
 func update_chunks(scroll: float) -> void:
@@ -2417,14 +2455,14 @@ func update_chunks(scroll: float) -> void:
 			var bl: Terrain.Builder = _building.get(c)
 			_building.erase(c)
 			if bl == null:
-				bl = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+				bl = _builder(c)
 			while not bl.step():
 				pass
 			_add_chunk(c, bl.node)
 	# the next strips are built a slice per frame ahead of time, so new ground never hitches
 	for c in [b + 1, b + 2]:
 		if not chunks.has(c) and not _building.has(c):
-			_building[c] = Terrain.Builder.new(c, CHUNK, look, _terrain_mats)
+			_building[c] = _builder(c)
 	if not _building.is_empty():
 		var c: int = _building.keys().min()
 		var bl: Terrain.Builder = _building[c]
