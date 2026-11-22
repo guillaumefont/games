@@ -2,28 +2,28 @@ extends RefCounted
 ## Graphics level (Guillaume 2026-11-22: premium low-poly look, levels the player can change, fitting most phones).
 ## Preload it (`const GFX := preload("res://scripts/gfx.gd")`); no class_name, so the self-update pack can carry it.
 ##
-##   0 Classic  the old flat look, kept only to compare while the premium look is built (removed in the last phase)
+## (Level 0 was the old flat "Classic" look, removed once the premium look was done; a saved 0 now means High.)
 ##   1 Low      older and budget phones: rounded edges on larger parts, baked crease shadow, no sun shadows
 ##   2 Medium   typical mid-range phones: every part rounded, smooth cylinders, sun shadows
 ##   3 High     Pixel 11 Pro and recent flagships: soft sun shadows over a longer range, finer shadow map
 
-const NAMES := ["Classic", "Low", "Medium", "High"]
-const CLASSIC := 0
+const NAMES := ["", "Low", "Medium", "High"]
 const LOW := 1
 const MEDIUM := 2
 const HIGH := 3
 
 static var level := HIGH
 
-static func premium() -> bool:
-	return level > CLASSIC
-
-## The level saved in prefs, or AF_GFX (0-3) for tests and screenshots, or a guess from the phone's memory.
+## The level saved in prefs, or AF_GFX (1-3) for tests and screenshots, or a guess from the phone's memory.
 static func init_level(prefs: Dictionary) -> void:
 	var env := OS.get_environment("AF_GFX")
-	if env != "": level = clampi(int(env), CLASSIC, HIGH)
-	elif prefs.has("gfx"): level = clampi(int(prefs.gfx), CLASSIC, HIGH)
+	if env != "": level = _valid(int(env))
+	elif prefs.has("gfx"): level = _valid(int(prefs.gfx))
 	else: level = auto_level()
+
+## Anything outside Low..High (such as the removed Classic level, 0) becomes High.
+static func _valid(l: int) -> int:
+	return l if l >= LOW and l <= HIGH else HIGH
 
 static func auto_level() -> int:
 	if not OS.has_feature("mobile"): return HIGH
@@ -34,15 +34,15 @@ static func auto_level() -> int:
 	if gb >= 5.5: return MEDIUM
 	return LOW
 
-## Next level for the menu button: High, Medium, Low, Classic, then back to High.
+## Next level for the menu button: High, Medium, Low, then back to High.
 static func next_level(l: int) -> int:
-	return HIGH if l == CLASSIC else l - 1
+	return HIGH if l <= LOW else l - 1
 
 # ---------------- model detail per level ----------------
 ## Edge rounding size (model units) and the smallest part that still gets rounded.
 ## A part's rounding grows with its thinnest side, so big blocks get a visible soft edge and small parts a fine one.
 static func bevel(smin: float) -> float:
-	return 0.0 if level == CLASSIC else clampf(smin * 0.14, 0.006, 0.05)
+	return clampf(smin * 0.14, 0.006, 0.05)
 
 static func bevel_min() -> float:
 	return 0.06 if level == LOW else 0.025
@@ -74,17 +74,9 @@ const GRADE := {
 static func mood_of(fac) -> String:
 	return {"ashen": "pulp", "choir": "grim"}.get(fac, "neutral") if fac != null else "neutral"
 
-## Warm sun, cool shadows. `L` is the theme's light (sun, sunE, amb, ambE); Classic keeps it untouched.
+## Warm sun, cool shadows. `L` is the theme's light (sun, sunE, amb, ambE).
 static func light(sun: DirectionalLight3D, env: Environment, L: Dictionary, theme := "temperate", grade := "neutral") -> void:
 	var sc := Color(L.sun); var ac := Color(L.amb)
-	if level == CLASSIC:
-		sun.light_color = sc; sun.light_energy = L.sunE
-		env.ambient_light_color = ac; env.ambient_light_energy = L.ambE
-		sun.shadow_enabled = true; sun.shadow_blur = 1.4
-		RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
-		if RenderingServer.get_current_rendering_method() != "gl_compatibility":
-			env.adjustment_saturation = 1.05; env.adjustment_contrast = 1.07   # View3D._ready's classic grading
-		return
 	var M: Dictionary = MOOD.get(theme, MOOD.temperate); var G: Dictionary = GRADE.get(grade, GRADE.neutral)
 	sun.light_color = sc.lerp(Color("ffdcae"), M.warm).lerp(G.tint, G.tint_k * 0.5)
 	sun.light_energy = L.sunE * 1.12 * G.sun

@@ -1001,8 +1001,9 @@ func vanguard_tests(s, h) -> bool:
 	print("vanguard tests ok")
 	return true
 
-## Premium look (scripts/gfx.gd): every level builds the same models with the same named parts; premium levels add
-## rounded edges (more vertices) and a baked crease shadow in UV that stays in range; Classic has no UV.
+## Premium look (scripts/gfx.gd): every level builds the same models with the same named parts and a baked crease
+## shadow in UV that stays in range; High rounds more parts than Low (more vertices). The removed Classic level (0)
+## and anything else out of range load as High, and the menu cycle never reaches it.
 func gfx_tests() -> bool:
 	var GFX = load("res://scripts/gfx.gd")
 	var keep: int = GFX.level
@@ -1010,8 +1011,15 @@ func gfx_tests() -> bool:
 	var rb: Array = Models.bevel_box(Vector3(.1, .1, .1))
 	if rb.size() != 44:
 		print("GFX TEST FAILED: a rounded box has ", rb.size(), " triangles, not 44"); return false
+	if GFX._valid(0) != GFX.HIGH or GFX._valid(7) != GFX.HIGH or GFX._valid(GFX.LOW) != GFX.LOW:
+		print("GFX TEST FAILED: a saved Classic or unknown level does not load as High"); return false
+	var seen := {}; var l: int = GFX.HIGH
+	for i in 6:
+		l = GFX.next_level(l); seen[l] = true
+	if seen.keys().size() != 3 or seen.has(0):
+		print("GFX TEST FAILED: the menu cycle is not High, Medium, Low (", seen.keys(), ")"); return false
 	var counts := {}
-	for lvl in [0, 1, 2, 3]:
+	for lvl in [1, 2, 3]:
 		GFX.level = lvl
 		Models.init_materials(fog)
 		for m in [["b", "hq", "vanguard"], ["u", "tank", "vanguard"], ["b", "hq", "ashen"], ["u", "tank", "ashen"], ["b", "hq", "choir"], ["u", "rifle", "choir"]]:
@@ -1021,23 +1029,20 @@ func gfx_tests() -> bool:
 				var arr: Array = (mi as MeshInstance3D).mesh.surface_get_arrays(0)
 				nv += (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
 				var uv = arr[Mesh.ARRAY_TEX_UV]
-				if lvl == 0 and uv != null:
-					print("GFX TEST FAILED: Classic ", m, " has UVs"); GFX.level = keep; Models.init_materials(fog); return false
-				if lvl > 0:
-					if uv == null or (uv as PackedVector2Array).size() != (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size():
-						print("GFX TEST FAILED: ", m, " at level ", lvl, " has no crease shadow UVs"); GFX.level = keep; Models.init_materials(fog); return false
-					for v in uv:
-						if v.x < 0.0 or v.x > 0.5 or v.y < 0.0 or v.y > 0.2:
-							print("GFX TEST FAILED: ", m, " UV out of range ", v); GFX.level = keep; Models.init_materials(fog); return false
+				if uv == null or (uv as PackedVector2Array).size() != (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size():
+					print("GFX TEST FAILED: ", m, " at level ", lvl, " has no crease shadow UVs"); GFX.level = keep; Models.init_materials(fog); return false
+				for v in uv:
+					if v.x < 0.0 or v.x > 0.5 or v.y < 0.0 or v.y > 0.2:
+						print("GFX TEST FAILED: ", m, " UV out of range ", v); GFX.level = keep; Models.init_materials(fog); return false
 			var names := n.find_children("*", "Node3D", true, false).map(func(c): return String(c.name)).filter(func(x): return x != "m")
 			names.sort()
 			var k: String = str(m)
-			if lvl == 0: counts[k] = [nv, names]
+			if lvl == 1: counts[k] = [nv, names]
 			elif names != counts[k][1]:
-				print("GFX TEST FAILED: ", m, " parts differ from Classic at level ", lvl); GFX.level = keep; Models.init_materials(fog); return false
+				print("GFX TEST FAILED: ", m, " parts differ from Low at level ", lvl); GFX.level = keep; Models.init_materials(fog); return false
 			elif lvl == 3 and nv <= counts[k][0]:
-				print("GFX TEST FAILED: ", m, " is not rounded at High (", nv, " vs ", counts[k][0], " vertices)"); GFX.level = keep; Models.init_materials(fog); return false
-			if lvl == 3: print("gfx ", m, " vertices classic ", counts[k][0], " high ", nv)
+				print("GFX TEST FAILED: ", m, " is not rounder at High than at Low (", nv, " vs ", counts[k][0], " vertices)"); GFX.level = keep; Models.init_materials(fog); return false
+			if lvl == 3: print("gfx ", m, " vertices low ", counts[k][0], " high ", nv)
 	GFX.level = keep
 	Models.init_materials(fog)
 	print("GFX TESTS OK")

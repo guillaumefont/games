@@ -6,14 +6,6 @@ const GFX := preload("res://scripts/gfx.gd")
 const Ground := preload("res://scripts/ground.gd")
 const Nature := preload("res://scripts/nature.gd")
 
-## Terrain look (2026-11-16 overhaul, "calm the terrain"): vertex jitter, per-triangle colour noise,
-## grass desaturation, grass variation scale and how much flat-ground normals lean up (less facet contrast).
-const TERR_JIT := 0.18
-const TERR_NOISE := 0.02
-const TERR_DESAT := 0.15
-const TERR_GVAR := 0.8
-const TERR_SOFT := 0.5
-
 const T := 32
 const MW := 64
 const MH := 64
@@ -37,7 +29,7 @@ var fog_tex: ImageTexture
 var world := Node3D.new()
 var ents_root := Node3D.new()
 var recs := {}
-var ground_mi: MeshInstance3D   # premium ground (scripts/ground.gd); null on Classic
+var ground_mi: MeshInstance3D   # the terrain (scripts/ground.gd)
 var wrecks_n := {}   # Pact salvage: wreck id -> its burnt model
 var burnt_mat: StandardMaterial3D
 var decor := {}
@@ -235,21 +227,21 @@ func _batch(mesh: Mesh, mat: Material, cap: int, shadow := false) -> Dictionary:
 
 func _init_batches() -> void:
 	var ico := _mesh_from("ico"); var box := _mesh_from("box"); var disc := _disc_mesh(7); var ring := _ring_mesh(0.82, 20)
-	# premium: round puffs whose rims fade out, so smoke reads soft and flashes and flames as glowing balls
-	var pm := GFX.premium(); var puff: Mesh = Nature.puff() if pm else ico
-	var smoke_a := "ALPHA = 0.62 * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 0.9);" if pm else "ALPHA = 0.55;"
+	# round puffs whose rims fade out, so smoke reads soft and flashes and flames as glowing balls
+	var puff: Mesh = Nature.puff()
+	var smoke_a := "ALPHA = 0.62 * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 0.9);"
 	var glow_a := "ALPHA = %s * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 1.3); ALBEDO *= 1.0 + 0.6 * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 6.0);"
 	batches = {
-		"smoke": _batch(puff, _pmat("diffuse_lambert_wrap, specular_disabled, depth_draw_never" if pm else "diffuse_lambert, specular_disabled, depth_draw_never", smoke_a), 900),
+		"smoke": _batch(puff, _pmat("diffuse_lambert_wrap, specular_disabled, depth_draw_never", smoke_a), 900),
 		"spark": _batch(box, _pmat("unshaded", "", false), 600),
-		"flash": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.95" if pm else "ALPHA = 0.85;", false), 120),
+		"flash": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.95", false), 120),
 		"ring": _batch(ring, _pmat("unshaded, cull_disabled, depth_draw_never", "ALPHA = 0.9;", false), 40),
 		"body": _batch(disc, _pmat("unshaded, cull_disabled", ""), 120),
 		"debris": _batch(box, _pmat("diffuse_lambert, specular_disabled", "", true), 240, true),
 		"shell": _batch(ico, _pmat("unshaded", "", false), 120),
 		"rocket": _batch(box, _pmat("unshaded", "", false), 120),
 		"heal": _batch(box, _pmat("unshaded, depth_draw_never", "ALPHA = 0.9;", false), 80),
-		"flame": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.9" if pm else "ALPHA = 0.8;", false), 300),
+		"flame": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.9", false), 300),
 		"missile": _batch(box, _pmat("unshaded", "", false), 60),
 		"rift": _batch(ring, _pmat("unshaded, blend_add, cull_disabled, depth_draw_never", "ALPHA = 0.8;", false), 60),
 		"gem": _batch(_mesh_from("oct"), _pmat("unshaded", "", false), 260),
@@ -299,69 +291,10 @@ func build_world() -> void:
 	for id in recs: recs[id].n.queue_free()
 	for id in wrecks_n: wrecks_n[id].queue_free()
 	recs.clear(); scorches.clear(); wrecks_n.clear()
-	var sd: int = S.seed
-	var JX := PackedFloat32Array(); JX.resize(HN * HN); var JZ := PackedFloat32Array(); JZ.resize(HN * HN)
-	for j in range(1, HN - 1):
-		for i in range(1, HN - 1):
-			JX[j * HN + i] = (Sim.hash2(i, j, sd + 31) - .5) * TERR_JIT; JZ[j * HN + i] = (Sim.hash2(i, j, sd + 32) - .5) * TERR_JIT
-	var verts := PackedVector3Array(); var cols := PackedColorArray(); var norms := PackedVector3Array()
 	var TH: Dictionary = D.THEMES[S.theme]
 	_apply_light(TH)
-	var v3 := func(a: Array) -> Vector3: return Vector3(a[0], a[1], a[2])
-	var BASEC := [v3.call(TH.grass), v3.call(TH.dirt), v3.call(TH.sand), v3.call(TH.rock), v3.call(TH.bed)]
-	# Calmer ground: grass a little desaturated so units stand out (see TERR_* constants)
-	var desat := func(c: Vector3) -> Vector3:
-		var l := c.x * .3 + c.y * .59 + c.z * .11
-		return c.lerp(Vector3(l, l, l), TERR_DESAT)
-	var G0: Vector3 = desat.call(v3.call(TH.grass)); var GV: Vector3 = v3.call(TH.gvar) * TERR_GVAR; var CL: Vector3 = v3.call(TH.cliff); var RK: Vector3 = v3.call(TH.rock)
-	var BED: Vector3 = v3.call(TH.bed); var SND: Vector3 = v3.call(TH.sand)
-	var H := S.H
-	ground_mi = null
-	if GFX.premium():
-		ground_mi = Ground.build(S, fog_tex, MW, MH, HN); world.add_child(ground_mi)
-	for j in (0 if GFX.premium() else HN - 1):
-		for i in HN - 1:
-			var a := Vector3(i / 2.0 + JX[j * HN + i], H[j * HN + i], j / 2.0 + JZ[j * HN + i])
-			var b := Vector3((i + 1) / 2.0 + JX[j * HN + i + 1], H[j * HN + i + 1], j / 2.0 + JZ[j * HN + i + 1])
-			var cc := Vector3(i / 2.0 + JX[(j + 1) * HN + i], H[(j + 1) * HN + i], (j + 1) / 2.0 + JZ[(j + 1) * HN + i])
-			var dd := Vector3((i + 1) / 2.0 + JX[(j + 1) * HN + i + 1], H[(j + 1) * HN + i + 1], (j + 1) / 2.0 + JZ[(j + 1) * HN + i + 1])
-			var tris := [[a, cc, b], [b, cc, dd]] if Sim.hash2(i, j, sd + 40) < .5 else [[a, cc, dd], [a, dd, b]]
-			var tx := i >> 1; var ty := j >> 1; var t: int = S.terr[ty * MW + tx]; var ore_t := S.ore[ty * MW + tx] > 0
-			for k in 2:
-				var tr: Array = tris[k]
-				var h0: float = tr[0].y; var h1: float = tr[1].y; var h2: float = tr[2].y
-				var hmin: float = min(h0, min(h1, h2)); var hmax: float = max(h0, max(h1, h2)); var hav := (h0 + h1 + h2) / 3.0
-				var base: Vector3 = BASEC[t]; var v := (Sim.hash2(i * 3 + k, j, sd + 41) - .5) * TERR_NOISE
-				if t == D.GRASS:
-					var p := Sim.fbm(i / 16.0, j / 16.0, sd + 50); base = G0 + GV * p
-				if hmax - hmin > .28 and t != D.WATER: base = CL
-				if t == D.ROCK: base = RK + Vector3(.12, .11, .1) * hav
-				if ore_t: base = Vector3(.5, .4, .24)
-				if t == D.WATER: base = BED if hav < -.4 else SND * 0.92
-				var col := Color(base.x + v, base.y + v, base.z + v * .8).srgb_to_linear()
-				var p0: Vector3 = tr[0]; var p1: Vector3 = tr[1]; var p2: Vector3 = tr[2]
-				var n := (p1 - p0).cross(p2 - p0).normalized()
-				if n.y < 0: n = -n
-				n = (n + Vector3.UP * TERR_SOFT).normalized()  # softer facets on gentle ground; cliffs stay sharp
-				# clockwise for Godot: tris above are counter-clockwise seen from above
-				verts.append_array([p0, p2, p1])
-				# under and beside the water the colour follows each corner's depth (wet sand at the bank, dark bed below), so the
-				# shallows shade off smoothly instead of showing the triangles as light and dark teeth
-				var wet: bool = hmin < -0.05
-				for q in 3:
-					if wet:
-						var hq: float = [p0, p2, p1][q].y
-						var f: float = smoothstep(0.0, 1.0, clamp((-0.06 - hq) / 0.5, 0.0, 1.0))
-						var top: Vector3 = SND * 0.92 if t == D.WATER else base
-						var c3: Vector3 = top.lerp(BED, f)
-						cols.append(Color(c3.x + v * .5, c3.y + v * .5, c3.z + v * .4).srgb_to_linear())
-					else: cols.append(col)
-					norms.append(n)
-	var arr := []; arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = verts; arr[Mesh.ARRAY_NORMAL] = norms; arr[Mesh.ARRAY_COLOR] = cols
-	if not GFX.premium():
-		var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr); am.surface_set_material(0, Models.material)
-		var terr := MeshInstance3D.new(); terr.mesh = am; world.add_child(terr)
+	ground_mi = Ground.build(S, fog_tex, MW, MH, HN); world.add_child(ground_mi)
+	var sd: int = S.seed
 	# water
 	var wm := PlaneMesh.new(); wm.size = Vector2(MW, MH); wm.subdivide_width = 40; wm.subdivide_depth = 40
 	var water := MeshInstance3D.new(); water.mesh = wm; water.position = Vector3(MW / 2.0, -0.24, MH / 2.0)
@@ -389,22 +322,21 @@ func build_world() -> void:
 			elif t == D.ROCK and R.randf() < .18: rocks.append({"tx": tx, "ty": ty, "x": tx + R.randf(), "z": ty + R.randf(), "s": .18 + R.randf() * .25, "ry": R.randf() * 6})
 			elif (t == D.DIRT or t == D.SAND) and R.randf() < .05: rocks.append({"tx": tx, "ty": ty, "x": tx + R.randf(), "z": ty + R.randf(), "s": .06 + R.randf() * .07, "ry": R.randf() * 6})
 	var lit := Models.material
-	# premium: tiered firs, round crowns, chunky rocks and bushes (scripts/nature.gd); dead trees keep the classic sticks
-	var pm := GFX.premium()
-	var crown_m: Mesh = _mesh_from("ico" if TH.trees == "broad" else "cone", {"seg": 5})
-	if pm and TH.trees in ["pine", "snowpine"]: crown_m = Nature.fir()
-	elif pm and TH.trees == "broad": crown_m = Nature.crown()
+	# tiered firs, round crowns, chunky rocks and bushes (scripts/nature.gd); dead trees are bare sticks
+	var crown_m: Mesh = _mesh_from("cone", {"seg": 5})
+	if TH.trees in ["pine", "snowpine"]: crown_m = Nature.fir()
+	elif TH.trees == "broad": crown_m = Nature.crown()
 	decor = {"trees": trees, "rocks": rocks, "bushes": bushes,
 		"trunk": _wbatch(_mesh_from("cyl", {"rt": .7, "seg": 5}), lit, trees.size()),
 		"crown": _wbatch(crown_m, lit, trees.size() * 2),
-		"rk": _wbatch(Nature.rock() if pm else _mesh_from("ico"), lit, rocks.size()),
-		"bu": _wbatch(Nature.bush() if pm else _mesh_from("ico"), lit, bushes.size())}
+		"rk": _wbatch(Nature.rock(), lit, rocks.size()),
+		"bu": _wbatch(Nature.bush(), lit, bushes.size())}
 	# ore
 	ore_list = []
 	for i in MW * MH:
 		if S.ore[i]: ore_list.append(i)
-	var om: Mesh = Nature.crystals() if GFX.premium() else _mesh_from("oct")
-	var mm := MultiMesh.new(); mm.transform_format = MultiMesh.TRANSFORM_3D; mm.use_colors = true; mm.mesh = om; mm.instance_count = max(1, ore_list.size() * 5)
+	var om: Mesh = Nature.crystals()
+	var mm := MultiMesh.new(); mm.transform_format = MultiMesh.TRANSFORM_3D; mm.use_colors = true; mm.mesh = om; mm.instance_count = max(1, ore_list.size() * 3)
 	var zb := PackedFloat32Array(); zb.resize(mm.instance_count * 16); mm.buffer = zb; mm.visible_instance_count = 0
 	ore_mm = MultiMeshInstance3D.new(); ore_mm.multimesh = mm; ore_mm.material_override = lit; world.add_child(ore_mm)
 	refresh_decor(); upd_ore()
@@ -468,10 +400,9 @@ func refresh_decor() -> void:
 		var s: float = 0.001 if S.bmap[t.ty * MW + t.tx] else t.s
 		var y := S.h_at(t.x * T, t.z * T)
 		var c: Color = tc[int(t.c * 4)].srgb_to_linear()
-		var pm := GFX.premium()
-		if pm and style != "broad": c = c.lerp(Color(0.32, 0.42, 0.2), 0.3)   # firs a little lighter, so tiers read from above
-		elif pm and c.get_luminance() < 0.06: c = c.lerp(Color(0.16, 0.24, 0.08), 0.45)   # very dark crowns (marsh) would read as holes
-		if pm and style in ["pine", "snowpine", "broad"]:
+		if style != "broad": c = c.lerp(Color(0.32, 0.42, 0.2), 0.3)   # firs a little lighter, so tiers read from above
+		elif c.get_luminance() < 0.06: c = c.lerp(Color(0.16, 0.24, 0.08), 0.45)   # very dark crowns (marsh) would read as holes
+		if style in ["pine", "snowpine", "broad"]:
 			var hide := _xf(t.x, y - 2.0, t.z, .001, .001, .001)
 			if style == "broad":
 				tr.set_instance_transform(k, _xf(t.x, y + .16 * s, t.z, .05 * s, .32 * s, .05 * s)); tr.set_instance_color(k, trunk_c)
@@ -485,19 +416,10 @@ func refresh_decor() -> void:
 				else: cr.set_instance_transform(k * 2 + 1, hide)
 			k += 1
 			continue
-		match style:
-			"dead":
-				tr.set_instance_transform(k, _xf(t.x, y + .22 * s, t.z, .045 * s, .45 * s, .045 * s, (t.c - .5) * .2, 0, (t.c - .5) * .25)); tr.set_instance_color(k, trunk_c)
-				cr.set_instance_transform(k * 2, _xf(t.x + .05 * s, y + .4 * s, t.z, .03 * s, .3 * s, .03 * s, 0, t.c * 6, .9)); cr.set_instance_color(k * 2, trunk_c)
-				cr.set_instance_transform(k * 2 + 1, _xf(t.x - .04 * s, y + .5 * s, t.z, .025 * s, .25 * s, .025 * s, 0, t.c * 9, -.8)); cr.set_instance_color(k * 2 + 1, c)
-			"broad":
-				tr.set_instance_transform(k, _xf(t.x, y + .16 * s, t.z, .06 * s, .32 * s, .06 * s)); tr.set_instance_color(k, trunk_c)
-				cr.set_instance_transform(k * 2, _xf(t.x, y + .5 * s, t.z, .26 * s, .22 * s, .26 * s, 0, t.c * 3)); cr.set_instance_color(k * 2, c)
-				cr.set_instance_transform(k * 2 + 1, _xf(t.x + .08 * s, y + .64 * s, t.z - .05 * s, .17 * s, .15 * s, .17 * s, 0, t.c * 5)); cr.set_instance_color(k * 2 + 1, tc[(int(t.c * 4) + 1) % 4].srgb_to_linear())
-			_:
-				tr.set_instance_transform(k, _xf(t.x, y + .12 * s, t.z, .06 * s, .25 * s, .06 * s)); tr.set_instance_color(k, trunk_c)
-				cr.set_instance_transform(k * 2, _xf(t.x, y + .42 * s, t.z, .3 * s, .45 * s, .3 * s, 0, t.c * 3)); cr.set_instance_color(k * 2, c)
-				cr.set_instance_transform(k * 2 + 1, _xf(t.x, y + .68 * s, t.z, .22 * s, .35 * s, .22 * s, 0, t.c * 5)); cr.set_instance_color(k * 2 + 1, snow_c if style == "snowpine" else c)
+		# dead trees (ash): a bare trunk and two broken branches
+		tr.set_instance_transform(k, _xf(t.x, y + .22 * s, t.z, .045 * s, .45 * s, .045 * s, (t.c - .5) * .2, 0, (t.c - .5) * .25)); tr.set_instance_color(k, trunk_c)
+		cr.set_instance_transform(k * 2, _xf(t.x + .05 * s, y + .4 * s, t.z, .03 * s, .3 * s, .03 * s, 0, t.c * 6, .9)); cr.set_instance_color(k * 2, trunk_c)
+		cr.set_instance_transform(k * 2 + 1, _xf(t.x - .04 * s, y + .5 * s, t.z, .025 * s, .25 * s, .025 * s, 0, t.c * 9, -.8)); cr.set_instance_color(k * 2 + 1, c)
 		k += 1
 	k = 0
 	for t in decor.rocks:
@@ -506,36 +428,27 @@ func refresh_decor() -> void:
 	k = 0
 	for t in decor.bushes:
 		var s: float = 0.001 if S.bmap[t.ty * MW + t.tx] else t.s
-		if GFX.premium(): bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) - s * .05, t.z, s * 1.1, s * .95, s * 1.1, 0, k))
-		else: bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) + s * .4, t.z, s * 1.2, s * .8, s * 1.2, 0, k))
+		bu.set_instance_transform(k, _xf(t.x, S.h_at(t.x * T, t.z * T) - s * .05, t.z, s * 1.1, s * .95, s * 1.1, 0, k))
 		bu.set_instance_color(k, bush_c); k += 1
 
 func upd_ore() -> void:
 	if ore_mm == null: return
-	var mm := ore_mm.multimesh; var n := 0; var gc := Color("f2c443").srgb_to_linear(); gc.a = 0.75
-	if GFX.premium(): gc = Color("f0a83a").srgb_to_linear(); gc.a = 0.85   # deeper amber, glow mostly in the tips
+	var mm := ore_mm.multimesh; var n := 0; var gc := Color("f0a83a").srgb_to_linear(); gc.a = 0.85   # deep amber, glow mostly in the tips
 	var dull := Color("8a8478").srgb_to_linear(); dull.a = 0.75   # tired crystal fades toward this; dead crystal is grey stumps
 	for i in ore_list:
 		var a: int = S.ore[i]
 		var dead := S.field_dead(i)
 		if (a == 0 and not dead) or S.vis[i] == 0: continue
-		if dead: a = 60   # two small grey stumps
+		if dead: a = 60   # one small grey stub
 		var c := dull if dead else gc.lerp(dull, (100 - S.vit[i]) / 140.0)
-		var tx: int = i % MW; var ty: int = i / MW; var cnt := mini(5, 1 + a / 110)
-		if GFX.premium():
-			# a few crystal clusters per tile, bigger while the tile is rich; a dead tile keeps one grey stub
-			cnt = 1 if dead else mini(3, 1 + a / 170)
-			for k in cnt:
-				var h1 := Sim.hash2(tx, ty, k * 3 + 1); var h2 := Sim.hash2(tx, ty, k * 3 + 2); var h3 := Sim.hash2(tx, ty, k * 3 + 3)
-				var x := tx + .2 + h1 * .6; var z := ty + .2 + h2 * .6
-				var s: float = (.19 + h3 * .11 + min(1.0, a / 400.0) * .13) * (0.5 if dead else 1.0)
-				mm.set_instance_transform(n, _xf(x, S.h_at(x * T, z * T), z, s, s * (1.0 + h1 * .3), s, (h1 - .5) * .2, h3 * 6, (h2 - .5) * .2))
-				mm.set_instance_color(n, c); n += 1
-			continue
+		var tx: int = i % MW; var ty: int = i / MW
+		# a few crystal clusters per tile, bigger while the tile is rich; a dead tile keeps one grey stub
+		var cnt := 1 if dead else mini(3, 1 + a / 170)
 		for k in cnt:
 			var h1 := Sim.hash2(tx, ty, k * 3 + 1); var h2 := Sim.hash2(tx, ty, k * 3 + 2); var h3 := Sim.hash2(tx, ty, k * 3 + 3)
-			var x := tx + .15 + h1 * .7; var z := ty + .15 + h2 * .7; var s: float = .05 + h3 * .045 + min(1.0, a / 400.0) * .04
-			mm.set_instance_transform(n, _xf(x, S.h_at(x * T, z * T) + s * .9, z, s, s * 2.1, s, (h1 - .5) * .6, h3 * 6, (h2 - .5) * .6))
+			var x := tx + .2 + h1 * .6; var z := ty + .2 + h2 * .6
+			var s: float = (.19 + h3 * .11 + min(1.0, a / 400.0) * .13) * (0.5 if dead else 1.0)
+			mm.set_instance_transform(n, _xf(x, S.h_at(x * T, z * T), z, s, s * (1.0 + h1 * .3), s, (h1 - .5) * .2, h3 * 6, (h2 - .5) * .2))
 			mm.set_instance_color(n, c); n += 1
 	mm.visible_instance_count = n
 
