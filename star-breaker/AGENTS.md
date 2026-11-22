@@ -261,6 +261,18 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
 - Clear `user://diag.log` / `settings.cfg` before taking screenshots: a killed run counts as a
   crash and the next launch turns safe graphics on (no glow, no shadows).
 
+## Premium low poly (2026-11-22, world 1)
+
+- Guillaume: "I like the low poly esthetics but it felt blocky and cheap". Built as a world 1
+  preview (PR 104) and merged on his word. Look key `premium`
+  (LOOKS[0]) gates: bigger ground facets (`Terrain.COLS_P`, `ROWS_P`), normals blended toward the
+  broad shape (`FACET`), no random shade per facet (ground, cliffs, the run's rock via
+  `VRun.premium`), wider baked occlusion, a gradient sky with the sun's glow (`_premium_env()`),
+  lighter haze (`haze`, `haze_run`), a sun-side screen haze quad, a wider softer bloom.
+  Global: `Geo.bevel` chamfers boxes and prisms, `Models.std` has a rim light.
+  Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).
+  Compatibility has no SSAO: occlusion is baked into vertex colours, keep it that way.
+
 ## The game
 
 - `scenes/main.tscn` runs `scripts/vgame.gd` (game, menu flow, save, updates), with
