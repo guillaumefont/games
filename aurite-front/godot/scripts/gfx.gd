@@ -53,19 +53,45 @@ static func round_seg() -> int:
 	return 12 if level >= MEDIUM else 8
 
 # ---------------- light ----------------
+## Per theme: how far the sun is pushed warm and the shadows cool, the ambient energy, an ambient tint, and the
+## ground brightness (scripts/ground.gd). Ash keeps its dark, smoky mood; snow gets the coolest shadows.
+const MOOD := {
+	"temperate": {"warm": 0.45, "cool": 0.4, "amb": 0.95, "tint": Color("8fa7c8"), "ground": 0.8},
+	"autumn": {"warm": 0.5, "cool": 0.3, "amb": 0.95, "tint": Color("9aa4c0"), "ground": 0.8},
+	"arid": {"warm": 0.35, "cool": 0.25, "amb": 0.92, "tint": Color("a7b0c8"), "ground": 0.68},
+	"snow": {"warm": 0.2, "cool": 0.5, "amb": 0.9, "tint": Color("8ea6d0"), "ground": 0.76},
+	"ash": {"warm": 0.1, "cool": 0.12, "amb": 0.85, "tint": Color("9c8a86"), "ground": 0.6},
+	"marsh": {"warm": 0.25, "cool": 0.45, "amb": 0.95, "tint": Color("8faea8"), "ground": 0.76},
+}
+## Chapter grading (Guillaume's tone: pulpy at first, grim once the Choir appears): campaign I (Ashen Pact) is warm
+## and punchy, II (Vanguard) neutral, III (Hollow Choir) cold, flat and dim. Skirmish is neutral.
+const GRADE := {
+	"pulp": {"sat": 1.12, "con": 1.06, "sun": 1.0, "tint": Color(1, 1, 1), "tint_k": 0.0},
+	"neutral": {"sat": 1.04, "con": 1.05, "sun": 1.0, "tint": Color(1, 1, 1), "tint_k": 0.0},
+	"grim": {"sat": 0.8, "con": 1.1, "sun": 0.9, "tint": Color("7f9688"), "tint_k": 0.22},
+}
+
+static func mood_of(fac) -> String:
+	return {"ashen": "pulp", "choir": "grim"}.get(fac, "neutral") if fac != null else "neutral"
+
 ## Warm sun, cool shadows. `L` is the theme's light (sun, sunE, amb, ambE); Classic keeps it untouched.
-static func light(sun: DirectionalLight3D, env: Environment, L: Dictionary) -> void:
+static func light(sun: DirectionalLight3D, env: Environment, L: Dictionary, theme := "temperate", grade := "neutral") -> void:
 	var sc := Color(L.sun); var ac := Color(L.amb)
 	if level == CLASSIC:
 		sun.light_color = sc; sun.light_energy = L.sunE
 		env.ambient_light_color = ac; env.ambient_light_energy = L.ambE
 		sun.shadow_enabled = true; sun.shadow_blur = 1.4
 		RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_LOW)
+		if RenderingServer.get_current_rendering_method() != "gl_compatibility":
+			env.adjustment_saturation = 1.05; env.adjustment_contrast = 1.07   # View3D._ready's classic grading
 		return
-	sun.light_color = sc.lerp(Color("ffdcae"), 0.45)
-	sun.light_energy = L.sunE * 1.12
-	env.ambient_light_color = ac.lerp(Color("8fa7c8"), 0.4)
-	env.ambient_light_energy = L.ambE * 0.95
+	var M: Dictionary = MOOD.get(theme, MOOD.temperate); var G: Dictionary = GRADE.get(grade, GRADE.neutral)
+	sun.light_color = sc.lerp(Color("ffdcae"), M.warm).lerp(G.tint, G.tint_k * 0.5)
+	sun.light_energy = L.sunE * 1.12 * G.sun
+	env.ambient_light_color = ac.lerp(M.tint, M.cool).lerp(G.tint, G.tint_k)
+	env.ambient_light_energy = L.ambE * M.amb
+	if RenderingServer.get_current_rendering_method() != "gl_compatibility":
+		env.adjustment_enabled = true; env.adjustment_saturation = G.sat; env.adjustment_contrast = G.con
 	sun.shadow_enabled = level >= MEDIUM
 	sun.shadow_blur = 2.0 if level == HIGH else 1.4
 	RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM if level == HIGH else RenderingServer.SHADOW_QUALITY_SOFT_LOW)
