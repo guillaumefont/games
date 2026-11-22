@@ -11,6 +11,7 @@ signal next_pressed
 signal menu_pressed
 signal mute_pressed
 signal safe_toggled
+signal ground_pressed
 signal refresh_pressed
 signal pause_pressed
 signal ult_pressed
@@ -91,6 +92,8 @@ var _btn_copy: Button
 var _btn_gfx: Button
 var btn_mute: Button
 var btn_build: Button
+## World 1's ground design (preview switch, see `Terrain.DESIGNS`).
+var btn_ground: Button
 var _build_id := ""
 var _result_title: Label
 var _result_sub: Label
@@ -506,6 +509,9 @@ func _build_device(v: VBoxContainer) -> void:
 		safe_toggled.emit())
 	row.add_child(_btn_gfx)
 	v.add_child(row)
+	btn_ground = _small_button("")
+	btn_ground.pressed.connect(func(): ground_pressed.emit())
+	v.add_child(_center(btn_ground))
 	_build_id = str(ProjectSettings.get_setting("application/config/version", ""))
 	if _build_id == "":
 		_build_id = "dev"
@@ -529,6 +535,10 @@ func _small_button(text: String) -> Button:
 
 func set_muted(m: bool) -> void:
 	btn_mute.text = "SOUND: OFF" if m else "SOUND: ON"
+
+
+func set_ground(name: String) -> void:
+	btn_ground.text = "WORLD 1 GROUND: %s" % name.to_upper()
 
 
 func _update_gfx() -> void:

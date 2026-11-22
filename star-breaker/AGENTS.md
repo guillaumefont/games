@@ -285,6 +285,15 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   Global: `Geo.bevel` chamfers boxes and prisms, `Models.std` has a rim light.
   Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).
   Compatibility has no SSAO: occlusion is baked into vertex colours, keep it that way.
+- Ground designs (Guillaume, 2026-11-22: the smooth ground looked "blurry", "give me a few
+  versions designed from scratch"): `Terrain.DESIGNS` / `Terrain.design`, picked on the menu
+  (`WORLD 1 GROUND` button, saved as `[game] ground`). 0 is the smooth relief map; 1 Basalt,
+  2 Strata, 3 Facets are one fragment shader (`DESIGN_SHADER`, `ground_mat_design()`) drawing
+  crisp detail per pixel on the same smooth mesh: Voronoi plates or facets (fwidth-antialiased
+  cracks), or height bands with contour lines. Texture coordinates are world units / 32
+  (ground: x, chunk y; cliffs: world y, distance down the profile) so patterns meet across
+  chunks; the canyon run's rock maps by its own position (`tri`). Crisp designs turn off the
+  screen haze and the wide bloom. Stills: third argument of `tools/premium_shots.gd`.
 
 ## The game
 

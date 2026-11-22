@@ -251,6 +251,10 @@ func _ready() -> void:
 		hud.set_muted(muted)
 		_save())
 	hud.safe_toggled.connect(apply_safe)
+	hud.ground_pressed.connect(func():
+		set_design(Terrain.design + 1)
+		hud.set_ground(Terrain.DESIGNS[Terrain.design])
+		_save())
 	hud.refresh_pressed.connect(refresh_game)
 	_load()
 	if Diag.crashed:
@@ -287,8 +291,11 @@ func _load() -> void:
 				if at[i] < bests.size():
 					bests[at[i]] = int(b[i])
 		prog.load_from(cfg)
+		if cfg.has_section_key("game", "ground"):
+			set_design(int(cfg.get_value("game", "ground", Terrain.design)))
 	audio.set_muted(muted)
 	hud.set_muted(muted)
+	hud.set_ground(Terrain.DESIGNS[Terrain.design])
 	hud.prog = prog
 	var sk := String(cfg.get_value("game", "ship", "lance"))
 	if VShips.KITS.has(sk) and prog.ship_open(sk):
@@ -302,6 +309,7 @@ func _save() -> void:
 	cfg.load(SAVE_PATH)
 	cfg.set_value("game", "muted", muted)
 	cfg.set_value("game", "ship", hud.ship)
+	cfg.set_value("game", "ground", Terrain.design)
 	cfg.set_value("portrait", "bests", bests)
 	prog.save_to(cfg)
 	cfg.save(SAVE_PATH)
@@ -554,7 +562,8 @@ void fragment() {
 		_haze.material = hm
 		l.add_child(_haze)
 	if _sky != null:
-		_haze.visible = on and not Diag.safe
+		# the crisp ground designs drop the soft extras (screen haze, wide bloom): they read as blur
+		_haze.visible = on and Terrain.design == 0 and not Diag.safe
 		if on:
 			_sky_mat.set_shader_parameter("top", Color(look.sky_top))
 			_sky_mat.set_shader_parameter("mid", Color(look.sky_mid))
@@ -570,15 +579,42 @@ void fragment() {
 	_env.fog_depth_end = CAM_D + float(look.get("haze_b", 210.0))
 	_env.fog_sun_scatter = 0.12 if on else 0.0
 	_env.glow_intensity = 0.75 if on else 0.9
-	_env.glow_bloom = 0.08 if on else 0.04
+	var soft := on and Terrain.design == 0
+	_env.glow_bloom = 0.08 if soft else 0.04
 	_env.glow_hdr_threshold = 0.8 if on else 0.85
 	for i in range(1, 8):
 		var lv := 0.0
 		if i in [2, 3, 4, 5]:
 			lv = 1.0
-		elif on and i == 6:
+		elif soft and i == 6:
 			lv = 0.6
 		_env.set("glow_levels/%d" % i, lv)
+
+
+func _premium_ground() -> Material:
+	return Terrain.ground_mat_design(Terrain.design, look) if Terrain.design > 0 else Terrain.ground_mat_premium()
+
+
+## Switches world 1's ground design (`Terrain.DESIGNS`) and rebuilds what shows it.
+func set_design(d: int) -> void:
+	Terrain.design = posmod(d, Terrain.DESIGNS.size())
+	for w in _world_mats.keys():
+		if LOOKS[w].get("premium", false):
+			_world_mats.erase(w)
+	if _world < 0:
+		return
+	var w0 := _world
+	_world = -1
+	apply_world(w0)
+	for c in chunks.keys():
+		chunks[c].queue_free()
+	chunks.clear()
+	_building.clear()
+	if not G.is_empty() and G.has("islands"):
+		for isl in G.islands:
+			isl.m.queue_free()
+		_build_islands()
+	Diag.once("design %d" % Terrain.design)
 
 
 ## Dresses the scene for world `w`: sky, fog, light, ground and rock colours, stars.
@@ -590,14 +626,14 @@ func apply_world(w: int) -> void:
 	look = LOOKS[w]
 	if not _world_mats.has(w):
 		_world_mats[w] = {
-			ground = Terrain.ground_mat_premium() if look.get("premium", false) else _ground_mats[0],
+			ground = _premium_ground() if look.get("premium", false) else _ground_mats[0],
 			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], 0.9), Terrain.crystal_mat(look.cry[2], look.cry[3], 0.85)],
 			fissure_a = Models.basic(look.fis[0], 1.15), fissure_b = Models.basic(look.fis[1], 1.1),
 			river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
 			lip = Models.std(look.lip[0], look.lip[1], 1.1),
 		}
 	if look.get("premium", false) and not _world_mats[w].has("rock"):
-		_world_mats[w].rock = Terrain.rock_mat_premium(_world_mats[w].ground)
+		_world_mats[w].rock = Terrain.ground_mat_design(Terrain.design, look, true) if Terrain.design > 0 else Terrain.rock_mat_premium(_world_mats[w].ground)
 	_terrain_mats = _world_mats[w]
 	_lip_mat = _terrain_mats.lip
 	_env.background_color = Color(pal.bg)

@@ -128,6 +128,20 @@ func _initialize() -> void:
 	vg.apply_world(1)
 	check(vg._env.background_mode == Environment.BG_COLOR and not vg._haze.visible, "other worlds keep their flat background")
 	vg.apply_world(0)
+	# ground designs: the menu button cycles them, each crisp one is a shader with no screen haze
+	var d0 := Terrain.design
+	for d in Terrain.DESIGNS.size():
+		vg.set_design(d)
+		var gm: Material = vg._terrain_mats.ground
+		var crisp := d > 0
+		check((gm is ShaderMaterial) == crisp and vg._haze.visible == (not crisp and not Diag.safe),
+				"ground design %s: %s" % [Terrain.DESIGNS[d], "crisp shader, no screen haze" if crisp else "smooth relief map"])
+	vg.hud.btn_ground.pressed.emit()
+	check(Terrain.design == 0 and vg.hud.btn_ground.text.contains("SMOOTH"), "the menu's ground button cycles to the next design")
+	var ua := Terrain.Acc.new()
+	Terrain.cliff(ua, [[Vector3(0, 0, 0), 200.0], [Vector3(0, 8, 0), 200.0]], -1.0, vg.look, 64.0)
+	check(ua.uv.size() > 0 and ua.uv[0].x * 32.0 >= 63.9, "cliff texture coordinates run in world units, so chunks meet")
+	vg.set_design(d0)
 
 	# --- the stage: ground ahead is pre-built ---
 	vg.hud.stage_chosen.emit(0, "lance")

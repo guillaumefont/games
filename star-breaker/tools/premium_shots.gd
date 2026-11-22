@@ -2,7 +2,7 @@ extends SceneTree
 ## Fixed stills of world 1 for before/after reviews of the look: home, open ground with Lance
 ## firing, a rock canyon, a fortress, the canyon run seen from behind the ship, and the boss.
 ## Every still is taken at the same tick of the same stage, so two builds compare frame to frame.
-## xvfb-run -a -s "-screen 0 1100x2400x24" godot --path . --rendering-method gl_compatibility --resolution 1080x2340 --script tools/premium_shots.gd -- OUT_DIR
+## xvfb-run -a -s "-screen 0 1100x2400x24" godot --path . --rendering-method gl_compatibility --resolution 1080x2340 --script tools/premium_shots.gd -- OUT_DIR [names] [design]
 
 var vg: Node3D
 var out := "user://premium"
@@ -42,7 +42,10 @@ func _initialize() -> void:
 	if args.size() > 0:
 		out = args[0]
 	if args.size() > 1:
-		only = Array(args[1].split(","))
+		only = Array(args[1].split(",", false))
+	# a third argument picks world 1's ground design (Terrain.DESIGNS index)
+	if args.size() > 2:
+		Terrain.design = int(args[2])
 	DirAccess.make_dir_recursive_absolute(out)
 	vg = load("res://scenes/main.tscn").instantiate()
 	root.add_child(vg)

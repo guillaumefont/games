@@ -393,7 +393,7 @@ class Builder:
 		for jj in [j, j + 1]:
 			var r := []
 			for p: Vector3 in pts[jj]:
-				r.append(Vector2(p.x, p.y) / 32.0)
+				r.append(Vector2(p.x, y0 + p.y) / 32.0)
 			uvs.append(r)
 		for i in cols.size() - 1:
 			var q := [[j, i], [j, i + 1], [j + 1, i], [j + 1, i + 1]]
@@ -677,6 +677,182 @@ static func ground_mat_premium() -> StandardMaterial3D:
 	return m
 
 
+## World 1 ground designs (Guillaume, 2026-11-22: the smooth ground looked "blurry"; "give me
+## a few versions designed from scratch"). 0 is the smooth ground with its relief map; the
+## others draw crisp detail per pixel on the same smooth mesh, so no triangle shows either way:
+## 1 basalt plates split by sharp cracks, 2 strata (terraced bands with contour lines),
+## 3 big polygon facets. Texture coordinates are world units / 32, continuous across chunks.
+const DESIGNS := ["Smooth", "Basalt", "Strata", "Facets"]
+static var design := 1
+
+static var _design_shader: Shader
+
+
+## The crisp ground for `design` d > 0 (`tri`: the canyon run's rock, which has no texture
+## coordinates, maps by its own position instead).
+static func ground_mat_design(d: int, pal: Dictionary, tri := false) -> ShaderMaterial:
+	if _design_shader == null:
+		_design_shader = Shader.new()
+		_design_shader.code = DESIGN_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = _design_shader
+	m.set_shader_parameter("style", d)
+	m.set_shader_parameter("tri", tri)
+	m.set_shader_parameter("crack", Color(pal.get("t_low", "0a1c4e")).darkened(0.55))
+	m.set_shader_parameter("glow", Color((pal.get("fis", ["c0408a"]) as Array)[0]))
+	return m
+
+
+const DESIGN_SHADER := """
+shader_type spatial;
+render_mode cull_disabled;
+uniform int style = 1;
+uniform bool tri = false;
+uniform vec3 crack : source_color = vec3(0.02, 0.03, 0.08);
+uniform vec3 glow : source_color = vec3(0.75, 0.25, 0.54);
+varying vec3 op;
+varying vec3 on;
+varying float wz;
+
+void vertex() {
+	op = VERTEX;
+	on = NORMAL;
+	wz = (MODEL_MATRIX * vec4(VERTEX, 1.0)).z;
+	if (!OUTPUT_IS_SRGB) {
+		COLOR.rgb = mix(pow((COLOR.rgb + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), COLOR.rgb * (1.0 / 12.92), lessThan(COLOR.rgb, vec3(0.04045)));
+	}
+}
+
+vec2 hash2(vec2 p) {
+	p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+	return fract(sin(p) * 43758.5453);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash2(i).x;
+	float b = hash2(i + vec2(1.0, 0.0)).x;
+	float c = hash2(i + vec2(0.0, 1.0)).x;
+	float d = hash2(i + vec2(1.0, 1.0)).x;
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// The cell of x and how far x is from the cell's nearest edge (in cells).
+vec3 voronoi(vec2 x) {
+	vec2 n = floor(x);
+	vec2 f = fract(x);
+	vec2 mg = vec2(0.0);
+	vec2 mr = vec2(0.0);
+	float md = 8.0;
+	for (int j = -1; j <= 1; j++) {
+		for (int i = -1; i <= 1; i++) {
+			vec2 g = vec2(float(i), float(j));
+			vec2 r = g + hash2(n + g) * 0.8 + 0.1 - f;
+			float d = dot(r, r);
+			if (d < md) {
+				md = d;
+				mr = r;
+				mg = g;
+			}
+		}
+	}
+	md = 8.0;
+	for (int j = -1; j <= 1; j++) {
+		for (int i = -1; i <= 1; i++) {
+			vec2 g = mg + vec2(float(i), float(j));
+			vec2 r = g + hash2(n + g) * 0.8 + 0.1 - f;
+			vec2 dr = r - mr;
+			if (dot(dr, dr) > 0.00001) {
+				md = min(md, dot(0.5 * (mr + r), normalize(dr)));
+			}
+		}
+	}
+	return vec3(n + mg, md);
+}
+
+void fragment() {
+	vec2 p;
+	vec3 ta;
+	vec3 tb;
+	if (tri) {
+		vec3 an = abs(on);
+		vec3 ax;
+		vec3 bx;
+		if (an.z >= an.x && an.z >= an.y) {
+			p = op.xy; ax = vec3(1.0, 0.0, 0.0); bx = vec3(0.0, 1.0, 0.0);
+		} else if (an.x >= an.y) {
+			p = op.yz; ax = vec3(0.0, 1.0, 0.0); bx = vec3(0.0, 0.0, 1.0);
+		} else {
+			p = op.xz; ax = vec3(1.0, 0.0, 0.0); bx = vec3(0.0, 0.0, 1.0);
+		}
+		mat4 mv = VIEW_MATRIX * MODEL_MATRIX;
+		ta = normalize((mv * vec4(ax, 0.0)).xyz);
+		tb = normalize((mv * vec4(bx, 0.0)).xyz);
+	} else {
+		p = UV * 32.0;
+		ta = TANGENT;
+		tb = BINORMAL;
+	}
+	vec3 n = NORMAL;
+	vec3 alb = COLOR.rgb;
+	vec3 em = vec3(0.0);
+	float rough = 0.88;
+	if (style == 1) {
+		// basalt: plates about 9 units across, each tilted and shaded its own way, cut by sharp cracks
+		float s = 9.0;
+		vec3 v = voronoi(p / s);
+		float e = v.z * s;
+		vec2 r = hash2(v.xy * 1.37 + 3.1) - 0.5;
+		n = normalize(n + (ta * r.x + tb * r.y) * 0.45);
+		alb *= 0.8 + 0.4 * hash2(v.xy + 7.7).x;
+		float w = fwidth(e);
+		float cr = 1.0 - smoothstep(0.13 - w, 0.13 + w, e);
+		// a lit chamfer along each plate's rim
+		alb *= 1.0 + 0.28 * (1.0 - smoothstep(0.13, 0.9, e));
+		alb = mix(alb, crack, cr);
+		// a few cracks glow where a slow vein crosses them
+		float vein = smoothstep(0.76, 0.8, vnoise(p / 45.0));
+		em = glow * cr * vein * 1.4;
+	} else if (style == 2) {
+		// strata: bands every 2.5 units of height, a dark riser under each tread, a fine contour line
+		float h = wz / 2.5;
+		float f = fract(h);
+		float b = floor(h);
+		float wb = 1.0 - smoothstep(0.18, 0.4, fwidth(h));
+		alb *= 1.0 + wb * (0.2 * fract(b * 0.618) - 0.1);
+		alb *= mix(1.0, mix(0.72, 1.0, smoothstep(0.0, 0.3, f)), wb);
+		alb *= 1.0 + 0.18 * wb * smoothstep(0.75, 1.0, f);
+		float d = min(f, 1.0 - f);
+		float w = fwidth(h);
+		// where bands crowd (steep faces) they fade into plain rock instead of shimmering
+		float fade = 1.0 - smoothstep(0.18, 0.4, w);
+		float ln = (1.0 - smoothstep(w * 0.6, w * 1.6, d)) * fade;
+		alb = mix(alb, crack, ln * 0.85);
+		// the treads lie flatter than the smooth slope, the risers steeper
+		vec3 up = (VIEW_MATRIX * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
+		n = normalize(mix(n, up, 0.35 * wb * smoothstep(0.25, 0.6, f)));
+	} else if (style == 3) {
+		// facets: big flat polygons (5 to 8 sides, never triangles), lit each its own way
+		float s = 13.0;
+		vec3 v = voronoi(p / s);
+		vec2 r = hash2(v.xy * 2.13 + 1.7) - 0.5;
+		n = normalize(n + (ta * r.x + tb * r.y) * 0.8);
+		alb *= 0.86 + 0.28 * hash2(v.xy + 4.4).x;
+		float e = v.z * s;
+		float w = fwidth(e);
+		alb *= 1.0 + 0.25 * (1.0 - smoothstep(0.05, 0.05 + w * 1.5, e));
+		rough = 0.7;
+	}
+	ALBEDO = alb;
+	NORMAL = n;
+	ROUGHNESS = rough;
+	EMISSION = em;
+}
+"""
+
+
 ## The same relief mapped on any shape (the canyon run's rock, which has no texture
 ## coordinates): three samples of the map instead of one, so only the run uses it.
 static func rock_mat_premium(ground: StandardMaterial3D) -> StandardMaterial3D:
@@ -938,7 +1114,7 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 				face.append(Vector3(e.x - s * (float(FOOT_OUT[m]) + jx), e.y, FOOT_Z[m]))
 		faces.append(face)
 	if pal.get("premium", false):
-		_cliff_smooth(acc, rows, tops, faces, s, pal)
+		_cliff_smooth(acc, rows, tops, faces, s, pal, wy0)
 		return
 	for j in rows.size() - 1:
 		var wy := wy0 + (rows[j][0] as Vector3).y
@@ -975,7 +1151,7 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 ## rounded shoulder and across the top. Each corner takes its normal from its neighbours along
 ## and across the sheet and its own colour (the ground's at the foot, the face's, then the
 ## top's), shared by the faces round it, so no triangle and no right angle shows.
-static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: float, pal: Dictionary) -> void:
+static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: float, pal: Dictionary, wy0 := 0.0) -> void:
 	var pc := colors(pal)
 	var floor_c := grade(pc, face_color(pc, -2.0, 0.9, 0.0, 0.5), Vector3.BACK, 4.0)
 	var face_c := Color(pal.c_face)
@@ -1023,7 +1199,7 @@ static func _cliff_smooth(acc: Acc, rows: Array, tops: Array, faces: Array, s: f
 			if n.dot(Vector3(-s, 0, 0) if k < nk / 2 else Vector3.BACK) < 0.0:
 				n = -n
 			nr.append(n)
-			ur.append(Vector2(p.y / 32.0, arc / 32.0))
+			ur.append(Vector2((wy0 + p.y) / 32.0, arc / 32.0))
 		nrm.append(nr)
 		uv.append(ur)
 	for j in nj - 1:
