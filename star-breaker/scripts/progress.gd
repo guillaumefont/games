@@ -354,12 +354,7 @@ static func apply_paint(model: Node, s: Dictionary) -> void:
 	if s.is_empty() or s.id == "stock":
 		return
 	var M := Models.M
-	# painted copies of the stock materials, so they keep their surface
-	var hull: StandardMaterial3D = M.hull.duplicate()
-	hull.albedo_color = Color(s.hull)
-	var dark: StandardMaterial3D = M.hull_dark.duplicate()
-	dark.albedo_color = Color(s.dark)
-	var swap := {M.hull: hull, M.hull_dark: dark, M.lance: Models.std(s.glow, s.glow, 1.2)}
+	var swap := {M.hull: Models.std(s.hull), M.hull_dark: Models.std(s.dark), M.lance: Models.std(s.glow, s.glow, 1.2)}
 	if s.flame != "":
 		var f: StandardMaterial3D = M.engine.duplicate()
 		f.albedo_color = Color(Color(s.flame), M.engine.albedo_color.a)

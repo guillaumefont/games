@@ -253,10 +253,6 @@ class Builder:
 	var row_t := 0
 	var node: Node3D
 	var _shape := {}  ## corner (x, y) -> [the ground's broad normal there, how hollow it is]
-	var fine := false  ## the detailed look: twice the grid, rounded normals, no jitter
-	var cols: Array = COLS
-	var rows := ROWS
-	var off := 0  ## rows kept before row 0 (the neighbours the normals need)
 
 	func _init(c_: int, len_: float, pal_: Dictionary, mats_: Dictionary) -> void:
 		c = c_
@@ -265,26 +261,17 @@ class Builder:
 		pc = Terrain.colors(pal)
 		mats = mats_
 		y0 = c * len
-		if Geo.detail and pal.has("detail"):
-			fine = true
-			rows = ROWS * 2
-			off = 1
-			cols = []
-			for i in COLS.size() - 1:
-				cols.append(COLS[i])
-				cols.append((COLS[i] + COLS[i + 1]) * 0.5)
-			cols.append(COLS[-1])
 
 	## Does the next slice of work; true once `node` is ready.
 	func step() -> bool:
-		if pts.size() < rows + 1 + off * 2:
-			for k in (3 if fine else 4):
-				if pts.size() < rows + 1 + off * 2:
-					pts.append(_row(pts.size() - off))
+		if pts.size() < ROWS + 1:
+			for k in 4:
+				if pts.size() < ROWS + 1:
+					pts.append(_row(pts.size()))
 			return false
-		if row_t < rows:
-			for k in (2 if fine else 4):
-				if row_t < rows:
+		if row_t < ROWS:
+			for k in 4:
+				if row_t < ROWS:
 					_tris(row_t)
 					row_t += 1
 			return false
@@ -293,17 +280,15 @@ class Builder:
 
 	func _row(j: int) -> Array:
 		var row := []
-		var ly := len * j / rows
-		for i in cols.size():
-			var x: float = cols[i]
+		var ly := len * j / ROWS
+		for i in COLS.size():
+			var x: float = COLS[i]
 			# jitter inner vertices so the grid never reads as a grid (same in every chunk)
 			var jx := 0.0
 			var jy := 0.0
-			if fine:
-				pass
-			elif i > 0 and i < COLS.size() - 1:
+			if i > 0 and i < COLS.size() - 1:
 				jx = (Terrain.h2(x, y0 + ly) - 0.5) * 3.0
-			if not fine and j > 0 and j < ROWS:
+			if j > 0 and j < ROWS:
 				jy = (Terrain.h2(x + 7.0, y0 + ly) - 0.5) * 2.4
 			row.append(Vector3(x + jx, ly + jy, Terrain.height(x + jx, y0 + ly + jy)))
 		return row
@@ -322,25 +307,12 @@ class Builder:
 		var sh: Array = _shape[key]
 		return Terrain.grade(pc, col, sh[0], sh[1])
 
-	## The ground's rounded normal at grid point (i, j), from its neighbours.
-	func _nrm(i: int, j: int) -> Vector3:
-		var a: Vector3 = pts[j + off][maxi(i - 1, 0)]
-		var b: Vector3 = pts[j + off][mini(i + 1, cols.size() - 1)]
-		var d: Vector3 = pts[j + off - 1][i]
-		var e: Vector3 = pts[j + off + 1][i]
-		return (b - a).cross(e - d).normalized()
-
 	func _tris(j: int) -> void:
-		var nr := {}
-		if fine:
-			for i in cols.size():
-				nr[pts[j + off][i]] = _nrm(i, j)
-				nr[pts[j + off + 1][i]] = _nrm(i, j + 1)
-		for i in cols.size() - 1:
-			var a: Vector3 = pts[j + off][i]
-			var b: Vector3 = pts[j + off][i + 1]
-			var d: Vector3 = pts[j + off + 1][i]
-			var e: Vector3 = pts[j + off + 1][i + 1]
+		for i in COLS.size() - 1:
+			var a: Vector3 = pts[j][i]
+			var b: Vector3 = pts[j][i + 1]
+			var d: Vector3 = pts[j + 1][i]
+			var e: Vector3 = pts[j + 1][i + 1]
 			# alternate the diagonal so the facets don't line up
 			var flip := (i + j + c) % 2 == 0
 			var tris := [[a, b, e], [a, e, d]] if flip else [[a, b, d], [b, e, d]]
@@ -361,9 +333,7 @@ class Builder:
 				var rd := absf(rv.x)
 				var rc: Color = pc.river[int(rv.y)]
 				var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
-				if fine:
-					ground.tri3n(p0, p1, p2, _graded(col, p0).lerp(rc, rk), _graded(col, p1).lerp(rc, rk), _graded(col, p2).lerp(rc, rk), nr[p0], nr[p1], nr[p2], Vector3.BACK)
-				elif not pc.has("warm"):
+				if not pc.has("warm"):
 					ground.tri(p0, p1, p2, col.lerp(rc, rk), Vector3.BACK)
 				else:
 					# the painted light is worked out at each corner and blends across the
@@ -526,46 +496,16 @@ static func _cluster(acc: Acc, at: Vector3, rng: RandomNumberGenerator, s: float
 ## A squashed faceted boulder (an icosahedron with jittered vertices).
 static func _boulder(acc: Acc, at: Vector3, r: float, rng: RandomNumberGenerator, pal: Dictionary) -> void:
 	var col := Color(pal.t_rock).darkened(rng.randf_range(0.0, 0.2))
-	var fine: bool = Geo.detail and pal.has("detail")
 	var jit := {}
-	var seed_v := Vector3(rng.randf(), rng.randf(), rng.randf()) * 9.0
-	for t in Geo.ico(1.0, 2 if fine else 0):
+	for t in Geo.ico(1.0):
 		var tri := []
-		var nrm := []
 		for vv in t:
 			var key: Vector3 = (vv * 100.0).round()
 			if not jit.has(key):
-				if fine:
-					# a lumpy rounded stone: low swells instead of facets
-					jit[key] = vv * (1.0 + 0.16 * sin(vv.x * 3.1 + seed_v.x) * sin(vv.y * 2.7 + seed_v.y) + 0.1 * sin(vv.z * 4.3 + seed_v.z))
-				else:
-					jit[key] = vv * (1.0 + rng.randf_range(-0.22, 0.22))
+				jit[key] = vv * (1.0 + rng.randf_range(-0.22, 0.22))
 			var q: Vector3 = jit[key]
 			tri.append(at + Vector3(q.x * r * 1.2, q.y * r, q.z * r * 0.7))
-			nrm.append(Vector3(q.x / 1.2, q.y, q.z / 0.7).normalized())
-		if fine:
-			acc.tri3n(tri[0], tri[1], tri[2], col, col, col, nrm[0], nrm[1], nrm[2], (tri[0] + tri[1] + tri[2]) / 3.0 - at)
-		else:
-			acc.convex(tri[0], tri[1], tri[2], col, at)
-
-
-## Adds a grid of points as one rounded surface facing `dir`, with a colour at each point.
-static func _sheet(acc: Acc, g: Array, col: Array, dir: Vector3) -> void:
-	var nr := []
-	for j in g.size():
-		var row := []
-		for k in g[j].size():
-			var a: Vector3 = g[j][maxi(k - 1, 0)]
-			var b: Vector3 = g[j][mini(k + 1, g[j].size() - 1)]
-			var c: Vector3 = g[maxi(j - 1, 0)][k]
-			var d: Vector3 = g[mini(j + 1, g.size() - 1)][k]
-			var n := (b - a).cross(d - c).normalized()
-			row.append(n if n.dot(dir) > 0.0 else -n)
-		nr.append(row)
-	for j in g.size() - 1:
-		for k in g[j].size() - 1:
-			acc.tri3n(g[j][k], g[j][k + 1], g[j + 1][k + 1], col[j][k], col[j][k + 1], col[j + 1][k + 1], nr[j][k], nr[j][k + 1], nr[j + 1][k + 1], dir)
-			acc.tri3n(g[j][k], g[j + 1][k + 1], g[j + 1][k], col[j][k], col[j + 1][k + 1], col[j + 1][k], nr[j][k], nr[j + 1][k + 1], nr[j + 1][k], dir)
+		acc.convex(tri[0], tri[1], tri[2], col, at)
 
 
 static func _mi(m: ArrayMesh, mat: Material, shadows: bool) -> MeshInstance3D:
@@ -574,100 +514,6 @@ static func _mi(m: ArrayMesh, mat: Material, shadows: bool) -> MeshInstance3D:
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
-
-
-## The detailed ground: three scanned materials (colour, relief, and occlusion + roughness
-## each). Loose ground on the flats, bare rock where it steepens, layered rock on cliff
-## faces. The mesh's colours only shade it broadly (hollows, sunlit crests). `scroll` pins the
-## textures to the ground as it moves.
-const GROUND_SHADER := """
-shader_type spatial;
-render_mode cull_disabled;
-uniform sampler2D g_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D g_n : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D g_m : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D r_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D r_n : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D r_m : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D c_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D c_n : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D c_m : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform float scroll = 0.0;
-uniform bool local = false;
-varying vec3 wp;
-varying vec3 wn;
-
-void vertex() {
-	if (local) {
-		// a piece that moves as one (the canyon run): pinned to its own frame
-		wp = VERTEX;
-		wn = NORMAL;
-	} else {
-		wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-		wp.y += scroll;
-		wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
-	}
-}
-
-void fragment() {
-	vec3 n = normalize(wn);
-	float slope = 1.0 - abs(n.z);
-	// the same scan at two sizes and angles, so its repeat never lines up
-	vec2 u1 = wp.xy / 72.0;
-	vec2 u2 = vec2(wp.x * 0.83 + wp.y * 0.56, wp.y * 0.83 - wp.x * 0.56) / 29.0 + 0.37;
-	vec3 alb = mix(texture(g_a, u1).rgb, texture(g_a, u2).rgb, 0.5);
-	vec2 bump = (texture(g_n, u1).rg - 0.5) * 1.6 + (texture(g_n, u2).rg - 0.5) * 1.2;
-	vec3 arm = texture(g_m, u2).rgb;
-	// bare rock where the ground steepens
-	vec2 ur = wp.xy / 44.0;
-	vec3 ra = texture(r_a, ur).rgb;
-	vec3 rm = texture(r_m, ur).rgb;
-	float rk = smoothstep(0.035, 0.15, slope + (rm.r - 0.7) * 0.12);
-	alb = mix(alb, ra, rk);
-	bump = mix(bump, (texture(r_n, ur).rg - 0.5) * 2.6, rk);
-	arm = mix(arm, rm, rk);
-	vec3 pn = normalize(n + vec3(bump.x, bump.y, 0.0));
-	// cliff faces: layered rock laid along the face
-	float side = smoothstep(0.5, 0.8, slope);
-	if (side > 0.0) {
-		bool xf = abs(n.x) > abs(n.y);
-		vec2 uc = vec2((xf ? wp.y : wp.x) / 34.0, wp.z / 34.0);
-		vec2 cb = (texture(c_n, uc).rg - 0.5) * 2.6;
-		vec3 t = xf ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-		vec3 fn = normalize(n + t * cb.x + vec3(0.0, 0.0, 1.0) * cb.y);
-		pn = normalize(mix(pn, fn, side));
-		alb = mix(alb, texture(c_a, uc).rgb, side);
-		arm = mix(arm, texture(c_m, uc).rgb, side);
-	}
-	ALBEDO = alb * COLOR.rgb * 2.0 * mix(0.55, 1.0, arm.r);
-	ROUGHNESS = arm.g;
-	SPECULAR = 0.4;
-	if (local) {
-		pn = normalize((MODEL_MATRIX * vec4(pn, 0.0)).xyz);
-	}
-	NORMAL = normalize((VIEW_MATRIX * vec4(pn, 0.0)).xyz);
-}
-"""
-
-
-static var _ground_shader: Shader
-
-
-## The detailed ground of a world: `scan` names its three scanned materials (loose ground,
-## bare rock, cliff face). `local` is for a piece that moves as one, like the canyon run.
-static func detail_ground_mat(scan: Array, local := false) -> ShaderMaterial:
-	if _ground_shader == null:
-		_ground_shader = Shader.new()
-		_ground_shader.code = GROUND_SHADER
-	var m := ShaderMaterial.new()
-	m.shader = _ground_shader
-	m.set_shader_parameter("local", local)
-	for i in 3:
-		var k: String = ["g", "r", "c"][i]
-		m.set_shader_parameter(k + "_a", load("res://assets/scan/%s_Diffuse.jpg" % scan[i]))
-		m.set_shader_parameter(k + "_n", load("res://assets/scan/%s_nor_gl.jpg" % scan[i]))
-		m.set_shader_parameter(k + "_m", load("res://assets/scan/%s_arm.jpg" % scan[i]))
-	return m
 
 
 ## The ground material: lit, flat shaded, coloured per face.
@@ -735,16 +581,6 @@ class Acc:
 		col.append(ca)
 		col.append(cc)
 		col.append(cb)
-
-	## Adds triangle a, b, c facing `dir` with a colour and a normal at each corner.
-	func tri3n(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, na: Vector3, nb: Vector3, nc: Vector3, dir: Vector3) -> void:
-		var k := v.size()
-		tri3(a, b, c, ca, cb, cc, dir)
-		if v.size() == k:
-			return
-		for i in 3:
-			var p: Vector3 = v[k + i]
-			n[k + i] = na if p == a else (nb if p == b else nc)
 
 	## Adds triangle a, b, c facing away from `center`.
 	func convex(a: Vector3, b: Vector3, c: Vector3, color: Color, center: Vector3) -> void:
@@ -819,23 +655,6 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var jx := (h2(wy, m * 5.3 - s) - 0.5) * 2.6 if m > 0 else 0.0
 			face.append(Vector3(e.x - s * (float(FACE_OUT[m]) + jx), e.y, FACE_Z[m]))
 		faces.append(face)
-	if Geo.detail and pal.has("detail"):
-		# the detailed look: one rounded surface, coloured by height and depth, no facets
-		var tc := []
-		var fc := []
-		for j in rows.size():
-			var a := []
-			var b := []
-			for k in TOP_OFF.size():
-				var p: Vector3 = tops[j][k]
-				a.append(Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size()).darkened(0.12).lightened(clampf(p.z / 40.0, 0.0, 1.0) * 0.3))
-			for m in FACE_Z.size():
-				b.append(Color(pal.c_face).darkened(float(m) * 0.12))
-			tc.append(a)
-			fc.append(b)
-		_sheet(acc, tops, tc, Vector3.BACK)
-		_sheet(acc, faces, fc, Vector3(-s, 0, 0.35))
-		return
 	for j in rows.size() - 1:
 		var wy := wy0 + (rows[j][0] as Vector3).y
 		for k in TOP_OFF.size() - 1:
