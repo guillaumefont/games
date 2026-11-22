@@ -97,6 +97,7 @@ godot --headless --path . --script tests/engine_test.gd    # every vehicle has a
 godot --headless --path . --script tests/underpass_test.gd # all deck over a lower lane is a see-through window
 godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
 godot --headless --path . --script tests/self_update_test.gd  # test APKs update themselves safely
+godot --headless --path . --script tests/premium_test.gd   # premium look: palette, gradient props, triangle budget
 ```
 
 After changing a track layout, rerun `tools/gen_obstacles.gd` (posts placed off the AI's racing line,
