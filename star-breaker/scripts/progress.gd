@@ -81,6 +81,11 @@ var paint: Dictionary = {}
 ## Flux (soft currency) in the bank, and each ship's level (1 to MAX_LEVEL).
 var flux := 0
 var levels: Dictionary = {}
+## Prisms (the rare currency) in the bank, and what they bought: ships opened early and colours
+## opened early ("ship:scheme").
+var prisms := 0
+var bought_ships: Array = []
+var bought_paint: Array = []
 
 
 func _init() -> void:
@@ -127,6 +132,55 @@ func bank_run(score: int, t: int, new_medals: int) -> int:
 	var f := int(floor(score * FLUX_PER_SCORE)) + new_medals * int(MEDAL_FLUX[clampi(t, 0, 2)])
 	flux += f
 	return f
+
+
+# ---------- prisms ----------
+
+## Prisms are earned only by play, never lost, and only ever buy a shortcut to something play
+## also opens (a ship, a colour, flux): pay to go faster, never to pass.
+## Earned: a stage's full medal set on a tier (all four), and the first clear of a world's last
+## stage on a tier. Per tier: Normal, Nova, Supernova.
+const SET_PRISMS := [5, 8, 12]
+const WORLD_PRISMS := [10, 15, 20]
+## Spent: a locked ship costs SHIP_PRISMS for each stage it still needs cleared on Normal (so it
+## gets cheaper as you play), a locked colour costs PAINT_PRISMS, and FLUX_PACK flux costs
+## FLUX_PACK_PRISMS.
+const SHIP_PRISMS := 3
+const PAINT_PRISMS := 10
+const FLUX_PACK := 400
+const FLUX_PACK_PRISMS := 10
+
+
+## What opening `ship` now costs in prisms (0 when it is already open).
+func ship_price(ship: String) -> int:
+	if ship_open(ship):
+		return 0
+	return SHIP_PRISMS * maxi(1, int(VShips.KITS[ship].get("unlock", 0)) - cleared_count())
+
+
+func buy_ship(ship: String) -> bool:
+	var cost := ship_price(ship)
+	if cost <= 0 or prisms < cost:
+		return false
+	prisms -= cost
+	bought_ships.append(ship)
+	return true
+
+
+func buy_paint(ship: String, id: String) -> bool:
+	if scheme_open(ship, id) or prisms < PAINT_PRISMS:
+		return false
+	prisms -= PAINT_PRISMS
+	bought_paint.append("%s:%s" % [ship, id])
+	return true
+
+
+func buy_flux() -> bool:
+	if prisms < FLUX_PACK_PRISMS:
+		return false
+	prisms -= FLUX_PACK_PRISMS
+	flux += FLUX_PACK
+	return true
 
 
 static func stage_id(i: int) -> String:
@@ -197,7 +251,7 @@ func cleared_count() -> int:
 
 ## A ship opens once `VShips.KITS[ship].unlock` stages are cleared on Normal.
 func ship_open(ship: String) -> bool:
-	return cleared_count() >= int(VShips.KITS[ship].get("unlock", 0))
+	return bought_ships.has(ship) or cleared_count() >= int(VShips.KITS[ship].get("unlock", 0))
 
 
 func unlocked(id: String, t: int) -> bool:
@@ -276,7 +330,7 @@ static func par_ticks(end: String, t: int, boss_scale := 1.0) -> int:
 ## changed: new medals, the tier it unlocked (-1 if none), the stage it opened on this tier
 ## (-1 if none) and the rewards it unlocked.
 func record(id: String, t: int, is_cleared: bool, got: Array) -> Dictionary:
-	var out := {new_medals = [], unlocked_tier = -1, unlocked_next = -1, rewards = []}
+	var out := {new_medals = [], unlocked_tier = -1, unlocked_next = -1, rewards = [], prisms = 0}
 	if not is_cleared:
 		return out
 	var before := total()
@@ -289,13 +343,19 @@ func record(id: String, t: int, is_cleared: bool, got: Array) -> Dictionary:
 		if m & bit == 0:
 			out.new_medals.append(g)
 			m |= bit
+	# prisms: the run that completes the medal set, and the first clear of a world's last stage
+	if int(e.m[t]) != 15 and m == 15:
+		out.prisms += int(SET_PRISMS[t])
 	e.m[t] = m
 	if int(e.c) & (1 << t) == 0:
 		e.c = int(e.c) | (1 << t)
+		if i >= 0 and int(VStage.STAGES[i].get("j", -1)) == VStage.PER_WORLD - 1:
+			out.prisms += int(WORLD_PRISMS[t])
 		if t + 1 < TIERS.size():
 			out.unlocked_tier = t + 1
 	if not next_was_open and open(i + 1, t):
 		out.unlocked_next = i + 1
+	prisms += int(out.prisms)
 	var after := total()
 	for r in TRACK:
 		if before < int(r.at) and after >= int(r.at):
@@ -332,7 +392,7 @@ static func scheme_at(ship: String, id: String) -> int:
 
 
 func scheme_open(ship: String, id: String) -> bool:
-	return total() >= scheme_at(ship, id)
+	return bought_paint.has("%s:%s" % [ship, id]) or total() >= scheme_at(ship, id)
 
 
 func set_paint(ship: String, id: String) -> bool:
@@ -391,6 +451,18 @@ func load_from(cfg: ConfigFile) -> void:
 		for k in levels:
 			if lv.has(k):
 				levels[k] = clampi(int(lv[k]), 1, MAX_LEVEL)
+	prisms = maxi(0, int(cfg.get_value("progress", "prisms", 0)))
+	bought_ships = []
+	var bs = cfg.get_value("progress", "bought_ships", [])
+	if bs is Array:
+		for k in bs:
+			if VShips.KITS.has(String(k)):
+				bought_ships.append(String(k))
+	bought_paint = []
+	var bp = cfg.get_value("progress", "bought_paint", [])
+	if bp is Array:
+		for k in bp:
+			bought_paint.append(String(k))
 	var p = cfg.get_value("progress", "paint", {})
 	if p is Dictionary:
 		for k in paint:
@@ -403,3 +475,6 @@ func save_to(cfg: ConfigFile) -> void:
 	cfg.set_value("progress", "paint", paint)
 	cfg.set_value("progress", "flux", flux)
 	cfg.set_value("progress", "levels", levels)
+	cfg.set_value("progress", "prisms", prisms)
+	cfg.set_value("progress", "bought_ships", bought_ships)
+	cfg.set_value("progress", "bought_paint", bought_paint)

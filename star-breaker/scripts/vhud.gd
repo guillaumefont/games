@@ -18,6 +18,9 @@ signal tier_pressed(tier: int)
 signal paint_chosen(ship: String, id: String)
 signal level_pressed(ship: String)
 signal ship_chosen(ship: String)
+signal ship_buy_pressed(ship: String)
+signal paint_buy_pressed(ship: String, id: String)
+signal flux_buy_pressed
 
 const C_TEXT := Color("f4f2ff")
 const C_MUTED := Color("bdb6e0")
@@ -102,6 +105,12 @@ var medals_scr: Control
 var _medals_total: Label
 var _paint_btns := {}
 var _flux_lbl: Label
+const C_PRISM := Color("b9a8ff")
+var _btn_flux_buy: Button
+var _btn_ship_buy: Button
+## ship -> the locked colour tapped last (offered for prisms by that ship's buy button)
+var _want := {}
+var _paint_buy := {}
 var _level_lbls := {}
 var _level_btns := {}
 var _result_pips: Pips
@@ -566,7 +575,19 @@ func refresh_progress() -> void:
 		map.queue_redraw()
 	if prog and _btn_medals:
 		_medals_total.text = "MEDALS %d / %d" % [prog.total(), Progress.max_total()]
-		_flux_lbl.text = "%s FLUX" % _fmt(prog.flux)
+		_flux_lbl.text = "%s FLUX  ·  %s PRISMS" % [_fmt(prog.flux), _fmt(prog.prisms)]
+		_btn_flux_buy.text = "+%d FLUX  ·  %d PRISMS" % [Progress.FLUX_PACK, Progress.FLUX_PACK_PRISMS]
+		_btn_flux_buy.disabled = prog.prisms < Progress.FLUX_PACK_PRISMS
+		_btn_flux_buy.modulate.a = 0.45 if _btn_flux_buy.disabled else 1.0
+		for k in _paint_buy:
+			var pb: Button = _paint_buy[k]
+			var want: String = _want.get(k, "")
+			pb.visible = want != "" and not prog.scheme_open(k, want)
+			if pb.visible:
+				pb.text = ("Unlock %s  ·  %d prisms" % [Progress.scheme(k, want).name, Progress.PAINT_PRISMS]).to_upper()
+				pb.disabled = prog.prisms < Progress.PAINT_PRISMS
+				pb.modulate.a = 0.45 if pb.disabled else 1.0
+		_update_ship_buy()
 		for k in _level_btns:
 			var lv := prog.level(k)
 			_level_lbls[k].text = "%s  ·  LV %d  ·  +%d%% DAMAGE" % [VShips.rank_text(k), lv, int(round((Progress.power(lv) - 1.0) * 100.0))]
@@ -609,8 +630,22 @@ func select_ship(k: String) -> void:
 		if not open:
 			var need := int(VShips.KITS[k].unlock)
 			_lock_lbl.text = "%s  ·  LOCKED\nCLEAR %d STAGES ON NORMAL (%d SO FAR)" % [VShips.rank_text(k), need, prog.cleared_count()]
+	_update_ship_buy()
 	_update_how()
 	_update_home()
+
+
+## The hangar's "unlock now" button under a locked ship: its price in prisms falls with every
+## stage cleared, and it dims when you can't afford it.
+func _update_ship_buy() -> void:
+	if _btn_ship_buy == null or prog == null:
+		return
+	var price := prog.ship_price(view_ship)
+	_btn_ship_buy.visible = price > 0
+	if price > 0:
+		_btn_ship_buy.text = "UNLOCK NOW  ·  %d PRISMS" % price
+		_btn_ship_buy.disabled = prog.prisms < price
+		_btn_ship_buy.modulate.a = 0.45 if _btn_ship_buy.disabled else 1.0
 
 
 ## The home screen's lines: the next stage under Play, and the ship button (ship, level, flux,
@@ -622,7 +657,7 @@ func _update_home() -> void:
 	var lv := prog.level(ship) if prog else 1
 	var l2 := "HANGAR"
 	if prog:
-		l2 = "%s FLUX  ·  MEDALS %d / %d" % [_fmt(prog.flux), prog.total(), Progress.max_total()]
+		l2 = "%s FLUX  ·  %s PRISMS  ·  MEDALS %d" % [_fmt(prog.flux), _fmt(prog.prisms), prog.total()]
 	_btn_medals.text = "%s  ·  LV %d\n%s" % [String(kit.name).to_upper(), lv, l2]
 	if _home_ship:
 		_home_ship.show_ship(ship, prog.paint_of(ship) if prog else {})
@@ -900,6 +935,8 @@ func set_report(r: Dictionary) -> void:
 			lines.append("Stage %d %s unlocked" % [ns.j + 1, ns.name])
 	if int(r.get("flux", 0)) > 0:
 		lines.append("+%s flux" % _fmt(int(r.flux)))
+	if int(r.get("prisms", 0)) > 0:
+		lines.append("+%d prisms" % int(r.prisms))
 	for rw in r.get("rewards", []):
 		lines.append("New ship colour: %s" % Progress.reward_name(rw))
 	_result_lines.text = "\n".join(lines).to_upper()
@@ -929,6 +966,11 @@ func _build_medals() -> Control:
 	_flux_lbl = _label("", 26, 800, C_AMBER, 2.0)
 	_flux_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_flux_lbl)
+	_btn_flux_buy = _small_button("")
+	_btn_flux_buy.add_theme_color_override("font_color", C_PRISM)
+	_btn_flux_buy.add_theme_color_override("font_disabled_color", C_PRISM)
+	_btn_flux_buy.pressed.connect(func(): flux_buy_pressed.emit())
+	v.add_child(_center(_btn_flux_buy))
 	_medals_total = _label("", 16, 700, C_MUTED, 2.0)
 	_medals_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_medals_total)
@@ -957,6 +999,10 @@ func _build_medals() -> Control:
 	_lock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lock_lbl.visible = false
 	v.add_child(_lock_lbl)
+	_btn_ship_buy = _prism_button()
+	_btn_ship_buy.visible = false
+	_btn_ship_buy.pressed.connect(func(): ship_buy_pressed.emit(view_ship))
+	v.add_child(_center(_btn_ship_buy))
 	for k in VShips.ORDER:
 		var sec := VBoxContainer.new()
 		sec.add_theme_constant_override("separation", 14)
@@ -986,10 +1032,15 @@ func _build_medals() -> Control:
 			b.custom_minimum_size = Vector2(88, 70)
 			b.set_meta("scheme", sc.id)
 			var sid: String = sc.id
-			b.pressed.connect(func(): paint_chosen.emit(k, sid))
+			b.pressed.connect(func(): _swatch_pressed(k, sid))
 			prow.add_child(b)
 			_paint_btns[k].append(b)
 		sec.add_child(prow)
+		var pb := _prism_button()
+		pb.visible = false
+		pb.pressed.connect(func(): paint_buy_pressed.emit(k, String(_want.get(k, ""))))
+		sec.add_child(_center(pb))
+		_paint_buy[k] = pb
 		v.add_child(sec)
 		_ship_secs[k] = sec
 	var gap2 := Control.new()
@@ -1001,8 +1052,34 @@ func _build_medals() -> Control:
 	return v.get_parent()
 
 
+## A button that spends prisms (violet, the prism colour).
+func _prism_button() -> Button:
+	var b := _button("", true, 60)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var sb: StyleBoxFlat = b.get_theme_stylebox("normal" if st == "disabled" else st).duplicate()
+		sb.bg_color = C_PRISM if st != "pressed" else C_PRISM.lightened(0.15)
+		sb.shadow_color = Color(C_PRISM, 0.35)
+		b.add_theme_stylebox_override(st, sb)
+	b.add_theme_color_override("font_disabled_color", C_INK)
+	return b
+
+
+## An open colour is put on; a locked one is offered for prisms by the button under the row
+## (tap it again to take the offer back).
+func _swatch_pressed(k: String, id: String) -> void:
+	if prog == null or prog.scheme_open(k, id):
+		_want.erase(k)
+		paint_chosen.emit(k, id)
+	else:
+		if _want.get(k, "") == id:
+			_want.erase(k)
+		else:
+			_want[k] = id
+	refresh_progress()
+
+
 ## A colour swatch: hull colour with a dark trim ring and a glow dot; ringed when chosen, dimmed
-## with the medals it needs when locked.
+## with the medals it needs when locked (violet ring when it is the one offered for prisms).
 func _style_swatch(b: Button, k: String) -> void:
 	var id: String = b.get_meta("scheme")
 	var s := Progress.scheme(k, id)
@@ -1018,7 +1095,11 @@ func _style_swatch(b: Button, k: String) -> void:
 		sb.shadow_size = 12 if chosen else 0
 		sb.anti_aliasing = true
 		b.add_theme_stylebox_override(st, sb)
-	b.disabled = not open
+	if not open and _want.get(k, "") == id:
+		for st in ["normal", "hover", "pressed", "focus"]:
+			var wsb: StyleBoxFlat = b.get_theme_stylebox(st)
+			wsb.border_color = C_PRISM
+			wsb.set_border_width_all(5)
 	b.text = "" if open else str(Progress.scheme_at(k, id))
 	b.tooltip_text = s.name
 	var fv := FontVariation.new()
@@ -1026,7 +1107,8 @@ func _style_swatch(b: Button, k: String) -> void:
 	b.add_theme_font_override("font", fv)
 	b.add_theme_font_size_override("font_size", 20)
 	b.add_theme_color_override("font_disabled_color", C_MUTED)
-	b.add_theme_color_override("font_color", C_INK)
+	for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(fc, C_INK if open else C_MUTED)
 
 
 ## Four medal pips in a row (Sweep, Untouched, Breaker, Swift): filled in the medal's colour

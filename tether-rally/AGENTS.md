@@ -95,6 +95,7 @@ godot --headless --path . --script tests/quality_switch_test.gd # first switch t
 godot --headless --path . --script tests/light_test.gd       # sky-tinted light, colour grade, baked ground/prop occlusion
 godot --headless --path . --script tests/engine_test.gd    # every vehicle has an engine sound that loops cleanly
 godot --headless --path . --script tests/underpass_test.gd # all deck over a lower lane is a see-through window
+godot --headless --path . --script tests/ghost_bridge_test.gd # ghosts stay on the deck over a bridge, under it below
 godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
 godot --headless --path . --script tests/self_update_test.gd  # test APKs update themselves safely
 godot --headless --path . --script tests/premium_test.gd   # premium look: palette, gradient props, triangle budget
