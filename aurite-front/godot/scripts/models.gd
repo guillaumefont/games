@@ -2,7 +2,7 @@ class_name Models
 extends RefCounted
 ## Low-poly models built from primitives, baked into one vertex-coloured mesh per moving part.
 ## Vertex colour alpha: 1 = lit, 0 = unlit (glow), in between = lit plus some glow.
-## Premium look (graphics level above Classic, see gfx.gd): boxes get rounded edges, round cylinders shade smooth,
+## Premium look (see gfx.gd for the graphics levels): boxes get rounded edges, round cylinders shade smooth,
 ## and UV carries two baked darkenings: UV.x = crease shadow from nearby parts and the ground, UV.y = each part's
 ## soft bottom-to-top gradient. Meshes without UV (terrain, decor) read 0 and stay as they are.
 
@@ -13,7 +13,7 @@ static var ghost_ok: StandardMaterial3D
 static var ghost_bad: StandardMaterial3D
 static var cache := {}
 ## Faction hull materials for units (see Builder.hull). Parts thinner than ACCENT_MAX keep the full team colour.
-static var HULL := {"ashen": lit("3e3836"), "vanguard": lit("7d8a94"), "choir": lit("4f4b40")}
+static var HULL := {"ashen": lit("4b4442"), "vanguard": lit("8894a0"), "choir": lit("5d594d")}
 const ACCENT_MAX := 0.07
 const PAINT_TOP := 0.45
 const PAINT_SIDE := 0.15
@@ -75,30 +75,22 @@ vec3 look_rim(vec3 n_view, vec3 v_view, vec3 base) {
 }
 // premium look: baked crease shadow (uv.x) and part gradient (uv.y), and a soft sheen that lights rounded edges
 vec3 look_paint(vec3 c, vec2 uv) {
-#ifdef PREMIUM
 	// calmer paint: a little less saturation and lifted blacks, so team colour and aurite are the strong accents
 	float l = dot(c, vec3(0.3, 0.59, 0.11));
 	c = mix(vec3(l), c, 0.95) * 0.97 + 0.012;
 	return c * (1.0 - uv.x) * (1.0 - uv.y);
-#else
-	return c;
-#endif
 }
 void look_spec(float lit, inout float rough, inout float spec) {
-#ifdef PREMIUM
 	rough = 0.55; spec = 0.34 * lit;
-#endif
 }
 """
 
 static var cut_shader: Shader
 static var fog_texture: Texture2D
 
-## Shader source for the current graphics level: Classic keeps the old flat, unlit-specular look.
+## Shader source with the shared look functions filled in.
 static func shader_code(src: String) -> String:
-	var code := src.replace("%LOOK%", LOOK).replace("%SPEC%", "specular_schlick_ggx" if GFX.premium() else "specular_disabled")
-	if GFX.premium(): code = code.replace("shader_type spatial;", "shader_type spatial;\n#define PREMIUM")
-	return code
+	return src.replace("%LOOK%", LOOK).replace("%SPEC%", "specular_schlick_ggx")
 
 static func cut_material() -> ShaderMaterial:
 	if cut_shader == null:
@@ -152,12 +144,10 @@ const PREMIUM_PAL := {
 	"ashM": "655d5a", "ashM2": "524b48", "ashC": "6c6763", "iron": "7d746b",
 	"stone2": "5a584e", "earthC": "6c6556", "robe": "434a40", "glass": "2f4352",
 }
-const PREMIUM_HULL := {"ashen": "4b4442", "vanguard": "8894a0", "choir": "5d594d"}
 static var _pal := {}
 
-## A MAT colour as the current graphics level draws it (premium levels lift the darkest paints).
+## A MAT colour as the premium look draws it (the darkest paints are lifted).
 static func pal(c: Color) -> Color:
-	if not GFX.premium(): return c
 	if _pal.is_empty():
 		for k in PREMIUM_PAL:
 			var src: Color = MAT[k]; var dst := lit(PREMIUM_PAL[k]); dst.a = src.a
@@ -305,7 +295,6 @@ class Builder:
 		elif fac == "choir": P = {"metal": M.stone, "metal2": M.stone2, "conc": M.earthC, "gear": M.moss}
 		else: P = {"metal": M.metal, "metal2": M.metal2, "conc": M.conc, "gear": M.olive2}
 		hull = Models.HULL.get(fac, Models.HULL.vanguard)
-		if Models.GFX.premium(): hull = Models.lit(Models.PREMIUM_HULL.get(fac, Models.PREMIUM_HULL.vanguard))
 
 	func grp(par: Node3D, nm: String, pos := Vector3.ZERO, rot := Vector3.ZERO, scl := Vector3.ONE) -> Node3D:
 		var g := Node3D.new(); g.name = nm
@@ -324,12 +313,12 @@ class Builder:
 		var smin := minf(sc.x, minf(sc.y, sc.z))
 		var painted: bool = unit and col == tm.col and smin > Models.ACCENT_MAX
 		col = Models.pal(col)
-		# premium: big team-coloured slabs on buildings (roofs, tanks) are toned toward the faction's metal, so the
+		# big team-coloured slabs on buildings (roofs, tanks) are toned toward the faction's metal, so the
 		# base reads as painted metal with team colour, not as a field of pure red, blue or green
-		if Models.GFX.premium() and not unit and col == tm.col:
+		if not unit and col == tm.col:
 			var ss := [sc.x, sc.y, sc.z]; ss.sort()
 			if ss[1] > 0.3: col = tm.col.lerp(P.metal, 0.35)
-		# premium look: rounded boxes and smooth round cylinders; everything else stays faceted
+		# rounded boxes and smooth round cylinders; everything else stays faceted
 		var tris: Array
 		var bev := Models.GFX.bevel(smin)
 		if bev > 0.0 and kind == "box" and smin >= Models.GFX.bevel_min():
@@ -340,12 +329,11 @@ class Builder:
 			tris = Models.prim_tris(kind, prm)
 		var nb := xf.basis.inverse().transposed()
 		var pi := prims.size(); prims.append([par, xf, kind])
-		# each part darkens softly towards its own bottom (premium only; tall parts more than flat ones)
+		# each part darkens softly towards its own bottom (tall parts more than flat ones)
 		var y0 := INF; var y1 := -INF
-		if Models.GFX.premium():
-			for tri in tris:
-				for k in 3:
-					var y: float = (xf * tri[k]).y; y0 = minf(y0, y); y1 = maxf(y1, y)
+		for tri in tris:
+			for k in 3:
+				var y: float = (xf * tri[k]).y; y0 = minf(y0, y); y1 = maxf(y1, y)
 		var gk := 0.17 * clampf((y1 - y0) / 0.12, 0.0, 1.0) if y1 > y0 else 0.0
 		for tri in tris:
 			var a: Vector3 = xf * tri[0]; var bb: Vector3 = xf * tri[1]; var c: Vector3 = xf * tri[2]
@@ -547,12 +535,12 @@ class Builder:
 				b[3][vi] = Vector2(dark, b[3][vi].y)
 
 	func finish() -> Node3D:
-		if Models.GFX.premium(): bake_creases()
+		bake_creases()
 		for n in bufs:
 			var b: Array = bufs[n]
 			var arr := []; arr.resize(Mesh.ARRAY_MAX)
 			arr[Mesh.ARRAY_VERTEX] = b[0]; arr[Mesh.ARRAY_NORMAL] = b[1]; arr[Mesh.ARRAY_COLOR] = b[2]
-			if Models.GFX.premium(): arr[Mesh.ARRAY_TEX_UV] = b[3]
+			arr[Mesh.ARRAY_TEX_UV] = b[3]
 			var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 			am.surface_set_material(0, Models.material)
 			var mi := MeshInstance3D.new(); mi.mesh = am; mi.name = "m"

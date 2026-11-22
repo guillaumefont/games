@@ -1,7 +1,7 @@
 extends RefCounted
-## Premium nature meshes (graphics levels above Classic, see gfx.gd): tiered faceted firs, round faceted leaf crowns,
+## Nature meshes for the premium look (levels in gfx.gd): tiered faceted firs, round faceted leaf crowns,
 ## chunky rocks and aurite crystal clusters, like the premium concept render. Each is one mesh drawn in a MultiMesh;
-## vertex colours hold only light and shade (grey), the instance colour gives the hue, as with the classic decor.
+## vertex colours hold only light and shade (grey), the instance colour gives the hue, as with the other decor.
 ## Preload it (no class_name, so the self-update pack can carry it).
 
 const GFX := preload("res://scripts/gfx.gd")

@@ -5,7 +5,7 @@ const T := 32
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
-const GFX := preload("res://scripts/gfx.gd")    # graphics level: premium look levels, Classic kept to compare
+const GFX := preload("res://scripts/gfx.gd")    # graphics level: Low, Medium, High
 
 var S: Sim
 var V: View3D

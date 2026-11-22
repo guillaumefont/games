@@ -1,5 +1,5 @@
 extends RefCounted
-## Premium ground (graphics levels above Classic, see gfx.gd): one smooth terrain mesh painted per pixel.
+## The ground (premium look, see gfx.gd): one smooth terrain mesh painted per pixel.
 ## Grass, soil, sand, rock and ore ground blend with soft, slightly wavy borders and a thin darker rim on the grass
 ## side; steep slopes turn to cliff; the ground darkens where it is wet and under the water; buildings leave a soft
 ## contact shadow. Preload it (no class_name, so the self-update pack can carry it).
@@ -82,7 +82,7 @@ static func noise_tex() -> ImageTexture:
 		_noise = ImageTexture.create_from_image(img)
 	return _noise
 
-## Theme colours as the shader wants them (linear), calmed the same way the classic ground was (less saturated grass).
+## Theme colours as the shader wants them (linear), calmed a little (less saturated grass).
 static func _c(a: Array, desat := 0.0) -> Color:
 	var c := Color(a[0], a[1], a[2])
 	if desat > 0.0:
