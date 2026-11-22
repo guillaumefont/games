@@ -71,6 +71,8 @@ static func upright(model: Node3D) -> Node3D:
 ## Lance: a slimmer, longer hull than Warden's gunship, with a long cyan lance along its spine
 ## and narrow swept wings. Built with the same loft builder as `Models.ship()`.
 static func lance() -> Node3D:
+	if Geo.detail:
+		return _lance_fine()
 	var M := Models.M
 	var g := Node3D.new()
 	var body := Node3D.new()
@@ -96,6 +98,64 @@ static func lance() -> Node3D:
 	core.rotation.z = PI / 2
 	body.add_child(core)
 	var fl := Models.mesh(Models.geo("flame", func(): return Geo.xf(Geo.xf(Geo.cone(1.2, 6, 8), Geo.rot(Vector3.BACK, PI / 2)), Geo.move(-3, 0, 0))), M.engine, Vector3(-9.1, 0.1, 0))
+	fl.set_meta("nf", true)
+	body.add_child(fl)
+	g.set_meta("body", body)
+	g.set_meta("flame", fl)
+	return g
+
+
+## Lance for the detailed look: a blended fuselage with side intakes, cranked delta wings with
+## control surfaces and tip rails, twin canted fins, tailplanes, a glass canopy and twin nozzles.
+static func _lance_fine() -> Node3D:
+	var M := Models.M
+	var g := Node3D.new()
+	var body := Node3D.new()
+	g.add_child(body)
+	var add := func(key: String, tris: Array, mat: Material, pos: Vector3, wound := false) -> MeshInstance3D:
+		var m := Models.mesh(Geo.cached(key, func(): return Geo.build_wound(tris) if wound else Geo.build(tris)), mat, pos)
+		body.add_child(m)
+		return m
+	var flat := Geo.rot(Vector3.RIGHT, PI / 2)
+	var along := Geo.rot(Vector3.BACK, PI / 2)
+	var mirror := Transform3D(Basis().scaled(Vector3(1, 1, -1)), Vector3.ZERO)
+	add.call("fHull", Geo.loft([[-8.6, 0.7, 0.9, 0.15], [-7.6, 1.2, 1.5, 0.15], [-5.5, 1.5, 1.9, 0.15], [-2.0, 1.6, 2.0, 0.15],
+			[1.0, 1.5, 1.75, 0.12], [3.4, 1.3, 1.4, 0.05], [5.4, 1.0, 1.05, -0.05], [7.2, 0.68, 0.7, -0.15], [8.6, 0.4, 0.42, -0.22],
+			[9.6, 0.12, 0.14, -0.28]], 12), M.hull, Vector3.ZERO, true)
+	add.call("fSpine", Geo.loft([[-7.0, 0.3, 0.5, 0], [-5.0, 0.55, 0.7, 0], [-0.5, 0.55, 0.7, 0], [1.2, 0.2, 0.4, 0]], 8), M.hull_dark, Vector3(0, 1.45, 0), true)
+	var can := add.call("fCan", Geo.hemi(1.0, 12, 5), M.glass, Vector3(3.2, 1.05, 0)) as MeshInstance3D
+	can.scale = Vector3(2.7, 1.0, 0.9)
+	var rim := add.call("fCanRim", Geo.hemi(1.0, 12, 2), M.hull_dark, Vector3(3.2, 0.95, 0)) as MeshInstance3D
+	rim.scale = Vector3(3.0, 0.55, 1.08)
+	body.add_child(Models.mesh(Models.geo("fRod", func(): return Geo.box(7.5, 0.2, 0.2)), M.lance, Vector3(7.6, 0.2, 0)))
+	var wing := Geo.xf(Geo.prism([[-6.6, 0], [1.6, 0], [0.0, 2.0], [-4.6, 7.2], [-6.0, 7.4], [-6.6, 6.4]], 0.5), flat)
+	var flap := Geo.xf(Geo.prism([[-6.5, 0.8], [-5.2, 0.8], [-5.5, 6.2], [-6.5, 6.2]], 0.62), flat)
+	var strake := Geo.xf(Geo.prism([[1.4, 0], [5.6, 0], [1.4, 1.5]], 0.36), flat)
+	var tailp := Geo.xf(Geo.prism([[-9.2, 0], [-6.9, 0], [-8.0, 2.7], [-9.2, 2.9]], 0.3), flat)
+	var fin := Geo.xf(Geo.prism([[-8.2, 0], [-5.0, 0], [-6.8, 2.5], [-8.1, 2.7]], 0.28), Geo.rot(Vector3.RIGHT, 0.42))
+	var nac := Geo.loft([[-8.0, 0.7, 0.8, 0], [-6.6, 0.95, 1.05, 0], [-1.4, 0.95, 1.05, 0], [0.8, 0.8, 0.92, 0], [1.3, 0.6, 0.7, 0]], 10)
+	var rail := Geo.xf(Geo.cyl(0.24, 0.24, 3.6, 8), along)
+	var gun := Geo.xf(Geo.cyl(0.14, 0.14, 3.2, 6), along)
+	var noz := Geo.xf(Geo.cyl(0.95, 0.72, 1.5, 12), along)
+	var ring := Geo.xf(Geo.torus(0.98, 0.1, 12, 4), Geo.rot(Vector3.UP, PI / 2))
+	for side in [["A", Transform3D.IDENTITY, 1.0], ["B", mirror, -1.0]]:
+		var k: String = side[0]
+		var t: Transform3D = side[1]
+		var z: float = side[2]
+		add.call("fWing" + k, Geo.xf(wing, t), M.hull, Vector3(0, -0.3, 1.7 * z))
+		add.call("fFlap" + k, Geo.xf(flap, t), M.hull_dark, Vector3(0, -0.3, 1.7 * z))
+		add.call("fStrake" + k, Geo.xf(strake, t), M.hull, Vector3(0, -0.2, 1.6 * z))
+		add.call("fTail" + k, Geo.xf(tailp, t), M.hull, Vector3(0, 0.0, 1.3 * z))
+		add.call("fFin" + k, Geo.xf(fin, t), M.hull_dark, Vector3(0, 1.1, 1.25 * z))
+		add.call("fNac" + k, nac, M.hull, Vector3(0, -0.35, 2.35 * z), true)
+		add.call("fIn" + k, Geo.xf(Geo.cyl(0.52, 0.52, 0.2, 10), along), M.fort_dark, Vector3(1.32, -0.35, 2.35 * z))
+		add.call("fRail" + k, rail, M.hull_dark, Vector3(-5.2, -0.3, 9.15 * z))
+		add.call("fGun" + k, gun, M.steel_dark, Vector3(2.4, -0.45, 3.5 * z))
+		add.call("fNoz" + k, noz, M.steel_dark, Vector3(-9.0, 0.15, 0.95 * z))
+		add.call("fRing" + k, ring, M.steel, Vector3(-9.7, 0.15, 0.95 * z), true)
+		add.call("fCore" + k, Geo.xf(Geo.cyl(0.66, 0.66, 0.2, 12), along), M.nozzle, Vector3(-9.55, 0.15, 0.95 * z))
+		add.call("fHatch" + k, Geo.box(2.2, 0.1, 0.8), M.hull_dark, Vector3(-3.2, 0.2, 3.6 * z))
+	var fl := Models.mesh(Models.geo("flame", func(): return Geo.xf(Geo.xf(Geo.cone(1.2, 6, 8), Geo.rot(Vector3.BACK, PI / 2)), Geo.move(-3, 0, 0))), M.engine, Vector3(-9.7, 0.15, 0))
 	fl.set_meta("nf", true)
 	body.add_child(fl)
 	g.set_meta("body", body)
