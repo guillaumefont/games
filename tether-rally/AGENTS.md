@@ -92,6 +92,7 @@ godot --headless --path . --script tests/obstacles_test.gd # the AI's line never
 godot --headless --path . --script tests/camera_test.gd    # low camera shots: off while racing, never inside the land, never too close
 godot --headless --path . --script tests/shadow_test.gd    # sun shadows: soft edges, range holds still, covers the screen
 godot --headless --path . --script tests/quality_switch_test.gd # first switch to Low compiles shaders behind the loading screen
+godot --headless --path . --script tests/light_test.gd       # sky-tinted light, colour grade, baked ground/prop occlusion
 godot --headless --path . --script tests/engine_test.gd    # every vehicle has an engine sound that loops cleanly
 godot --headless --path . --script tests/underpass_test.gd # all deck over a lower lane is a see-through window
 godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
@@ -116,6 +117,17 @@ does. Test with a long save too (four-digit coins, every medal kind): the home p
 
 Screenshots without a GPU: `xvfb-run -a godot --rendering-driver opengl3 --path . --resolution 1280x720 -- <demo flag>`
 with `SHOT_DIR=<dir>`. Demo flags in `scripts/main.gd`: `--demo=`, `--tutorial-demo`, `--cine-demo=` (camera shots).
+`SHOT_RACE_ONLY=1` makes `--demo=` skip the menu pages (race frames in ~1 min instead of ~3). For the phones'
+look, install lavapipe (`apt-get install mesa-vulkan-drivers`) and use `--rendering-driver vulkan --rendering-method mobile`;
+`opengl3` draws the browser's Compatibility look, which is darker and harder.
+
+Light and grade: the world is lit by a warm sun and a sky-tinted ambient (theme keys `sky`, `shade`, `glint`;
+`WorldView._apply_light`), with a colour grade (Environment adjustments, `grade_curve`) switched on once in `_ready`.
+Only colours change per world. The road and its dashes are lit by the ambient alone (their winding), so the
+ambient's energy sets the road's brightness. Compatibility (web) keeps a brighter ambient and no extra contrast.
+A sky dome (ProceduralSky ambient) and AgX were tried (2026-11-22): they blackened the road and turned the amber car olive.
+Ground occlusion is baked at load (`ao_stamp` round props and towers, `_cavity` in hollows, `base_ao` on prop meshes);
+a new kind of prop should call `ao_stamp` where it is placed.
 
 Sun shadows: one orthogonal shadow map (the near top-down camera sees all its ground at about one
 depth, so cascades would waste pixels). Map size and edge filter per quality are in

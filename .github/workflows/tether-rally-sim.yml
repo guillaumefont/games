@@ -90,6 +90,8 @@ jobs:
         run: ./godot --headless --path . --script tests/camera_test.gd
       - name: Shadows have soft edges and hold still while the camera zooms
         run: ./godot --headless --path . --script tests/shadow_test.gd
+      - name: Sky-tinted light, colour grade and baked occlusion
+        run: ./godot --headless --path . --script tests/light_test.gd
       - name: First switch to Low runs behind the loading screen
         run: ./godot --headless --path . --script tests/quality_switch_test.gd
       - name: Engine sounds test

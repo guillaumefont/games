@@ -76,6 +76,22 @@ var cam_t := Vector3.ZERO     # target (x, h, y)
 var cam_vis := 1450.0         # visible height in world units
 var menu_cover_px := 0.0      # screen pixels on the left hidden by the menu panel
 var _vert_mat: StandardMaterial3D
+var grade_tex: GradientTexture1D
+
+# Light and colour grade (_apply_light). The sun sits lower than straight overhead so
+# trees, towers and cars throw longer shadows that show the land's shape.
+const SUN_PITCH := -42.0
+const SUN_YAW := -35.0
+const SUN_ENERGY := 1.45
+const AMBIENT_ENERGY := 0.48
+const SKY_TINT := 0.4       # how far the ambient leans from the world colour to its sky
+const EXPOSURE := 1.0
+const GRADE_SAT := 1.18
+const GRADE_CONTRAST := 1.1
+const AMBIENT_ENERGY_COMPAT := 0.62
+const GRADE_SAT_COMPAT := 1.05
+const GRADE_SHADE := 0.10   # how much the shadows lean to the world's "shade" colour
+const GRADE_GLINT := 0.6    # how much the highlights lean to its "glint" colour
 
 func _ready() -> void:
 	camera = Camera3D.new()
@@ -86,8 +102,8 @@ func _ready() -> void:
 	camera.current = true
 
 	light = DirectionalLight3D.new()
-	light.rotation = Vector3(deg_to_rad(-55), deg_to_rad(-35), 0)
-	light.light_energy = 1.0
+	light.rotation = Vector3(deg_to_rad(SUN_PITCH), deg_to_rad(SUN_YAW), 0)
+	light.light_energy = SUN_ENERGY
 	light.light_color = Color("#fff3e4")
 	light.shadow_enabled = true
 	# one shadow map, not cascades: the camera looks almost straight down, so all the ground
@@ -97,12 +113,28 @@ func _ready() -> void:
 	add_child(light)
 
 	env = Environment.new()
+	# Warm sun, cool sky light: the ambient (all a shadow gets) leans to the world's sky
+	# colour and is dimmer, the sun is brighter, so lit and shaded sides part clearly.
+	# The grade is set on once here and only its colours change per world (_apply_light):
+	# switching adjustments or other modes on later would pick other shader versions
+	# mid-game (the "finish line stutter").
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = COL_INFIELD.darkened(0.1)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("#a9c2dc")
-	env.ambient_light_energy = 0.6
+	# the browser's Compatibility renderer already draws darker and harder than the phones'
+	# Mobile one: it keeps the old ambient and no extra contrast, or the road goes black
+	var compat := RenderingServer.get_current_rendering_method() == "gl_compatibility"
+	env.ambient_light_energy = AMBIENT_ENERGY_COMPAT if compat else AMBIENT_ENERGY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = EXPOSURE
+	# colour grade per world: tinted shadows, warm highlights, a little more saturation
+	env.adjustment_enabled = true
+	env.adjustment_saturation = GRADE_SAT_COMPAT if compat else GRADE_SAT
+	env.adjustment_contrast = 1.0 if compat else GRADE_CONTRAST
+	grade_tex = GradientTexture1D.new()
+	grade_tex.width = 128
+	grade_tex.gradient = Gradient.new()
+	env.adjustment_color_correction = grade_tex
 	# fog stays switched on with zero density: only the low cinematic shots thicken it
 	# (_cine_fog). Turning fog on or off picks other shader versions for every material, so
 	# flipping it at the finish compiled them all mid-race: the finish line stutter.
@@ -180,14 +212,12 @@ func build(tr: TrackData) -> void:
 func build_steps(tr: TrackData) -> Array:
 	return [func(): _clear(tr), _build_ground, func(): _build_road(); _build_drifts(); _build_underpasses(), _build_scenery,
 		func(): _build_jumps(); _build_start(); _build_towers(),
-		func(): _build_posts(); _build_gems(); _build_fx(); _build_weather()]
+		func(): _build_posts(); _build_gems(); _build_fx(); _build_weather(); _ao_commit()]
 
 func _clear(tr: TrackData) -> void:
 	track = tr
 	th = Themes.get_theme(theme_override if theme_override != "" else String(tr.def.get("theme", "snow")))
-	env.background_color = (th["ground"] as Color).darkened(0.1)
-	env.ambient_light_color = th["ambient"]
-	light.light_color = th["sun"]
+	_apply_light()
 	for ch in static_root.get_children():
 		ch.queue_free()
 	for ch in dyn_root.get_children():
@@ -201,6 +231,30 @@ func _clear(tr: TrackData) -> void:
 	ideal_node = null
 	parts.clear()
 
+# The world's sky light, sun and colour grade (theme keys "sky", "shade", "glint").
+func _apply_light() -> void:
+	var amb: Color = th["ambient"]
+	var sky: Color = th.get("sky", Color("#7fa6d6"))
+	env.background_color = (th["ground"] as Color).darkened(0.1)
+	# the ambient leans to the sky's colour (cool shadows); the road and its dashes are lit
+	# by the ambient alone (their winding), so its brightness is tuned with them in mind
+	env.ambient_light_color = amb.lerp(sky, SKY_TINT)
+	light.light_color = th["sun"]
+	grade_tex.gradient = grade_curve(th.get("shade", Color(0.2, 0.25, 0.35)), th.get("glint", Color(1, 0.95, 0.88)))
+
+# The colour grade as a per-channel curve (the Environment's colour correction reads each of
+# red, green and blue through it): the darks lean towards `shade`, the highlights towards
+# `glint`, the middle stays neutral.
+static func grade_curve(shade: Color, glint: Color) -> Gradient:
+	var g := Gradient.new()
+	var lo := Color(0.0, 0.0, 0.0).lerp(shade, GRADE_SHADE * 0.6)
+	var dark := Color(0.22, 0.22, 0.22).lerp(shade, GRADE_SHADE)
+	var mid := Color(0.5, 0.5, 0.5)
+	var hi := Color(0.82, 0.82, 0.82).lerp(glint * 0.82, GRADE_GLINT)
+	g.offsets = PackedFloat32Array([0.0, 0.22, 0.5, 0.82, 1.0])
+	g.colors = PackedColorArray([lo, dark, mid, hi, Color(1, 1, 1).lerp(glint, GRADE_GLINT * 0.5)])
+	return g
+
 func _build_ground() -> void:
 	_build_relief()
 	var sh := Shader.new()
@@ -211,6 +265,9 @@ uniform vec3 base_col : source_color;
 uniform vec3 dot_col : source_color;
 uniform vec3 far_col : source_color;
 uniform vec3 near_col : source_color;
+uniform sampler2D ao_tex : filter_linear, repeat_disable;
+uniform vec4 ao_rect;   // world xz of the AO map's corner, then its size
+uniform vec3 ao_col : source_color;
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -231,7 +288,11 @@ void fragment() {
 	// relief: hollows a little shaded, tops a touch brighter (level ground, height 0,
 	// stays exactly as the road shader's bank slope draws it)
 	c *= 1.0 + clamp(wp.y * 0.12, -0.26, 0.08);
-	ALBEDO = mix(c, c + (dot_col - base_col), d);
+	c = mix(c, c + (dot_col - base_col), d);
+	// baked ambient occlusion: the floor of hollows (vertex colour) and the ground right
+	// under trees, rocks, huts and towers (ao_tex), darkened towards the world's shade
+	float ao = COLOR.r * texture(ao_tex, (wp.xz - ao_rect.xy) / ao_rect.zw).r;
+	ALBEDO = c * mix(ao_col, vec3(1.0), ao);
 	ROUGHNESS = 1.0;
 }
 """
@@ -242,6 +303,7 @@ void fragment() {
 	sm.set_shader_parameter("dot_col", th["ground_dots"])
 	sm.set_shader_parameter("far_col", gc.darkened(0.25))
 	sm.set_shader_parameter("near_col", gc.lightened(0.12))
+	_ao_begin(sm)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _relief_mesh()
 	mi.material_override = sm
@@ -424,14 +486,151 @@ func _relief_mesh() -> ArrayMesh:
 		verts.append_array([Vector3(r[0], 0, r[1]) * U, Vector3(r[2], 0, r[1]) * U, Vector3(r[0], 0, r[3]) * U, Vector3(r[2], 0, r[3]) * U])
 		nrms.append_array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
 		idx.append_array([b, b + 1, b + 2, b + 1, b + 3, b + 2])
+	var cav := _cavity()
+	var cols := PackedColorArray()
+	cols.resize(verts.size())
+	cols.fill(Color.WHITE)
+	for k in cav.size():
+		cols[k] = Color(cav[k], cav[k], cav[k])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = nrms
+	arr[Mesh.ARRAY_COLOR] = cols
 	arr[Mesh.ARRAY_INDEX] = idx
 	var am := ArrayMesh.new()
 	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return am
+
+# ---------------------------------------------------------------- baked ambient occlusion
+# The Mobile renderer has no SSAO, and the world is built at load, so its occlusion is
+# baked then: a small greyscale map over the land, darkened round the foot of every tree,
+# rock, hut and tower (contact shadow), plus the relief's own hollows as vertex colours.
+# Everything is known once the track is built, so it costs one texture read per pixel.
+const AO_CELL := 12.0       # world units per AO map pixel
+const AO_STRENGTH := 0.55   # how dark full occlusion gets (towards the world's shade colour)
+var _ao_vals := PackedFloat32Array()
+var _ao_w := 0
+var _ao_h := 0
+var _ao_org := Vector2.ZERO
+var _ao_mat: ShaderMaterial
+var _ao_tex: ImageTexture
+
+func _ao_begin(sm: ShaderMaterial) -> void:
+	_ao_mat = sm
+	var R := track.bounds.grow(TER_MARGIN)
+	_ao_org = R.position
+	_ao_w = ceili(R.size.x / AO_CELL) + 1
+	_ao_h = ceili(R.size.y / AO_CELL) + 1
+	_ao_vals = PackedFloat32Array()
+	_ao_vals.resize(_ao_w * _ao_h)
+	_ao_vals.fill(1.0)
+	sm.set_shader_parameter("ao_col", ao_tint(th.get("shade", Color(0.2, 0.25, 0.35))))
+	sm.set_shader_parameter("ao_rect", Vector4(R.position.x * U, R.position.y * U, _ao_w * AO_CELL * U, _ao_h * AO_CELL * U))
+	# towers stand in the infield: a soft dark ring at each one's foot
+	var seen := {}
+	for a in track.anchors:
+		if seen.has(a.home):
+			continue
+		seen[a.home] = true
+		ao_stamp(a.pos, 95.0, 0.55)
+
+# What full occlusion multiplies the ground by: darker, and leaning to the hue of the
+# world's shade colour (bluish in the snow, plum in the dunes) rather than plain grey.
+static func ao_tint(shade: Color) -> Color:
+	var m := maxf(shade.r, maxf(shade.g, shade.b))
+	var hue := Color(shade.r / m, shade.g / m, shade.b / m) if m > 0.0 else Color.WHITE
+	var k := 1.0 - AO_STRENGTH
+	return Color(k * lerpf(1.0, hue.r, 0.35), k * lerpf(1.0, hue.g, 0.35), k * lerpf(1.0, hue.b, 0.35))
+
+# Darken the AO map round a point (prototype units): full strength `k` at the centre,
+# fading out over radius `r`.
+func ao_stamp(p: Vector2, r: float, k: float) -> void:
+	if _ao_w == 0:
+		return
+	var x0 := maxi(0, floori((p.x - r - _ao_org.x) / AO_CELL))
+	var x1 := mini(_ao_w - 1, ceili((p.x + r - _ao_org.x) / AO_CELL))
+	var y0 := maxi(0, floori((p.y - r - _ao_org.y) / AO_CELL))
+	var y1 := mini(_ao_h - 1, ceili((p.y + r - _ao_org.y) / AO_CELL))
+	var inv := 1.0 / (r * r)
+	for gy in range(y0, y1 + 1):
+		var dy := _ao_org.y + (gy + 0.5) * AO_CELL - p.y
+		var row := gy * _ao_w
+		for gx in range(x0, x1 + 1):
+			var dx := _ao_org.x + (gx + 0.5) * AO_CELL - p.x
+			var t := (dx * dx + dy * dy) * inv
+			if t < 1.0:
+				var f := (1.0 - t) * (1.0 - t)
+				_ao_vals[row + gx] *= 1.0 - k * f
+
+func _ao_commit() -> void:
+	if _ao_mat == null or _ao_w == 0:
+		return
+	var bytes := PackedByteArray()
+	bytes.resize(_ao_vals.size())
+	for k in _ao_vals.size():
+		bytes[k] = int(clampf(_ao_vals[k], 0.0, 1.0) * 255.0)
+	var img := Image.create_from_data(_ao_w, _ao_h, false, Image.FORMAT_L8, bytes)
+	_ao_tex = ImageTexture.create_from_image(img)
+	_ao_mat.set_shader_parameter("ao_tex", _ao_tex)
+
+# AO value (0 dark .. 1 open) at a prototype-space point, as the ground shader reads it.
+func ao_at(p: Vector2) -> float:
+	var gx := floori((p.x - _ao_org.x) / AO_CELL)
+	var gy := floori((p.y - _ao_org.y) / AO_CELL)
+	if _ao_w == 0 or gx < 0 or gy < 0 or gx >= _ao_w or gy >= _ao_h:
+		return 1.0
+	return _ao_vals[gy * _ao_w + gx]
+
+# The relief's hollows: each grid vertex lower than its surroundings gets darker (0..1 per
+# vertex, 1 = open). Compares the height with a blurred copy of the grid.
+func _cavity() -> PackedFloat32Array:
+	var n := _ter_w * _ter_h
+	var out := PackedFloat32Array()
+	out.resize(n)
+	out.fill(1.0)
+	if _ter_w < 3 or _ter_h < 3:
+		return out
+	var rad := maxi(1, int(round(220.0 / _ter_cell)))
+	# separable box blur
+	var tmp := PackedFloat32Array()
+	tmp.resize(n)
+	for gy in _ter_h:
+		for gx in _ter_w:
+			var sum := 0.0; var cnt := 0
+			for o in range(-rad, rad + 1):
+				var x := clampi(gx + o, 0, _ter_w - 1)
+				sum += _ter[gy * _ter_w + x]; cnt += 1
+			tmp[gy * _ter_w + gx] = sum / cnt
+	for gy in _ter_h:
+		for gx in _ter_w:
+			var sum := 0.0; var cnt := 0
+			for o in range(-rad, rad + 1):
+				var y := clampi(gy + o, 0, _ter_h - 1)
+				sum += tmp[y * _ter_w + gx]; cnt += 1
+			var k := gy * _ter_w + gx
+			var d := _ter[k] - sum / cnt   # negative in a hollow
+			out[k] = clampf(1.0 + d / 120.0, 0.72, 1.0)
+	return out
+
+# Bake a soft darkening into a prop's vertex colours towards its foot (where it meets the
+# ground), so trees, rocks and huts sit in the land instead of floating on it.
+static func base_ao(mesh: ArrayMesh, reach: float, foot := 0.55) -> ArrayMesh:
+	var out := ArrayMesh.new()
+	for si in mesh.get_surface_count():
+		var arr := mesh.surface_get_arrays(si)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		if cs.size() != vs.size():
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		for k in vs.size():
+			var f := lerpf(foot, 1.0, smoothstep(0.0, reach * U, vs[k].y))
+			var c := cs[k]
+			cs[k] = Color(c.r * f, c.g * f, c.b * f, c.a)
+		arr[Mesh.ARRAY_COLOR] = cs
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return out
 
 class Strip:
 	var st := SurfaceTool.new()
@@ -957,6 +1156,8 @@ void fragment() {
 		snow = max(snow, fleck * 0.85);
 		c = mix(c, edge_col, snow);
 		rough = mix(mix(road_rough, patch_rough, ice), 0.95, snow);
+		// baked occlusion: the lane darkens a little into the gutter under its banks
+		c *= 1.0 - 0.16 * smoothstep(0.86, 1.0, abs(UV.y));
 	}
 	// the bank's outer slope fades into the ground: same colour formula as the ground plane
 	float g = 1.0 - COLOR.a;
@@ -1233,6 +1434,8 @@ func _build_scenery() -> void:
 		return Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
 
 	var kit := _prop_kit()
+	for k in ["a", "b", "hut", "rock"]:
+		kit[k] = base_ao(kit[k], 45.0)
 	# huts first, a few along the outside of the road, facing it
 	var n_shacks := clampi(int(track.L / 2600.0), 2, 6)
 	var tries := 0
@@ -1248,6 +1451,7 @@ func _build_scenery() -> void:
 		if not ok:
 			continue
 		mark.call(p, 170.0, 2)
+		ao_stamp(p, 150.0, 0.5)
 		# front (+z) faces the road
 		var yaw := -(-nrm).angle() + PI / 2
 		shacks.append(Transform3D(basis_for.call(yaw, 1.35), w3(p, ground_low(p, 90.0))))
@@ -1272,10 +1476,12 @@ func _build_scenery() -> void:
 				# woods keep their shape at every setting)
 				if quality > 0 or (int(p.x * 0.37) + int(p.y * 0.53)) % 2 == 0:
 					(pines_a if pick_a else pines_b).append(xf)
+					ao_stamp(p, 95.0 * sc, 0.6)
 				mark.call(p, 30.0 * sc, 2)
 			elif r < kit["rocks"]:
 				var rs := 0.6 + rng.randf() * 0.8
 				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(rs * 1.4, rs, rs * 0.85)), w3(p, ground_h(p) - 4.0)))
+				ao_stamp(p, 60.0 * rs, 0.45)
 				mark.call(p, 40.0, 2)
 		y += step
 	_multi(kit["a"], pines_a)
@@ -2005,11 +2211,10 @@ func showroom(look: Dictionary, theme: String) -> void:
 	if showroom_land:
 		showroom_land.queue_free()
 	var ground0: Color = th["ground"]
+	_apply_light()
+	env.background_mode = Environment.BG_COLOR   # the backdrop stays a plain studio colour
 	env.background_color = ground0.lerp(th["ambient"], 0.35)
 	env.glow_enabled = false   # in a small SubViewport the glow washes the whole frame
-	env.ambient_light_color = th["ambient"]
-	env.ambient_light_energy = 0.75
-	light.light_color = th["sun"]
 	light.rotation = Vector3(deg_to_rad(-50), deg_to_rad(-30), 0)
 	var rig := Node3D.new()
 	dyn_root.add_child(rig)

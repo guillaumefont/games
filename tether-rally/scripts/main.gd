@@ -1400,6 +1400,10 @@ func _run_demo(arg: String) -> void:
 			ui.show_results("New record", [{ "cells": ["Fastest lap", "", "0:42.10"], "hl": true }], "Record on this track: 0:42.10.", true, 3,
 				[{ "text": "−0.84 S FASTER", "col": UI.C_GAIN }, { "text": "GOLD MEDAL", "col": Medals.COLORS[2] }])],
 		["results", func(): pass]]   # same panel once the badges have popped in
+	if OS.get_environment("SHOT_RACE_ONLY") != "":   # race frames only, no menu pages
+		ui.menu.visible = false
+		ui.loading.visible = false
+		shots = []
 	for sh in shots:
 		sh[1].call()
 		await get_tree().create_timer({ "results": 1.5, "world_open": 1.1, "world_done": 2.6, "award_play": 0.9, "award_done": 1.4 }.get(sh[0], 0.3)).timeout

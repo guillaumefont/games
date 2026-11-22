@@ -31,6 +31,9 @@ const THEMES := {
 		"drift": "powder", "drift_a": Color("#f4f8fb"), "drift_b": Color("#8ea6bf"),
 		# on-track objects (track_objects.gd): obstacle post, Collect gem, shards when a post breaks
 		"post": "snowman", "gem": "ice", "post_bits": [Color("#f2f6fa"), Color("#d4452f")],
+		# light: the sky's colour (it tints the shade), and the colour grade: the tint of
+		# the darks and of the highlights
+		"sky": Color("#6f9bd1"), "shade": Color("#24406e"), "glint": Color("#fff0dc"),
 		"weather": "snow", "props": "snow", "kit": "snow",
 	},
 	"forest": {
@@ -51,6 +54,9 @@ const THEMES := {
 		"drift": "brush", "drift_a": Color("#4f7d33"), "drift_b": Color("#7a5a36"),
 		# on-track objects (track_objects.gd): obstacle post, Collect gem, shards when a post breaks
 		"post": "toadstool", "gem": "acorn", "post_bits": [Color("#d23a2c"), Color("#efe6d2")],
+		# light: the sky's colour (it tints the shade), and the colour grade: the tint of
+		# the darks and of the highlights
+		"sky": Color("#7fb0d8"), "shade": Color("#1d3d3a"), "glint": Color("#fff0c4"),
 		"weather": "leaves", "props": "forest", "kit": "forest",
 	},
 	"rock": {
@@ -71,6 +77,9 @@ const THEMES := {
 		"drift": "scree", "drift_a": Color("#8e9090"), "drift_b": Color("#6a625a"),
 		# on-track objects (track_objects.gd): obstacle post, Collect gem, shards when a post breaks
 		"post": "cairn", "gem": "amethyst", "post_bits": [Color("#8e9090"), Color("#e8792e")],
+		# light: the sky's colour (it tints the shade), and the colour grade: the tint of
+		# the darks and of the highlights
+		"sky": Color("#8098ba"), "shade": Color("#2b3550"), "glint": Color("#fbeedb"),
 		"weather": "dust", "props": "rock", "kit": "rock",
 	},
 	"sand": {
@@ -91,6 +100,9 @@ const THEMES := {
 		"drift": "sand", "drift_a": Color("#ecd09a"), "drift_b": Color("#c99e64"),
 		# on-track objects (track_objects.gd): obstacle post, Collect gem, shards when a post breaks
 		"post": "jar", "gem": "coin", "post_bits": [Color("#b8643a"), Color("#f0d9a8")],
+		# light: the sky's colour (it tints the shade), and the colour grade: the tint of
+		# the darks and of the highlights
+		"sky": Color("#5f9bd6"), "shade": Color("#5a2f3c"), "glint": Color("#fff0cc"),
 		"weather": "sand", "props": "sand", "kit": "sand",
 	},
 }
