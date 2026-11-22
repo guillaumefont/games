@@ -109,10 +109,10 @@ var charge_ph := 0.0
 ## Each world's lighting and ground colours (sRGB), Hollow Moon first.
 ## A look with `warm` and `cool` is graded: a warm key light against a cool fill, light painted
 ## into the ground (Terrain.grade), a little more contrast.
-const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e", t_low2 = "1e1658", t_mid = "3a2e8a", t_high = "d07ab0",
-	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
-	detail = true, warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"]},
+const LOOKS := [{sun = "fff2e0", amb = "a8bcd8", fog = "5c544a", t_low = "6e6860", t_low2 = "766e64", t_mid = "8a8074", t_high = "a69a8a",
+	t_cliff = "605850", t_rock = "8c8274", c_top = "8e8476", c_top2 = "7c7266", c_face = "70665a", river_a = "3a8aa0", river_b = "3a8aa0",
+	detail = true, warm = "b8a890", cool = "4a4e5a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.14, contrast = 1.1, sat = 1.05,
+	cry = ["d8e4e8", "6a8a90", "e0d8d0", "8a7a6a"], cry_e = 0.12, fis = ["2a2622", "2a2622"], lip = ["d8d0c0", "6a6258"], lip_e = 0.25},
 	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
 	t_cliff = "12244a", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "22406c", river_a = "bff6ff", river_b = "4fb8ff",
 	warm = "f0d0c8", cool = "0a2a70", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
@@ -484,10 +484,11 @@ func apply_world(w: int) -> void:
 	if not _world_mats.has(w):
 		_world_mats[w] = {
 			ground = Terrain.detail_ground_mat() if Geo.detail and look.has("detail") else _ground_mats[0],
-			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], 0.9), Terrain.crystal_mat(look.cry[2], look.cry[3], 0.85)],
+			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], look.get("cry_e", 0.9)), Terrain.crystal_mat(look.cry[2], look.cry[3], look.get("cry_e", 0.85))],
 			fissure_a = Models.basic(look.fis[0], 1.15), fissure_b = Models.basic(look.fis[1], 1.1),
-			river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
-			lip = Models.std(look.lip[0], look.lip[1], 1.1),
+			river = Terrain.river_mat(1.9 * look.get("river_e", 1.0), 1.3, look.river_a, look.river_b),
+			river_glow = Terrain.river_mat(0.3 * look.get("river_e", 1.0), 2.5, look.river_a, look.river_b),
+			lip = Models.std(look.lip[0], look.lip[1], look.get("lip_e", 1.1)),
 		}
 	_terrain_mats = _world_mats[w]
 	_lip_mat = _terrain_mats.lip
@@ -496,8 +497,15 @@ func apply_world(w: int) -> void:
 	_env.fog_light_color = Color(look.fog)
 	sun.light_color = Color(look.sun)
 	sun.light_energy = look.get("sun_e", 1.35)
-	_rim.light_color = Color(pal.rim)
+	_rim.light_color = Color(look.get("rim", pal.rim))
 	_rim.light_energy = look.get("rim_e", 0.55)
+	if Geo.detail and look.has("detail") and _env.sky == null:
+		# a real sky, never seen, for the metal to reflect
+		var sm := PanoramaSkyMaterial.new()
+		sm.panorama = load("res://assets/scan/sky.hdr")
+		_env.sky = Sky.new()
+		_env.sky.sky_material = sm
+		_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	_env.ambient_light_energy = look.get("amb_e", 0.4)
 	_env.adjustment_enabled = look.has("contrast")
 	_env.adjustment_contrast = look.get("contrast", 1.0)

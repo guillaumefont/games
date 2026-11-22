@@ -59,8 +59,29 @@ static func init() -> void:
 	(M.disc as BaseMaterial3D).render_priority = 1
 
 	if Geo.detail:
-		_surface(["hull", "hull_dark", "steel", "steel_dark", "plate", "plate2", "armor", "gate", "shell", "rust", "hazard",
-				"fort_a", "fort_b", "fort_trim", "fort_dark"], "hull", 0.16, 0.42, 0.3)
+		# worn painted metal for hulls and structures, in plain greys
+		for e in [["hull", "c9ccd0"], ["hull_dark", "5c6066"], ["steel", "9a9da2"], ["steel_dark", "45484e"], ["plate", "8a8d92"],
+				["plate2", "6a6d72"], ["armor", "b4b7bc"], ["gate", "8c8f94"], ["shell", "5a6468"], ["rust", "9a5a3a"], ["hazard", "c8a030"],
+				["fort_a", "8e9094"], ["fort_b", "707278"], ["fort_trim", "55585e"], ["fort_dark", "3a3c42"], ["fort_back", "4a4c52"]]:
+			var m := M[e[0]] as BaseMaterial3D
+			m.albedo_color = Color(e[1]) * 1.5
+			m.uv1_triplanar = true
+			m.uv1_scale = Vector3.ONE * 0.11
+			m.albedo_texture = load("res://assets/scan/hull_Diffuse.jpg")
+			m.normal_enabled = true
+			m.normal_texture = load("res://assets/scan/metal_plate_02_nor_gl.jpg")
+			m.normal_scale = 1.3
+			m.ao_enabled = true
+			m.ao_texture = load("res://assets/scan/metal_plate_02_arm.jpg")
+			m.roughness_texture = m.ao_texture
+			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+			m.roughness = 0.75
+			m.metallic = 0.55
+			m.metallic_specular = 0.6
+			m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		M.glass = std("0a1018")
+		(M.glass as BaseMaterial3D).roughness = 0.06
+		(M.glass as BaseMaterial3D).metallic = 0.9
 		_surface(["spore", "spore_dark", "flesh", "flesh_dark", "bone", "beetle", "moth", "core_skin", "petal", "chitin", "wasp_y",
 				"sac", "wing", "pod"], "hide", 0.2, 0.55, 0.0)
 		for k in ["rock", "rock2", "ice_rock", "ice_rock2", "metal_rock", "metal_rock2", "magma_rock", "magma_rock2", "hive_rock", "hive_rock2"]:
@@ -68,7 +89,7 @@ static func init() -> void:
 			m.uv1_triplanar = true
 			m.uv1_scale = Vector3.ONE * 0.08
 			m.normal_enabled = true
-			m.normal_texture = load("res://assets/tex/rock.png")
+			m.normal_texture = load("res://assets/scan/marble_cliff_03_nor_gl.jpg")
 			m.normal_scale = 1.6
 
 	var g := Gradient.new()

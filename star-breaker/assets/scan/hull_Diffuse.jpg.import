@@ -2,20 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://wmamjf8mt7m0"
-path="res://.godot/imported/hull_a.png-6236c1651d76eb997ce98efa43acd813.ctex"
+uid="uid://dkaemrnong70u"
+path="res://.godot/imported/hull_Diffuse.jpg-57b3ca26cf38aa2ac0f4cb3050e8a1db.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/tex/hull_a.png"
-dest_files=["res://.godot/imported/hull_a.png-6236c1651d76eb997ce98efa43acd813.ctex"]
+source_file="res://assets/scan/hull_Diffuse.jpg"
+dest_files=["res://.godot/imported/hull_Diffuse.jpg-57b3ca26cf38aa2ac0f4cb3050e8a1db.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -31,7 +31,7 @@ process/channel_remap/red=0
 process/channel_remap/green=1
 process/channel_remap/blue=2
 process/channel_remap/alpha=3
-process/fix_alpha_border=false
+process/fix_alpha_border=true
 process/premult_alpha=false
 process/normal_map_invert_y=false
 process/hdr_as_srgb=false

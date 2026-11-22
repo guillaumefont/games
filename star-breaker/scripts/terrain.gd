@@ -576,14 +576,22 @@ static func _mi(m: ArrayMesh, mat: Material, shadows: bool) -> MeshInstance3D:
 	return mi
 
 
-## The detailed ground: the mesh's colours carry the palette and the painted light, and two
-## tiling textures give it a surface (dust and pebbles on the flats, cracked rock on slopes
-## and cliff faces) with relief that catches the sun. `scroll` pins the textures to the ground.
+## The detailed ground: three scanned materials (colour, relief, and occlusion + roughness
+## each). Loose ground on the flats, bare rock where it steepens, layered rock on cliff
+## faces. The mesh's colours only shade it broadly (hollows, sunlit crests). `scroll` pins the
+## textures to the ground as it moves.
 const GROUND_SHADER := """
 shader_type spatial;
 render_mode cull_disabled;
-uniform sampler2D rock : repeat_enable, filter_linear_mipmap_anisotropic;
-uniform sampler2D dust : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D g_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D g_n : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D g_m : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D r_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D r_n : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D r_m : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D c_a : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D c_n : repeat_enable, filter_linear_mipmap_anisotropic;
+uniform sampler2D c_m : repeat_enable, filter_linear_mipmap_anisotropic;
 uniform float scroll = 0.0;
 varying vec3 wp;
 varying vec3 wn;
@@ -597,33 +605,36 @@ void vertex() {
 void fragment() {
 	vec3 n = normalize(wn);
 	float slope = 1.0 - abs(n.z);
-	// flats: drifts of dust at two sizes, so the tiling never lines up
-	vec4 d1 = texture(dust, wp.xy / 46.0);
-	vec4 d2 = texture(dust, vec2(wp.x * 0.8 + wp.y * 0.6, wp.y * 0.8 - wp.x * 0.6) / 17.0);
-	vec4 r = texture(rock, wp.xy / 58.0);
-	vec2 bump = (d1.rg - 0.5) * 1.5 + (d2.rg - 0.5) * 0.7;
-	float shade = d1.b * 0.9 + d2.b * 0.6;
-	float cav = d1.a * 0.6 + d2.a * 0.4;
-	// bare rock shows through on slopes, breaking in along the dust's hollows
-	float rk = smoothstep(0.03, 0.16, slope + (cav - 0.5) * 0.08 + (r.a - 0.5) * 0.06);
-	bump = mix(bump, (r.rg - 0.5) * 2.6, rk);
-	shade = mix(shade, r.b * 1.45, rk);
-	cav = mix(cav, r.a, rk);
-	vec3 pn = normalize(n + vec3(bump.x, -bump.y, 0.0) * 0.9);
-	// cliff faces: the rock again, laid along the face in stretched layers
+	// the same scan at two sizes and angles, so its repeat never lines up
+	vec2 u1 = wp.xy / 72.0;
+	vec2 u2 = vec2(wp.x * 0.83 + wp.y * 0.56, wp.y * 0.83 - wp.x * 0.56) / 29.0 + 0.37;
+	vec3 alb = mix(texture(g_a, u1).rgb, texture(g_a, u2).rgb, 0.5);
+	vec2 bump = (texture(g_n, u1).rg - 0.5) * 1.6 + (texture(g_n, u2).rg - 0.5) * 1.2;
+	vec3 arm = texture(g_m, u2).rgb;
+	// bare rock where the ground steepens
+	vec2 ur = wp.xy / 44.0;
+	vec3 ra = texture(r_a, ur).rgb;
+	vec3 rm = texture(r_m, ur).rgb;
+	float rk = smoothstep(0.035, 0.15, slope + (rm.r - 0.7) * 0.12);
+	alb = mix(alb, ra, rk);
+	bump = mix(bump, (texture(r_n, ur).rg - 0.5) * 2.6, rk);
+	arm = mix(arm, rm, rk);
+	vec3 pn = normalize(n + vec3(bump.x, bump.y, 0.0));
+	// cliff faces: layered rock laid along the face
 	float side = smoothstep(0.5, 0.8, slope);
 	if (side > 0.0) {
-		float along = abs(n.x) > abs(n.y) ? wp.y : wp.x;
-		vec4 f = texture(rock, vec2(along / 70.0, wp.z / 22.0));
-		vec3 t = abs(n.x) > abs(n.y) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-		vec3 fn = normalize(n + (t * (f.r - 0.5) + vec3(0.0, 0.0, 1.0) * (0.5 - f.g)) * 2.4);
+		bool xf = abs(n.x) > abs(n.y);
+		vec2 uc = vec2((xf ? wp.y : wp.x) / 34.0, wp.z / 34.0);
+		vec2 cb = (texture(c_n, uc).rg - 0.5) * 2.6;
+		vec3 t = xf ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+		vec3 fn = normalize(n + t * cb.x + vec3(0.0, 0.0, 1.0) * cb.y);
 		pn = normalize(mix(pn, fn, side));
-		shade = mix(shade, f.b * 1.45, side);
-		cav = mix(cav, f.a, side);
+		alb = mix(alb, texture(c_a, uc).rgb, side);
+		arm = mix(arm, texture(c_m, uc).rgb, side);
 	}
-	ALBEDO = COLOR.rgb * shade * mix(0.9, 1.4, cav);
-	ROUGHNESS = 0.88;
-	SPECULAR = 0.35;
+	ALBEDO = alb * COLOR.rgb * 2.0 * mix(0.55, 1.0, arm.r);
+	ROUGHNESS = arm.g;
+	SPECULAR = 0.4;
 	NORMAL = normalize((VIEW_MATRIX * vec4(pn, 0.0)).xyz);
 }
 """
@@ -634,8 +645,10 @@ static func detail_ground_mat() -> ShaderMaterial:
 	sh.code = GROUND_SHADER
 	var m := ShaderMaterial.new()
 	m.shader = sh
-	m.set_shader_parameter("rock", load("res://assets/tex/rock.png"))
-	m.set_shader_parameter("dust", load("res://assets/tex/dust.png"))
+	for e in [["g", "aerial_ground_rock"], ["r", "marble_cliff_03"], ["c", "cliff_side"]]:
+		m.set_shader_parameter(e[0] + "_a", load("res://assets/scan/%s_Diffuse.jpg" % e[1]))
+		m.set_shader_parameter(e[0] + "_n", load("res://assets/scan/%s_nor_gl.jpg" % e[1]))
+		m.set_shader_parameter(e[0] + "_m", load("res://assets/scan/%s_arm.jpg" % e[1]))
 	return m
 
 
