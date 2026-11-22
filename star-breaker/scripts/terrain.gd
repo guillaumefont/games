@@ -593,13 +593,20 @@ uniform sampler2D c_a : source_color, repeat_enable, filter_linear_mipmap_anisot
 uniform sampler2D c_n : repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D c_m : repeat_enable, filter_linear_mipmap_anisotropic;
 uniform float scroll = 0.0;
+uniform bool local = false;
 varying vec3 wp;
 varying vec3 wn;
 
 void vertex() {
-	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	wp.y += scroll;
-	wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	if (local) {
+		// a piece that moves as one (the canyon run): pinned to its own frame
+		wp = VERTEX;
+		wn = NORMAL;
+	} else {
+		wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+		wp.y += scroll;
+		wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	}
 }
 
 void fragment() {
@@ -635,20 +642,31 @@ void fragment() {
 	ALBEDO = alb * COLOR.rgb * 2.0 * mix(0.55, 1.0, arm.r);
 	ROUGHNESS = arm.g;
 	SPECULAR = 0.4;
+	if (local) {
+		pn = normalize((MODEL_MATRIX * vec4(pn, 0.0)).xyz);
+	}
 	NORMAL = normalize((VIEW_MATRIX * vec4(pn, 0.0)).xyz);
 }
 """
 
 
-static func detail_ground_mat() -> ShaderMaterial:
-	var sh := Shader.new()
-	sh.code = GROUND_SHADER
+static var _ground_shader: Shader
+
+
+## The detailed ground of a world: `scan` names its three scanned materials (loose ground,
+## bare rock, cliff face). `local` is for a piece that moves as one, like the canyon run.
+static func detail_ground_mat(scan: Array, local := false) -> ShaderMaterial:
+	if _ground_shader == null:
+		_ground_shader = Shader.new()
+		_ground_shader.code = GROUND_SHADER
 	var m := ShaderMaterial.new()
-	m.shader = sh
-	for e in [["g", "aerial_ground_rock"], ["r", "marble_cliff_03"], ["c", "cliff_side"]]:
-		m.set_shader_parameter(e[0] + "_a", load("res://assets/scan/%s_Diffuse.jpg" % e[1]))
-		m.set_shader_parameter(e[0] + "_n", load("res://assets/scan/%s_nor_gl.jpg" % e[1]))
-		m.set_shader_parameter(e[0] + "_m", load("res://assets/scan/%s_arm.jpg" % e[1]))
+	m.shader = _ground_shader
+	m.set_shader_parameter("local", local)
+	for i in 3:
+		var k: String = ["g", "r", "c"][i]
+		m.set_shader_parameter(k + "_a", load("res://assets/scan/%s_Diffuse.jpg" % scan[i]))
+		m.set_shader_parameter(k + "_n", load("res://assets/scan/%s_nor_gl.jpg" % scan[i]))
+		m.set_shader_parameter(k + "_m", load("res://assets/scan/%s_arm.jpg" % scan[i]))
 	return m
 
 

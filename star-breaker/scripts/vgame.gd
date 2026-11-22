@@ -111,28 +111,28 @@ var charge_ph := 0.0
 ## into the ground (Terrain.grade), a little more contrast.
 const LOOKS := [{sun = "fff2e0", amb = "a8bcd8", fog = "5c544a", t_low = "6e6860", t_low2 = "766e64", t_mid = "8a8074", t_high = "a69a8a",
 	t_cliff = "605850", t_rock = "8c8274", c_top = "8e8476", c_top2 = "7c7266", c_face = "70665a", river_a = "3a8aa0", river_b = "3a8aa0",
-	detail = true, warm = "b8a890", cool = "4a4e5a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.14, contrast = 1.1, sat = 1.05,
+	detail = true, scan = ["aerial_ground_rock", "marble_cliff_03", "cliff_side"], warm = "b8a890", cool = "4a4e5a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.14, contrast = 1.1, sat = 1.05,
 	cry = ["d8e4e8", "6a8a90", "e0d8d0", "8a7a6a"], cry_e = 0.12, fis = ["2a2622", "2a2622"], lip = ["d8d0c0", "6a6258"], lip_e = 0.25},
-	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
-	t_cliff = "12244a", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "22406c", river_a = "bff6ff", river_b = "4fb8ff",
-	warm = "f0d0c8", cool = "0a2a70", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["dff8ff", "9fe8ff", "7fd8ff", "3fa8ff"], fis = ["4fb8ff", "bff6ff"], lip = ["d0f4ff", "7fe8ff"]},
-	{sun = "ffe6a8", amb = "3a8a70", fog = "0c1e12", t_low = "0e2a1e", t_low2 = "1a3014", t_mid = "40582a", t_high = "b0c060",
-	t_cliff = "122a1c", t_rock = "54663a", c_top = "7a8a4a", c_top2 = "4e5e30", c_face = "243e22", river_a = "ffb547", river_b = "c8f560",
-	warm = "e8c868", cool = "0a3a38", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["ffc860", "ff9a20", "c8f560", "8ac020"], fis = ["ff9a20", "c8f560"], lip = ["ffe0a0", "ffb547"]},
-	{sun = "ffd0a0", amb = "5a5a90", fog = "16101a", t_low = "1a1620", t_low2 = "2a1a18", t_mid = "4c3a34", t_high = "a88878",
-	t_cliff = "1c1622", t_rock = "5a4a44", c_top = "7a6a62", c_top2 = "4e4440", c_face = "2c2630", river_a = "ff7a1a", river_b = "ffcc33",
-	warm = "d89070", cool = "1a2046", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["ffb070", "ff6a00", "ffd060", "ffaa00"], fis = ["ff5a00", "ffcc33"], lip = ["ffc890", "ff7a1a"]},
-	{sun = "f0e8ff", amb = "3450b8", fog = "0a0e28", t_low = "0c1438", t_low2 = "161a44", t_mid = "343c72", t_high = "9a94d0",
-	t_cliff = "0e1638", t_rock = "4a5280", c_top = "7078a0", c_top2 = "50587e", c_face = "242c5c", river_a = "ff4fa3", river_b = "4fe3d6",
-	warm = "a4a8e4", cool = "0a184e", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["ff7ac0", "ff2f8f", "6ff3e6", "2fd6c8"], fis = ["ff2f8f", "3fc0c0"], lip = ["c0c8ff", "ff4fa3"]},
-	{sun = "ffe8b8", amb = "7a3a70", fog = "220a12", t_low = "260a16", t_low2 = "34100c", t_mid = "5c2414", t_high = "cc6a2c",
-	t_cliff = "260c18", t_rock = "6b2a2a", c_top = "7a3a2a", c_top2 = "552222", c_face = "34121c", river_a = "ffcc40", river_b = "ff6a00",
-	warm = "e46c48", cool = "2c0a3c", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
-	cry = ["ffe080", "ffb000", "ff8a40", "ff4000"], fis = ["ff4000", "ffcc40"], lip = ["ffe0a0", "ffcc40"]},
+	{sun = "f4f6ff", amb = "b4c8e8", fog = "7a8496", t_low = "6c7078", t_low2 = "747880", t_mid = "868a90", t_high = "a4a8ae",
+	t_cliff = "5c6068", t_rock = "888c92", c_top = "8c9096", c_top2 = "787c84", c_face = "6c7078", river_a = "9fd8f0", river_b = "7fc0e8",
+	detail = true, scan = ["snow_field_aerial", "marble_cliff_01", "marble_cliff_01"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.3, contrast = 1.1, sat = 1.05,
+	cry = ["e8f6ff", "8fc8e8", "d0ecff", "6aa8d8"], cry_e = 0.25, fis = ["3a4654", "3a4654"], lip = ["e8f2ff", "8a9ab0"], lip_e = 0.3},
+	{sun = "fff0d0", amb = "a8c0c8", fog = "4c5646", t_low = "666a5e", t_low2 = "6e7264", t_mid = "80846e", t_high = "9ca088",
+	t_cliff = "585c50", t_rock = "84886e", c_top = "888c78", c_top2 = "747866", c_face = "686c5c", river_a = "3a7a80", river_b = "3a7a80",
+	detail = true, scan = ["aerial_grass_rock", "mossy_rock", "rock_face_03"], warm = "b0b090", cool = "465048", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.16, contrast = 1.1, sat = 1.05,
+	cry = ["ffc860", "b07020", "c8e070", "6a8a20"], cry_e = 0.3, fis = ["2a2c20", "2a2c20"], lip = ["dcd8b8", "6a6a50"], lip_e = 0.25},
+	{sun = "ffe4c4", amb = "9aa0b8", fog = "3c3836", t_low = "666260", t_low2 = "6e6a66", t_mid = "807a76", t_high = "9c948e",
+	t_cliff = "58524e", t_rock = "847c76", c_top = "888078", c_top2 = "746c66", c_face = "68605a", river_a = "ff7a1a", river_b = "ffb030",
+	detail = true, scan = ["aerial_asphalt_01", "dark_rock_02", "rock_face_03"], warm = "b4a698", cool = "48485a", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.8, contrast = 1.1, sat = 1.05,
+	cry = ["ffb070", "c05a10", "ffd060", "c08010"], cry_e = 0.5, fis = ["ff5a00", "ffcc33"], lip = ["d0c8c0", "7a5a40"], lip_e = 0.4},
+	{sun = "f4f2ff", amb = "a0acc8", fog = "3a3e48", t_low = "6c7078", t_low2 = "747880", t_mid = "868a90", t_high = "a4a8ae",
+	t_cliff = "5c6068", t_rock = "888c92", c_top = "8c9096", c_top2 = "787c84", c_face = "6c7078", river_a = "4fd0d0", river_b = "4fd0d0",
+	detail = true, scan = ["hangar_concrete_floor", "metal_plate_02", "concrete_panels"], warm = "b0b4b8", cool = "4a5262", sun_e = 1.9, amb_e = 0.42, rim_e = 0.12, rim = "c8d4e8", river_e = 0.6, contrast = 1.1, sat = 1.05,
+	cry = ["bfe8f0", "3fa0b0", "ffb0d0", "b04070"], cry_e = 0.5, fis = ["2a2c30", "2a2c30"], lip = ["d0d8e8", "5a6a80"], lip_e = 0.5},
+	{sun = "ffe0b8", amb = "a09098", fog = "3a2c28", t_low = "666260", t_low2 = "6e6a66", t_mid = "807a76", t_high = "9c948e",
+	t_cliff = "58524e", t_rock = "847c76", c_top = "888078", c_top2 = "746c66", c_face = "68605a", river_a = "ffb030", river_b = "ff5a00",
+	detail = true, scan = ["burned_ground_01", "dark_rock", "dark_rock_02"], warm = "b4a698", cool = "48485a", sun_e = 1.7, amb_e = 0.45, rim_e = 0.12, rim = "c8d4e8", river_e = 1.0, contrast = 1.1, sat = 1.05,
+	cry = ["ffe080", "e09000", "ff8a40", "d03000"], cry_e = 0.7, fis = ["ff4000", "ffcc40"], lip = ["e8c8a0", "a05a20"], lip_e = 0.6},
 ]
 var look: Dictionary = {}
 var _lip_mat: Material
@@ -483,7 +483,8 @@ func apply_world(w: int) -> void:
 	look = LOOKS[w]
 	if not _world_mats.has(w):
 		_world_mats[w] = {
-			ground = Terrain.detail_ground_mat() if Geo.detail and look.has("detail") else _ground_mats[0],
+			ground = Terrain.detail_ground_mat(look.scan) if Geo.detail and look.has("detail") else _ground_mats[0],
+			run_ground = Terrain.detail_ground_mat(look.scan, true) if Geo.detail and look.has("detail") else _ground_mats[0],
 			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], look.get("cry_e", 0.9)), Terrain.crystal_mat(look.cry[2], look.cry[3], look.get("cry_e", 0.85))],
 			fissure_a = Models.basic(look.fis[0], 1.15), fissure_b = Models.basic(look.fis[1], 1.1),
 			river = Terrain.river_mat(1.9 * look.get("river_e", 1.0), 1.3, look.river_a, look.river_b),
@@ -675,7 +676,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	_build_islands()
 	if sd.has("run"):
 		VRun.use(sd.course)
-		run_b = VRun.Builder.new(look, {ground = _ground_mats[0], lip = _lip_mat, glow = _terrain_mats.fissure_b})
+		run_b = VRun.Builder.new(look, {ground = _terrain_mats.run_ground, lip = _lip_mat, glow = _terrain_mats.fissure_b})
 		run_b.node.visible = false
 		world.add_child(run_b.node)
 		_run_built = false
