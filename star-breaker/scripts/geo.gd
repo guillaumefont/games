@@ -5,10 +5,6 @@ extends RefCounted
 ## transformed before being baked into an ArrayMesh.
 
 static var _cache: Dictionary = {}
-## The detailed look: curved shapes get twice the segments and shared, rounded normals
-## (faces that meet at more than `CREASE` stay a hard edge).
-static var detail := true
-const CREASE := 0.62
 
 
 ## Returns a cached mesh, building it with `f` the first time `key` is asked for.
@@ -115,8 +111,6 @@ static func orient(tri: Array, ref: Vector3) -> Array:
 ## Each section is [x, half height, half depth, centre y]; sections must be ordered by x.
 ## The first ring vertex sits half a step off the top so the hull has a flat spine.
 static func loft(secs: Array, seg: int) -> Array:
-	if detail:
-		seg *= 2
 	var rings := []
 	for s in secs:
 		var r := []
@@ -146,31 +140,7 @@ static func loft(secs: Array, seg: int) -> Array:
 	return tris
 
 
-## Rounds the normals of faces that meet at a shallow angle, leaving real edges sharp.
-static func _rounded(verts: PackedVector3Array, norms: PackedVector3Array) -> PackedVector3Array:
-	var at := {}
-	for i in verts.size():
-		var key := (verts[i] * 200.0).round()
-		if not at.has(key):
-			at[key] = []
-		at[key].append(i)
-	var out := PackedVector3Array()
-	out.resize(norms.size())
-	for i in verts.size():
-		var sum := Vector3.ZERO
-		var seen := []
-		for k in at[(verts[i] * 200.0).round()]:
-			var nk: Vector3 = norms[k]
-			if nk.dot(norms[i]) > CREASE and not seen.has(nk):
-				seen.append(nk)
-				sum += nk
-		out[i] = sum.normalized()
-	return out
-
-
 static func _mesh(verts: PackedVector3Array, norms: PackedVector3Array) -> ArrayMesh:
-	if detail and verts.size() > 0:
-		norms = _rounded(verts, norms)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -258,8 +228,6 @@ static func dodeca(r: float) -> Array:
 
 ## Cylinder along Y, centred on the origin (top radius 0 gives a cone).
 static func cyl(rt: float, rb: float, h: float, seg: int) -> Array:
-	if detail:
-		seg *= 2
 	var tris := []
 	var top := []
 	var bot := []
@@ -316,9 +284,6 @@ static func prism(pts: Array, depth: float) -> Array:
 
 ## Upper half of a low poly sphere (open at the bottom).
 static func hemi(r: float, wseg: int, hseg: int) -> Array:
-	if detail:
-		wseg *= 2
-		hseg *= 2
 	var tris := []
 	for j in hseg:
 		var t0 := float(j) / hseg * PI / 2.0
@@ -342,9 +307,6 @@ static func _sph(r: float, phi: float, theta: float) -> Vector3:
 
 ## Ring tube around the Z axis (ring radius `R`, tube radius `r`).
 static func torus(R: float, r: float, seg: int, side: int) -> Array:
-	if detail:
-		seg *= 2
-		side *= 2
 	var tris := []
 	for i in seg:
 		var a0 := float(i) / seg * TAU
