@@ -201,8 +201,33 @@ static func face_color(pc: Dictionary, zc: float, up: float, jit: float, tn := 0
 
 
 static func colors(pal: Dictionary) -> Dictionary:
-	return {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
+	var out := {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
 		river = [Color(pal.river_a), Color(pal.river_b)]}
+	# a graded look paints light into the ground itself (see `grade`)
+	if pal.has("warm"):
+		out.warm = Color(pal.warm)
+		out.cool = Color(pal.cool)
+	return out
+
+
+## Where the sun stands, for the light painted into a graded ground (it matches the game's sun).
+const TO_SUN := Vector3(-0.376, 0.457, 0.806)
+
+
+## Paints light into a face of a graded look: slopes that face the sun go warm, slopes turned
+## away go cool and dark, hollows sink and crests catch the light. It costs nothing to draw.
+## `n`: the face's normal (up), `hollow`: how far the ground around stands above it.
+static func grade(pc: Dictionary, c: Color, n: Vector3, hollow: float) -> Color:
+	var d := n.dot(TO_SUN) - TO_SUN.z
+	if d > 0.0:
+		c = c.lerp(pc.warm, clampf(d * 2.8, 0.0, 0.5))
+	else:
+		c = c.lerp(pc.cool, clampf(-d * 1.6, 0.0, 0.7))
+	if hollow > 0.0:
+		c = c.lerp(pc.cool, clampf(hollow / 10.0, 0.0, 0.45)).darkened(clampf(hollow / 14.0, 0.0, 0.35))
+	else:
+		c = c.lightened(clampf(-hollow / 16.0, 0.0, 0.22))
+	return c
 
 
 ## Builds chunk `c` (CHUNK units long) in chunk space: x across, y along (0..len), z up.
@@ -280,12 +305,17 @@ class Builder:
 				var p0: Vector3 = t[0]
 				var p1: Vector3 = t[1]
 				var p2: Vector3 = t[2]
-				var nz := absf((p1 - p0).cross(p2 - p0).normalized().z)
+				var nrm := (p1 - p0).cross(p2 - p0).normalized()
+				var nz := absf(nrm.z)
 				var jit := Terrain.h2(p0.x + p2.y, y0 + p1.y) - 0.5
-				var col := Terrain.face_color(pc, (p0.z + p1.z + p2.z) / 3.0, nz, jit, tn)
-				# the river's light spills onto its banks
+				var zc := (p0.z + p1.z + p2.z) / 3.0
+				var col := Terrain.face_color(pc, zc, nz, jit, tn)
 				var cx := (p0.x + p1.x + p2.x) / 3.0
 				var cwy := y0 + (p0.y + p1.y + p2.y) / 3.0
+				if pc.has("warm"):
+					var around := (Terrain.height(cx - 13.0, cwy) + Terrain.height(cx + 13.0, cwy) + Terrain.height(cx, cwy - 13.0) + Terrain.height(cx, cwy + 13.0)) / 4.0
+					col = Terrain.grade(pc, col, nrm if nrm.z > 0.0 else -nrm, around - zc)
+				# the river's light spills onto its banks
 				var rv := Terrain.river_dy(cx, cwy)
 				var rd := absf(rv.x)
 				if rd < 30.0:

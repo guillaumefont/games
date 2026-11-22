@@ -107,8 +107,11 @@ var beam_light: OmniLight3D
 var boom_lights: Array = []
 var charge_ph := 0.0
 ## Each world's lighting and ground colours (sRGB), Hollow Moon first.
-const LOOKS := [{sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640", t_low2 = "2a1440", t_mid = "3a3070", t_high = "7a6cc0",
-	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560", river_a = "3ff0e0", river_b = "ff4fa3",
+## A look with `warm` and `cool` is graded: a warm key light against a cool fill, light painted
+## into the ground (Terrain.grade), a little more contrast.
+const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e", t_low2 = "1e1658", t_mid = "3a2e8a", t_high = "d07ab0",
+	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
+	warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"]},
 	{sun = "e8f4ff", amb = "4a6a9a", fog = "0c1c30", t_low = "17283f", t_low2 = "1d3050", t_mid = "3c5a80", t_high = "b8d8f0",
 	t_cliff = "1a2a46", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "2f4a6a", river_a = "bff6ff", river_b = "4fb8ff",
@@ -487,7 +490,13 @@ func apply_world(w: int) -> void:
 	_env.ambient_light_color = Color(look.amb)
 	_env.fog_light_color = Color(look.fog)
 	sun.light_color = Color(look.sun)
+	sun.light_energy = look.get("sun_e", 1.35)
 	_rim.light_color = Color(pal.rim)
+	_rim.light_energy = look.get("rim_e", 0.55)
+	_env.ambient_light_energy = look.get("amb_e", 0.4)
+	_env.adjustment_enabled = look.has("contrast")
+	_env.adjustment_contrast = look.get("contrast", 1.0)
+	_env.adjustment_saturation = look.get("sat", 1.0)
 	for k in stars.size():
 		var mi: MultiMeshInstance3D = stars[k].get_child(0)
 		(mi.multimesh.mesh.material as StandardMaterial3D).albedo_color = Color(pal.star_a if k == 0 else pal.star_b)
