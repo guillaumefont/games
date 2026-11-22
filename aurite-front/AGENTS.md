@@ -289,3 +289,7 @@ in your PR, keep it short, and mention the change in the PR description.
   clusters. Vertex colours hold only shade (and glow alpha on crystal tips); MultiMesh instance colours give the hue.
   `View3D.refresh_decor` and `upd_ore` have premium branches; dead trees keep the classic sticks. `Nature.reset()`
   runs on a level change.
+- Light and mood (premium levels, phase 4): `GFX.MOOD[theme]` sets how warm the sun and how cool the shadows are, the
+  ambient energy and tint, and the ground brightness; `GFX.GRADE` grades by chapter from the player's faction in a
+  campaign mission (`GFX.mood_of`): Ashen Pact "pulp" (warm, punchy), Vanguard "neutral", Hollow Choir "grim" (cold,
+  flat, dimmer sun). Saturation and contrast only apply on the Mobile renderer (GL Compatibility has no adjustments).

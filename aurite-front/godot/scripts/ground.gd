@@ -4,6 +4,7 @@ extends RefCounted
 ## side; steep slopes turn to cliff; the ground darkens where it is wet and under the water; buildings leave a soft
 ## contact shadow. Preload it (no class_name, so the self-update pack can carry it).
 
+const GFX := preload("res://scripts/gfx.gd")
 const SPLAT_RES := 4     # splat and contact shadow pixels per tile
 const SHADER := """
 shader_type spatial;
@@ -21,6 +22,7 @@ uniform vec3 c_rock : source_color;
 uniform vec3 c_cliff : source_color;
 uniform vec3 c_bed : source_color;
 uniform vec3 c_ore : source_color;
+uniform float bright = 0.8;
 varying vec3 wp;
 varying vec3 wn;
 void vertex() {
@@ -63,7 +65,7 @@ void fragment() {
 	vec2 q = wp.xz * 0.075 + vec2(TIME * 0.022, TIME * 0.013);
 	float c = sin(q.x * 1.7 + sin(q.y * 1.3) * 1.6) * sin(q.y * 1.9 + sin(q.x * 0.8) * 1.4);
 	float cloud = 1.0 - 0.12 * smoothstep(-0.1, 0.8, c);
-	ALBEDO = col * 0.8 * f * hemi * cloud;
+	ALBEDO = col * bright * f * hemi * cloud;
 	ROUGHNESS = mix(0.95, 0.4, wet * (1.0 - smoothstep(-0.2, -0.3, wp.y)));
 	SPECULAR = 0.12 + 0.25 * wet;
 }
@@ -124,6 +126,7 @@ static func build(S, fog_tex: Texture2D, MW: int, MH: int, HN: int) -> MeshInsta
 	m.set_shader_parameter("c_dirt", _c(TH.dirt) * Color(0.86, 0.82, 0.8)); m.set_shader_parameter("c_sand", _c(TH.sand))
 	m.set_shader_parameter("c_rock", _c(TH.rock)); m.set_shader_parameter("c_cliff", _c(TH.cliff))
 	m.set_shader_parameter("c_bed", _c(TH.bed)); m.set_shader_parameter("c_ore", _c(TH.dirt).lerp(Color(0.5, 0.4, 0.24), 0.6))
+	m.set_shader_parameter("bright", float(GFX.MOOD.get(S.theme, GFX.MOOD.temperate).ground))
 	am.surface_set_material(0, m)
 	var mi := MeshInstance3D.new(); mi.mesh = am; mi.name = "ground"
 	return mi

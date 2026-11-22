@@ -408,7 +408,7 @@ func build_world() -> void:
 
 func _apply_light(TH: Dictionary) -> void:
 	var L: Dictionary = D.DUSK if S.dusk else TH
-	GFX.light(sun, env, L)
+	GFX.light(sun, env, L, S.theme, GFX.mood_of(S.teams[0].fac if S.mission != null and S.teams.size() else null))
 
 ## Graphics level changed (pause menu): rebuild the materials, every model and the world at the new level.
 func apply_gfx() -> void:
@@ -464,6 +464,7 @@ func refresh_decor() -> void:
 		var c: Color = tc[int(t.c * 4)].srgb_to_linear()
 		var pm := GFX.premium()
 		if pm and style != "broad": c = c.lerp(Color(0.32, 0.42, 0.2), 0.3)   # firs a little lighter, so tiers read from above
+		elif pm and c.get_luminance() < 0.06: c = c.lerp(Color(0.16, 0.24, 0.08), 0.45)   # very dark crowns (marsh) would read as holes
 		if pm and style in ["pine", "snowpine", "broad"]:
 			var hide := _xf(t.x, y - 2.0, t.z, .001, .001, .001)
 			if style == "broad":
