@@ -111,7 +111,7 @@ var charge_ph := 0.0
 ## into the ground (Terrain.grade), a little more contrast.
 const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e", t_low2 = "1e1658", t_mid = "3a2e8a", t_high = "d07ab0",
 	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
-	warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
+	detail = true, warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"]},
 	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
 	t_cliff = "12244a", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "22406c", river_a = "bff6ff", river_b = "4fb8ff",
@@ -483,7 +483,7 @@ func apply_world(w: int) -> void:
 	look = LOOKS[w]
 	if not _world_mats.has(w):
 		_world_mats[w] = {
-			ground = _ground_mats[0],
+			ground = Terrain.detail_ground_mat() if Geo.detail and look.has("detail") else _ground_mats[0],
 			crystals = [Terrain.crystal_mat(look.cry[0], look.cry[1], 0.9), Terrain.crystal_mat(look.cry[2], look.cry[3], 0.85)],
 			fissure_a = Models.basic(look.fis[0], 1.15), fissure_b = Models.basic(look.fis[1], 1.1),
 			river = Terrain.river_mat(1.9, 1.3, look.river_a, look.river_b), river_glow = Terrain.river_mat(0.3, 2.5, look.river_a, look.river_b),
@@ -667,7 +667,7 @@ func start_stage(i: int, kind: String, tier := -1) -> void:
 	_build_islands()
 	if sd.has("run"):
 		VRun.use(sd.course)
-		run_b = VRun.Builder.new(look, {ground = _terrain_mats.ground, lip = _lip_mat, glow = _terrain_mats.fissure_b})
+		run_b = VRun.Builder.new(look, {ground = _ground_mats[0], lip = _lip_mat, glow = _terrain_mats.fissure_b})
 		run_b.node.visible = false
 		world.add_child(run_b.node)
 		_run_built = false
@@ -2330,6 +2330,8 @@ func update_chunks(scroll: float) -> void:
 			_add_chunk(c, bl.node)
 	for c in chunks:
 		chunks[c].position = Vector3(0, c * CHUNK - scroll - H / 2.0, GROUND_Z - 50.0)
+	if _terrain_mats.ground is ShaderMaterial:
+		(_terrain_mats.ground as ShaderMaterial).set_shader_parameter("scroll", scroll + H / 2.0)
 
 
 func _add_chunk(c: int, g: Node3D) -> void:
