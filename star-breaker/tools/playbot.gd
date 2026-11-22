@@ -57,7 +57,7 @@ func danger_at(x: float, y: float, ahead: int) -> float:
 
 
 func play(st: int, ship: String) -> void:
-	vg.start_stage(st, ship, 0)
+	vg.start_stage(st, ship, int(OS.get_environment("TIER")) if OS.has_environment("TIER") else 0)
 	var sd: Dictionary = VStage.STAGES[st]
 	L("=== stage %d %s (%s) ship %s length %d end %s run %s" % [st, sd.id, sd.name, ship, sd.length, sd.get("end", "?"), sd.has("run")])
 	var hold_t := 0
@@ -142,6 +142,15 @@ func play(st: int, ship: String) -> void:
 				# fly loops round the dodging path, and lift the moment one closes
 				if not vg.kit.loop.is_empty() and vg.kit.loom == 0:
 					hold = false
+			if ship == "anvil" and lift_cd == 0 and vg.kit.held >= vg.kit.MIN_HOLD and not vg.kit.ready():
+				# bomb as a player would: lift when the reticle is on something
+				var am: Vector2 = vg.kit.aim()
+				for tt in vg.kit.targets():
+					if absf(tt.x - am.x) < vg.kit.R * 0.6 + tt.hw and absf(tt.y - am.y) < vg.kit.R * 0.6 + tt.hh:
+						hold = false
+						hold_t = 0
+						lift_cd = 8
+						break
 			if vg.kit and lift_cd == 0 and (vg.kit.ready() or hold_t > 90 or ("stored" in vg.kit and vg.kit.stored >= 8)):
 				if vg.kit.ready():
 					shat_fired += 1
@@ -212,6 +221,10 @@ func play(st: int, ship: String) -> void:
 	L("  END mode=%s after %.1f s, cleared=%s score=%d hits=%d lives=%d foes %d/%d breakables %d/%d boss_ticks %d" % [vg.mode, n / 60.0, rep.get("cleared", "?"), vg.G.get("score", 0), vg.G.get("hits", 0), vg.G.get("lives", 0), vg.G.get("foes_killed", 0), vg.G.get("foes", 0), vg.G.get("broken", 0), vg.G.get("breakables", 0), vg.G.get("boss_ticks", -1)])
 	if off_boss > 0:
 		L("  boss off screen for %.1f s during the fight" % (off_boss / 60.0))
+	if ship == "anvil":
+		L("  bombs %d, landed on something %d, bomb kills %d of %d foes killed" % [vg.kit.stat.bombs, vg.kit.stat.hit, vg.kit.stat.kills, vg.G.get("foes_killed", 0)])
+	if ship == "weaver":
+		L("  weaver cuts %d, cuts that hit %d" % [vg.kit.stat.cuts, vg.kit.stat.hit])
 	if ship != "lance":
 		L("  ult meter max %.2f, ult fired %d" % [shat_max, shat_fired])
 	vg.to_menu()

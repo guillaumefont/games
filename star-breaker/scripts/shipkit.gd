@@ -91,6 +91,11 @@ func holding() -> bool:
 
 
 ## Adds to the ultimate meter (not while an ultimate is going).
+## Every enemy killed, however it died, loads the gauge a little, so no ship's gauge can sit
+## empty; the ship's own move loads it several times faster.
+const KILL_TRICKLE := 1.0 / 80.0
+
+
 func gain(x: float) -> void:
 	if g.G.ult_t > 0 or not g.P.alive or meter >= 1.0:
 		return

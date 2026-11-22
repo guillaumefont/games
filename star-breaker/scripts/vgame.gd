@@ -1734,6 +1734,8 @@ func kill_e(e: Dictionary) -> void:
 		G.broken += 1
 	elif e.get("foe", false):
 		G.foes_killed += 1
+		if kit:
+			kit.gain(ShipKit.KILL_TRICKLE)
 	var big: bool = e.type in BIG
 	boom(e.x, e.y, 14 if big else 6, big)
 	audio.play("boom" if big else "small")
