@@ -615,6 +615,9 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 		var lb := rim_z(u1, s) + 0.3
 		lip.tri(Vector3(ea, u0, la), Vector3(eb, u1, lb), Vector3(eb + s * 0.9, u1, lb), Color.WHITE, Vector3.BACK)
 		lip.tri(Vector3(ea, u0, la), Vector3(eb + s * 0.9, u1, lb), Vector3(ea + s * 0.9, u0, la), Color.WHITE, Vector3.BACK)
+	if Geo.detail and pal.has("detail"):
+		_floor_fine(rock, u0, u1, pal)
+		return
 	# the floor, a little wider than the passage so its edges tuck under the walls
 	var cols := 6
 	for i in cols:
@@ -641,6 +644,68 @@ static func _rows(rock: Terrain.Acc, lip: Terrain.Acc, glow: Terrain.Acc, u0: fl
 			var z := floor_z(u0) + 1.0
 			glow.tri(Vector3(x0, u0, z), Vector3(x1, u0, z), Vector3(x1, u0 + 1.4, z), Color.WHITE, Vector3.BACK)
 			glow.tri(Vector3(x0, u0, z), Vector3(x1, u0 + 1.4, z), Vector3(x0, u0 + 1.4, z), Color.WHITE, Vector3.BACK)
+
+
+## How far the detailed floor reaches under each wall, past the passage's edge.
+const TUCK := 12.0
+
+
+## A point of the detailed floor at `u`, `t` across it (0 and 1 are TUCK under the walls),
+## before the canyon bends: a gentle swell down the middle and a scree slope at the foot of
+## each wall, so the floor climbs into the rock instead of meeting it at a hard crease.
+static func floor_pt(u: float, t: float) -> Vector3:
+	var p := passage(u)
+	var w := p.y * 2.0 + TUCK * 2.0
+	var x := p.x - p.y - TUCK + w * t
+	# distance into the passage from the nearer wall (negative under the rock)
+	var d := minf(x - (p.x - p.y), (p.x + p.y) - x)
+	var scree := 10.0 * exp(-maxf(d, 0.0) / 3.5) + maxf(-d, 0.0) * 0.9
+	var swell := sin(u * 0.043 + x * 0.11) * 0.7 + sin(u * 0.017 - x * 0.05) * 0.9
+	return Vector3(sx(x), u, floor_z(u) + scree + swell)
+
+
+static func _floor_fine(rock: Terrain.Acc, u0: float, u1: float, pal: Dictionary) -> void:
+	var cols := 16
+	var e := 0.02
+	# the walls' own rock, a shade lighter: the floor is what has fallen and settled from them
+	var base := Color(pal.c_face).lightened(0.12).lerp(Color(pal.t_mid), 0.5)
+	var pts := []
+	for u in [u0, u1]:
+		var row := []
+		for i in cols + 1:
+			var t := float(i) / cols
+			var p := floor_pt(u, t)
+			var n := (floor_pt(u, t + e) - floor_pt(u, t - e)).cross(floor_pt(u + 1.0, t) - floor_pt(u - 1.0, t)).normalized()
+			if n.z < 0.0:
+				n = -n
+			# the foot of the walls sits in their shade
+			var pa := passage(u)
+			var x := p.x + 63.0
+			var d := minf(x - (pa.x - pa.y), (pa.x + pa.y) - x)
+			var col := base.darkened(0.16 * exp(-maxf(d, 0.0) / 16.0) + 0.24 * exp(-maxf(d, 0.0) / 5.0) + (0.3 if d < 0.0 else 0.0))
+			row.append([p, n, col])
+		pts.append(row)
+	for i in cols:
+		var a: Array = pts[0][i]
+		var b: Array = pts[1][i]
+		var c: Array = pts[0][i + 1]
+		var d: Array = pts[1][i + 1]
+		rock.tri3n(a[0], b[0], d[0], a[2], b[2], d[2], a[1], b[1], d[1], Vector3.BACK)
+		rock.tri3n(a[0], d[0], c[0], a[2], d[2], c[2], a[1], d[1], c[1], Vector3.BACK)
+	# rubble fallen from the walls, half buried in the scree
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(u0 * 13.0) + 7
+	for s in [-1.0, 1.0]:
+		if rng.randf() < 0.55:
+			var pa := passage(u0)
+			var r := rng.randf_range(1.6, 3.4)
+			var t := 0.0
+			var edge := sx(pa.x + s * pa.y)
+			var at := Vector3(edge + s * r * 0.35, u0 + rng.randf_range(0.0, u1 - u0), 0.0)
+			var w := pa.y * 2.0 + TUCK * 2.0
+			t = (at.x + 63.0 - (pa.x - pa.y - TUCK)) / w
+			at.z = floor_pt(at.y, clampf(t, 0.0, 1.0)).z - r * 0.2
+			Terrain._boulder(rock, at, r, rng, pal)
 
 
 ## The height of the canyon's rim edge on side `s` at `u`: it rises and dips along the canyon
