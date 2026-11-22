@@ -569,7 +569,7 @@ func refresh_progress() -> void:
 		_flux_lbl.text = "%s FLUX" % _fmt(prog.flux)
 		for k in _level_btns:
 			var lv := prog.level(k)
-			_level_lbls[k].text = "%s  ·  LV %d  ·  +%d%% DAMAGE" % [String(VShips.KITS[k].name).to_upper(), lv, int(round((Progress.power(lv) - 1.0) * 100.0))]
+			_level_lbls[k].text = "%s  ·  LV %d  ·  +%d%% DAMAGE" % [VShips.rank_text(k), lv, int(round((Progress.power(lv) - 1.0) * 100.0))]
 			var b: Button = _level_btns[k]
 			if lv >= Progress.MAX_LEVEL:
 				b.text = "MAX LEVEL"
@@ -608,7 +608,7 @@ func select_ship(k: String) -> void:
 		_lock_lbl.visible = not open
 		if not open:
 			var need := int(VShips.KITS[k].unlock)
-			_lock_lbl.text = "LOCKED  ·  CLEAR %d STAGES ON NORMAL (%d SO FAR)" % [need, prog.cleared_count()]
+			_lock_lbl.text = "%s  ·  LOCKED\nCLEAR %d STAGES ON NORMAL (%d SO FAR)" % [VShips.rank_text(k), need, prog.cleared_count()]
 	_update_how()
 	_update_home()
 

@@ -47,3 +47,5 @@ jobs:
         run: ./godot --headless --path . --script tests/popin_test.gd
       - name: Replay tiers, medals and ship colours
         run: ./godot --headless --path . --script tests/progress_test.gd
+      - name: Difficulty curve and ships in power order
+        run: ./godot --headless --path . --script tests/curve_test.gd

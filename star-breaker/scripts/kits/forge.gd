@@ -7,7 +7,7 @@ extends ShipKit
 
 const HEAT := 0.0085      ## heat gained a tick while holding (full in about 2 s)
 const COOL := 0.02
-const SLOW_EVERY := 9
+const SLOW_EVERY := 6
 const FAST_EVERY := 2
 const JAM := 110
 const VENT_MIN := 0.25
