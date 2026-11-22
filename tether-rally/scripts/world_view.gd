@@ -1477,6 +1477,7 @@ func _build_scenery() -> void:
 	var pines_b: Array = []
 	var shacks: Array = []
 	var rocks: Array = []
+	var logs: Array = []
 	var basis_for := func(yaw: float, sc: float) -> Basis:
 		return Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
 
@@ -1515,6 +1516,20 @@ func _build_scenery() -> void:
 				continue
 			var n := noise.get_noise_2d(p.x, p.y)
 			var r := rng.randf()
+			# fallen trees (premium): at the edge of the woods and among the rocks, picked by a
+			# hash of the spot so the other props keep their places
+			var hs := absi(hash(Vector2i(int(p.x), int(p.y)))) % 1000
+			var log_here := kit.has("log") and ((n > 0.05 and n < 0.25 and hs < 160) or (n <= 0.05 and hs < 30))
+			if log_here and r < kit["density"] + maxf(n, 0.0) + 0.1:
+				var yaw := float(hs) * 0.37
+				var dir := Vector2(cos(yaw), -sin(yaw))
+				if free.call(p + dir * 110.0) and free.call(p - dir * 140.0):
+					var ls := 1.1 + float(hs % 7) * 0.06
+					logs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * ls), w3(p, ground_h(p) - 3.0)))
+					ao_stamp(p, 90.0 * ls, 0.5)
+					for o in [-110.0, 0.0, 110.0]:
+						mark.call(p + dir * o, 40.0, 2)
+					continue
 			if n > 0.05 and r < kit["density"] + n:
 				var sc := 0.75 + rng.randf() * 0.6
 				var xf := Transform3D(basis_for.call(rng.randf() * TAU, sc), w3(p, ground_h(p) - 3.0))
@@ -1535,6 +1550,8 @@ func _build_scenery() -> void:
 	_multi(kit["b"], pines_b, kit.get("mat_b"))
 	_multi(kit["hut"], shacks, kit.get("mat"))
 	_multi(kit["rock"], rocks, kit.get("mat"))
+	if not logs.is_empty():
+		_multi(kit["log"], logs, kit.get("mat"))
 	if premium and quality > 0 and kit.has("chimney"):
 		for xf: Transform3D in shacks:
 			dyn_root.add_child(Premium.smoke(xf * (kit["chimney"] as Vector3)))
@@ -1562,7 +1579,7 @@ func _prop_kit() -> Dictionary:
 			"hut": _shack_mesh(th["wood"], th["roof"], th["shingle"]), "rock": Premium.boulder(th, 5),
 			"mat_a": Premium.prop_mat(rim, 0.05, 1.6), "mat_b": Premium.prop_mat(rim, 0.06, 2.3),
 			"mat": Premium.prop_mat(rim), "chimney": Vector3(0, 128, 0) * U,
-			"density": 0.35, "rocks": 0.035 }
+			"log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.35, "rocks": 0.035 }
 	return { "a": _pine_mesh(3, 150.0, 48.0), "b": _pine_mesh(4, 210.0, 56.0),
 		"hut": _shack_mesh(), "rock": _rock_mesh(), "density": 0.35, "rocks": 0.035 }
 
@@ -1578,19 +1595,19 @@ func _premium_kit() -> Dictionary:
 				"hut": G.call(_shack_mesh(th["wood"], th["roof"], th["shingle"]), 110.0, 0.8, 1.08),
 				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0),
 				"mat_a": Premium.prop_mat(rim, 0.06, 2.0), "mat_b": Premium.prop_mat(rim, 0.06, 2.3), "mat": still,
-				"chimney": Vector3(0, 128, 0) * U, "density": 0.6, "rocks": 0.04 }
+				"chimney": Vector3(0, 128, 0) * U, "log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.6, "rocks": 0.04 }
 		"rock":
 			return { "a": G.call(_spire_mesh(260.0, 60.0, th["spire"]), 260.0, 0.65, 1.15, 0.1), "b": G.call(_shrub_mesh(26.0, th["heather"]), 40.0),
 				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
 				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0, 0.65, 1.15, 0.1),
 				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.03, 0.4), "mat": still,
-				"density": 0.12, "rocks": 0.11 }
+				"log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.12, "rocks": 0.11 }
 		_:
 			return { "a": G.call(_cactus_mesh(140.0, th["cactus"]), 160.0), "b": G.call(_palm_mesh(220.0, th["palm"]), 240.0, 0.7, 1.0),
 				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
 				"rock": G.call(_rock_mesh(th["stone"][0], th["stone"][1]), 34.0, 0.65, 1.15, 0.1),
 				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.08, 2.4), "mat": still,
-				"density": 0.06, "rocks": 0.05 }
+				"log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.06, "rocks": 0.05 }
 
 # Graphics quality (Settings "quality"): 0 Low, 1 Medium, 2 High.
 #   Low:    3D drawn at 70% resolution, no shadows, glow, weather, MSAA or release wind, half the trees

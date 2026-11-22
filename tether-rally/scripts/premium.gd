@@ -15,20 +15,21 @@ const PALETTE := {
 	"snow": {
 		"ground": Color("#eceff4"), "ground_dots": Color("#dde3ee"),
 		"ambient": Color("#aab6dc"), "sun": Color("#fff0de"),
-		"road": Color("#4d5d82"), "patch": Color("#7f9dc2"), "patch_amt": 0.28, "patch_rough": 0.18,
-		"streak": Color("#cfe2f2"), "edge": Color("#f3f5f9"), "road_rough": 0.75,
-		"verge": Color("#cdd5e6"), "bank_face": Color("#d9dfec"),
+		"road": Color("#6b6f78"), "patch": Color("#8c949e"), "patch_amt": 0.28, "patch_rough": 0.18,
+		"streak": Color("#d6dbe0"), "edge": Color("#f3f4f6"), "road_rough": 0.75,
+		"verge": Color("#d3d7df"), "bank_face": Color("#dde0e8"),
 		"rail_top": Color("#f6f4f0"),
 		"column": Color("#55607a"), "cap": Color("#f6f4f0"), "foot": Color("#f3f2f2"),
 		"hub": Color("#f6f4f0"),
 		"ramp_a": Color("#f6f4f0"), "ramp_b": Color("#d9664a"),
-		"drift_a": Color("#fbfaf8"), "drift_b": Color("#a3acd0"),
+		"drift_a": Color("#fbfaf8"), "drift_b": Color("#b2b5c2"),
 		"sky": Color("#8c9ce0"), "shade": Color("#3b3a7a"), "glint": Color("#fff2e2"),
 		# premium-only keys
 		"rim": Color("#b9c8ff"), "pine": [Color("#173f3d"), Color("#24594f"), Color("#3a7a62")],
 		"snow_lo": Color("#d6def0"), "snow_hi": Color("#fffdf9"), "trunk": Color("#6b4a3a"),
 		"stone": [Color("#5d6380"), Color("#8a8fa8")], "wood": Color("#8f5a3c"),
 		"roof": Color("#fbf9f5"), "shingle": Color("#7a3f2e"), "gantry": Color("#3b3f52"),
+		"bark": Color("#5e4436"), "log_top": Color("#fbfaf6"), "cut": Color("#d9b98a"),
 	},
 	"forest": {
 		"ground": Color("#5a8a3a"), "ground_dots": Color("#4f7d33"),
@@ -43,6 +44,7 @@ const PALETTE := {
 		"rim": Color("#d4f0ff"), "leaf": Color("#3a7030"), "leaf_b": Color("#3f7a3a"),
 		"stone": [Color("#6a6e66"), Color("#9a9c8e")], "moss": Color("#79a848"),
 		"wood": Color("#8f5f3e"), "roof": Color("#5e8f3a"), "shingle": Color("#5a3e2c"), "gantry": Color("#4a3a2e"),
+		"bark": Color("#6b4a34"), "log_top": Color("#5f8a3c"), "cut": Color("#d8b480"),
 	},
 	"sand": {
 		"ground": Color("#e3b47c"), "ground_dots": Color("#d8a46c"),
@@ -54,6 +56,7 @@ const PALETTE := {
 		"rim": Color("#ffe2cc"), "cactus": Color("#4f8f6a"), "palm": Color("#457f3e"),
 		"stone": [Color("#b06e48"), Color("#dca476")], "wall": Color("#e2b585"), "hut_roof": Color("#c98c5a"),
 		"gantry": Color("#5a3a2e"),
+		"bark": Color("#b4a088"), "log_top": Color("#cdbca2"), "cut": Color("#e6d2b0"),
 	},
 	"rock": {
 		"ground": Color("#767b6c"), "ground_dots": Color("#6a6f60"),
@@ -65,6 +68,7 @@ const PALETTE := {
 		"rim": Color("#dce4ff"), "spire": Color("#6a6c6c"), "heather": Color("#8a6a9a"),
 		"stone": [Color("#5a5d5e"), Color("#8e908c")], "moss": Color("#7d9a50"),
 		"wall": Color("#9a988e"), "hut_roof": Color("#5a5c66"), "gantry": Color("#3e3c40"),
+		"bark": Color("#6e655c"), "log_top": Color("#6a8448"), "cut": Color("#cdb894"),
 	},
 }
 
@@ -224,6 +228,87 @@ static func gradient(mesh: ArrayMesh, h: float, lo := 0.7, hi := 1.12, facet := 
 		arr[Mesh.ARRAY_COLOR] = cs
 		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return out
+
+# A fallen tree: a tapering trunk lying on the ground, the root plate torn up at the thick
+# end, a pale sawn face at the thin end and two snapped branch stubs. Its upper faces wear
+# the world's cover (snow, moss, sand-bleach). Long axis along x, about 200 units long.
+static func fallen_log(pal: Dictionary, seed_: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_
+	var bark: Color = pal["bark"]
+	var top: Color = pal["log_top"]
+	var cut: Color = pal["cut"]
+	var tri := func(a: Vector3, b: Vector3, c: Vector3, centre: Vector3, col_fn: Callable) -> void:
+		var nrm := (b - a).cross(c - a)
+		if nrm.length_squared() < 1e-8:
+			return
+		nrm = nrm.normalized()
+		if nrm.dot((a + b + c) / 3.0 - centre) < 0.0:
+			nrm = -nrm
+		for v: Vector3 in [a, b, c]:
+			st.set_normal(nrm)
+			st.set_color(col_fn.call(v, nrm))
+			st.add_vertex(v * U)
+	var shade := func(v: Vector3, n: Vector3) -> Color:
+		if n.y > 0.82 and rng.randf() < 0.7:   # patchy cover on the upper faces
+			return top.lerp(top.lightened(0.12), rng.randf())
+		return bark.darkened(0.25).lerp(bark.lightened(0.08), clampf(v.y / 26.0, 0.0, 1.0))
+	var sides := 7
+	var x0 := -95.0; var x1 := 95.0
+	var r0 := 18.0; var r1 := 13.0
+	var segs := 3
+	var ring := func(x: float, r: float, y: float) -> Array:
+		var pts := []
+		for k in sides:
+			var a := TAU * k / sides + 0.3
+			var j := 1.0 + (rng.randf() - 0.5) * 0.12
+			pts.append(Vector3(x, y + sin(a) * r * j, cos(a) * r * j))
+		return pts
+	var rings := []
+	for i in segs + 1:
+		var t := float(i) / segs
+		var r := lerpf(r0, r1, t)
+		rings.append(ring.call(lerpf(x0, x1, t), r, r * 0.75 + sin(t * 2.4) * 2.0))
+	for i in segs:
+		var cx := lerpf(x0, x1, (i + 0.5) / segs)
+		var c := Vector3(cx, lerpf(r0, r1, (i + 0.5) / segs) * 0.75, 0.0)
+		for k in sides:
+			var k1 := (k + 1) % sides
+			tri.call(rings[i][k], rings[i][k1], rings[i + 1][k1], c, shade)
+			tri.call(rings[i][k], rings[i + 1][k1], rings[i + 1][k], c, shade)
+	# sawn / snapped thin end: pale rings of wood
+	var tip_c := Vector3(x1 + 1.0, r1 * 0.75, 0.0)
+	for k in sides:
+		tri.call(rings[segs][k], rings[segs][(k + 1) % sides], tip_c, Vector3(x1 - 10.0, r1 * 0.75, 0.0),
+			func(v: Vector3, n: Vector3) -> Color: return cut if v.distance_to(tip_c) < 3.0 else cut.darkened(0.12))
+	# the root plate torn out of the ground at the thick end: a wide, ragged disc on edge
+	var rp := []
+	for k in 9:
+		var a := TAU * k / 9.0
+		var rr := 30.0 * (0.75 + 0.4 * rng.randf())
+		rp.append(Vector3(x0 - 6.0, maxf(rr * 0.55 + sin(a) * rr, -2.0), cos(a) * rr))
+	var rp_c := Vector3(x0 - 6.0, 16.0, 0.0)
+	var earth := bark.darkened(0.45)
+	for k in 9:
+		var a: Vector3 = rp[k]; var b: Vector3 = rp[(k + 1) % 9]
+		var a2 := a + Vector3(-9.0, 0, 0); var b2 := b + Vector3(-9.0, 0, 0)
+		tri.call(a, b, rp_c, rp_c + Vector3(20, 0, 0), func(v: Vector3, n: Vector3) -> Color: return earth.lerp(bark.darkened(0.2), 0.5))
+		tri.call(a2, b2, rp_c + Vector3(-9, 0, 0), rp_c + Vector3(20, 0, 0), func(v: Vector3, n: Vector3) -> Color: return earth)
+		tri.call(a, b, b2, rp_c + Vector3(-4.5, 0, 0), func(v: Vector3, n: Vector3) -> Color: return top if n.y > 0.55 else earth.lightened(0.1))
+		tri.call(a, b2, a2, rp_c + Vector3(-4.5, 0, 0), func(v: Vector3, n: Vector3) -> Color: return top if n.y > 0.55 else earth.lightened(0.1))
+	# two snapped branch stubs reaching up and out
+	for b in 2:
+		var bx := lerpf(x0, x1, 0.35 + 0.3 * b)
+		var side := 1.0 if b == 0 else -1.0
+		var base := Vector3(bx, r0 * 0.9, side * 4.0)
+		var tip := base + Vector3(14.0, 24.0, side * 16.0)
+		var br := 3.5
+		var bpts := [base + Vector3(-br, 0, 0), base + Vector3(br, 0, -br * side), base + Vector3(0, 0, br * side)]
+		for k in 3:
+			tri.call(bpts[k], bpts[(k + 1) % 3], tip, base + Vector3(0, 10, 0), shade)
+	return st.commit()
 
 # ---------------------------------------------------------------- materials
 static var _shader: Shader

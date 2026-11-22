@@ -4,7 +4,8 @@ extends SceneTree
 # - gradient() lightens a prop towards its top and keeps the glow alpha
 # - pines and boulders are shaded with gradients (many distinct vertex colours, not flat fills),
 #   snow sits on the upper faces and green below
-# - props stay cheap: a pine under 600 triangles, a boulder under 120
+# - props stay cheap: a pine under 600 triangles, a boulder under 120, a fallen tree under 160
+# - the snow road is a neutral grey, not blue (Guillaume: "the road is too blue")
 const Themes = preload("res://scripts/themes.gd")
 const Premium = preload("res://scripts/premium.gd")
 
@@ -24,6 +25,9 @@ func _initialize() -> void:
 		if t["road"] == base["road"] or not t.has("rim"):
 			fail("premium %s is not tuned" % w)
 	var th := Premium.restyle("snow", Themes.get_theme("snow"))
+	var rd: Color = th["road"]
+	if rd.b - rd.r > 0.08:
+		fail("snow road is blue (%s)" % rd.to_html(false))
 	# the other worlds' props get gradients: the top of a gradient prop is lighter than its foot
 	var flat := ArrayMesh.new()
 	var tri := []
@@ -36,7 +40,7 @@ func _initialize() -> void:
 		fail("gradient: the top is not lighter than the foot")
 	if absf(gc[2].a - 0.5) > 0.01:
 		fail("gradient: lost the window glow alpha")
-	for case in [["pine", Premium.pine(5, 230.0, 58.0, th, 23), 600], ["boulder", Premium.boulder(th, 5), 120]]:
+	for case in [["pine", Premium.pine(5, 230.0, 58.0, th, 23), 600], ["boulder", Premium.boulder(th, 5), 120], ["fallen tree", Premium.fallen_log(th, 7), 160]]:
 		var m: ArrayMesh = case[1]
 		var arr := m.surface_get_arrays(0)
 		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
