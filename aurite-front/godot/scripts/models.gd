@@ -145,6 +145,25 @@ static var MAT := {
 	"winLit": lit("ffd890", 0.55), "sandbag": lit("a8946a"), "pipe": lit("7b868c"), "scaf": lit("d9a92e"), "stripe": lit("26292a"), "tank": lit("b8bdb8"),
 }
 
+## Premium palette (phase 5, faction polish): the near-black metals, pads and concrete are lifted so bases read as
+## painted material instead of black holes, mostly for the Ashen Pact and the Choir's earth pads. Keys are MAT names.
+const PREMIUM_PAL := {
+	"dark": "43474c", "tire": "2b2e30", "rotor": "2b2e30", "stripe": "33373a", "metal2": "79818a", "conc": "7d8388",
+	"ashM": "655d5a", "ashM2": "524b48", "ashC": "6c6763", "iron": "7d746b",
+	"stone2": "5a584e", "earthC": "6c6556", "robe": "434a40", "glass": "2f4352",
+}
+const PREMIUM_HULL := {"ashen": "4b4442", "vanguard": "8894a0", "choir": "5d594d"}
+static var _pal := {}
+
+## A MAT colour as the current graphics level draws it (premium levels lift the darkest paints).
+static func pal(c: Color) -> Color:
+	if not GFX.premium(): return c
+	if _pal.is_empty():
+		for k in PREMIUM_PAL:
+			var src: Color = MAT[k]; var dst := lit(PREMIUM_PAL[k]); dst.a = src.a
+			_pal[src] = dst
+	return _pal.get(c, c)
+
 # ---------------- geometry primitives (unit sized, centred) ----------------
 static var _ico_v: Array = []
 static var _ico_f: Array = []
@@ -286,6 +305,7 @@ class Builder:
 		elif fac == "choir": P = {"metal": M.stone, "metal2": M.stone2, "conc": M.earthC, "gear": M.moss}
 		else: P = {"metal": M.metal, "metal2": M.metal2, "conc": M.conc, "gear": M.olive2}
 		hull = Models.HULL.get(fac, Models.HULL.vanguard)
+		if Models.GFX.premium(): hull = Models.lit(Models.PREMIUM_HULL.get(fac, Models.PREMIUM_HULL.vanguard))
 
 	func grp(par: Node3D, nm: String, pos := Vector3.ZERO, rot := Vector3.ZERO, scl := Vector3.ONE) -> Node3D:
 		var g := Node3D.new(); g.name = nm
@@ -303,6 +323,12 @@ class Builder:
 		var sc := xf.basis.get_scale()
 		var smin := minf(sc.x, minf(sc.y, sc.z))
 		var painted: bool = unit and col == tm.col and smin > Models.ACCENT_MAX
+		col = Models.pal(col)
+		# premium: big team-coloured slabs on buildings (roofs, tanks) are toned toward the faction's metal, so the
+		# base reads as painted metal with team colour, not as a field of pure red, blue or green
+		if Models.GFX.premium() and not unit and col == tm.col:
+			var ss := [sc.x, sc.y, sc.z]; ss.sort()
+			if ss[1] > 0.3: col = tm.col.lerp(P.metal, 0.35)
 		# premium look: rounded boxes and smooth round cylinders; everything else stays faceted
 		var tris: Array
 		var bev := Models.GFX.bevel(smin)
