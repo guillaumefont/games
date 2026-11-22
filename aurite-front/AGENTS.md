@@ -297,3 +297,6 @@ in your PR, keep it short, and mention the change in the PR description.
   name) and `PREMIUM_HULL` replaces the unit hull colours, so Pact iron and Choir earth read as material; on buildings,
   big team-coloured slabs (second-largest side over 0.3) are toned 35% toward the faction metal. Use MAT colours (not
   hand-made ones) for new parts so the palette applies.
+- Battle effects (premium levels, phase 6): smoke, flashes and flames use `Nature.puff()` (a smooth round puff) with
+  rims that fade by `dot(NORMAL, VIEW)`, so smoke reads soft and fire as glowing balls. `View3D.apply_gfx` rebuilds the
+  effect batches. `AF_MODE=battle` shoots two armies trading fire.

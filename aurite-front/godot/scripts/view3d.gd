@@ -235,17 +235,21 @@ func _batch(mesh: Mesh, mat: Material, cap: int, shadow := false) -> Dictionary:
 
 func _init_batches() -> void:
 	var ico := _mesh_from("ico"); var box := _mesh_from("box"); var disc := _disc_mesh(7); var ring := _ring_mesh(0.82, 20)
+	# premium: round puffs whose rims fade out, so smoke reads soft and flashes and flames as glowing balls
+	var pm := GFX.premium(); var puff: Mesh = Nature.puff() if pm else ico
+	var smoke_a := "ALPHA = 0.62 * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 0.9);" if pm else "ALPHA = 0.55;"
+	var glow_a := "ALPHA = %s * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 1.3); ALBEDO *= 1.0 + 0.6 * pow(clamp(dot(NORMAL, VIEW), 0.0, 1.0), 6.0);"
 	batches = {
-		"smoke": _batch(ico, _pmat("diffuse_lambert, specular_disabled, depth_draw_never", "ALPHA = 0.55;"), 900),
+		"smoke": _batch(puff, _pmat("diffuse_lambert_wrap, specular_disabled, depth_draw_never" if pm else "diffuse_lambert, specular_disabled, depth_draw_never", smoke_a), 900),
 		"spark": _batch(box, _pmat("unshaded", "", false), 600),
-		"flash": _batch(ico, _pmat("unshaded, blend_add, depth_draw_never", "ALPHA = 0.85;", false), 120),
+		"flash": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.95" if pm else "ALPHA = 0.85;", false), 120),
 		"ring": _batch(ring, _pmat("unshaded, cull_disabled, depth_draw_never", "ALPHA = 0.9;", false), 40),
 		"body": _batch(disc, _pmat("unshaded, cull_disabled", ""), 120),
 		"debris": _batch(box, _pmat("diffuse_lambert, specular_disabled", "", true), 240, true),
 		"shell": _batch(ico, _pmat("unshaded", "", false), 120),
 		"rocket": _batch(box, _pmat("unshaded", "", false), 120),
 		"heal": _batch(box, _pmat("unshaded, depth_draw_never", "ALPHA = 0.9;", false), 80),
-		"flame": _batch(ico, _pmat("unshaded, blend_add, depth_draw_never", "ALPHA = 0.8;", false), 300),
+		"flame": _batch(puff, _pmat("unshaded, blend_add, depth_draw_never", glow_a % "0.9" if pm else "ALPHA = 0.8;", false), 300),
 		"missile": _batch(box, _pmat("unshaded", "", false), 60),
 		"rift": _batch(ring, _pmat("unshaded, blend_add, cull_disabled, depth_draw_never", "ALPHA = 0.8;", false), 60),
 		"gem": _batch(_mesh_from("oct"), _pmat("unshaded", "", false), 260),
@@ -413,6 +417,8 @@ func _apply_light(TH: Dictionary) -> void:
 ## Graphics level changed (pause menu): rebuild the materials, every model and the world at the new level.
 func apply_gfx() -> void:
 	Models.init_materials(fog_tex); Nature.reset()
+	for k in batches: batches[k].mi.queue_free()
+	_init_batches()
 	if S and S.teams.size(): build_world()
 
 ## Objective rings with a light beam (reach, escort, hold, survive zones), coloured by who holds them.

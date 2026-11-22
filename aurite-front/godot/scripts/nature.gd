@@ -131,5 +131,20 @@ static func crystals() -> ArrayMesh:
 	_cache.crystals = B.mesh()
 	return _cache.crystals
 
+## A soft round puff (smoke, flashes, flame) with smooth normals, so the effect shaders can fade its rim.
+static func puff() -> ArrayMesh:
+	if _cache.has("puff"): return _cache.puff
+	var v := PackedVector3Array(); var n := PackedVector3Array(); var c := PackedColorArray()
+	for t in _ico80(Vector3.ZERO, 1.0, Vector3.ONE, 31):
+		var a: Vector3 = t[0]; var b: Vector3 = t[1]; var d: Vector3 = t[2]
+		if (b - a).cross(d - a).dot(a + b + d) < 0: var tmp := b; b = d; d = tmp
+		v.append_array([a, d, b]); n.append_array([a.normalized(), d.normalized(), b.normalized()])
+		for k in 3: c.append(Color(1, 1, 1, 1))
+	var arr := []; arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = v; arr[Mesh.ARRAY_NORMAL] = n; arr[Mesh.ARRAY_COLOR] = c
+	var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	_cache.puff = am
+	return am
+
 static func reset() -> void:
 	_cache.clear()
