@@ -576,7 +576,8 @@ func _draw_trail() -> void:
 			_dashes(pts, Color(1, 1, 1, 0.22), 2.0, 0.0)
 
 
-## The way into world `w`: a glass plate with its planet, name, boss and progress on each tier.
+## The way into world `w`: a glass plate with its planet, name, progress on each tier, and a
+## line of the story under them.
 func _draw_banner(w: int) -> void:
 	var cy := _y(banner_u(w))
 	if cy < -120 or cy > size.y + 120:
@@ -586,7 +587,7 @@ func _draw_banner(w: int) -> void:
 	var open := world_open(w)
 	var a := 1.0 if open else 0.6
 	var bw := minf(_col_w() - 40, 440.0)
-	var r := Rect2(size.x / 2.0 - bw / 2.0, cy - 64, bw, 128)
+	var r := Rect2(size.x / 2.0 - bw / 2.0, cy - 84, bw, 172)
 	var pts := _rounded(r, 24.0)
 	draw_colored_polygon(pts, Color(Color(pal.bg), 0.82))
 	var ring := pts.duplicate()
@@ -599,6 +600,11 @@ func _draw_banner(w: int) -> void:
 	var x := r.position.x + 124
 	_text(Vector2(x, r.position.y + 34), String(wd.sub).to_upper(), 14, Color(Color(pal.light), 0.9 * a), 800)
 	_text(Vector2(x, r.position.y + 66), String(wd.name).to_upper(), 26, Color(C_TEXT, a), 800, HORIZONTAL_ALIGNMENT_LEFT, r.end.x - x - 16)
+	# the story so far, shown even before the world opens
+	var story := String(wd.get("story", ""))
+	if story != "":
+		draw_multiline_string(_font(500), Vector2(r.position.x + 22, r.position.y + 146), story, HORIZONTAL_ALIGNMENT_LEFT,
+			r.size.x - 44, 14, 2, Color(C_MUTED, 0.95 * a))
 	if not open:
 		_text(Vector2(x, r.position.y + 100), "LOCKED", 14, Color(C_MUTED, 0.8), 800)
 		return
