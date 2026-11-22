@@ -88,6 +88,24 @@ func _initialize() -> void:
 	check(shut, "the bevelled box is closed (every edge shared by two triangles)")
 	check(Geo.box(0.05, 2, 3).size() == 12, "a box too thin to bevel stays a plain box")
 	check(vg._env.background_mode == Environment.BG_SKY and vg._env.sky != null, "world 1 has a gradient sky")
+	# world 1's decor is the Bloom canopy (one decor per world)
+	var bc: Node3D = vg.build_chunk(3)
+	var mms := bc.find_children("*", "MultiMeshInstance3D", true, false)
+	check(vg._new_builder(3) is Bloom.Builder and mms.size() >= 2 and (mms[0] as MultiMeshInstance3D).multimesh.instance_count > 10,
+			"world 1's ground is the Bloom canopy, its caps in a MultiMesh")
+	bc.free()
+	var inside := true
+	var edge := []
+	for j in 11:
+		edge.append(Vector3(sin(j * 0.7) * 3.0, j * 6.4, 0))
+	for cap in Bloom.wall(edge, -1.0, 0.0, vg.look):
+		for e: Vector3 in edge:
+			if absf(e.y - float(cap[1])) <= float(cap[2]):
+				inside = inside and float(cap[0]) + float(cap[2]) <= e.x + 0.01
+	check(inside, "the Bloom's wall caps never reach past the canyon's collision edge")
+	var keep := Bloom.canopy(0.0, 64.0, vg.look, [[0.0, 30.0, 12.0]])
+	check(keep.all(func(k): return Vector2(k[0], k[1]).distance_to(Vector2(0, 30)) >= 12.0 + float(k[2]) - 0.01) and keep.size() > 10,
+			"the canopy leaves a clearing round what stands on the floor")
 	vg.apply_world(1)
 	check(vg._env.background_mode == Environment.BG_COLOR and not vg._haze.visible, "other worlds keep their flat background")
 	vg.apply_world(0)
