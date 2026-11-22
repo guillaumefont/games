@@ -3313,6 +3313,16 @@ func car_height(race: Race, c) -> float:
 			return base + RAMP_H * (1.0 + into / RAMP_LEN)
 	return base
 
+# A ghost replays positions only, so it finds its own place on the road, like race.gd does
+# for a car: from the segment it was on last frame (hint). A fresh ghost starts from segment 0,
+# the start line (which lies by a bridge on Knot); a hint too far away falls back to a search of
+# the whole track. Taking the nearest segment of the whole track every frame flipped between the
+# deck and the lane below where the road crosses itself, so the ghosts jumped on and off the
+# bridges (Guillaume, 2026-11-22).
+static func ghost_road(tr: TrackData, p: Vector2, hint: int) -> Dictionary:
+	var nr := tr.nearest(p, hint)
+	return { "seg": nr["i"], "h": tr.height_at(tr.s_of(nr["i"], nr["t"])) }
+
 # ---------------------------------------------------------------- per frame
 func sync(race: Race, phase: String, ghost_sample, aims: Dictionary, dt: float, gold_sample = null) -> void:
 	fx_time += dt
@@ -3384,12 +3394,13 @@ func sync(race: Race, phase: String, ghost_sample, aims: Dictionary, dt: float, 
 			if smp != null and phase != "menu":
 				gn.visible = true
 				var gp := Vector2(smp.x, smp.y)
-				var nr := track.nearest_raw(gp)
-				var gh := track.height_at(track.s_of(nr["i"], nr["t"]))
-				gn.position = w3(gp, gh + ROAD_Y)
+				var gr := ghost_road(track, gp, gn.get_meta("seg", 0))
+				gn.set_meta("seg", gr["seg"])
+				gn.position = w3(gp, gr["h"] + ROAD_Y)
 				gn.rotation = Vector3(0, -smp.z, 0)
 			else:
 				gn.visible = false
+				gn.set_meta("seg", 0)  # a ghost's lap starts on the start line, segment 0
 	_update_fx(dt)
 	_update_wind(dt)
 
