@@ -134,7 +134,7 @@ static func pine(tiers: int, h: float, r: float, pal: Dictionary, seed_: int) ->
 	var greens: Array = pal["pine"]
 	var snow_lo: Color = pal["snow_lo"]
 	var snow_hi: Color = pal["snow_hi"]
-	var sides := 9
+	var sides := 7
 	var y := h * 0.16
 	var tier_h := (h - y) / tiers * 1.4
 	for t in tiers:
@@ -229,8 +229,8 @@ static func gradient(mesh: ArrayMesh, h: float, lo := 0.7, hi := 1.12, facet := 
 		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return out
 
-# A fallen tree: a tapering trunk lying on the ground, the root plate torn up at the thick
-# end, a pale sawn face at the thin end and two snapped branch stubs. Its upper faces wear
+# A fallen tree: a tapering trunk lying on the ground, pale sawn faces at both ends and two
+# snapped branch stubs. Its upper faces wear
 # the world's cover (snow, moss, sand-bleach). Long axis along x, about 200 units long.
 static func fallen_log(pal: Dictionary, seed_: int) -> ArrayMesh:
 	var st := SurfaceTool.new()
@@ -283,21 +283,11 @@ static func fallen_log(pal: Dictionary, seed_: int) -> ArrayMesh:
 	for k in sides:
 		tri.call(rings[segs][k], rings[segs][(k + 1) % sides], tip_c, Vector3(x1 - 10.0, r1 * 0.75, 0.0),
 			func(v: Vector3, n: Vector3) -> Color: return cut if v.distance_to(tip_c) < 3.0 else cut.darkened(0.12))
-	# the root plate torn out of the ground at the thick end: a wide, ragged disc on edge
-	var rp := []
-	for k in 9:
-		var a := TAU * k / 9.0
-		var rr := 30.0 * (0.75 + 0.4 * rng.randf())
-		rp.append(Vector3(x0 - 6.0, maxf(rr * 0.55 + sin(a) * rr, -2.0), cos(a) * rr))
-	var rp_c := Vector3(x0 - 6.0, 16.0, 0.0)
-	var earth := bark.darkened(0.45)
-	for k in 9:
-		var a: Vector3 = rp[k]; var b: Vector3 = rp[(k + 1) % 9]
-		var a2 := a + Vector3(-9.0, 0, 0); var b2 := b + Vector3(-9.0, 0, 0)
-		tri.call(a, b, rp_c, rp_c + Vector3(20, 0, 0), func(v: Vector3, n: Vector3) -> Color: return earth.lerp(bark.darkened(0.2), 0.5))
-		tri.call(a2, b2, rp_c + Vector3(-9, 0, 0), rp_c + Vector3(20, 0, 0), func(v: Vector3, n: Vector3) -> Color: return earth)
-		tri.call(a, b, b2, rp_c + Vector3(-4.5, 0, 0), func(v: Vector3, n: Vector3) -> Color: return top if n.y > 0.55 else earth.lightened(0.1))
-		tri.call(a, b2, a2, rp_c + Vector3(-4.5, 0, 0), func(v: Vector3, n: Vector3) -> Color: return top if n.y > 0.55 else earth.lightened(0.1))
+	# the thick end: a plain sawn face too (no root plate: simpler, and cheaper)
+	var butt_c := Vector3(x0 - 1.0, r0 * 0.75, 0.0)
+	for k in sides:
+		tri.call(rings[0][(k + 1) % sides], rings[0][k], butt_c, Vector3(x0 + 10.0, r0 * 0.75, 0.0),
+			func(v: Vector3, n: Vector3) -> Color: return cut if v.distance_to(butt_c) < 4.0 else cut.darkened(0.15))
 	# two snapped branch stubs reaching up and out
 	for b in 2:
 		var bx := lerpf(x0, x1, 0.35 + 0.3 * b)

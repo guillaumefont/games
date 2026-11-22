@@ -282,7 +282,7 @@ uniform vec3 near_col : source_color;
 uniform sampler2D ao_tex : filter_linear, repeat_disable;
 uniform vec4 ao_rect;   // world xz of the AO map's corner, then its size
 uniform vec3 ao_col : source_color;
-uniform float fancy = 0.0;   // premium look: wind ripples (and sun glints in the snow)
+uniform float fancy = 0.0;   // premium look: sun glints in the snow (no per-pixel noise: phones)
 uniform float glints = 0.0;
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
@@ -311,11 +311,6 @@ void fragment() {
 	ALBEDO = c * mix(ao_col, vec3(1.0), ao);
 	ROUGHNESS = 1.0;
 	if (fancy > 0.0) {
-		// wind-carved ripples running across the field
-		vec2 r = vec2(wp.x * 0.8 + wp.z * 0.45, wp.z * 0.8 - wp.x * 0.45);
-		float rip = sin(r.x * 9.0 + vnoise(r * 1.5) * 6.0) * 0.5 + 0.5;
-		rip *= smoothstep(0.35, 0.75, vnoise(r * 0.4));
-		ALBEDO *= 1.0 - 0.05 * fancy * rip;
 		// glints: a few snow crystals catch the sun and twinkle as the view moves
 		vec2 cell = floor(wp.xz * 12.0);
 		float hs = hash(cell);
@@ -334,7 +329,7 @@ void fragment() {
 	sm.set_shader_parameter("far_col", gc.darkened(0.25))
 	sm.set_shader_parameter("near_col", gc.lightened(0.12))
 	sm.set_shader_parameter("fancy", 1.0 if premium and th.has("rim") else 0.0)
-	sm.set_shader_parameter("glints", 1.0 if th["weather"] == "snow" else 0.0)
+	sm.set_shader_parameter("glints", 1.0 if th["weather"] == "snow" and quality >= 2 else 0.0)
 	_ao_begin(sm)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _relief_mesh()
@@ -783,9 +778,9 @@ func _build_road() -> void:
 			if elevated:
 				# bridge: wooden rail with snow lying on top
 				var rh := RAIL_H + 10.0
-				road.quad(P.call(ca, na, o1, ha), P.call(cb, nb, o1, hb), P.call(cb, nb, o1, hb + rh), P.call(ca, na, o1, ha + rh), COL_DECK_LIGHT.darkened(0.12), -out_hint)
-				road.quad(P.call(ca, na, o1, ha + rh), P.call(cb, nb, o1, hb + rh), P.call(cb, nb, o2, hb + rh), P.call(ca, na, o2, ha + rh), th["rail_top"], up)
-				road.quad(P.call(ca, na, o2, ha - 22.0), P.call(cb, nb, o2, hb - 22.0), P.call(cb, nb, o2, hb + rh), P.call(ca, na, o2, ha + rh), COL_DECK_LIGHT.darkened(0.25), out_hint)
+				road.quad(P.call(ca, na, o1, ha), P.call(cb, nb, o1, hb), P.call(cb, nb, o1, hb + rh), P.call(ca, na, o1, ha + rh), _deck_col(COL_DECK_LIGHT).darkened(0.12), -out_hint)
+				road.quad(P.call(ca, na, o1, ha + rh), P.call(cb, nb, o1, hb + rh), P.call(cb, nb, o2, hb + rh), P.call(ca, na, o2, ha + rh), _deck_col(COL_DECK_LIGHT).lightened(0.1) if premium and th.has("rim") else th["rail_top"], up)
+				road.quad(P.call(ca, na, o2, ha - 22.0), P.call(cb, nb, o2, hb - 22.0), P.call(cb, nb, o2, hb + rh), P.call(ca, na, o2, ha + rh), _deck_col(COL_DECK_LIGHT).darkened(0.25), out_hint)
 			else:
 				# snowbank: a steep shaded inner face, a rounded white crest and a long
 				# gentle slope out into the snowfield
@@ -831,13 +826,13 @@ func _build_road() -> void:
 		if elevated:
 			# deck underside
 			var oo := HW + KERB_W + RAIL_W
-			if win.is_empty(): road.quad(P.call(ca, na, oo, ha - 22.0), P.call(cb, nb, oo, hb - 22.0), P.call(cb, nb, -oo, hb - 22.0), P.call(ca, na, -oo, ha - 22.0), COL_DECK.darkened(0.3), -up)
+			if win.is_empty(): road.quad(P.call(ca, na, oo, ha - 22.0), P.call(cb, nb, oo, hb - 22.0), P.call(cb, nb, -oo, hb - 22.0), P.call(ca, na, -oo, ha - 22.0), _deck_col(COL_DECK).darkened(0.3), -up)
 			pillar_acc += sb - sa
 			if pillar_acc > 260.0 and A["h"] > 70.0 and not _near_bridge_center(ca, HW * 2.4):
 				pillar_acc = 0.0
 				for side: float in [1.0, -1.0]:
 					var pp: Vector2 = ca + na * (HW - 20.0) * side
-					var pil := box(Vector3(26, A["h"] - 20.0, 26), COL_DECK, Vector3(pp.x, (A["h"] - 20.0) / 2.0, pp.y))
+					var pil := box(Vector3(26, A["h"] - 20.0, 26), _deck_col(COL_DECK), Vector3(pp.x, (A["h"] - 20.0) / 2.0, pp.y))
 					static_root.add_child(pil)
 		else:
 			pillar_acc = 260.0
@@ -973,8 +968,20 @@ const WINDOW_LOOK := {
 	"sand":   [Color("#a8743f"), Color("#d9aa6c"), Color("#c4945a")],
 	"rock":   [Color("#3b4046"), Color("#6c737b"), Color("#575e66")],
 }
+# bridge timber: in the premium look bridges are grey like the road (Guillaume, 2026-11-22)
+func _deck_col(wood: Color) -> Color:
+	if not (premium and th.has("rim")):
+		return wood
+	# these quads take vertex colours as they are (unlike the lit lane, which linearises
+	# them), so pass the road's grey already linear to land on the same tone
+	var g: Color = th["road"]
+	return (g.lightened(0.12) if wood == COL_DECK_LIGHT else g.darkened(0.1)).srgb_to_linear()
+
 func _window_mat(kind: String) -> ShaderMaterial:
 	var lk: Array = WINDOW_LOOK.get(kind, WINDOW_LOOK["rock"])
+	if premium and th.has("rim"):
+		var g: Color = th["road"]
+		lk = [g.darkened(0.2), g.lightened(0.25), g.lightened(0.1)] if kind != "snow" else [Color("#eef0f2"), Color("#c4cad2"), Color("#ffffff")]
 	var sh := Shader.new()
 	var ice := kind == "snow"
 	sh.code = """
@@ -1184,7 +1191,7 @@ void fragment() {
 		float rut = smoothstep(0.1, 0.0, abs(u - 0.32)) + smoothstep(0.1, 0.0, abs(u - 0.62)) * 0.7;
 		c = mix(c, c * 0.86, rut * fancy);
 		// loose snow ridged between the ruts and along the crown
-		float crown = smoothstep(0.2, 0.0, u) * (0.6 + 0.4 * vnoise(wp.xz * 3.0));
+		float crown = smoothstep(0.2, 0.0, u) * 0.8;
 		c = mix(c, edge_col, crown * 0.18 * fancy);
 	}
 	if (UV.x > 0.5) {
@@ -1437,7 +1444,12 @@ func _multi_tile(mesh: Mesh, xforms: Array, m: Material = null) -> void:
 	mi.material_override = m if m != null else _vert_mat
 	static_root.add_child(mi)
 
+# Premium look: houses, trees and rocks drawn at a believable size next to the cars (a car
+# was as big as a house), and fewer of them (Guillaume, 2026-11-22)
+const DECOR_BIG := 1.7
+
 func _build_scenery() -> void:
+	var big := DECOR_BIG if premium and th.has("rim") else 1.0
 	var b := track.bounds.grow(SCN_MARGIN)
 	var gw := ceili(b.size.x / SCN_CELL)
 	var gh := ceili(b.size.y / SCN_CELL)
@@ -1491,21 +1503,21 @@ func _build_scenery() -> void:
 		tries += 1
 		var q := track.point_at(rng.randf() * track.L)
 		var nrm := TrackData.perp(q["dir"]) * (1.0 if rng.randf() < 0.5 else -1.0)
-		var p: Vector2 = q["pos"] + nrm * (clear_r + 130.0 + rng.randf() * 120.0)
+		var p: Vector2 = q["pos"] + nrm * (clear_r + 130.0 * big + rng.randf() * 120.0)
 		var ok := true
-		for o in [Vector2.ZERO, Vector2(120, 0), Vector2(-120, 0), Vector2(0, 120), Vector2(0, -120)]:
+		for o in [Vector2.ZERO, Vector2(120, 0) * big, Vector2(-120, 0) * big, Vector2(0, 120) * big, Vector2(0, -120) * big]:
 			if not free.call(p + o):
 				ok = false
 		if not ok:
 			continue
-		mark.call(p, 170.0, 2)
-		ao_stamp(p, 150.0, 0.5)
+		mark.call(p, 170.0 * big, 2)
+		ao_stamp(p, 150.0 * big, 0.5)
 		# front (+z) faces the road
 		var yaw := -(-nrm).angle() + PI / 2
-		shacks.append(Transform3D(basis_for.call(yaw, 1.35), w3(p, ground_low(p, 90.0))))
+		shacks.append(Transform3D(basis_for.call(yaw, 1.35 * big), w3(p, ground_low(p, 90.0 * big))))
 
 	# forest: jittered grid, kept where the noise says "woods", thinner far out
-	var step := 120.0
+	var step := 120.0 * sqrt(big) if premium else 120.0   # bigger props, fewer of them
 	var y := b.position.y
 	while y < b.end.y:
 		var x := b.position.x
@@ -1519,19 +1531,22 @@ func _build_scenery() -> void:
 			# fallen trees (premium): at the edge of the woods and among the rocks, picked by a
 			# hash of the spot so the other props keep their places
 			var hs := absi(hash(Vector2i(int(p.x), int(p.y)))) % 1000
-			var log_here := kit.has("log") and ((n > 0.05 and n < 0.25 and hs < 160) or (n <= 0.05 and hs < 30))
+			var log_here := kit.has("log") and ((n > 0.05 and n < 0.25 and hs < 18) or (n <= 0.05 and hs < 3))
 			if log_here and r < kit["density"] + maxf(n, 0.0) + 0.1:
 				var yaw := float(hs) * 0.37
 				var dir := Vector2(cos(yaw), -sin(yaw))
-				if free.call(p + dir * 110.0) and free.call(p - dir * 140.0):
-					var ls := 1.1 + float(hs % 7) * 0.06
+				if free.call(p + dir * 110.0 * big) and free.call(p - dir * 110.0 * big):
+					var ls := (1.1 + float(hs % 7) * 0.06) * big
 					logs.append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * ls), w3(p, ground_h(p) - 3.0)))
-					ao_stamp(p, 90.0 * ls, 0.5)
-					for o in [-110.0, 0.0, 110.0]:
+					ao_stamp(p, 70.0 * ls, 0.5)
+					for o in [-110.0 * big, 0.0, 110.0 * big]:
 						mark.call(p + dir * o, 40.0, 2)
 					continue
+			# big props must clear the road with their whole crown, not just their trunk
+			if big > 1.0 and not (free.call(p + Vector2(32, 0) * big) and free.call(p - Vector2(32, 0) * big) and free.call(p + Vector2(0, 32) * big) and free.call(p - Vector2(0, 32) * big)):
+				continue
 			if n > 0.05 and r < kit["density"] + n:
-				var sc := 0.75 + rng.randf() * 0.6
+				var sc := (0.75 + rng.randf() * 0.6) * big
 				var xf := Transform3D(basis_for.call(rng.randf() * TAU, sc), w3(p, ground_h(p) - 3.0))
 				var pick_a := rng.randf() < 0.6
 				# Low graphics: about half the trees (the same rng draws either way, so the
@@ -1541,10 +1556,10 @@ func _build_scenery() -> void:
 					ao_stamp(p, 95.0 * sc, 0.6)
 				mark.call(p, 30.0 * sc, 2)
 			elif r < kit["rocks"]:
-				var rs := 0.6 + rng.randf() * 0.8
+				var rs := (0.6 + rng.randf() * 0.8) * big
 				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(rs * 1.4, rs, rs * 0.85)), w3(p, ground_h(p) - 4.0)))
 				ao_stamp(p, 60.0 * rs, 0.45)
-				mark.call(p, 40.0, 2)
+				mark.call(p, 40.0 * big, 2)
 		y += step
 	_multi(kit["a"], pines_a, kit.get("mat_a"))
 	_multi(kit["b"], pines_b, kit.get("mat_b"))
@@ -1552,7 +1567,7 @@ func _build_scenery() -> void:
 	_multi(kit["rock"], rocks, kit.get("mat"))
 	if not logs.is_empty():
 		_multi(kit["log"], logs, kit.get("mat"))
-	if premium and quality > 0 and kit.has("chimney"):
+	if premium and quality >= 2 and kit.has("chimney"):
 		for xf: Transform3D in shacks:
 			dyn_root.add_child(Premium.smoke(xf * (kit["chimney"] as Vector3)))
 
@@ -1819,7 +1834,7 @@ func _build_weather() -> void:
 	if premium and kind == "snow":
 		# soft round flakes of mixed sizes, falling slower, a few big ones close to the eye
 		m.albedo_texture = Premium.soft_dot()
-		q.size = Vector2(0.13, 0.13)
+		q.size = Vector2(0.11, 0.11)
 		snowfall.amount = 130
 		snowfall.initial_velocity_min = 0.5
 		snowfall.initial_velocity_max = 1.0
