@@ -107,23 +107,33 @@ var beam_light: OmniLight3D
 var boom_lights: Array = []
 var charge_ph := 0.0
 ## Each world's lighting and ground colours (sRGB), Hollow Moon first.
-const LOOKS := [{sun = "ffe6c8", amb = "5a50a0", fog = "140e2e", t_low = "1c1640", t_low2 = "2a1440", t_mid = "3a3070", t_high = "7a6cc0",
-	t_cliff = "241e4c", t_rock = "463c7c", c_top = "463c88", c_top2 = "2e2862", c_face = "2c2560", river_a = "3ff0e0", river_b = "ff4fa3",
-	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"]},
-	{sun = "e8f4ff", amb = "4a6a9a", fog = "0c1c30", t_low = "17283f", t_low2 = "1d3050", t_mid = "3c5a80", t_high = "b8d8f0",
-	t_cliff = "1a2a46", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "2f4a6a", river_a = "bff6ff", river_b = "4fb8ff",
+## A look with `warm` and `cool` is graded: a warm key light against a cool fill, light painted
+## into the ground (Terrain.grade), a little more contrast.
+const LOOKS := [{sun = "ffc890", amb = "2c58c8", fog = "0a1236", t_low = "0a1c4e", t_low2 = "1e1658", t_mid = "3a2e8a", t_high = "d07ab0",
+	t_cliff = "141a4c", t_rock = "5a4aa4", c_top = "6c4eb4", c_top2 = "3a2c7c", c_face = "141a50", river_a = "3ff0e0", river_b = "ff4fa3",
+	warm = "f09a8c", cool = "0c2470", sun_e = 1.5, amb_e = 0.6, contrast = 1.08, sat = 1.08,
+	cry = ["6ff3e6", "2fd6c8", "ff7ac0", "ff2f8f"], fis = ["c0408a", "3fb8b0"], lip = ["b9a8ff", "8f6bff"],
+	premium = true, haze = "1e1650", haze_run = "6a4a9a", haze_a = 35.0, haze_b = 230.0, sky_top = "0e0830", sky_mid = "2c1c62",
+	sky_hor = "9a5c92", sun_glow = "ffb890"},
+	{sun = "fff0dc", amb = "3a70d0", fog = "0a1a34", t_low = "0e2248", t_low2 = "142e5c", t_mid = "3a5c8c", t_high = "c4e0f4",
+	t_cliff = "12244a", t_rock = "56769c", c_top = "8aaccc", c_top2 = "56769a", c_face = "22406c", river_a = "bff6ff", river_b = "4fb8ff",
+	warm = "f0d0c8", cool = "0a2a70", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["dff8ff", "9fe8ff", "7fd8ff", "3fa8ff"], fis = ["4fb8ff", "bff6ff"], lip = ["d0f4ff", "7fe8ff"]},
-	{sun = "fff0c0", amb = "5a6a30", fog = "101e0c", t_low = "17260f", t_low2 = "223012", t_mid = "40562a", t_high = "a0b860",
-	t_cliff = "1c2a12", t_rock = "54663a", c_top = "7a8a4a", c_top2 = "4e5e30", c_face = "34421e", river_a = "ffb547", river_b = "c8f560",
+	{sun = "ffe6a8", amb = "3a8a70", fog = "0c1e12", t_low = "0e2a1e", t_low2 = "1a3014", t_mid = "40582a", t_high = "b0c060",
+	t_cliff = "122a1c", t_rock = "54663a", c_top = "7a8a4a", c_top2 = "4e5e30", c_face = "243e22", river_a = "ffb547", river_b = "c8f560",
+	warm = "e8c868", cool = "0a3a38", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffc860", "ff9a20", "c8f560", "8ac020"], fis = ["ff9a20", "c8f560"], lip = ["ffe0a0", "ffb547"]},
-	{sun = "ffd8b0", amb = "6a4a40", fog = "1c100c", t_low = "201410", t_low2 = "2a1a14", t_mid = "4a3a34", t_high = "9a8478",
-	t_cliff = "22160f", t_rock = "5a4a44", c_top = "7a6a62", c_top2 = "4e4440", c_face = "362a26", river_a = "ff7a1a", river_b = "ffcc33",
+	{sun = "ffd0a0", amb = "5a5a90", fog = "16101a", t_low = "1a1620", t_low2 = "2a1a18", t_mid = "4c3a34", t_high = "a88878",
+	t_cliff = "1c1622", t_rock = "5a4a44", c_top = "7a6a62", c_top2 = "4e4440", c_face = "2c2630", river_a = "ff7a1a", river_b = "ffcc33",
+	warm = "d89070", cool = "1a2046", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffb070", "ff6a00", "ffd060", "ffaa00"], fis = ["ff5a00", "ffcc33"], lip = ["ffc890", "ff7a1a"]},
-	{sun = "e0e8ff", amb = "4a5090", fog = "0c0e22", t_low = "121630", t_low2 = "181c3c", t_mid = "343c6a", t_high = "8890c8",
-	t_cliff = "141834", t_rock = "4a5280", c_top = "7078a0", c_top2 = "50587e", c_face = "30365a", river_a = "ff4fa3", river_b = "4fe3d6",
+	{sun = "f0e8ff", amb = "3450b8", fog = "0a0e28", t_low = "0c1438", t_low2 = "161a44", t_mid = "343c72", t_high = "9a94d0",
+	t_cliff = "0e1638", t_rock = "4a5280", c_top = "7078a0", c_top2 = "50587e", c_face = "242c5c", river_a = "ff4fa3", river_b = "4fe3d6",
+	warm = "a4a8e4", cool = "0a184e", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ff7ac0", "ff2f8f", "6ff3e6", "2fd6c8"], fis = ["ff2f8f", "3fc0c0"], lip = ["c0c8ff", "ff4fa3"]},
-	{sun = "fff0c8", amb = "7a3a20", fog = "260a06", t_low = "2a0c08", t_low2 = "34100a", t_mid = "5a2414", t_high = "c0602a",
-	t_cliff = "2a0e08", t_rock = "6b2a2a", c_top = "7a3a2a", c_top2 = "552222", c_face = "3a1610", river_a = "ffcc40", river_b = "ff6a00",
+	{sun = "ffe8b8", amb = "7a3a70", fog = "220a12", t_low = "260a16", t_low2 = "34100c", t_mid = "5c2414", t_high = "cc6a2c",
+	t_cliff = "260c18", t_rock = "6b2a2a", c_top = "7a3a2a", c_top2 = "552222", c_face = "34121c", river_a = "ffcc40", river_b = "ff6a00",
+	warm = "e46c48", cool = "2c0a3c", sun_e = 1.45, amb_e = 0.6, contrast = 1.08, sat = 1.08,
 	cry = ["ffe080", "ffb000", "ff8a40", "ff4000"], fis = ["ff4000", "ffcc40"], lip = ["ffe0a0", "ffcc40"]},
 ]
 var look: Dictionary = {}
@@ -466,6 +476,94 @@ func _setup_world() -> void:
 	world.add_child(shield_m)
 
 
+var _sky: Sky
+var _sky_mat: ShaderMaterial
+var _haze: ColorRect
+
+
+## The premium look's atmosphere (a look with `premium`): a gradient sky with the sun's glow for
+## the views that see the horizon, a lighter haze the low ground sinks into, a softer, wider
+## bloom and a soft sun-side light over the top-down view. Cheap on purpose: the haze over the
+## screen is one quad, the sky is drawn once into the radiance map and then only where it shows.
+func _premium_env() -> void:
+	var on: bool = look.get("premium", false)
+	VRun.premium = on
+	if on and _sky == null:
+		_sky_mat = ShaderMaterial.new()
+		var sh := Shader.new()
+		sh.code = """
+shader_type sky;
+uniform vec3 top : source_color;
+uniform vec3 mid : source_color;
+uniform vec3 hor : source_color;
+uniform vec3 low : source_color;
+uniform vec3 sun : source_color;
+void sky() {
+	float h = EYEDIR.z;
+	vec3 c = mix(hor, mid, smoothstep(0.0, 0.25, h));
+	c = mix(c, top, smoothstep(0.2, 0.85, h));
+	c = mix(c, low, smoothstep(0.0, -0.12, h));
+	float s = max(dot(EYEDIR, LIGHT0_DIRECTION), 0.0);
+	c += sun * (pow(s, 12.0) * 0.3 + pow(s, 200.0) * 0.9) * smoothstep(-0.1, 0.05, h);
+	COLOR = c;
+}
+"""
+		_sky_mat.shader = sh
+		_sky = Sky.new()
+		_sky.sky_material = _sky_mat
+		_sky.radiance_size = Sky.RADIANCE_SIZE_32
+		_sky.process_mode = Sky.PROCESS_MODE_QUALITY
+		var l := CanvasLayer.new()
+		l.layer = -1
+		add_child(l)
+		_haze = ColorRect.new()
+		_haze.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_haze.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var hm := ShaderMaterial.new()
+		var hs := Shader.new()
+		hs.code = """
+shader_type canvas_item;
+render_mode blend_add;
+uniform vec3 glow : source_color;
+uniform float k = 1.0;
+void fragment() {
+	// sunlight scattering in from the upper left, fading down the screen and into the far corner
+	vec2 d = UV - vec2(-0.15, -0.1);
+	float s = exp(-dot(d, d) * 1.6);
+	COLOR = vec4(glow * s * 0.09 * k, 1.0);
+}
+"""
+		hm.shader = hs
+		_haze.material = hm
+		l.add_child(_haze)
+	if _sky != null:
+		_haze.visible = on and not Diag.safe
+		if on:
+			_sky_mat.set_shader_parameter("top", Color(look.sky_top))
+			_sky_mat.set_shader_parameter("mid", Color(look.sky_mid))
+			_sky_mat.set_shader_parameter("hor", Color(look.sky_hor))
+			_sky_mat.set_shader_parameter("low", Color(look.haze))
+			_sky_mat.set_shader_parameter("sun", Color(look.sun_glow))
+			(_haze.material as ShaderMaterial).set_shader_parameter("glow", Color(look.sun_glow))
+	_env.background_mode = Environment.BG_SKY if on else Environment.BG_COLOR
+	_env.sky = _sky if on else null
+	_env.fog_sky_affect = 0.0 if on else 1.0
+	_env.fog_light_color = Color(look.get("haze", look.fog))
+	_env.fog_depth_begin = CAM_D + float(look.get("haze_a", 30.0))
+	_env.fog_depth_end = CAM_D + float(look.get("haze_b", 210.0))
+	_env.fog_sun_scatter = 0.12 if on else 0.0
+	_env.glow_intensity = 0.75 if on else 0.9
+	_env.glow_bloom = 0.08 if on else 0.04
+	_env.glow_hdr_threshold = 0.8 if on else 0.85
+	for i in range(1, 8):
+		var lv := 0.0
+		if i in [2, 3, 4, 5]:
+			lv = 1.0
+		elif on and i == 6:
+			lv = 0.6
+		_env.set("glow_levels/%d" % i, lv)
+
+
 ## Dresses the scene for world `w`: sky, fog, light, ground and rock colours, stars.
 func apply_world(w: int) -> void:
 	if w == _world:
@@ -487,7 +585,14 @@ func apply_world(w: int) -> void:
 	_env.ambient_light_color = Color(look.amb)
 	_env.fog_light_color = Color(look.fog)
 	sun.light_color = Color(look.sun)
+	sun.light_energy = look.get("sun_e", 1.35)
 	_rim.light_color = Color(pal.rim)
+	_rim.light_energy = look.get("rim_e", 0.55)
+	_env.ambient_light_energy = look.get("amb_e", 0.4)
+	_premium_env()
+	_env.adjustment_enabled = look.has("contrast")
+	_env.adjustment_contrast = look.get("contrast", 1.0)
+	_env.adjustment_saturation = look.get("sat", 1.0)
 	for k in stars.size():
 		var mi: MultiMeshInstance3D = stars[k].get_child(0)
 		(mi.multimesh.mesh.material as StandardMaterial3D).albedo_color = Color(pal.star_a if k == 0 else pal.star_b)
@@ -2248,7 +2353,8 @@ func _walls_node(c: int) -> Node3D:
 	var n := Node3D.new()
 	n.name = "Walls"
 	n.position.z = -GROUND_Z + 50.0 - 7.0
-	var rows := 16
+	# the premium look builds the rock from fewer, bigger facets
+	var rows := 10 if look.get("premium", false) else 16
 	var seen := false
 	for j in rows + 1:
 		var wj := VStage.walls(G.stage, c * CHUNK + CHUNK * j / rows - G.get("foff", 0.0))
@@ -2524,9 +2630,9 @@ func _camera_reset() -> void:
 	camera.transform = Transform3D(Basis(), Vector3(0, 0, CAM_D))
 	camera.fov = _fov_td
 	camera.near = 10.0
-	_env.fog_light_color = Color(look.fog)
-	_env.fog_depth_begin = CAM_D + 30.0
-	_env.fog_depth_end = CAM_D + 210.0
+	_env.fog_light_color = Color(look.get("haze", look.fog))
+	_env.fog_depth_begin = CAM_D + float(look.get("haze_a", 30.0))
+	_env.fog_depth_end = CAM_D + float(look.get("haze_b", 210.0))
 
 
 ## Where the chase camera at canyon (x, z) must go to stay out of obstacle `o`'s rock (with 3
@@ -2642,11 +2748,13 @@ func _camera(j: Vector3) -> void:
 	camera.transform.basis = camera.transform.basis * Basis(Vector3.BACK, roll)
 	camera.fov = lerpf(_fov_td, wide, k) + swing * 10.0
 	camera.near = lerpf(10.0, 1.5, k)
-	_env.fog_depth_begin = lerpf(CAM_D + 30.0, 140.0, k)
+	_env.fog_depth_begin = lerpf(CAM_D + float(look.get("haze_a", 30.0)), 140.0, k)
 	# the depth of the canyon glows, so near rock stands dark against it and every way through
 	# shows as the bright part ahead
-	_env.fog_light_color = Color(look.fog).lerp(Color("4a3590"), k)
-	_env.fog_depth_end = lerpf(CAM_D + 210.0, 520.0, k)
+	_env.fog_light_color = Color(look.get("haze", look.fog)).lerp(Color(look.get("haze_run", "4a3590")), k)
+	_env.fog_depth_end = lerpf(CAM_D + float(look.get("haze_b", 210.0)), 520.0, k)
+	if _haze != null:
+		(_haze.material as ShaderMaterial).set_shader_parameter("k", 1.0 - k)
 
 
 # ---------- render ----------

@@ -88,5 +88,11 @@ func _initialize() -> void:
 
 	Diag.note("QUIT")
 	Diag.set_safe(false)
+	# each world's banner on the map carries a line of the story (Guillaume's six beats, 2026-11-22)
+	var told := true
+	for wd in Worlds.LIST:
+		told = told and String(wd.get("story", "")).length() > 20
+	check(told, "every world has a line of story for its map banner")
 	print("FAILED %d" % fails if fails else "ALL PASSED")
+
 	quit(1 if fails else 0)

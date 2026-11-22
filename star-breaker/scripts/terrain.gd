@@ -15,6 +15,14 @@ const X1 := 170.0
 const COLS := [-300.0, -230.0, -170.0, -140.0, -116.0, -96.0, -80.0, -68.0, -58.0, -48.0, -40.0, -32.0, -24.0, -16.0, -8.0, 0.0,
 	8.0, 16.0, 24.0, 32.0, 40.0, 48.0, 58.0, 68.0, 80.0, 96.0, 116.0, 140.0, 170.0, 230.0, 300.0]
 const ROWS := 10
+## The premium look (a look with `premium`): fewer, bigger facets, laid out on purpose. The
+## middle of the floor gets cells half again as wide and long, the ridges coarser still.
+const COLS_P := [-300.0, -220.0, -160.0, -124.0, -96.0, -76.0, -60.0, -46.0, -34.0, -22.0, -11.0, 0.0,
+	11.0, 22.0, 34.0, 46.0, 60.0, 76.0, 96.0, 124.0, 160.0, 220.0, 300.0]
+const ROWS_P := 6
+## How much of each facet's own tilt shows in its shading (the rest follows the broad shape):
+## facets still read, but the hills read first, as smooth light.
+const FACET := 0.85
 ## Crater cells: one chance of a crater per this many world units.
 const CRATER_CELL := 52.0
 
@@ -201,8 +209,38 @@ static func face_color(pc: Dictionary, zc: float, up: float, jit: float, tn := 0
 
 
 static func colors(pal: Dictionary) -> Dictionary:
-	return {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
+	var out := {low = Color(pal.t_low), low2 = Color(pal.t_low2), mid = Color(pal.t_mid), high = Color(pal.t_high), cliff = Color(pal.t_cliff),
 		river = [Color(pal.river_a), Color(pal.river_b)]}
+	# a graded look paints light into the ground itself (see `grade`)
+	if pal.has("warm"):
+		out.warm = Color(pal.warm)
+		out.cool = Color(pal.cool)
+	if pal.get("premium", false):
+		out.premium = true
+	return out
+
+
+## Where the sun stands, for the light painted into a graded ground (it matches the game's sun).
+const TO_SUN := Vector3(-0.376, 0.457, 0.806)
+
+
+## Paints light into a face of a graded look: slopes that face the sun go warm, slopes turned
+## away go cool and dark, hollows sink and crests catch the light. It costs nothing to draw.
+## `n`: the normal of the ground's broad shape there (up), `hollow`: how far the ground
+## around stands above it.
+static func grade(pc: Dictionary, c: Color, n: Vector3, hollow: float) -> Color:
+	var d := n.dot(TO_SUN) - TO_SUN.z
+	# the premium look pushes light and shade further apart: warm sunlit slopes, deep cool hollows
+	var p := 1.5 if pc.has("premium") else 1.0
+	if d > 0.0:
+		c = c.lerp(pc.warm, clampf(d * 2.8 * p, 0.0, 0.5 * p)).lightened(clampf(d * (p - 1.0) * 0.6, 0.0, 0.12))
+	else:
+		c = c.lerp(pc.cool, clampf(-d * 1.6 * p, 0.0, 0.7))
+	if hollow > 0.0:
+		c = c.lerp(pc.cool, clampf(hollow / 10.0, 0.0, 0.45)).darkened(clampf(hollow / 14.0 * p, 0.0, 0.35 * p))
+	else:
+		c = c.lightened(clampf(-hollow / 16.0, 0.0, 0.22))
+	return c
 
 
 ## Builds chunk `c` (CHUNK units long) in chunk space: x across, y along (0..len), z up.
@@ -226,6 +264,10 @@ class Builder:
 	var ground := Acc.new()
 	var row_t := 0
 	var node: Node3D
+	var _shape := {}  ## corner (x, y) -> [the ground's broad normal there, how hollow it is]
+	var premium := false
+	var cols: Array = COLS
+	var rows := ROWS
 
 	func _init(c_: int, len_: float, pal_: Dictionary, mats_: Dictionary) -> void:
 		c = c_
@@ -234,17 +276,21 @@ class Builder:
 		pc = Terrain.colors(pal)
 		mats = mats_
 		y0 = c * len
+		premium = pal.get("premium", false)
+		if premium:
+			cols = COLS_P
+			rows = ROWS_P
 
 	## Does the next slice of work; true once `node` is ready.
 	func step() -> bool:
-		if pts.size() < ROWS + 1:
+		if pts.size() < rows + 1:
 			for k in 4:
-				if pts.size() < ROWS + 1:
+				if pts.size() < rows + 1:
 					pts.append(_row(pts.size()))
 			return false
-		if row_t < ROWS:
+		if row_t < rows:
 			for k in 4:
-				if row_t < ROWS:
+				if row_t < rows:
 					_tris(row_t)
 					row_t += 1
 			return false
@@ -253,21 +299,50 @@ class Builder:
 
 	func _row(j: int) -> Array:
 		var row := []
-		var ly := len * j / ROWS
-		for i in COLS.size():
-			var x: float = COLS[i]
+		var ly := len * j / rows
+		# premium facets are bigger, so their corners can wander further
+		var amp := 1.7 if premium else 1.0
+		for i in cols.size():
+			var x: float = cols[i]
 			# jitter inner vertices so the grid never reads as a grid (same in every chunk)
 			var jx := 0.0
 			var jy := 0.0
-			if i > 0 and i < COLS.size() - 1:
-				jx = (Terrain.h2(x, y0 + ly) - 0.5) * 3.0
-			if j > 0 and j < ROWS:
-				jy = (Terrain.h2(x + 7.0, y0 + ly) - 0.5) * 2.4
+			if i > 0 and i < cols.size() - 1:
+				jx = (Terrain.h2(x, y0 + ly) - 0.5) * 3.0 * amp
+			if j > 0 and j < rows:
+				jy = (Terrain.h2(x + 7.0, y0 + ly) - 0.5) * 2.4 * amp
 			row.append(Vector3(x + jx, ly + jy, Terrain.height(x + jx, y0 + ly + jy)))
 		return row
 
+	## A face's colour with the light painted in at corner `p` (chunk space). What the ground
+	## does there is worked out once per corner and shared by the faces round it.
+	func _graded(col: Color, p: Vector3) -> Color:
+		var key := Vector2(p.x, p.y)
+		if not _shape.has(key):
+			var wy := y0 + p.y
+			var hw := Terrain.height(p.x - 13.0, wy)
+			var he := Terrain.height(p.x + 13.0, wy)
+			var hs := Terrain.height(p.x, wy - 13.0)
+			var hn := Terrain.height(p.x, wy + 13.0)
+			var hollow := (hw + he + hs + hn) / 4.0 - p.z
+			if premium:
+				# occlusion: a wider ring as well, so crater floors, river beds and the feet
+				# of ridges sink into soft shadow (baked: costs nothing to draw)
+				var far := 0.0
+				for a in 6:
+					var ang := a * TAU / 6.0 + 0.4
+					far += Terrain.height(p.x + cos(ang) * 30.0, wy + sin(ang) * 30.0)
+				hollow = maxf(hollow, (far / 6.0 - p.z) * 0.8)
+			_shape[key] = [Vector3((hw - he) / 26.0, (hs - hn) / 26.0, 1.0).normalized(), hollow]
+		var sh: Array = _shape[key]
+		return Terrain.grade(pc, col, sh[0], sh[1])
+
+	## The broad normal at corner `p` (see `_graded`, which must have seen `p`).
+	func _broad(p: Vector3) -> Vector3:
+		return (_shape[Vector2(p.x, p.y)] as Array)[0]
+
 	func _tris(j: int) -> void:
-		for i in COLS.size() - 1:
+		for i in cols.size() - 1:
 			var a: Vector3 = pts[j][i]
 			var b: Vector3 = pts[j][i + 1]
 			var d: Vector3 = pts[j + 1][i]
@@ -280,18 +355,38 @@ class Builder:
 				var p0: Vector3 = t[0]
 				var p1: Vector3 = t[1]
 				var p2: Vector3 = t[2]
-				var nz := absf((p1 - p0).cross(p2 - p0).normalized().z)
+				var nrm := (p1 - p0).cross(p2 - p0).normalized()
+				var nz := absf(nrm.z)
 				var jit := Terrain.h2(p0.x + p2.y, y0 + p1.y) - 0.5
-				var col := Terrain.face_color(pc, (p0.z + p1.z + p2.z) / 3.0, nz, jit, tn)
-				# the river's light spills onto its banks
+				if premium:
+					# no random shade per face: the light alone picks the facets out
+					jit = 0.0
+				var zc := (p0.z + p1.z + p2.z) / 3.0
+				var col := Terrain.face_color(pc, zc, nz, jit, tn)
 				var cx := (p0.x + p1.x + p2.x) / 3.0
 				var cwy := y0 + (p0.y + p1.y + p2.y) / 3.0
+				# the river's light spills onto its banks
 				var rv := Terrain.river_dy(cx, cwy)
 				var rd := absf(rv.x)
-				if rd < 30.0:
-					var rc: Color = pc.river[int(rv.y)]
-					col = col.lerp(rc, exp(-pow(rd / 15.0, 2.0)) * 0.55)
-				ground.tri(p0, p1, p2, col, Vector3.BACK)
+				var rc: Color = pc.river[int(rv.y)]
+				var rk := exp(-pow(rd / 15.0, 2.0)) * 0.55 if rd < 30.0 else 0.0
+				if not pc.has("warm"):
+					ground.tri(p0, p1, p2, col.lerp(rc, rk), Vector3.BACK)
+				elif premium:
+					var c0 := _graded(col, p0).lerp(rc, rk)
+					var c1 := _graded(col, p1).lerp(rc, rk)
+					var c2 := _graded(col, p2).lerp(rc, rk)
+					var fn := nrm if nrm.z > 0.0 else -nrm
+					ground.tri3n(p0, p1, p2, c0, c1, c2, _soft(fn, p0), _soft(fn, p1), _soft(fn, p2))
+				else:
+					# the painted light is worked out at each corner and blends across the
+					# face, so it models hills and hollows without picking out the triangles
+					ground.tri3(p0, p1, p2, _graded(col, p0).lerp(rc, rk), _graded(col, p1).lerp(rc, rk), _graded(col, p2).lerp(rc, rk), Vector3.BACK)
+
+
+	## A corner's normal for the premium look: part facet, mostly the broad shape.
+	func _soft(fn: Vector3, p: Vector3) -> Vector3:
+		return fn.lerp(_broad(p), 1.0 - FACET).normalized()
 
 
 ## The chunk's node: the ground mesh plus crystals, boulders and the odd fissure.
@@ -512,6 +607,54 @@ class Acc:
 			c = t
 		_add(a, b, c, nrm, color)
 
+	## Adds triangle a, b, c facing `dir`, with a colour at each corner.
+	func tri3(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, dir: Vector3) -> void:
+		var nrm := (b - a).cross(c - a)
+		if nrm.length_squared() < 1e-10:
+			return
+		nrm = nrm.normalized()
+		if nrm.dot(dir) < 0.0:
+			nrm = -nrm
+			var t := b
+			b = c
+			c = t
+			var tc := cb
+			cb = cc
+			cc = tc
+		v.append(a)
+		v.append(c)
+		v.append(b)
+		for i in 3:
+			n.append(nrm)
+		col.append(ca)
+		col.append(cc)
+		col.append(cb)
+
+	## Adds triangle a, b, c (facing up) with a colour and a normal at each corner.
+	func tri3n(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, na: Vector3, nb: Vector3, nc: Vector3) -> void:
+		var nrm := (b - a).cross(c - a)
+		if nrm.length_squared() < 1e-10:
+			return
+		if nrm.z < 0.0:
+			var t := b
+			b = c
+			c = t
+			var tc := cb
+			cb = cc
+			cc = tc
+			var tn := nb
+			nb = nc
+			nc = tn
+		v.append(a)
+		v.append(c)
+		v.append(b)
+		n.append(na)
+		n.append(nc)
+		n.append(nb)
+		col.append(ca)
+		col.append(cc)
+		col.append(cb)
+
 	## Adds triangle a, b, c facing away from `center`.
 	func convex(a: Vector3, b: Vector3, c: Vector3, color: Color, center: Vector3) -> void:
 		tri(a, b, c, color, (a + b + c) / 3.0 - center)
@@ -568,6 +711,8 @@ const FACE_OUT := [0.0, 1.2, 3.4, 5.0, 8.0]
 static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) -> void:
 	var tops := []
 	var faces := []
+	# the premium look shades rock by its shape and light, not by a random shade per facet
+	var jk := 0.25 if pal.get("premium", false) else 1.0
 	for r in rows:
 		var e: Vector3 = r[0]
 		var lim: float = r[1]
@@ -592,7 +737,7 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var b: Vector3 = tops[j][k + 1]
 			var c: Vector3 = tops[j + 1][k]
 			var d: Vector3 = tops[j + 1][k + 1]
-			var jit := h2(wy, k * 2.0) - 0.5
+			var jit := (h2(wy, k * 2.0) - 0.5) * jk
 			var col := Color(pal.c_top).lerp(Color(pal.c_top2), float(k) / TOP_OFF.size())
 			col = col.lightened(jit * 0.1) if jit > 0.0 else col.darkened(-jit * 0.12)
 			# crests catch the light, saddles sink into the rock's darker tone
@@ -605,7 +750,7 @@ static func cliff(acc: Acc, rows: Array, s: float, pal: Dictionary, wy0: float) 
 			var b: Vector3 = faces[j][m + 1]
 			var c: Vector3 = faces[j + 1][m]
 			var d: Vector3 = faces[j + 1][m + 1]
-			var jit := h2(wy, m * 4.0 + 1.0) - 0.5
+			var jit := (h2(wy, m * 4.0 + 1.0) - 0.5) * jk
 			# strata: alternate bands are lighter and darker, deeper bands sink into shadow
 			var col := Color(pal.c_face).darkened(float(m) * 0.12)
 			if m % 2 == 1:

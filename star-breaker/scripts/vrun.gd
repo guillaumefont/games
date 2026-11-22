@@ -736,12 +736,19 @@ static func _crag(p: Vector3, s: float, m: int) -> Vector3:
 
 ## A facet's shade: lit from above (and a little from the front), with a per-facet drift, so
 ## neighbouring faces of one rock never share a flat colour.
+## The premium look (world 1): rock shaded by its tilt alone, no random shade per facet.
+static var premium := false
+
+
 static func _facet(base: Color, a: Vector3, b: Vector3, c: Vector3, dir: Vector3) -> Color:
 	var n := (b - a).cross(c - a).normalized()
 	if n.dot(dir) < 0.0:
 		n = -n
 	var lit := clampf(n.z * 0.5 + 0.5, 0.0, 1.0) * 0.22 - 0.08
 	var drift := VStage.hash(Vector2((a.x + b.y) * 0.71, (c.z + a.y) * 0.37)) * 0.1 - 0.05
+	if premium:
+		drift *= 0.2
+		lit *= 1.5
 	var k := lit + drift
 	return base.lightened(k) if k > 0.0 else base.darkened(-k)
 

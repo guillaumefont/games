@@ -261,6 +261,18 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
 - Clear `user://diag.log` / `settings.cfg` before taking screenshots: a killed run counts as a
   crash and the next launch turns safe graphics on (no glow, no shadows).
 
+## Premium low poly (2026-11-22, world 1)
+
+- Guillaume: "I like the low poly esthetics but it felt blocky and cheap". Built as a world 1
+  preview (PR 104) and merged on his word. Look key `premium`
+  (LOOKS[0]) gates: bigger ground facets (`Terrain.COLS_P`, `ROWS_P`), normals blended toward the
+  broad shape (`FACET`), no random shade per facet (ground, cliffs, the run's rock via
+  `VRun.premium`), wider baked occlusion, a gradient sky with the sun's glow (`_premium_env()`),
+  lighter haze (`haze`, `haze_run`), a sun-side screen haze quad, a wider softer bloom.
+  Global: `Geo.bevel` chamfers boxes and prisms, `Models.std` has a rim light.
+  Stills: `tools/premium_shots.gd` (command at its top; a second argument picks stills).
+  Compatibility has no SSAO: occlusion is baked into vertex colours, keep it that way.
+
 ## The game
 
 - `scenes/main.tscn` runs `scripts/vgame.gd` (game, menu flow, save, updates), with
@@ -394,3 +406,8 @@ Screenshots (needs a display): `xvfb-run -a godot --path . --rendering-method gl
   in (LEN, OUT, PATH, TURN, OBS are static vars). Outpost props and islands stay out of the ground
   the camera sees behind the ship as it swings. tests/runs_test.gd checks all 48 courses and flies
   every one in the game for gold, camera out of rock (holes' funnels included) and ship in sight. tools/run_shots.gd takes a stage index as a second argument.
+- Story (Guillaume's OK, 2026-11-22): each world has one beat, shown as a line under its banner on
+  the map (`story` in `Worlds.LIST`, drawn in `VMap._draw_banner`): the spore Bloom eating the
+  moon, the signal under the ice and its relay, the hive farming it, the foundry forging drones,
+  the military outpost (Bastion Ring: closer and more fortified every stage), the star they were
+  mining. Keep new stage names, bosses and text consistent with these beats.
