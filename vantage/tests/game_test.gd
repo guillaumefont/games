@@ -221,7 +221,7 @@ func stage() -> void:
 		g.step(DT)
 	check(g.fort_s == Rules.FORTRESS_SCALE, "the fortress grew during the swoop")
 	# a flying fortress: two wings with propellers that turn
-	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 2 * Models.WING_ENGINES.size(), "a flying fortress: two wings with their engines")
+	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 2 * Models.WINGS.props.engines.size(), "a flying fortress: two wings with their engines")
 	var spin0: float = g.fort_props[0].rotation.z
 	g.step(DT)
 	check(absf(g.fort_props[0].rotation.z - spin0) > 0.1, "its propellers turn")
@@ -311,10 +311,12 @@ func death() -> void:
 ## show, and hits need a flash.
 func aiming() -> void:
 	print("aiming and hits")
-	for sec: Dictionary in Rules.FORTRESS_SECTIONS:
-		for m: Vector2 in sec.mounts:
-			var x := m.x * Rules.FORTRESS_SCALE
-			check(absf(x) <= Rules.POV_REACH.x, "fortress mount at x %.1f within the chase's reach" % x)
+	for id: String in Rules.FORTRESSES:
+		var reach := true
+		for sec: Dictionary in Rules.FORTRESSES[id].sections:
+			for m: Vector2 in sec.mounts:
+				reach = reach and absf(m.x * Rules.FORTRESS_SCALE) <= Rules.POV_REACH.x and m.y <= 19.65 and m.y >= 2.0
+		check(reach, "every gun of the %s within the chase's reach" % Rules.FORTRESSES[id].name)
 	var g := make_game()
 	await process_frame
 	g.launch()

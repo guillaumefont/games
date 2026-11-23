@@ -90,6 +90,32 @@ func data() -> void:
 			walls = walls and (sec.piece == "" or shapes.has(sec.piece) or id == "halo")
 		check(walls, "%s: its hull and pieces can be rammed" % m.name)
 	check(layouts.size() == Rules.MIDBOSSES.size(), "no two mid-bosses are laid out alike")
+	var forts := {}
+	var pairs := {}
+	for w in Campaign.WORLDS.size():
+		var here := {}
+		for k in Campaign.PER_WORLD:
+			var lv := w * Campaign.PER_WORLD + k
+			here[Campaign.fortress_of(lv)] = true
+			forts[Campaign.fortress_of(lv)] = true
+			pairs[Campaign.midboss_of(lv) + "/" + Campaign.fortress_of(lv)] = true
+		check(here.size() == Campaign.PER_WORLD, "%s: three levels, three different fortresses" % Campaign.WORLDS[w].name)
+	check(forts.size() == Rules.FORTRESSES.size() and forts.size() >= 5, "every fortress is flown (%d)" % forts.size())
+	check(pairs.size() == Campaign.count(), "no two levels have the same pair of bosses")
+	check(Campaign.fortress_of(Campaign.PER_WORLD - 1) == "goliath", "the hand-made sector keeps the Goliath")
+	var looks := {}
+	for id: String in Rules.FORTRESSES:
+		var f: Dictionary = Rules.FORTRESSES[id]
+		var pieces := true
+		for k in f.sections.size() - 1:
+			var sec: Dictionary = f.sections[k]
+			pieces = pieces and sec.piece in ["plating", "collar", "tower", "fin"] and not sec.mounts.is_empty() \
+				and Models.fortress_piece(id, sec.piece).get_surface_count() > 0
+		looks["%s/%s/%s/%s" % [f.hull, f.wings, f.fins, f.paint]] = true
+		check(pieces and f.sections[-1].mounts.is_empty() and Models.fortress_hull(id).get_surface_count() > 0
+			and Models.fortress_wing(id, 1.0).get_surface_count() > 0 and Models.WINGS.has(f.wings),
+			"%s: %d sections, each with a piece that breaks off, then the reactor" % [f.title, f.sections.size()])
+	check(looks.size() == Rules.FORTRESSES.size(), "no two fortresses look alike")
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
 	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's fortress run is the hand-made sector")
 
@@ -245,6 +271,32 @@ func levels() -> void:
 		var m: Dictionary = Rules.MIDBOSSES[id]
 		check(g.boss_done and secs[0] == m.sections.size() - 1 and hidden[0],
 			"%s (%s): taken apart in %d sections, each breaking off" % [m.name, Campaign.code(lv), m.sections.size()])
+		g.to_hangar()
+	# every fortress, chased down section by section
+	for id: String in Rules.FORTRESSES:
+		var lv := 0
+		while Campaign.fortress_of(lv) != id:
+			lv += 1
+		g.launch(lv)
+		# straight to the fortress (the mid-boss counts as down)
+		g.boss_done = true
+		for k in g.waves.size():
+			if g.waves[k].kind == "fortress":
+				g.wave_i = k
+				g.stage_t = g.waves[k].t
+		var secs := [0]
+		var hidden := [true]
+		var snapped := [false]
+		run(g, 240.0, func() -> bool:
+			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < g.fort.sections.size() - 1:
+				var piece: String = g.fort.sections[secs[0]].piece
+				hidden[0] = hidden[0] and not g.fortress.get_node(piece).visible
+				secs[0] = g.fort_sec
+			snapped[0] = snapped[0] or g.wing_off != null
+			return g.phase == "results")
+		var f: Dictionary = Rules.FORTRESSES[id]
+		check(g.run.cleared and secs[0] == f.sections.size() - 1 and hidden[0] and snapped[0],
+			"%s (%s): chased down in %d sections, each breaking off, then loses a wing" % [f.name, Campaign.code(lv), f.sections.size()])
 		g.to_hangar()
 	g.queue_free()
 	await process_frame

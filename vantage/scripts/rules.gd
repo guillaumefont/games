@@ -39,19 +39,72 @@ const FORTRESS_TOP := 13.0
 const TOWER_TOP := 21.0
 const BAY_HW := 3.0
 const BAY_HH := 2.3
-## The final boss in sections, like the mid-boss: turrets on the stern round the hangar (on
-## armour plating that breaks off), then turrets up the tower (which breaks off), then the
-## reactor in the hangar behind its four shield panels. Mounts are (x, y) on the fortress's
-## model, all within the ship's reach in the chase.
-const FORTRESS_SECTIONS := [
-	{"name": "TAIL GUNS", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
-		Vector2(4.0, 9.0), Vector2(-2.0, 10.8), Vector2(2.0, 10.8)]},
-	{"name": "GUN TOWER", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
-		Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
-	{"name": "REACTOR", "mounts": []},
-]
-## Seconds between drone launches from the hangar during the chase.
-const DRONE_EVERY := 6.5
+## The final bosses, flying fortresses taken apart in sections like the mid-bosses: each section's
+## gun mounts are (x, y) on the fortress's stern (z from `Models.mount_z`), all within the ship's
+## reach in the chase (|x| <= 4.6, y <= 19.6, tested), on a `piece` that breaks off when the
+## section falls: `collar` (gun pods either side of the bay), `plating` (armour on the stern),
+## `tower` (a casemate on the spine) or `fin` (a tall dorsal fin). The last section is the
+## reactor in the bay behind its shield panels. Each fortress has its own hull section (`hull`:
+## box, round or hex), wings (`Models.WINGS`: propellers, short stubs, jets), tail (`fins`), paint,
+## accent colour and drone rate. Each level has its own (`Campaign.fortress_of`).
+const FORTRESSES := {
+	"goliath": {"name": "Goliath", "title": "Goliath-class flying fortress", "hull": "box", "wings": "props", "fins": "twin",
+		"paint": "steel", "accent": Color8(0xff, 0xa8, 0x2e), "drones": 6.5, "sections": [
+		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
+			Vector2(4.0, 9.0), Vector2(-2.0, 10.8), Vector2(2.0, 10.8)]},
+		{"name": "GUN TOWER", "piece": "tower", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
+			Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
+		{"name": "REACTOR", "piece": "", "mounts": []},
+	]},
+	# an armoured airship: a round envelope, short engine stubs, a cross of tail fins
+	"zephyr": {"name": "Zephyr", "title": "Zephyr war airship", "hull": "round", "wings": "stubs", "fins": "cross",
+		"paint": "ivory", "accent": Color8(0x4c, 0xe0, 0xa8), "drones": 7.0, "sections": [
+		{"name": "GONDOLA GUNS", "piece": "collar", "mounts": [Vector2(-4.0, 3.4), Vector2(4.0, 3.4), Vector2(-4.0, 8.6),
+			Vector2(4.0, 8.6)]},
+		{"name": "ENVELOPE GUNS", "piece": "plating", "mounts": [Vector2(-3.4, 10.6), Vector2(3.4, 10.6), Vector2(0.0, 12.0)]},
+		{"name": "TOP TURRETS", "piece": "tower", "mounts": [Vector2(-2.4, 15.0), Vector2(2.4, 15.0), Vector2(0.0, 18.0)]},
+		{"name": "REACTOR", "piece": "", "mounts": []},
+	]},
+	# a jet bomber: a peaked hull, swept wings with jet engines, one tall gun fin
+	"talon": {"name": "Talon", "title": "Talon jet fortress", "hull": "hex", "wings": "jets", "fins": "none",
+		"paint": "iron", "accent": Color8(0xff, 0x58, 0x40), "drones": 5.5, "sections": [
+		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 3.4), Vector2(4.0, 3.4), Vector2(-3.6, 10.2),
+			Vector2(3.6, 10.2)]},
+		{"name": "GUN FIN", "piece": "fin", "mounts": [Vector2(-1.4, 15.0), Vector2(1.4, 15.0), Vector2(-1.4, 18.6),
+			Vector2(1.4, 18.6)]},
+		{"name": "REACTOR", "piece": "", "mounts": []},
+	]},
+	# the biggest: four engines a wing, guns round its bay, on its stern and up its tower
+	"leviathan": {"name": "Leviathan", "title": "Leviathan super-fortress", "hull": "box", "wings": "props4", "fins": "twin",
+		"paint": "olive", "accent": Color8(0xff, 0xd8, 0x40), "drones": 6.0, "sections": [
+		{"name": "BAY GUNS", "piece": "collar", "mounts": [Vector2(-4.2, 3.4), Vector2(4.2, 3.4), Vector2(-4.2, 6.0),
+			Vector2(4.2, 6.0), Vector2(-4.2, 8.6), Vector2(4.2, 8.6)]},
+		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-3.0, 10.6), Vector2(3.0, 10.6), Vector2(0.0, 11.8)]},
+		{"name": "GUN TOWER", "piece": "tower", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
+			Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
+		{"name": "REACTOR", "piece": "", "mounts": []},
+	]},
+	# a three-jet raider with a peaked hull and a crown of guns on its tower
+	"wyvern": {"name": "Wyvern", "title": "Wyvern heavy raider", "hull": "hex", "wings": "jets3", "fins": "twin",
+		"paint": "cobalt", "accent": Color8(0xb4, 0x80, 0xff), "drones": 5.0, "sections": [
+		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 4.4), Vector2(4.0, 4.4), Vector2(-2.6, 10.6),
+			Vector2(2.6, 10.6), Vector2(0.0, 11.8)]},
+		{"name": "CROWN", "piece": "tower", "mounts": [Vector2(-3.4, 14.6), Vector2(3.4, 14.6), Vector2(-1.2, 17.4),
+			Vector2(1.2, 17.4), Vector2(0.0, 19.6)]},
+		{"name": "REACTOR", "piece": "", "mounts": []},
+	]},
+}
+## The hand-made sector's fortress (kept for the tests and tools that look at it).
+const FORTRESS_SECTIONS: Array = FORTRESSES.goliath.sections
+
+
+static func fortress_parts(id := "goliath") -> int:
+	var n := 0
+	for sec: Dictionary in FORTRESSES[id].sections:
+		n += 5 if sec.mounts.is_empty() else sec.mounts.size()
+	return n
+
+
 ## The chase (third person, outside): how far the ship may move from the centre line
 ## (x either side, wide enough to fly past the fortress's flanks at its chase scale; y up; `POV_DOWN` down; the fortress is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
 ## to the fortress's stern while chasing and while fighting its reactor, the swoop's length,

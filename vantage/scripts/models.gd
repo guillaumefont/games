@@ -798,13 +798,50 @@ static func panel() -> Mesh:
 
 
 # ---------------------------------------------------------------- the fortress
-## The flying fortress, stern at z = 0, bow at z = -FORTRESS_LEN: a huge armoured aircraft,
-## its fuselage tall and narrow (so every gun on its tail is in the ship's reach), an open bay
-## in the tail (where the drones launch and the reactor shows in the chase), twin tail fins on a
-## wide tailplane, gun blisters down its flanks and turrets along its spine. The wings and their
-## engines are separate meshes (`fortress_wing`), so one can break off when it goes down.
+## The flying fortresses (`Rules.FORTRESSES`), stern at z = 0, bow at z = -FORTRESS_LEN: huge
+## armoured aircraft, their hulls tall and narrow (so every gun on the stern is in the ship's
+## reach), an open bay in the tail (where the drones launch and the reactor shows in the chase),
+## gun blisters down their flanks and turrets along their spine. Each has its own hull section
+## (box, round, hex), paint, accent, tail and wings; the wings and their engines are separate
+## meshes (`fortress_wing`), so one can break off when it goes down, and each section's piece
+## (`fortress_piece`) breaks off when the section falls.
 const ARMOUR := Color8(0x4e, 0x56, 0x62)
 const GLASS_D := Color8(0x1c, 0x2a, 0x3c)
+## Each paint: hull, armour (wings, fins, belts) and the darker trim.
+const PAINTS := {
+	"steel": [HULL, ARMOUR, HULL_D],
+	"ivory": [IVORY, IVORY_D, HULL_D],
+	"iron": [IRON, IRON_D, Color8(0x22, 0x20, 0x20)],
+	"olive": [OLIVE, OLIVE_D, HULL_D],
+	"cobalt": [COBALT, COBALT_D, HULL_D],
+}
+## The wings: span, where the right root is (x, y, z of its mid chord), chord at root and tip,
+## how far the tip sits aft (sweep) and up (rise), the engines' places along the span, and whether
+## they are jets (a glowing nozzle) or propellers.
+const WINGS := {
+	"props": {"span": 54.0, "root": Vector3(4.6, 9.4, -46.0), "chord": [34.0, 11.0], "sweep": 17.0, "rise": 2.6,
+		"engines": [11.0, 23.0, 36.0], "jet": false},
+	"props4": {"span": 58.0, "root": Vector3(4.6, 9.4, -48.0), "chord": [36.0, 12.0], "sweep": 15.0, "rise": 3.2,
+		"engines": [9.0, 20.0, 31.0, 43.0], "jet": false},
+	"stubs": {"span": 18.0, "root": Vector3(6.0, 3.6, -44.0), "chord": [18.0, 13.0], "sweep": 3.0, "rise": 0.0,
+		"engines": [9.0, 16.0], "jet": false},
+	"jets": {"span": 40.0, "root": Vector3(4.6, 6.5, -38.0), "chord": [40.0, 9.0], "sweep": 30.0, "rise": -1.0,
+		"engines": [12.0, 24.0], "jet": true},
+	"jets3": {"span": 44.0, "root": Vector3(4.6, 6.5, -38.0), "chord": [42.0, 9.0], "sweep": 32.0, "rise": -0.6,
+		"engines": [10.0, 21.0, 32.0], "jet": true},
+}
+
+
+static func fort(id: String) -> Dictionary:
+	return Rules.FORTRESSES[id]
+
+
+static func wing_spec(id: String) -> Dictionary:
+	return WINGS[fort(id).wings]
+
+
+static func paint(id: String) -> Array:
+	return PAINTS[fort(id).paint]
 
 
 ## Extrudes the outline (x, y) along -z, from z = -z0 to z = -z1 round `c`, the far end scaled
@@ -830,120 +867,235 @@ static func gun_turret(b: Builder, at: Vector3, r: float, n: int, dir := 1.0) ->
 		along_z(b, at + Vector3(x, r * 0.55, 0), ngon(r * 0.13, 6), 0.0, -r * 2.2 * dir, STEEL_D)
 
 
-static func fortress() -> Mesh:
-	return cached("fortress", func() -> Mesh:
+## The hull's cross-section (x, y) by kind: a tall chamfered box, a round envelope, or a box
+## with a peaked roof.
+static func hull_section(kind: String) -> PackedVector2Array:
+	var W := Rules.FORTRESS_HW
+	var top := Rules.FORTRESS_TOP
+	match kind:
+		"round":
+			var o := PackedVector2Array()
+			for k in 16:
+				var a := TAU * (k + 0.5) / 16.0
+				o.append(Vector2(cos(a) * 7.2, 7.0 + sin(a) * 7.4))
+			return o
+		"hex":
+			return pts([Vector2(-W, 2.4), Vector2(-W + 1.6, 0.8), Vector2(W - 1.6, 0.8), Vector2(W, 2.4),
+				Vector2(W, top - 2.6), Vector2(2.0, top + 0.9), Vector2(-2.0, top + 0.9), Vector2(-W, top - 2.6)])
+	return pts([Vector2(-W, 2.4), Vector2(-W + 1.5, 0.8), Vector2(W - 1.5, 0.8), Vector2(W, 2.4),
+		Vector2(W, top - 1.5), Vector2(W - 1.3, top), Vector2(-W + 1.3, top), Vector2(-W, top - 1.5)])
+
+
+## The top and bottom of a hull section, and its half width at height y.
+static func hull_top(kind: String) -> float:
+	return {"round": 14.4, "hex": Rules.FORTRESS_TOP + 0.9}.get(kind, Rules.FORTRESS_TOP)
+
+
+static func hull_bottom(kind: String) -> float:
+	return -0.4 if kind == "round" else 0.8
+
+
+static func hull_hw(kind: String, y: float) -> float:
+	if kind == "round":
+		var k := clampf((y - 7.0) / 7.4, -1.0, 1.0)
+		return 7.2 * sqrt(1.0 - k * k)
+	return Rules.FORTRESS_HW
+
+
+## The part of a convex outline where p . n >= d (Sutherland-Hodgman against one line).
+static func clip(o: PackedVector2Array, n: Vector2, d: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in o.size():
+		var a := o[i]
+		var c := o[(i + 1) % o.size()]
+		var ia := a.dot(n) >= d
+		var ic := c.dot(n) >= d
+		if ia:
+			out.append(a)
+		if ia != ic:
+			var t := (d - a.dot(n)) / (c - a).dot(n)
+			out.append(a + (c - a) * t)
+	return out
+
+
+## The outline shrunk towards its middle (armour plates a little inside the hull's edge).
+static func inset(o: PackedVector2Array, k: float) -> PackedVector2Array:
+	var mid := Vector2.ZERO
+	for p in o:
+		mid += p
+	mid /= maxf(1.0, o.size())
+	var out := PackedVector2Array()
+	for p in o:
+		out.append(mid + (p - mid) * k)
+	return out
+
+
+## How far aft a gun's mount sits on the stern: on the tail (low), the lower tower, the upper tower.
+static func mount_z(m: Vector2) -> float:
+	return 0.9 if m.y < Rules.FORTRESS_TOP else (-0.4 if m.y < 17.0 else -2.4)
+
+
+static func fortress_hull(id: String) -> Mesh:
+	return cached("fortress_" + id, func() -> Mesh:
 		var b := Builder.new()
+		var f := fort(id)
+		var kind: String = f.hull
+		var pt: Array = paint(id)
+		var hull: Color = pt[0]
+		var armour: Color = pt[1]
+		var trim: Color = pt[2]
+		var accent: Color = f.accent
 		var L := Rules.FORTRESS_LEN
 		var y := Rules.PY
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
 		var hw := Rules.BAY_HW
 		var hh := Rules.BAY_HH
-		var bot := 0.8
+		var top := hull_top(kind)
+		var bot := hull_bottom(kind)
 		var deep := 7.0
 		var inner := Color8(0x2c, 0x31, 0x39)
-		# the fuselage: a tall chamfered section, tapering to a raised nose
-		var sect := pts([Vector2(-W, 2.4), Vector2(-W + 1.5, bot), Vector2(W - 1.5, bot), Vector2(W, 2.4),
-			Vector2(W, top - 1.5), Vector2(W - 1.3, top), Vector2(-W + 1.3, top), Vector2(-W, top - 1.5)])
-		along_z(b, Vector3.ZERO, sect, deep, L - 34.0, HULL)
-		along_z(b, Vector3(0, 0, -(L - 34.0)), sect, 0.0, 34.0, HULL, Vector2(0.42, 0.5), Vector2(0, 2.6))
-		# the glazed nose: a band of dark windows wrapping the cockpit, a gun chin below
-		for k in 5:
-			b.box(Vector3(0, top - 1.6 - k * 0.05, -(L - 30.0) - k * 3.2), Vector3(W * 2.04 - k * 0.9, 1.0, 2.4), GLASS_D)
-		gun_turret(b, Vector3(0, bot + 1.6, -(L - 26.0)), 1.6, 3, -1.0)
-		# the tail round the bay mouth (a ring of armour a little bigger than the fuselage)
-		b.box(Vector3(0, (bot + y - hh) * 0.5, -deep * 0.5), Vector3(W * 2, y - hh - bot, deep), HULL_D)
-		b.box(Vector3(0, (y + hh + top) * 0.5, -deep * 0.5), Vector3(W * 2, top - y - hh, deep), HULL, Vector2(0.94, 1.0))
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, -deep * 0.5), Vector3(W - hw, hh * 2, deep), HULL)
+		var sect := hull_section(kind)
+		# the fuselage, tapering to its nose
+		along_z(b, Vector3.ZERO, sect, deep, L - 34.0, hull)
+		if kind == "round":
+			along_z(b, Vector3(0, 0, -(L - 34.0)), sect, 0.0, 34.0, hull, Vector2(0.3, 0.3), Vector2(0, 4.9))
+			# a long glazed gondola under the envelope, guns at its nose
+			b.box(Vector3(0, bot - 0.6, -L * 0.55), Vector3(3.6, 1.6, 40.0), trim, Vector2(0.8, 0.95))
+			b.box(Vector3(0, bot - 0.5, -L * 0.55), Vector3(3.7, 0.6, 36.0), GLASS_D)
+			gun_turret(b, Vector3(0, bot - 1.6, -L * 0.55 - 18.0), 1.2, 2, -1.0)
+		else:
+			along_z(b, Vector3(0, 0, -(L - 34.0)), sect, 0.0, 34.0, hull, Vector2(0.42, 0.5), Vector2(0, 2.6))
+			# the glazed nose: a band of dark windows wrapping the cockpit, a gun chin below
+			for k in 5:
+				b.box(Vector3(0, Rules.FORTRESS_TOP - 1.6 - k * 0.05, -(L - 30.0) - k * 3.2),
+					Vector3(Rules.FORTRESS_HW * 2.04 - k * 0.9, 1.0, 2.4), GLASS_D)
+			gun_turret(b, Vector3(0, bot + 1.6, -(L - 26.0)), 1.6, 3, -1.0)
+		# the tail round the bay's mouth: the hull's own section with the bay cut out of it
+		var ring_pieces: Array[PackedVector2Array] = [
+			clip(sect, Vector2(0, 1), y + hh), clip(sect, Vector2(0, -1), -(y - hh)),
+			clip(clip(clip(sect, Vector2(-1, 0), hw), Vector2(0, 1), y - hh), Vector2(0, -1), -(y + hh)),
+			clip(clip(clip(sect, Vector2(1, 0), hw), Vector2(0, 1), y - hh), Vector2(0, -1), -(y + hh))]
+		for k in ring_pieces.size():
+			if ring_pieces[k].size() >= 3:
+				along_z(b, Vector3.ZERO, ring_pieces[k], 0.0, deep, trim if k == 1 else hull)
 		b.box(Vector3(0, y, -deep + 0.1), Vector3(hw * 2, hh * 2, 0.2), inner)
 		b.box(Vector3(0, y - hh + 0.05, -deep * 0.5), Vector3(hw * 2, 0.1, deep), inner.lightened(0.1))
-		# amber frame round the bay mouth
-		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
-		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
+		# the accent frame round the bay mouth
+		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), accent)
+		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), accent)
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), AMBER)
-		# the tailplane, wide and swept, with a tall fin at each end
+			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), accent)
+		match f.fins:
+			"twin":
+				# the tailplane, wide and swept, with a tall fin at each end
+				for sx in [1.0, -1.0]:
+					var keep := b.xf
+					b.xf = Transform3D(Basis.from_scale(Vector3(sx, 1, 1)), Vector3.ZERO) * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3(Rules.FORTRESS_HW, 8.6, -9.0))
+					b.prism(Vector3.ZERO, pts([Vector2(0, -8.0), Vector2(-0.45, -4.0), Vector2(-0.35, 6.0), Vector2(0, 8.0),
+						Vector2(0.3, 6.0), Vector2(0.4, -4.0)]), 0.0, 10.5, armour, Vector2(0.7, 0.62), Vector2(-0.6, 4.0))
+					b.xf = keep
+					var fx: float = sx * (Rules.FORTRESS_HW + 10.2)
+					var fin := pts([Vector2(-0.5, -6.5), Vector2(0.5, -6.5), Vector2(0.5, 5.0), Vector2(0, 7.0), Vector2(-0.5, 5.0)])
+					b.prism(Vector3(fx, 0, -5.0), fin, 3.2, 20.5, hull, Vector2(0.8, 0.6), Vector2(0, 3.0))
+					b.box(Vector3(fx, 19.2, -1.6), Vector3(1.2, 0.3, 3.0), accent)
+					b.octa(Vector3(fx, 8.6, -2.6), 1.2, trim, Vector3(1.0, 0.9, 2.2))
+			"cross":
+				# four fins round the envelope's tail: up, down and to each side
+				var fin := pts([Vector2(-0.5, -9.0), Vector2(0.5, -9.0), Vector2(0.5, 6.0), Vector2(0, 8.0), Vector2(-0.5, 6.0)])
+				b.prism(Vector3(0, 0, -16.0), fin, top - 1.0, top + 8.0, armour, Vector2(0.8, 0.6), Vector2(0, 3.0))
+				b.prism(Vector3(0, 0, -16.0), fin, bot - 5.5, bot + 1.0, armour, Vector2(0.8, 0.6), Vector2(0, 3.0))
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 11.5, 7.0, -15.0), Vector3(9.5, 0.8, 15.0), armour, Vector2(0.95, 0.6))
+					b.box(Vector3(sx * 16.0, 7.0, -12.0), Vector3(0.6, 3.0, 6.0), accent)
+				b.box(Vector3(0, top + 7.6, -12.0), Vector3(1.2, 0.4, 4.0), accent)
+		# a ventral keel, armour belts down the flanks with gun blisters between them
+		b.box(Vector3(0, bot - 0.3, -L * 0.5), Vector3(Rules.FORTRESS_HW * 1.1, 0.6, L * 0.8), trim, Vector2(0.75, 1.0))
 		for sx in [1.0, -1.0]:
-			var keep := b.xf
-			b.xf = Transform3D(Basis.from_scale(Vector3(sx, 1, 1)), Vector3.ZERO) * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3(W, 8.6, -9.0))
-			b.prism(Vector3.ZERO, pts([Vector2(0, -8.0), Vector2(-0.45, -4.0), Vector2(-0.35, 6.0), Vector2(0, 8.0),
-				Vector2(0.3, 6.0), Vector2(0.4, -4.0)]), 0.0, 10.5, ARMOUR, Vector2(0.7, 0.62), Vector2(-0.6, 4.0))
-			b.xf = keep
-			var fx: float = sx * (W + 10.2)
-			var fin := pts([Vector2(-0.5, -6.5), Vector2(0.5, -6.5), Vector2(0.5, 5.0), Vector2(0, 7.0), Vector2(-0.5, 5.0)])
-			b.prism(Vector3(fx, 0, -5.0), fin, 3.2, 20.5, HULL, Vector2(0.8, 0.6), Vector2(0, 3.0))
-			b.box(Vector3(fx, 19.2, -1.6), Vector3(1.2, 0.3, 3.0), AMBER)
-			b.octa(Vector3(fx, 8.6, -2.6), 1.2, HULL_D, Vector3(1.0, 0.9, 2.2))
-		# a ventral gondola bristling with guns, keel plates, armour belts down the flanks
-		b.box(Vector3(0, bot - 0.3, -L * 0.5), Vector3(W * 1.1, 0.6, L * 0.8), HULL_D, Vector2(0.75, 1.0))
-		for sx in [1.0, -1.0]:
+			var fx6 := hull_hw(kind, 6.2)
 			for k in 4:
-				b.box(Vector3(sx * (W + 0.3), 6.2, -14.0 - k * 26.0), Vector3(0.6, 6.0, 16.0), ARMOUR, Vector2(0.6, 0.95))
-				# gun blisters between the belts, high and low
+				b.box(Vector3(sx * (fx6 + 0.3), 6.2, -14.0 - k * 26.0), Vector3(0.6, 6.0, 16.0), armour, Vector2(0.6, 0.95))
 				var bz := -27.0 - k * 26.0
-				b.octa(Vector3(sx * (W + 0.2), 10.8, bz), 1.1, HULL_D, Vector3(0.9, 0.9, 1.2))
-				along_z(b, Vector3(sx * (W + 0.7), 10.8, bz), ngon(0.14, 6), -0.4, -2.6, STEEL_D)
-				b.octa(Vector3(sx * (W + 0.2), 2.6, bz + 8.0), 0.9, HULL_D, Vector3(0.9, 0.9, 1.2))
+				var hx := hull_hw(kind, 10.8)
+				b.octa(Vector3(sx * (hx + 0.2), 10.8, bz), 1.1, trim, Vector3(0.9, 0.9, 1.2))
+				along_z(b, Vector3(sx * (hx + 0.7), 10.8, bz), ngon(0.14, 6), -0.4, -2.6, STEEL_D)
+				var lx := hull_hw(kind, 2.6)
+				b.octa(Vector3(sx * (lx + 0.2), 2.6, bz + 8.0), 0.9, trim, Vector3(0.9, 0.9, 1.2))
 		# the spine: plating seams and a row of twin turrets on top
 		for k in 6:
-			b.box(Vector3(0, top + 0.02, -36.0 - k * 12.0), Vector3(W * 1.6, 0.06, 0.25), HULL_D)
+			b.box(Vector3(0, top + 0.02, -36.0 - k * 12.0), Vector3(3.0 if kind == "hex" else 8.0, 0.06, 0.25), trim)
 		for k in 3:
 			gun_turret(b, Vector3(0, top + 0.3, -48.0 - k * 20.0), 1.5, 2)
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (W - 0.9), top + 0.02, -L * 0.55), Vector3(0.22, 0.05, L - 20.0), AMBER)
+			b.box(Vector3(sx * (1.2 if kind == "hex" else Rules.FORTRESS_HW - 0.9), top + 0.02, -L * 0.55), Vector3(0.22, 0.05, L - 20.0), accent)
 		return b.commit())
-
-
-## Where the wings meet the fuselage (x of the right root, y, z of the root's mid chord), their
-## span, and the engines' places along the span.
-const WING_ROOT := Vector3(4.6, 9.4, -46.0)
-const WING_SPAN := 54.0
-const WING_ENGINES := [11.0, 23.0, 36.0]
 
 
 ## A point on the right wing at `along` (0 at the root, 1 at the tip): the wing's local frame
 ## (x out, y up, z aft) at its mid chord, and its chord there.
-static func wing_at(along: float) -> Array:
-	return [Vector3(along * WING_SPAN, along * 2.6, along * 17.0), lerpf(34.0, 11.0, along)]
+static func wing_at(w: Dictionary, along: float) -> Array:
+	return [Vector3(along * float(w.span), along * float(w.rise), along * float(w.sweep)),
+		lerpf(float(w.chord[0]), float(w.chord[1]), along)]
 
 
-## One wing (`side` 1 right, -1 left), built round its root: a long tapered wing with a slight
-## dihedral, two engine nacelles hanging under it (the propellers are `fortress_prop`s) and gun
-## blisters on its top.
-static func fortress_wing(side: float) -> Mesh:
-	return cached("fortress_wing%d" % side, func() -> Mesh:
+## One wing (`side` 1 right, -1 left), built round its root: a tapered wing, its engines (prop
+## nacelles under it, their propellers are `fortress_prop`s; or jet pods, their nozzles
+## `fortress_nozzle`s) and gun turrets on its top.
+static func fortress_wing(id: String, side: float) -> Mesh:
+	return cached("fortress_wing_%s%d" % [id, side], func() -> Mesh:
 		var b := Builder.new()
+		var w := wing_spec(id)
+		var pt: Array = paint(id)
+		var accent: Color = fort(id).accent
+		var c0: float = w.chord[0]
+		var c1: float = w.chord[1]
+		var th := clampf(c0 / 34.0, 0.7, 1.2)
 		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
 		var keep := b.xf
 		b.xf = keep * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3.ZERO)
-		b.prism(Vector3.ZERO, pts([Vector2(0, -17.0), Vector2(-1.0, -11.0), Vector2(-0.75, 10.0), Vector2(0, 17.0),
-			Vector2(0.7, 10.0), Vector2(0.9, -11.0)]), 0.0, WING_SPAN, ARMOUR, Vector2(0.45, 11.0 / 34.0), Vector2(-2.6, 17.0))
+		var h := c0 * 0.5
+		b.prism(Vector3.ZERO, pts([Vector2(0, -h), Vector2(-1.0 * th, -h * 0.65), Vector2(-0.75 * th, h * 0.6), Vector2(0, h),
+			Vector2(0.7 * th, h * 0.6), Vector2(0.9 * th, -h * 0.65)]), 0.0, w.span, pt[1], Vector2(0.45, c1 / c0),
+			Vector2(-float(w.rise), float(w.sweep)))
 		b.xf = keep
-		var tip: Vector3 = wing_at(1.0)[0]
-		b.box(tip + Vector3(0.2, 0, -1.0), Vector3(0.4, 0.5, 6.0), AMBER)
-		for e: float in WING_ENGINES:
-			var w: Array = wing_at(e / WING_SPAN)
-			var at: Vector3 = w[0] + Vector3(0, -1.5, 0)
-			var ch: float = w[1]
-			# a nacelle under the wing from ahead of the leading edge to the propeller at the back
-			along_z(b, at + Vector3(0, 0, ch * 0.5 + 1.5), ngon(1.5, 8, PI / 8), 0.0, ch + 4.0, HULL_D)
-			along_z(b, at + Vector3(0, 0, -ch * 0.5 - 2.5), ngon(1.5, 8, PI / 8), 0.0, 3.0, HULL_D, Vector2(0.45, 0.45))
-			along_z(b, at + Vector3(0, 0, ch * 0.5 + 3.4), ngon(0.55, 8, PI / 8), 0.0, 1.9, STEEL_D)
-			b.box(at + Vector3(0, 1.0, 0), Vector3(0.8, 1.2, ch * 0.7), HULL_D)
-			b.box(at + Vector3(0, -1.45, ch * 0.2), Vector3(0.5, 0.2, ch * 0.4), AMBER)
-		for f in [0.3, 0.6, 0.86]:
-			var w: Array = wing_at(f)
-			gun_turret(b, w[0] + Vector3(0, 0.55, -2.0), 1.0, 2)
+		var tip: Vector3 = wing_at(w, 1.0)[0]
+		b.box(tip + Vector3(0.2, 0, -1.0), Vector3(0.4, 0.5, minf(6.0, c1 * 0.6)), accent)
+		for e: float in w.engines:
+			var wa: Array = wing_at(w, e / float(w.span))
+			var ch: float = wa[1]
+			if w.jet:
+				# a jet pod slung under the wing, its intake ahead of the leading edge
+				var at: Vector3 = wa[0] + Vector3(0, -1.7, 0)
+				along_z(b, at + Vector3(0, 0, ch * 0.5 + 1.0), ngon(1.6, 10), 0.0, ch * 0.9 + 3.0, pt[2])
+				along_z(b, at + Vector3(0, 0, -ch * 0.4 - 2.0), ngon(1.75, 10), 0.0, 1.2, STEEL_D)
+				b.box(at + Vector3(0, 1.0, 0), Vector3(0.7, 1.0, ch * 0.6), pt[2])
+				b.box(at + Vector3(0, -1.6, 0), Vector3(0.4, 0.2, ch * 0.5), accent)
+			else:
+				var at: Vector3 = wa[0] + Vector3(0, -1.5, 0)
+				# a nacelle under the wing from ahead of the leading edge to the propeller at the back
+				along_z(b, at + Vector3(0, 0, ch * 0.5 + 1.5), ngon(1.5, 8, PI / 8), 0.0, ch + 4.0, pt[2])
+				along_z(b, at + Vector3(0, 0, -ch * 0.5 - 2.5), ngon(1.5, 8, PI / 8), 0.0, 3.0, pt[2], Vector2(0.45, 0.45))
+				along_z(b, at + Vector3(0, 0, ch * 0.5 + 3.4), ngon(0.55, 8, PI / 8), 0.0, 1.9, STEEL_D)
+				b.box(at + Vector3(0, 1.0, 0), Vector3(0.8, 1.2, ch * 0.7), pt[2])
+				b.box(at + Vector3(0, -1.45, ch * 0.2), Vector3(0.5, 0.2, ch * 0.4), accent)
+		if float(w.span) > 30.0:
+			for f in [0.3, 0.6, 0.86]:
+				var wa: Array = wing_at(w, f)
+				gun_turret(b, wa[0] + Vector3(0, 0.55 + float(w.rise) * 0.0, -2.0), 1.0, 2)
+		else:
+			gun_turret(b, wing_at(w, 0.5)[0] + Vector3(0, 0.9, 0), 1.0, 2)
 		return b.commit())
 
 
-## Where a wing's engines' propellers spin, in the wing's frame (right wing; x flips on the left).
-static func prop_points() -> Array[Vector3]:
+## Where a wing's engines' propellers spin (or jets' nozzles glow), in the wing's frame (right
+## wing; x flips on the left).
+static func prop_points(id: String) -> Array[Vector3]:
+	var w := wing_spec(id)
 	var out: Array[Vector3] = []
-	for e: float in WING_ENGINES:
-		var w: Array = wing_at(e / WING_SPAN)
-		out.append(w[0] + Vector3(0, -1.5, float(w[1]) * 0.5 + 3.5))
+	for e: float in w.engines:
+		var wa: Array = wing_at(w, e / float(w.span))
+		if w.jet:
+			out.append(wa[0] + Vector3(0, -1.7, float(wa[1]) * 0.5 + 1.2))
+		else:
+			out.append(wa[0] + Vector3(0, -1.5, float(wa[1]) * 0.5 + 3.5))
 	return out
 
 
@@ -960,40 +1112,72 @@ static func fortress_prop() -> Mesh:
 		return b.commit())
 
 
-## The fortress's tail armour plating with the gun platforms of its first section (breaks off).
-static func fortress_plating() -> Mesh:
-	return cached("fortress_plating", func() -> Mesh:
+## A jet's nozzle, a dark cone facing aft (in place of a propeller: it doesn't spin).
+static func fortress_nozzle() -> Mesh:
+	return cached("fortress_nozzle", func() -> Mesh:
 		var b := Builder.new()
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
-		var y := Rules.PY
-		var hh := Rules.BAY_HH
-		b.box(Vector3(0, (y + hh + 0.6 + top) * 0.5, 0.25), Vector3(W * 2 - 0.6, top - y - hh - 0.6, 0.5), FOE_D, Vector2(0.97, 1.0))
-		for k in 3:
-			b.box(Vector3(0, top - 1.0 - k * 1.3, 0.52), Vector3(W * 2 - 1.4, 0.12, 0.06), AMBER)
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * 4.0, (1.2 + y + hh) * 0.5, 0.3), Vector3(1.6, y + hh - 1.2, 0.6), FOE_D)
-		for m: Vector2 in Rules.FORTRESS_SECTIONS[0].mounts:
-			b.box(Vector3(m.x, m.y - 0.8, 0.8), Vector3(1.6, 0.25, 1.2), HULL)
+		along_z(b, Vector3(0, 0, 0.9), ngon(1.5, 10), 0.0, 1.0, Color8(0x26, 0x28, 0x2c), Vector2(0.82, 0.82))
 		return b.commit())
 
 
-## The fortress's dorsal gun tower, an armoured casemate stepped up from its spine, with the gun
-## platforms of its second section and a big twin gun on top (breaks off).
-static func fortress_tower() -> Mesh:
-	return cached("fortress_tower", func() -> Mesh:
+## A section's piece, the part of the fortress that breaks off with it, with a platform under
+## each of its guns: `plating` (armour on the stern above the bay), `collar` (gun pods either side
+## of the bay), `tower` (a casemate on the spine) or `fin` (a tall dorsal fin).
+static func fortress_piece(id: String, piece: String) -> Mesh:
+	return cached("fortress_%s_%s" % [id, piece], func() -> Mesh:
 		var b := Builder.new()
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
-		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), ARMOUR, Vector2(0.88, 0.97))
-		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.8, 0.95))
-		gun_turret(b, Vector3(0, Rules.TOWER_TOP + 0.4, -16.0), 1.9, 2)
-		b.box(Vector3(0, Rules.TOWER_TOP + 0.3, -22.0), Vector3(0.25, 4.0, 0.25), STEEL_D)
-		for k in 4:
-			b.box(Vector3((k - 1.5) * 1.6, 18.2, -2.95), Vector3(1.0, 0.5, 0.1), CYAN)
-		for m: Vector2 in Rules.FORTRESS_SECTIONS[1].mounts:
-			var fz := -0.4 if m.y < 17.0 else -2.4
-			b.box(Vector3(m.x, m.y - 0.8, fz - 0.1), Vector3(1.4, 0.25, 1.2), HULL_D)
+		var f := fort(id)
+		var kind: String = f.hull
+		var pt: Array = paint(id)
+		var accent: Color = f.accent
+		var top := hull_top(kind)
+		var y := Rules.PY
+		var hh := Rules.BAY_HH
+		var mounts: Array = []
+		var collar := false
+		for sec: Dictionary in f.sections:
+			if sec.piece == piece:
+				mounts = sec.mounts
+			if sec.piece == "collar":
+				collar = true
+		# armour plating in the fortress's own colours (the Goliath keeps its dark red)
+		var plate: Color = FOE_D.lerp(pt[2], 0.4) if f.paint == "steel" else (pt[1] as Color).lerp(accent, 0.12).darkened(0.12)
+		match piece:
+			"plating":
+				var o := inset(clip(hull_section(kind), Vector2(0, 1), y + hh + 0.6), 0.94)
+				along_z(b, Vector3(0, 0, 0.5), o, 0.0, 0.5, plate)
+				for k in 3:
+					var sy := top - 1.2 - k * 1.3
+					b.box(Vector3(0, sy, 0.52), Vector3(hull_hw(kind, sy) * 2.0 - 2.0, 0.12, 0.06), accent)
+				if not collar:
+					for sx in [1.0, -1.0]:
+						b.box(Vector3(sx * 4.0, (1.2 + y + hh) * 0.5, 0.3), Vector3(1.6, y + hh - 1.2, 0.6), plate)
+			"collar":
+				# gun pods either side of the bay, standing out from the stern
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 4.1, (1.0 + y + hh + 0.6) * 0.5, 0.5), Vector3(1.9, y + hh + 0.6 - 1.0, 1.0), plate, Vector2(0.9, 0.95))
+					b.box(Vector3(sx * 5.1, y, 0.5), Vector3(0.12, hh * 2.0, 0.8), accent)
+			"tower":
+				var W := Rules.FORTRESS_HW
+				b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), pt[1], Vector2(0.88, 0.97))
+				b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), pt[2], Vector2(0.8, 0.95))
+				gun_turret(b, Vector3(0, Rules.TOWER_TOP + 0.4, -16.0), 1.9, 2)
+				b.box(Vector3(0, Rules.TOWER_TOP + 0.3, -22.0), Vector3(0.25, 4.0, 0.25), STEEL_D)
+				for k in 4:
+					b.box(Vector3((k - 1.5) * 1.6, 18.2, -2.95), Vector3(1.0, 0.5, 0.1), accent.lerp(CYAN, 0.5))
+			"fin":
+				# one tall dorsal fin, swept back, its guns on sponsons either side
+				var fin := pts([Vector2(-0.8, -9.0), Vector2(0.8, -9.0), Vector2(0.8, 7.0), Vector2(0, 9.0), Vector2(-0.8, 7.0)])
+				b.prism(Vector3(0, 0, -10.0), fin, top - 0.5, Rules.TOWER_TOP + 1.0, pt[1], Vector2(0.7, 0.55), Vector2(0, 5.0))
+				b.box(Vector3(0, Rules.TOWER_TOP + 0.6, -4.2), Vector3(0.9, 0.5, 4.0), accent)
+		for m: Vector2 in mounts:
+			var fz := mount_z(m)
+			if piece == "tower" or piece == "fin":
+				b.box(Vector3(m.x, m.y - 0.8, fz - 0.1), Vector3(1.4, 0.25, 1.2), pt[2])
+				if piece == "fin":
+					b.box(Vector3(m.x * 0.5, m.y - 0.8, fz - 0.6), Vector3(absf(m.x), 0.5, 2.2), pt[1])
+			else:
+				b.box(Vector3(m.x, m.y - 0.8, 0.8), Vector3(1.6, 0.25, 1.2), HULL)
 		return b.commit())
 
 
@@ -1009,13 +1193,18 @@ static func fortress_lights() -> Mesh:
 		return b.commit())
 
 
-## The engines' exhaust glow round the back of a wing's nacelles (`side` 1 right, -1 left).
-static func fortress_exhausts(side: float) -> Mesh:
-	return cached("fortress_exhausts%d" % side, func() -> Mesh:
+## The engines' exhaust glow round the back of a wing's nacelles (`side` 1 right, -1 left): a
+## ring behind each propeller, or a disc in each jet's nozzle.
+static func fortress_exhausts(id: String, side: float) -> Mesh:
+	return cached("fortress_exhausts_%s%d" % [id, side], func() -> Mesh:
 		var b := Builder.new()
 		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
-		for p in prop_points():
-			along_z(b, p + Vector3(0, 0, -1.9), ngon(1.15, 8, PI / 8), 0.0, 0.2, Color.WHITE)
+		var jet: bool = wing_spec(id).jet
+		for p in prop_points(id):
+			if jet:
+				along_z(b, p + Vector3(0, 0, 0.1), ngon(1.25, 10), 0.0, 0.2, Color.WHITE)
+			else:
+				along_z(b, p + Vector3(0, 0, -1.9), ngon(1.15, 8, PI / 8), 0.0, 0.2, Color.WHITE)
 		return b.commit())
 
 
