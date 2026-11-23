@@ -178,7 +178,7 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
   or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
 - Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`) time eases to a stop over
-  `Rules.SLOW_STOP` s once no finger (or direction key) is down, and back up over `SLOW_RESUME` s on touch.
+  `Rules.SLOW_STOP` s (2 s, gradual: Guillaume asked for a slower slowdown) once no finger (or direction key) is down, and back up over `SLOW_RESUME` s on touch.
   `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
   paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already
   lifted). Tests and tools that call `step` directly are unaffected; `tick` is what the pause test drives.
