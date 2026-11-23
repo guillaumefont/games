@@ -54,6 +54,11 @@ var alive := true
 var throttle := 0.0
 var last_input := -99.0
 var auto_flee := false
+## Connected = the game is in front of the player. Only a disconnected player's ship defends
+## itself (manoeuvres and fires on its own); a connected player aims every volley with the
+## green stick.
+var connected := true
+var away_fight := false
 var respawn_t := -1.0
 var enemies: Array[Boat] = []
 var spawn_timers: Array[float] = []
@@ -79,6 +84,11 @@ var _ball_mesh := Models.ball(0.28, 6, 3)
 var _puff_mesh := Models.ball(1.0, 5, 3)
 var _chip_mesh := Models.box(1, 1, 1)
 var _lit := {}
+var aim_mark: Node3D
+var _aim_ring: MeshInstance3D
+var _aim_dots: Array[MeshInstance3D] = []
+var _aim_ready := Color8(0x5f, 0xd0, 0x6a)
+var _aim_idle := Color8(0xb9, 0xc2, 0xbd)
 
 
 func _ready() -> void:
@@ -138,6 +148,27 @@ func _build_world() -> void:
 	for i in isles.size():
 		add_child(Models.island(isles[i].x, isles[i].z, isles[i].r, i == 0))
 	rebuild_port()
+	_build_aim_mark()
+
+
+## The green aim on the water: dots from the ship to a ring where the balls will land.
+func _build_aim_mark() -> void:
+	aim_mark = Node3D.new()
+	aim_mark.visible = false
+	add_child(aim_mark)
+	var tm := TorusMesh.new()
+	tm.inner_radius = 2.3
+	tm.outer_radius = 2.9
+	tm.rings = 24
+	tm.ring_segments = 4
+	_aim_ring = Models.instance(tm, Models.flat_mat(_aim_ready, 0.85), false)
+	_aim_ring.scale = Vector3(1, 0.15, 1)
+	aim_mark.add_child(_aim_ring)
+	var dot := Models.ball(0.32, 6, 3)
+	for i in 7:
+		var d := Models.instance(dot, Models.flat_mat(_aim_ready, 0.8), false)
+		aim_mark.add_child(d)
+		_aim_dots.append(d)
 
 
 func _on_resize() -> void:
@@ -279,15 +310,18 @@ func _update_parts(dt: float) -> void:
 
 ## A volley of n balls from `from` (the battery's side when `ang` is given) at the target,
 ## leading it, along an arc.
-func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang := NAN) -> void:
+## With `at`, the balls fall around that point instead (the player's aimed shots).
+func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang := NAN, at := Vector3.INF) -> void:
 	var sx := from.x + (0.0 if is_nan(ang) else sin(ang) * 1.5)
 	var sz := from.z + (0.0 if is_nan(ang) else cos(ang) * 1.5)
-	var tp := target.pos()
+	var aimed := at.is_finite()
+	var tp := at if aimed else target.pos()
 	var dist := Vector2(tp.x - sx, tp.z - sz).length()
 	var dur := dist / 28.0 + 0.35
-	var tv := Vector3(sin(target.h), 0, cos(target.h)) * target.v
+	var tv := Vector3.ZERO if aimed else Vector3(sin(target.h), 0, cos(target.h)) * target.v
+	var spread := 1.2 if aimed else 1.8
 	for i in n:
-		var to := Vector3(tp.x + tv.x * dur * 0.85 + rng.randf_range(-1.8, 1.8), 0, tp.z + tv.z * dur * 0.85 + rng.randf_range(-1.8, 1.8))
+		var to := Vector3(tp.x + tv.x * dur * 0.85 + rng.randf_range(-spread, spread), 0, tp.z + tv.z * dur * 0.85 + rng.randf_range(-spread, spread))
 		var mi := Models.instance(_ball_mesh, _lit_mat(Color8(0x24, 0x28, 0x2a)))
 		mi.visible = false
 		add_child(mi)
@@ -315,6 +349,98 @@ func shoot_batteries(me: Boat, foe: Boat, dt: float, ammo := Callable()) -> Arra
 		fire(mp, foe, b.n, me.st.dmg, me.is_player, me.h + b.c)
 		me.rl[b.k] = me.st.reload
 	return bearing
+
+
+## The player can aim while connected, alive, at sea and fighting.
+func can_aim() -> bool:
+	return connected and alive and not hud.port_open() and combat and combat.e.state != "sink"
+
+
+## Where the green stick points: its direction on the water, its reach the distance.
+func aim_point() -> Vector3:
+	var pp := P.pos()
+	var d := hud.aim_vec.normalized()
+	var k := clampf((hud.aim_mag - Hud.AIM_DEAD) / (1.0 - Hud.AIM_DEAD), 0, 1)
+	var r := lerpf(6.0, float(P.st.range), k)
+	return Vector3(pp.x + d.x * r, 0, pp.z + d.y * r)
+
+
+func aiming() -> bool:
+	return hud.aim_active and hud.aim_mag > Hud.AIM_DEAD and can_aim()
+
+
+## The batteries that bear on the aimed point (the ones that will fire on release).
+func aim_batteries() -> Array:
+	var pp := P.pos()
+	var at := aim_point()
+	return Rules.in_arcs(Rules.batteries(P.st), Rules.rel_bearing(pp.x, pp.z, P.h, at.x, at.z))
+
+
+## The green stick was released: every loaded battery that bears on the aimed point fires
+## there. Returns how many volleys left.
+func fire_aimed() -> int:
+	if not can_aim():
+		return 0
+	var foe: Boat = combat.e
+	var at := aim_point()
+	var bats := aim_batteries()
+	if bats.is_empty():
+		hud.toast("Aucun canon de ce côté : tournez le bateau.")
+		return 0
+	var n := 0
+	for b in bats:
+		if P.rl.get(b.k, 0.0) > 0:
+			continue
+		if not _pay_ball():
+			break
+		fire(P.pos(), foe, b.n, P.st.dmg, true, P.h + b.c, at)
+		P.rl[b.k] = P.st.reload
+		n += 1
+	if n == 0 and s.balls > 0:
+		hud.toast("Les canons rechargent…")
+	if n > 0 and combat.mode == "pending":
+		combat.mode = "fight"
+		hud.hide_prompt()
+	return n
+
+
+func _update_aim_mark() -> void:
+	var on := aiming()
+	aim_mark.visible = on
+	if not on:
+		return
+	var pp := P.pos()
+	var at := aim_point()
+	var ready := false
+	for b in aim_batteries():
+		if P.rl.get(b.k, 0.0) <= 0:
+			ready = true
+	var c := _aim_ready if ready and s.balls > 0 else _aim_idle
+	_aim_ring.material_override = Models.flat_mat(c, 0.85)
+	_aim_ring.position = Vector3(at.x, 0.6, at.z)
+	for i in _aim_dots.size():
+		var k := (i + 1.0) / (_aim_dots.size() + 1.0)
+		var d := _aim_dots[i]
+		d.material_override = _aim_ring.material_override
+		d.position = Vector3(lerpf(pp.x, at.x, k), 0.7 + sin(PI * k) * 3.0, lerpf(pp.z, at.z, k))
+
+
+## Leaving the game (app in the background, window left) disconnects the player: from then
+## on the ship defends itself. Coming back hands the guns back.
+func set_connected(on: bool) -> void:
+	if on == connected:
+		return
+	connected = on
+	if not on:
+		hud.cancel_sticks()
+		away_fight = not combat.is_empty()
+		if combat and combat.mode == "pending":
+			combat.mode = "fight"
+			hud.hide_prompt()
+	elif hud:
+		if combat or away_fight:
+			hud.toast("De retour ! Votre bateau s'est défendu seul pendant votre absence.")
+		away_fight = false
 
 
 func ai_maneuver(me: Boat, foe: Boat, dt: float, agg: float) -> float:
@@ -385,7 +511,7 @@ func start_combat(e: Boat, mode: String) -> void:
 	e.state = "defend" if e.offline else "attack"
 	if mode == "pending":
 		var n: int = e.st.side
-		hud.show_prompt("%s vous attaque !" % e.name, "%s, %d canon%s par côté. Sans réponse, votre bateau se défendra tout seul." % [
+		hud.show_prompt("%s vous attaque !" % e.name, "%s, %d canon%s par côté. Visez avec le joystick vert pour tirer." % [
 			Rules.HULLS[e.hk].name, n, "s" if n > 1 else ""])
 	else:
 		hud.hide_prompt()
@@ -419,7 +545,7 @@ func on_fight() -> void:
 		auto_flee = false
 		last_input = time
 		hud.hide_prompt()
-		hud.toast("Riposte !")
+		hud.toast("Riposte ! Visez avec le joystick vert.")
 
 
 func on_flee() -> void:
@@ -427,7 +553,7 @@ func on_flee() -> void:
 		combat.mode = "flee"
 		auto_flee = true
 		hud.hide_prompt()
-		hud.toast("On fuit ! Les canons tirent encore s'il reste des boulets.")
+		hud.toast("On fuit ! Le joystick vert vise encore.")
 
 
 func enemy_defeated(e: Boat) -> void:
@@ -550,6 +676,11 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		if s:
 			save()
+		if what != NOTIFICATION_WM_CLOSE_REQUEST and hud:
+			set_connected(false)
+	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if hud:
+			set_connected(true)
 	elif what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		if hud and hud.port_open():
 			hud.close_port()
@@ -663,8 +794,8 @@ func step(dt: float) -> void:
 			var want := atan2(pp.x - ep.x, pp.z - ep.z)
 			P.h += clampf(Rules.wrap_a(want - P.h), -st.turn * dt, st.turn * dt)
 			throttle = 1
-		elif foe and combat.mode != "pending" and time - last_input > 5:
-			# auto-defence: after 5 s without orders the ship manoeuvres by itself
+		elif foe and not connected:
+			# away from the game: the ship manoeuvres by itself (never while connected)
 			throttle = ai_maneuver(P, foe, dt, 1) / st.speed
 		move_boat(P, 0.0 if paused else st.speed * throttle, dt)
 		if near_base and not combat:
@@ -688,10 +819,25 @@ func step(dt: float) -> void:
 			if combat.t <= 0:
 				combat.mode = "fight"
 				hud.hide_prompt()
-				hud.toast("Votre bateau se défend tout seul.")
-		if combat.mode != "pending":
+				hud.toast("À vous de tirer : visez avec le joystick vert.")
+		if not connected and combat.mode != "pending":
+			# away from the game: the ship fires by itself
 			var bearing := shoot_batteries(P, e, dt, _pay_ball)
 			Models.set_arcs(P.arcs, bearing, Color8(0xf3, 0xf6, 0xf3))
+		else:
+			# connected: the guns only reload; the player fires them with the green stick
+			for k in P.rl:
+				P.rl[k] -= dt
+			var bearing := []
+			if aiming():
+				for b in aim_batteries():
+					bearing.append(b.k)
+				Models.set_arcs(P.arcs, bearing, Color8(0x5f, 0xd0, 0x6a))
+			else:
+				for b in Rules.in_arcs(Rules.batteries(st), Rules.rel_bearing(pp.x, pp.z, P.h, ep.x, ep.z)):
+					if d <= st.range:
+						bearing.append(b.k)
+				Models.set_arcs(P.arcs, bearing, Color8(0xf3, 0xf6, 0xf3))
 		if d < st.board and d < e.st.board + 4:
 			hurt(e, st.crew_dps * dt, true)
 		if combat and combat.mode == "flee" and d > 48:
@@ -766,6 +912,7 @@ func step(dt: float) -> void:
 
 	_update_balls(dt)
 	_update_parts(dt)
+	_update_aim_mark()
 	hud.set_actions(_actions(paused, near_base))
 
 	# camera, sea
