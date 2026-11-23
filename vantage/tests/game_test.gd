@@ -78,7 +78,7 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 		g.step(DT)
 		if g.phase == "vert":
 			for f in g.foes:
-				if (f.kind in ["dart", "swing", "heavy", "turret"] or f.kind in Foes.INTRO) and f.t <= DT * 1.5:
+				if (f.kind in ["dart", "swing", "heavy"] or f.kind in Foes.INTRO or Towers.is_tower(f.kind)) and f.t <= DT * 1.5:
 					entries += 1
 					if g.on_screen(f):
 						popped_in += 1
@@ -477,6 +477,8 @@ func lingering() -> void:
 		var want := 4.0 if from == "back" else 2.8
 		check(seen_t >= want, "a dart from the %s stays on screen %.1f s (at least %.1f)" % [from, seen_t, want])
 	var before: int = g.run.scrap
+	for p in g.picks:
+		before += int(p.dmg) if not p.dead else 0   # scrap already about (from foes shot down)
 	var c := g.drop(Vector3(5, Rules.PY, g.frame_z - 10), 7.0)
 	g.begin_approach()
 	check(c.dead and g.run.scrap == before + 7, "scrap left on screen is collected when the stage ends")

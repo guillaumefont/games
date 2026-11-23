@@ -42,7 +42,7 @@ func roster() -> void:
 				met += 1
 		var old := 0
 		for k: String in ["dart", "swing", "turret", "heavy"]:
-			if kinds.has(k):
+			if kinds.has(k) or k == "turret" and Towers.TYPES.any(func(t: String) -> bool: return kinds.has(t)):
 				old += 1
 		check(old >= 1, "%s keeps the first foes (%d of 4 kinds)" % [Campaign.code(lv), old])
 		if lv >= 3 and lv != Campaign.PER_WORLD - 1:
@@ -169,9 +169,67 @@ func extras() -> void:
 	await process_frame
 
 
+## Every type of gun tower in every world: on its world's footing (a building in the city), its gun
+## turning on top, firing, flashing when hit; the howitzer's shell is big.
+func towers() -> void:
+	print("gun towers, dressed for each world")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	var all := {}
+	for w in Campaign.WORLDS.size():
+		var lv := w * Campaign.PER_WORLD
+		for t: String in Towers.BY_WORLD[w]:
+			all[t] = true
+		check(Towers.BY_WORLD[w].size() >= mini(2 + w, 4), "%s fields %d types of tower" % [Campaign.WORLDS[w].name, Towers.BY_WORLD[w].size()])
+		var seen_types := {}
+		for k in range(lv, lv + Campaign.PER_WORLD):
+			for wave: Dictionary in Campaign.waves(k):
+				if Towers.is_tower(wave.kind):
+					seen_types[wave.kind] = true
+		check(seen_types.size() >= 2, "%s's levels bring %d types of tower" % [Campaign.WORLDS[w].name, seen_types.size()])
+		for t: String in Towers.TYPES:
+			g.launch(lv)
+			g.step(DT)
+			g.clear_all()
+			g.queue.clear()
+			g.wave_i = g.waves.size()
+			g.spawn_vert(t, 1.0, 0, 1)
+			var f: Game.Obj = g.foes[g.foes.size() - 1]
+			var theme: String = Campaign.WORLDS[w].theme
+			var gy := g.ground_y(f.pos.x, f.pos.z)
+			check(f.ground and f.node.mesh == Towers.base(theme) and f.node.has_node("top") and is_equal_approx(f.pos.y, gy + Towers.height(theme)),
+				"%s: a %s on its world's footing, its gun %.1f m up" % [theme, t, Towers.height(theme)])
+			f.hp = 1e6
+			var fired := 0
+			var big := false
+			for i in int(9.0 / DT):
+				var nb := g.bullets.size()
+				g.hp = 5
+				g.step(DT)
+				fired += maxi(0, g.bullets.size() - nb)
+				for b in g.bullets:
+					big = big or b.size > 1.5
+				if fired > 0 and (t != "howitzer" or big):
+					break
+			check(fired > 0, "%s: the %s fires" % [theme, t])
+			if t == "howitzer":
+				check(big, "%s: the howitzer's shell is big" % theme)
+			f.hit = -1.0
+			g.damage(f, 0.5)
+			g.update_objs(0.0)
+			var top := f.node.get_node("top") as MeshInstance3D
+			check(f.node.material_overlay != null and top.material_overlay != null, "%s: the %s flashes, gun and all" % [theme, t])
+	check(all.size() == Towers.TYPES.size(), "every type of tower is fielded somewhere")
+	check(Towers.height("city") + 1.6 < Rules.PY, "a tower on a building stays under the flight altitude")
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage foes test")
 	roster()
+	await towers()
 	await each_kind()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)

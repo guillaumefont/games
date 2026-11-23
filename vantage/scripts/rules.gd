@@ -239,6 +239,10 @@ const FOES := {
 	"dart": {"hp": 3.0, "r": 0.8, "score": 100, "scrap": 5},
 	"swing": {"hp": 4.0, "r": 0.85, "score": 120, "scrap": 5},
 	"turret": {"hp": 9.0, "r": 0.9, "score": 200, "scrap": 15},
+	# more gun towers (`Towers`), dressed for each world
+	"rocket": {"hp": 11.0, "r": 1.0, "score": 250, "scrap": 15},
+	"howitzer": {"hp": 16.0, "r": 1.1, "score": 350, "scrap": 20},
+	"pulse": {"hp": 12.0, "r": 1.0, "score": 300, "scrap": 18},
 	"heavy": {"hp": 45.0, "r": 1.6, "score": 800, "scrap": 60},
 	# the campaign's own foes, one new kind a level (`Foes.INTRO`)
 	"gull": {"hp": 3.0, "r": 0.95, "score": 120, "scrap": 6},
@@ -297,7 +301,7 @@ const STAGE := [
 	{"t": 5.5, "kind": "pillbox", "n": 2, "x": 2.0, "gap": 0.0},
 	{"t": 7.0, "kind": "swing", "n": 6, "x": -1.0, "gap": 0.4},
 	{"t": 9.0, "kind": "turret", "n": 2, "x": -3.5, "gap": 0.0},
-	{"t": 10.0, "kind": "turret", "n": 1, "x": 3.8, "gap": 0.0},
+	{"t": 10.0, "kind": "rocket", "n": 1, "x": 3.8, "gap": 0.0},
 	{"t": 12.5, "kind": "dart", "n": 6, "x": -5.5, "gap": 0.3, "from": "back"},
 	{"t": 15.0, "kind": "heavy", "n": 1, "x": 0.0, "gap": 0.0},
 	# mid-boss: the clock waits until it's down
