@@ -82,7 +82,7 @@ func _ready() -> void:
 
 
 ## A blast of `size` (about 0.4 for a spark, 1 for a light foe, 3 to 4 for boss parts, 9 for the
-## carrier hitting the sea) at `at`. Amber gives fire; any other colour an energy burst in it.
+## fortress hitting the sea) at `at`. Amber gives fire; any other colour an energy burst in it.
 func explode(at: Vector3, size: float, col: Color = AMBER, carry := Vector3.ZERO) -> void:
 	var d := detail()
 	var fire := col.is_equal_approx(AMBER)

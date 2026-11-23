@@ -13,13 +13,14 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   top-down, final boss in the chase.
 - Bosses are bigger than the screen and taken apart **section by section**; each cleared section breaks
   off its mesh. Mid-boss, the Bastion battleship (`Rules.BOSS_SECTIONS`): bow guns, wing batteries,
-  bridge; its hull can't be hurt; it holds the wave clock until it's down. Final boss, the carrier
-  (`Rules.CARRIER_SECTIONS`): stern guns (on the `plating` mesh), tower guns (the `tower` mesh), then the
-  reactor behind four shield panels (phase `core`). Drones launch from its hangar every `DRONE_EVERY` s.
+  bridge; its hull can't be hurt; it holds the wave clock until it's down. Final boss, the flying
+  fortress (Guillaume turned the sea carrier into one, 2026-11-23): a huge armoured aircraft
+  (`Rules.FORTRESS_SECTIONS`): tail guns (on the `plating` mesh), the dorsal gun tower (the `tower` mesh), then
+  the reactor behind four shield panels (phase `core`). Drones launch from its tail bay every `DRONE_EVERY` s.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
-  **outside** and in **third person** (Guillaume rejected a first-person tunnel). The carrier grows to
-  `CARRIER_SCALE` during the swoop (`car_s`, `car_lift`; `Game.carrier_point()` maps model points to the
+  **outside** and in **third person** (Guillaume rejected a first-person tunnel). The fortress grows to
+  `FORTRESS_SCALE` during the swoop (`fort_s`, `fort_lift`; `Game.fort_point()` maps model points to the
   world) and flies `GAP_FAR`/`GAP_NEAR` ahead, so it overflows the screen. It is tall and narrow so
   every target is within the ship's reach (Guillaume found a wide ship's sides hard to hit).
 - In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
@@ -56,7 +57,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, fortress chase (final boss), death, results, world edges
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -75,11 +76,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 ## Code map
 
 - `scripts/rules.gd` (`Rules`): every number (field size, scroll, upgrades and costs, guns, foes, the
-  stage's waves by time, the carrier's waves by rail distance), pure functions on the save dictionary.
+  stage's waves by time, the fortress's waves by rail distance), pure functions on the save dictionary.
   Save: `user://save.json`.
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
-  `prism`, `box`, `octa`), cached by name. The carrier is one mesh, stern (open hangar) at z = 0, the
-  hangar centred on the flight altitude `Rules.PY`.
+  `prism`, `box`, `octa`), cached by name. The fortress's fuselage is one mesh, stern (open bay) at z = 0,
+  the bay centred on the flight altitude `Rules.PY`; each wing (`wing_l`, `wing_r` nodes, built round
+  `Models.WING_ROOT`) carries its engines, exhaust glow and propellers (`Game.fort_props`, spun by
+  `Game.spin_props`). `Models.along_z` extrudes an outline along the hull (fuselage, nacelles, barrels).
 - `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
   (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
   short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
@@ -136,7 +139,7 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
   or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
-- The chase reach (`POV_REACH.x`) must cover every carrier mount at `CARRIER_SCALE` (tested).
+- The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
@@ -146,10 +149,13 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
   height field, so chunks meet seamlessly) and 20% facet, colours blend per vertex in narrow bands,
   hollows are darkened. No random per-facet shade.
-- After its reactor the carrier noses over, rolls and sinks into the sea for `Rules.CRASH_TIME`
-  (`Game.step_crash`, `car_fall`) before the sector clears; it stays in sight (tested).
+- After its reactor the fortress goes down for `Rules.CRASH_TIME` (`Game.step_crash`, `fort_fall`): engines
+  burn, propellers wind down, the left wing snaps off at `WING_SNAP` and tumbles away (`wing_off`, moved in the
+  fortress's frame), it rolls onto that side, noses over and hits the sea or the shore; it stays in sight (tested).
+- Seen from above before the swoop it cruises `FORTRESS_CRUISE` higher than its chase frame's base, so it
+  flies clear of the land; the swoop blends that into `FORTRESS_LIFT`.
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
-  (`Game.pov_drag`), so the ship gets from one flank of the carrier to the other in one move.
+  (`Game.pov_drag`), so the ship gets from one flank of the fortress to the other in one move.
 - The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per
   side in ever wider cells (`Models.ground_cols`, bare of trees), and `CHUNKS_AHEAD` chunks are kept, so the
   ground runs past the fog's end from the chase camera in every direction (tested in `world_edges`).

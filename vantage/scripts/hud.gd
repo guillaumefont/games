@@ -1,7 +1,7 @@
 class_name Hud
 extends Control
 ## The interface: the in-flight HUD (hull, score, scrap, banners, boss bar), the reticle and
-## target brackets of the carrier chase, the hangar (upgrades, launch) and the results.
+## target brackets of the fortress chase, the hangar (upgrades, launch) and the results.
 
 const FONT := preload("res://fonts/Inter-Variable.ttf")
 const INK := Color8(0xf2, 0xf6, 0xfa)
