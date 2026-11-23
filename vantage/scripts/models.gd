@@ -432,12 +432,28 @@ static func heavy() -> Mesh:
 ## The sector's guardian, the Bastion: a battleship wider than the screen, nose to +z. The hull
 ## stays; the bow plating and the wings are separate meshes that break off when their section
 ## is destroyed. Its guns are separate parts (boss_cannon, boss_battery, boss_bridge, turret).
+## The Bastion's outlines seen from above (x, z from the hull's centre, bow towards +z): its
+## meshes are built from them and ramming tests the ship against them (Game.boss_rammed).
+const BOSS_HULL := [Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
+	Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]
+const BOSS_BOW := [Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0), Vector2(-2.2, 7.0)]
+const BOSS_WING := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
+
+
+## One of the Bastion's wings (sx = 1 right, -1 left), wound the same way as the others.
+static func boss_wing(sx: float) -> PackedVector2Array:
+	var o := PackedVector2Array()
+	for p: Vector2 in BOSS_WING:
+		o.append(Vector2(p.x * sx, p.y))
+	if sx < 0:
+		o.reverse()
+	return o
+
+
 static func boss_hull() -> Mesh:
 	return cached("boss_hull", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3.ZERO, pts([Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
-			Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]),
-			-0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
+		b.prism(Vector3.ZERO, pts(BOSS_HULL), -0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
 		# raised spine, deck stripes, stern engines
 		b.box(Vector3(0, 0.9, -5.5), Vector3(2.4, 0.5, 9.0), HULL_D, Vector2(0.8, 0.95))
 		for k in 4:
@@ -451,8 +467,7 @@ static func boss_hull() -> Mesh:
 static func boss_bow() -> Mesh:
 	return cached("boss_bow", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3(0, 0, 0), pts([Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0),
-			Vector2(-2.2, 7.0)]), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
+		b.prism(Vector3(0, 0, 0), pts(BOSS_BOW), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
 		b.box(Vector3(0, 1.05, 5.0), Vector3(1.0, 0.1, 5.0), AMBER, Vector2(0.4, 0.9))
 		for sx in [1.0, -1.0]:
 			b.prism(Vector3(sx * 1.6, 1.0, 6.5), ngon(1.0, 8, PI / 8), 0.0, 0.2, HULL_D)
@@ -464,12 +479,7 @@ static func boss_wings() -> Mesh:
 	return cached("boss_wings", func() -> Mesh:
 		var b := Builder.new()
 		for sx in [1.0, -1.0]:
-			var w := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
-			var o := PackedVector2Array()
-			for p: Vector2 in w:
-				o.append(Vector2(p.x * sx, p.y))
-			if sx < 0:
-				o.reverse()
+			var o := boss_wing(sx)
 			b.prism(Vector3.ZERO, o, -0.35, 0.35, FOE, Vector2(0.97, 0.97))
 			b.box(Vector3(sx * 12.2, 0.0, -3.1), Vector3(0.7, 1.0, 2.6), HULL_D)
 			b.box(Vector3(sx * 9.5, 0.37, -2.0), Vector3(3.5, 0.05, 0.3), AMBER)
@@ -562,8 +572,7 @@ static func midboss_hull(id: String) -> Mesh:
 					b.box(Vector3(0, 0.82, 1.4 - k * 2.6), Vector3(2.4, 0.04, 0.24), AMBER)
 			"hammer":
 				# a thick body, the heart's armoured cradle near its stern
-				b.prism(Vector3.ZERO, pts([Vector2(2.2, 5.4), Vector2(2.6, 1.0), Vector2(2.4, -5.0), Vector2(1.4, -6.6),
-					Vector2(-1.4, -6.6), Vector2(-2.4, -5.0), Vector2(-2.6, 1.0), Vector2(-2.2, 5.4)]), -0.9, 0.9, IRON, Vector2(0.9, 0.95))
+				b.prism(Vector3.ZERO, pts(HAMMER_BODY), -0.9, 0.9, IRON, Vector2(0.9, 0.95))
 				b.prism(Vector3(0, 0, -3.0), ngon(2.0, 8, PI / 8), 0.9, 1.2, IRON_D)
 				for sx in [1.0, -1.0]:
 					b.prism(Vector3(sx * 1.2, 0, -6.6), ngon(0.8, 8, PI / 8), -0.6, 0.6, HULL)
@@ -605,19 +614,16 @@ static func midboss_piece(id: String, piece: String) -> Mesh:
 			["twin", "port"], ["twin", "starboard"]:
 				var sx := -1.0 if piece == "port" else 1.0
 				var c := Vector3(sx * 4.6, 0, 0)
-				b.prism(c, pts([Vector2(0, 8.4), Vector2(1.6, 5.6), Vector2(1.7, -5.0), Vector2(1.0, -6.6),
-					Vector2(-1.0, -6.6), Vector2(-1.7, -5.0), Vector2(-1.6, 5.6)]), -0.9, 0.8, COBALT, Vector2(0.88, 0.95))
+				b.prism(c, pts(TWIN_HULL), -0.9, 0.8, COBALT, Vector2(0.88, 0.95))
 				b.box(c + Vector3(0, 0.82, 1.0), Vector3(0.4, 0.06, 9.0), FOE)
 				# the beams joining it to the keel
 				for z in [3.4, -3.8]:
 					b.box(Vector3(sx * 2.4, 0.3, z), Vector3(2.4, 0.6, 1.0), COBALT_D)
 			["twin", "deck"]:
-				b.prism(Vector3(0, 0, 2.2), pts([Vector2(0, 2.8), Vector2(2.8, 1.2), Vector2(2.8, -1.4), Vector2(-2.8, -1.4),
-					Vector2(-2.8, 1.2)]), 0.0, 1.0, COBALT, Vector2(0.9, 0.9))
+				b.prism(Vector3(0, 0, 2.2), pts(TWIN_DECK), 0.0, 1.0, COBALT, Vector2(0.9, 0.9))
 				b.box(Vector3(0, 1.02, 4.0), Vector3(2.0, 0.05, 0.24), AMBER)
 			["hammer", "hammer"]:
-				b.prism(Vector3(0, 0, 6.6), pts([Vector2(-7.4, -1.2), Vector2(7.4, -1.2), Vector2(7.6, 0.6), Vector2(6.8, 1.6),
-					Vector2(-6.8, 1.6), Vector2(-7.6, 0.6)]), -0.7, 0.8, IRON, Vector2(0.97, 0.9))
+				b.prism(Vector3(0, 0, 6.6), pts(HAMMER_BAR), -0.7, 0.8, IRON, Vector2(0.97, 0.9))
 				b.box(Vector3(0, 0.82, 7.9), Vector3(12.0, 0.06, 0.3), RUST)
 				for sx in [1.0, -1.0]:
 					b.box(Vector3(sx * 7.4, 0.0, 6.4), Vector3(0.5, 1.2, 2.6), HULL_D)
@@ -634,11 +640,72 @@ static func midboss_piece(id: String, piece: String) -> Mesh:
 		return b.commit())
 
 
-## A convex slab from a to b (x, z) `w` wide, from y0 to y1: arms, beams, struts.
-static func slab(b: Builder, from: Vector2, to: Vector2, w: float, y0: float, y1: float, col: Color) -> void:
+## A mid-boss's outlines seen from above (x, z from the hull's centre, bow towards +z), by the
+## piece they belong to ("" for the hull, which stays): ramming tests the ship against the hull
+## and the pieces still on (`Game.boss_rammed`).
+static var _shapes := {}
+
+
+static func midboss_shapes(id: String) -> Dictionary:
+	if _shapes.has(id):
+		return _shapes[id]
+	var out := {}
+	match id:
+		"bastion":
+			out = {"": [pts(BOSS_HULL)], "bow": [pts(BOSS_BOW)], "wings": [boss_wing(1.0), boss_wing(-1.0)]}
+		"mantis":
+			out = {"": [pts([Vector2(0, 6.2), Vector2(1.8, 4.2), Vector2(2.6, -0.8), Vector2(2.2, -5.4), Vector2(1.0, -7.2),
+				Vector2(-1.0, -7.2), Vector2(-2.2, -5.4), Vector2(-2.6, -0.8), Vector2(-1.8, 4.2)])], "claws": [], "pods": []}
+			for sx in [1.0, -1.0]:
+				out.claws.append(slab_poly(Vector2(sx * 2.2, 1.2), Vector2(sx * 4.4, 2.6), 1.4))
+				out.claws.append(slab_poly(Vector2(sx * 4.4, 2.6), Vector2(sx * 5.0, 7.6), 1.6))
+				out.claws.append(slab_poly(Vector2(sx * 5.2, 7.4), Vector2(sx * 3.0, 9.6), 1.0))
+				out.pods.append(slab_poly(Vector2(sx * 2.3, -2.0), Vector2(sx * 5.6, -2.2), 1.0))
+				out.pods.append(slab_poly(Vector2(sx * 6.2, 0.6), Vector2(sx * 6.2, -5.6), 1.9))
+		"halo":
+			out = {"": [ngon(4.6, 16)], "rim": [ngon(6.2, 24)]}
+		"twin":
+			out = {"": [pts([Vector2(0, 2.8), Vector2(1.6, 1.4), Vector2(1.6, -5.6), Vector2(0.8, -6.6), Vector2(-0.8, -6.6),
+				Vector2(-1.6, -5.6), Vector2(-1.6, 1.4)])], "deck": [shifted(TWIN_DECK, Vector2(0, 2.2))]}
+			for side in ["port", "starboard"]:
+				var sx := -1.0 if side == "port" else 1.0
+				out[side] = [shifted(TWIN_HULL, Vector2(sx * 4.6, 0))]
+				for z in [3.4, -3.8]:
+					out[side].append(slab_poly(Vector2(sx * 1.2, z), Vector2(sx * 3.6, z), 1.0))
+		"hammer":
+			out = {"": [pts(HAMMER_BODY)], "hammer": [shifted(HAMMER_BAR, Vector2(0, 6.6))], "fins": []}
+			for sx in [1.0, -1.0]:
+				out.fins.append(pts([Vector2(sx * 2.2, 2.4), Vector2(sx * 5.8, -1.6), Vector2(sx * 5.4, -3.0), Vector2(sx * 2.2, -1.2)]))
+	_shapes[id] = out
+	return out
+
+
+const TWIN_HULL := [Vector2(0, 8.4), Vector2(1.6, 5.6), Vector2(1.7, -5.0), Vector2(1.0, -6.6),
+	Vector2(-1.0, -6.6), Vector2(-1.7, -5.0), Vector2(-1.6, 5.6)]
+const TWIN_DECK := [Vector2(0, 2.8), Vector2(2.8, 1.2), Vector2(2.8, -1.4), Vector2(-2.8, -1.4), Vector2(-2.8, 1.2)]
+const HAMMER_BODY := [Vector2(2.2, 5.4), Vector2(2.6, 1.0), Vector2(2.4, -5.0), Vector2(1.4, -6.6),
+	Vector2(-1.4, -6.6), Vector2(-2.4, -5.0), Vector2(-2.6, 1.0), Vector2(-2.2, 5.4)]
+const HAMMER_BAR := [Vector2(-7.4, -1.2), Vector2(7.4, -1.2), Vector2(7.6, 0.6), Vector2(6.8, 1.6),
+	Vector2(-6.8, 1.6), Vector2(-7.6, 0.6)]
+
+
+static func shifted(a: Array, by: Vector2) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p: Vector2 in a:
+		out.append(p + by)
+	return out
+
+
+## The outline of a slab from a to b `w` wide (x, z).
+static func slab_poly(from: Vector2, to: Vector2, w: float) -> PackedVector2Array:
 	var d := (to - from).normalized()
 	var n := Vector2(-d.y, d.x) * w * 0.5
-	var o := pts([from + n, to + n, to - n, from - n])
+	return pts([from + n, to + n, to - n, from - n])
+
+
+## A convex slab from a to b (x, z) `w` wide, from y0 to y1: arms, beams, struts.
+static func slab(b: Builder, from: Vector2, to: Vector2, w: float, y0: float, y1: float, col: Color) -> void:
+	var o := slab_poly(from, to, w)
 	# the outline must wind the same way as every other prism's (anticlockwise seen from above)
 	if (o[1] - o[0]).cross(o[2] - o[1]) < 0.0:
 		o.reverse()

@@ -84,6 +84,11 @@ func data() -> void:
 			"%s: %d sections, each with a piece that breaks off" % [m.title, m.sections.size()])
 		check(heart.parts.size() == 1 and heart.parts[0].kind in Rules.BOSS_HEARTS, "%s: its heart is the last section" % m.name)
 		check(reach, "%s: every gun within reach and on screen" % m.name)
+		var shapes := Models.midboss_shapes(id)
+		var walls: bool = shapes.has("") and Geometry2D.is_point_in_polygon(Vector2.ZERO, shapes[""][0])
+		for sec: Dictionary in m.sections:
+			walls = walls and (sec.piece == "" or shapes.has(sec.piece) or id == "halo")
+		check(walls, "%s: its hull and pieces can be rammed" % m.name)
 	check(layouts.size() == Rules.MIDBOSSES.size(), "no two mid-bosses are laid out alike")
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
 	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's fortress run is the hand-made sector")

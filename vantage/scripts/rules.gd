@@ -16,6 +16,16 @@ const Z_BOT := 12.0
 const SCROLL := 8.0
 ## Player hit radius (small, as the genre wants) and pickup radius.
 const PLAYER_R := 0.42
+## Ramming (Game.ram): flying into a foe costs a hit of hull and throws the ship back at KNOCK
+## units/s (easing off at KNOCK_EASE/s). Small foes break up; others take RAM_DMG. Foes are
+## touched within RAM_R of their radius. Ground targets, scenery and the fortress (always ahead
+## of the ship) can't be rammed; the Bastion's hull is a wall (Game.boss_rammed).
+const RAMMABLE := ["dart", "swing", "heavy", "drone"]
+const RAM_KILLS := ["dart", "swing", "drone"]
+const RAM_DMG := 12.0
+const RAM_R := 0.7
+const KNOCK := 9.0
+const KNOCK_EASE := 30.0
 const PICK_R := 1.0
 
 # ---------------------------------------------------------------- the fortress (POV episode)

@@ -62,7 +62,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
@@ -197,6 +197,13 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   works from both cameras) and for enemy fire a hot core. Enemy fire is `BULLET_BODY`/`BULLET_RIM`; keep
   new ground colours clear of it (tested in `readable_fire`). Close-ups over each world's ground:
   `tools/bullet_shots.gd -- /tmp/bullets` (same command as the screenshots).
+- Ramming (Guillaume, 2026-11-23: collisions between the ship and enemies damage the ship): `Game.ram`.
+  Flying into an air foe (`Rules.RAMMABLE`) costs a hit and throws the ship back (`Game.knock`, eased off);
+  darts, swings and drones break up, heavies take `RAM_DMG`. During the blink after a hit the ship passes
+  through. Every mid-boss's hull is a wall (`Game.boss_rammed`, tested against its outlines from above,
+  `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
+  once broken off, and a spinning hull is turned). Ground targets and
+  scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
