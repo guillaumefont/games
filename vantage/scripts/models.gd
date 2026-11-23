@@ -948,17 +948,24 @@ static func count(kind: String) -> void:
 	scenery[kind] = scenery.get(kind, 0) + 1
 
 
-## Scenery is drawn this much larger than life so it reads on a phone screen (Guillaume found
-## it too small at 1).
-const PROP_SCALE := 1.5
+## Scenery is drawn comically larger than life so it reads on a phone screen (Guillaume found
+## it too small at 1, then asked for it "comically big"): this wide, and PROP_V as tall, which
+## keeps the tallest props (lighthouses, towers, pines) under the flight altitude.
+const PROP_SCALE := 2.5
+const PROP_V := 1.8
 
 
 ## Landmarks: the prominent scenery the player can shoot down (lighthouses, boats, two-storey
 ## houses). `scatter` leaves them out of the chunk's mesh and lists them here instead; the game
 ## takes the list after each chunk (`Game.update_chunks`) and gives each its own node.
 static var marks: Array = []
+## Height of a landmark's centre above its base before PROP_V (see mark_h).
+const MARK_H := {"lighthouse": 1.15, "boat": 0.2, "house": 0.57}
+
+
 ## Height of a landmark's centre above its base (the game hits it there, as it shows on screen).
-const MARK_H := {"lighthouse": 1.7, "boat": 0.3, "house": 0.85}
+static func mark_h(kind: String) -> float:
+	return MARK_H[kind] * PROP_V
 
 
 static func mark(kind: String, pos: Vector3, ang: float, r: float) -> void:
@@ -976,7 +983,7 @@ static func landmark(kind: String, r: float) -> Mesh:
 	return cached("mark_%s_%s" % [kind, q], func() -> Mesh:
 		var b := Builder.new()
 		b.bottoms = false
-		var at := Vector3(0, -MARK_H[kind], 0)
+		var at := Vector3(0, -mark_h(kind), 0)
 		match kind:
 			"lighthouse":
 				lighthouse(b, at, q * TAU)
@@ -1012,14 +1019,14 @@ static func ruin(kind: String) -> Mesh:
 				b.prism(Vector3.ZERO, ngon(0.8, 10), -0.03, 0.01, FOAM.darkened(0.15))
 				for k in 4:
 					var a := k * 1.6
-					b.xf = Transform3D(Basis(Vector3.UP, a * 2.0).scaled(Vector3.ONE * PROP_SCALE), Vector3(cos(a) * 0.5, 0, sin(a) * 0.4) * PROP_SCALE)
+					place(b, Vector3(cos(a) * 0.5, 0, sin(a) * 0.4) * PROP_SCALE, a * 2.0)
 					b.box(Vector3(0, 0.02, 0), Vector3(0.36, 0.06, 0.1), WOOD.darkened(0.2))
 		b.xf = Transform3D.IDENTITY
 		return b.commit())
 
 
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
-	b.xf = Transform3D(Basis(Vector3.UP, ang).scaled(Vector3.ONE * PROP_SCALE), pos)
+	b.xf = Transform3D(Basis(Vector3.UP, ang) * Basis.from_scale(Vector3(PROP_SCALE, PROP_V, PROP_SCALE)), pos)
 
 
 ## What grows or stands on one terrain cell, from the noise heights at its corners `h`;
@@ -1036,30 +1043,30 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
 			mark("lighthouse", Vector3(cen.x, -0.4, cen.z), ang, r2)
-		elif r < 0.12:
-			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 2.5, r2, true)
+		elif r < 0.05:
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 6.0, r2, true)
 	elif hi < 0.0:
 		# at sea: stacks in the shallows, fishing boats further out
-		if avg > -0.14 and r < 0.025:
-			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 16.0, r2, true)
+		if avg > -0.14 and r < 0.012:
+			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 33.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
 			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
-		if r < 0.08:
+		if r < 0.035:
 			palm(b, at, r2)
-			if r < 0.025:
-				palm(b, at + Vector3(0.7, 0, 0.5).rotated(Vector3.UP, ang), r2 * 0.7 + 0.2)
-		elif r < 0.1:
+			if r < 0.012:
+				palm(b, at + Vector3(1.8, 0, 1.2).rotated(Vector3.UP, ang), r2 * 0.7 + 0.2)
+		elif r < 0.045:
 			count("driftwood")
 			place(b, at, ang)
 			b.box(Vector3(0, 0.04, 0), Vector3(1.1, 0.13, 0.13), DRIFT)
 			b.box(Vector3(0.25, 0.05, 0.16), Vector3(0.4, 0.09, 0.09), DRIFT.darkened(0.1))
-		elif r < 0.14:
-			rocks(b, at, 0.25 + (r - 0.1) * 5.0, r2, false)
-		elif r < 0.155:
+		elif r < 0.06:
+			rocks(b, at, 0.25 + (r - 0.045) * 12.0, r2, false)
+		elif r < 0.067:
 			parasol(b, at, ang, r2)
-		elif r < 0.3 and avg > 0.03:
+		elif r < 0.12 and avg > 0.03:
 			# dune grass where the sand rises
 			place(b, at, ang)
 			count("dune grass")
@@ -1069,32 +1076,31 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	elif avg < 0.3:
 		# the grass: villages here and there, a farm or a copse elsewhere
 		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
-		# one house per 4 x 4 lot at most, so the scaled-up houses and gardens don't overlap
-		var even := posmod(floori(cen.x * 0.5), 2) == 0 and posmod(floori(cen.z * 0.5), 2) == 0
-		var lot := 0.6 if village else 0.06
+		# one house per 8 x 8 lot at most, so the scaled-up houses and gardens don't overlap
+		var even := posmod(floori(cen.x * 0.5), 4) == 0 and posmod(floori(cen.z * 0.5), 4) == 0
+		var lot := 0.7 if village else 0.15
 		if avg >= 0.11 and r < lot and even:
 			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
 			if house_kind(r2) == 1:
 				mark("house", at, turn, r2)   # the tall ones can be shot down
 			else:
 				house(b, at, turn, r2)
-		elif r2 < 0.1:
-			broadleaf(b, at + Vector3((r - 0.5) * 0.8, 0, (r2 - 0.05) * 6.0), r)
-		elif r2 < 0.16:
+		elif r2 < 0.035:
+			broadleaf(b, at + Vector3((r - 0.5) * 0.8, 0, (r2 - 0.02) * 20.0), r)
+		elif r2 < 0.06:
 			bush(b, at + Vector3((r - 0.5), 0, 0), r)
-		elif village and r2 < 0.19:
+		elif village and r2 < 0.075:
 			count("hay")
 			place(b, at, ang)
 			for k in 2:
 				b.prism(Vector3(k * 0.5 - 0.25, -0.1, 0), ngon(0.2, 7), 0, 0.36, Color8(0xe0, 0xbc, 0x60))
 	elif avg < 0.52:
 		# the woods, with a boulder among the pines
-		if r < 0.8:
-			for n in 2 if r < 0.4 else 1:
-				conifer(b, at + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2), r)
-		elif r < 0.86:
+		if r < 0.3:
+			conifer(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r)
+		elif r < 0.32:
 			rocks(b, at, 0.35, r2, false)
-	elif r < 0.2:
+	elif r < 0.08:
 		# bare rock on the heights
 		rocks(b, at, 0.45 + r, r2, false)
 	b.xf = Transform3D.IDENTITY
@@ -1102,11 +1108,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 
 static func conifer(b: Builder, p: Vector3, r: float) -> void:
 	count("conifer")
-	b.xf = Transform3D.IDENTITY
+	place(b, p, r * 6.0)
 	var tall := 1.4 + hash2(p.x, p.z) * 0.9
 	var tc := FOREST.darkened(0.05 + r * 0.15)
-	b.prism(Vector3(p.x, p.y - 0.1, p.z), ngon(0.8, 7, r * 6), 0, tall * 0.6, tc, Vector2(0.45, 0.45))
-	b.prism(Vector3(p.x, p.y - 0.1 + tall * 0.45, p.z), ngon(0.6, 7, r * 6 + 0.4), 0, tall * 0.6, tc.lightened(0.06), Vector2(0.05, 0.05))
+	b.prism(Vector3(0, -0.1, 0), ngon(0.8, 7), 0, tall * 0.6, tc, Vector2(0.45, 0.45))
+	b.prism(Vector3(0, -0.1 + tall * 0.45, 0), ngon(0.6, 7, 0.4), 0, tall * 0.6, tc.lightened(0.06), Vector2(0.05, 0.05))
 
 
 ## A round-crowned tree: a stubby trunk and two tiers of foliage.
@@ -1307,48 +1313,75 @@ static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
 ## ice shards and floes on the shelf; obsidian spires and lava rocks in the cinder fields.
 static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float) -> void:
 	var r2 := hash2(cen.z * 0.9, cen.x * 2.1)
+	var at := Vector3(cen.x, cy, cen.z)
 	match theme:
 		"dunes":
-			if avg >= 0.8 and r < 0.3:
-				var tall := 0.9 + r2 * 1.6
-				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.9 + r * 0.8, 6, r2 * 6), 0, tall, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
+			if avg >= 0.8 and r < 0.1:
+				count("mesa")
+				place(b, at, r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.9 + r * 3.0, 6), 0, 0.9 + r2 * 0.9, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
 			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
-				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.16, 6), 0, 1.3, Color8(0x5c, 0x8a, 0x4a), Vector2(0.8, 0.8))
-				b.prism(Vector3(cen.x + 0.28, cy + 0.5, cen.z), ngon(0.11, 6), 0, 0.5, Color8(0x5c, 0x8a, 0x4a), Vector2(0.8, 0.8))
-			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.07:
-				b.box(Vector3(cen.x, cy + 0.3, cen.z), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
-				b.box(Vector3(cen.x - 0.2, cy + 0.75, cen.z + 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
+				count("cactus")
+				place(b, at, r2 * TAU)
+				var cg := Color8(0x5c, 0x8a, 0x4a)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, 1.4, cg, Vector2(0.85, 0.85))
+				b.prism(Vector3(0.36, 0.45, 0), ngon(0.15, 6), 0, 0.55, cg.darkened(0.06), Vector2(0.8, 0.8))
+				b.prism(Vector3(-0.32, 0.7, 0), ngon(0.13, 6), 0, 0.4, cg.darkened(0.06), Vector2(0.8, 0.8))
+			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.055:
+				count("adobe")
+				place(b, at, snappedf(r2 * TAU, PI * 0.5))
+				b.box(Vector3(0, 0.3, 0), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
+				b.box(Vector3(-0.2, 0.75, 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
 		"city":
-			# streets every few metres, a park where the land is green
+			# streets between blocks, two towers to a block, a park where the land is green
 			var gx := posmod(int(floor(cen.x / 2.0)), 4)
 			var gz := posmod(int(floor(cen.z / 2.0)), 5)
 			if avg < 0.02 or gx == 0 or gz == 0 or (avg >= 0.3 and avg < 0.43):
-				if avg >= 0.3 and avg < 0.43 and r < 0.35:
-					b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.6, 7, r * 6), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
+				if avg >= 0.3 and avg < 0.43 and r < 0.12:
+					count("park tree")
+					place(b, at, r * 6.0)
+					b.prism(Vector3(0, -0.1, 0), ngon(0.6, 7), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
 				return
-			var tall := 0.6 + r2 * r2 * 3.0
+			if gx != 2 or gz % 2 == 0:
+				return
+			count("tower")
+			var tall := 0.6 + r2 * r2 * 1.2
 			var cols := [Color8(0xd8, 0xd4, 0xcc), Color8(0x9e, 0xae, 0xc0), Color8(0xc4, 0x9a, 0x84), Color8(0x7e, 0x88, 0x96)]
 			var col: Color = cols[int(r * 40.0) % cols.size()]
-			b.box(Vector3(cen.x, cy + tall * 0.5 - 0.1, cen.z), Vector3(1.7, tall, 1.7), col)
-			b.box(Vector3(cen.x, cy + tall - 0.05, cen.z), Vector3(1.4, 0.12, 1.4), col.darkened(0.25))
-			if tall > 2.2:
-				b.box(Vector3(cen.x + 0.3, cy + tall + 0.15, cen.z - 0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
+			place(b, Vector3(floor(cen.x / 2.0) * 2.0 + 1.0, cy, floor(cen.z / 2.0) * 2.0 + 2.0), 0.0)
+			b.box(Vector3(0, tall * 0.5 - 0.1, 0), Vector3(1.9, tall, 1.6), col)
+			b.box(Vector3(0, tall - 0.05, 0), Vector3(1.6, 0.12, 1.3), col.darkened(0.25))
+			# rows of windows on the side the camera sees
+			for f in int(tall / 0.4):
+				b.box(Vector3(0, 0.25 + f * 0.4, 0.81), Vector3(1.5, 0.12, 0.03), GLASS)
+			if tall > 1.2:
+				b.box(Vector3(0.3, tall + 0.15, -0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
 		"ice":
-			if avg >= 0.28 and avg < 0.5 and r < 0.7:
-				var tall := 1.3 + r2 * 0.9
+			if avg >= 0.28 and avg < 0.5 and r < 0.25:
+				count("pine")
+				place(b, at, r * 6.0)
+				var tall := 1.3 + r2 * 0.6
 				var tc := Color8(0x2e, 0x50, 0x4c).darkened(r * 0.2)
-				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.6, 6, r * 6), 0, tall, tc, Vector2(0.05, 0.05))
-				b.prism(Vector3(cen.x, cy + tall * 0.55, cen.z), ngon(0.45, 6, r * 6 + 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
-			elif avg >= 0.72 and r < 0.2:
-				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.5, 4, r2 * 6), 0, 1.0 + r2 * 1.4, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
-			elif avg < -0.05 and r < 0.06:
-				b.prism(Vector3(cen.x, -0.42, cen.z), ngon(0.7 + r2 * 0.8, 7, r * 6), 0, 0.14, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
+				b.prism(Vector3(0, -0.1, 0), ngon(0.6, 6), 0, tall, tc, Vector2(0.05, 0.05))
+				b.prism(Vector3(0, tall * 0.55, 0), ngon(0.45, 6, 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
+			elif avg >= 0.72 and r < 0.08:
+				count("ice shard")
+				place(b, at, r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
+			elif avg < -0.05 and r < 0.025:
+				count("floe")
+				place(b, Vector3(cen.x, -0.42, cen.z), r * 6.0)
+				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
-			if avg >= 0.62 and r < 0.28:
-				var tall := 1.0 + r2 * 1.8
-				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.55, 5, r2 * 6), 0, tall, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
-			elif avg < -0.05 and r < 0.05:
-				b.prism(Vector3(cen.x, -0.45, cen.z), ngon(0.5 + r2 * 0.4, 6, r * 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
+			if avg >= 0.62 and r < 0.1:
+				count("spire")
+				place(b, at, r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+			elif avg < -0.05 and r < 0.02:
+				count("lava rock")
+				place(b, Vector3(cen.x, -0.45, cen.z), r * 6.0)
+				b.prism(Vector3.ZERO, ngon(0.5 + r2 * 0.4, 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
+	b.xf = Transform3D.IDENTITY
 
 
 ## The vertex-coloured material tinted (a world's colours on its bosses).

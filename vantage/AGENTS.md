@@ -73,7 +73,7 @@ The final boss alone, without playing the stage (arrival, swoop, each section, a
 fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`.
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
-`xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
+`xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
 
 Every world (hangar, play, battleship): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/worlds.gd -- /tmp/worlds`
 
@@ -117,8 +117,10 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   driftwood, pebbles, dune grass and parasols on the beaches; rocks with a ring of surf, lighthouses and
   fishing boats along the coast. All of it goes into the chunk's one mesh (no extra draw calls), built
   round its own origin and placed with `Builder.xf`; `Builder.bottoms = false` skips faces under the
-  ground. Everything placed with `place()` is drawn `PROP_SCALE` (1.5x) larger so it reads on a phone
-  (Guillaume found life size too small); houses keep to one per 4 x 4 lot. `Models.scenery` counts
+  ground. Every prop, in every world (`theme_prop` too), is placed with `place()` and drawn comically big,
+  as Guillaume asked: `PROP_SCALE` (2.5x) wide and `PROP_V` (1.8x) tall, so the tallest stay under the
+  flight altitude (tested per world). Densities are low to match; houses keep to one per 8 x 8 lot, city
+  towers to two per block. Landmark hit heights go through `Models.mark_h`. `Models.scenery` counts
   what was built (tested).
 - Landmarks (Guillaume, 2026-11-23: prominent scenery can be destroyed): lighthouses, boats and the
   two-storey houses are not baked into the chunk. `scatter` lists them in `Models.marks`; `Game.update_chunks`
