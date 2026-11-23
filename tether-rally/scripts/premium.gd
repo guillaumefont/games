@@ -15,9 +15,9 @@ const PALETTE := {
 	"snow": {
 		"ground": Color("#eceff4"), "ground_dots": Color("#dde3ee"),
 		"ambient": Color("#aab6dc"), "sun": Color("#fff0de"),
-		"road": Color("#6b6f78"), "patch": Color("#8c949e"), "patch_amt": 0.28, "patch_rough": 0.18,
+		"road": Color("#636c7f"), "patch": Color("#8896ab"), "patch_amt": 0.28, "patch_rough": 0.18,
 		"streak": Color("#d6dbe0"), "edge": Color("#f3f4f6"), "road_rough": 0.75,
-		"verge": Color("#d3d7df"), "bank_face": Color("#dde0e8"),
+		"verge": Color("#cfd5e2"), "bank_face": Color("#d9deea"),
 		"rail_top": Color("#f6f4f0"),
 		"column": Color("#55607a"), "cap": Color("#f6f4f0"), "foot": Color("#f3f2f2"),
 		"hub": Color("#f6f4f0"),
