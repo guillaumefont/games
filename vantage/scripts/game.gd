@@ -86,6 +86,12 @@ var bank := 0.0
 var touching := false
 var last_touch := Vector2.ZERO
 var run := {}
+## The level being played (index in the campaign, see Campaign), its world and its waves.
+var level := 0
+var world: Dictionary = Campaign.WORLDS[0]
+var waves: Array = Rules.STAGE
+var sky_mat: ShaderMaterial
+var fill: DirectionalLight3D
 
 # the carrier episode
 var carrier: Node3D
@@ -158,7 +164,7 @@ func _ready() -> void:
 	noise.fractal_octaves = 3
 	env = Environment.new()
 	# a gradient sky with a sun glow, seen whenever the camera tilts up in the chase
-	var sky_mat := ShaderMaterial.new()
+	sky_mat = ShaderMaterial.new()
 	var sh := Shader.new()
 	sh.code = """
 shader_type sky;
@@ -220,7 +226,7 @@ void sky() {
 	var d := -sun.basis.z
 	sun_slide = Vector2(d.x, d.z) / maxf(-d.y, 0.1)
 	# a cool fill from the opposite side keeps the shaded faces from going flat grey
-	var fill := DirectionalLight3D.new()
+	fill = DirectionalLight3D.new()
 	fill.rotation = Vector3(deg_to_rad(-30), deg_to_rad(150), 0)
 	fill.light_energy = 0.28
 	fill.light_color = Color8(0x9c, 0xc4, 0xff)
@@ -265,6 +271,7 @@ func to_hangar() -> void:
 	frame_z = 0.0
 	ship.visible = true
 	set_cam("top", 0.0)
+	pick_level(int(s.sel))
 	prel = Vector2(0, hangar_ship_z())
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
@@ -292,7 +299,38 @@ func hangar_ship_z() -> float:
 	return hit.z - (cam.global_position.z - xf.origin.z + frame_z)
 
 
-func launch() -> void:
+## Selects a level (in the hangar): its world's land and sky show behind the menu.
+func pick_level(lv: int) -> void:
+	if not Campaign.is_open(s, lv):
+		return
+	level = lv
+	s.sel = lv
+	world = Campaign.world_of(lv)
+	waves = Campaign.waves(lv)
+	apply_theme(world.theme)
+
+
+## The world's look: terrain colours and props (the ground is rebuilt), sky, fog and light.
+func apply_theme(theme: String) -> void:
+	var th: Dictionary = Models.THEMES[theme]
+	var sk: Array = th.sky
+	for k in 4:
+		sky_mat.set_shader_parameter(["top", "mid", "hor", "low"][k], sk[k])
+	env.fog_light_color = th.fog
+	env.ambient_light_color = th.ambient
+	sun.light_color = th.sun
+	if Models.theme != theme:
+		Models.theme = theme
+		for k in chunks.keys():
+			chunks[k].queue_free()
+		chunks.clear()
+		update_chunks()
+
+
+## Launches the selected level (or `lv`, if it is open).
+func launch(lv := -1) -> void:
+	pick_level(int(s.sel) if lv < 0 else lv)
+	Rules.save_game(s, save_path)
 	clear_all()
 	phase = "vert"
 	phase_t = 0.0
@@ -311,7 +349,7 @@ func launch() -> void:
 	ship.visible = true
 	set_cam("top", 0.0)
 	hud.show_play()
-	say("SECTOR 1", "Glass Coast")
+	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
 	sound.music("sortie")
 
@@ -382,11 +420,16 @@ func buy(key: String) -> bool:
 
 func end_run(cleared: bool) -> void:
 	run.cleared = cleared
-	run.grade = Rules.grade(run.kills, Rules.stage_foes(), run.hits, cleared)
+	run.total = Campaign.foes_in(level)
+	run.grade = Rules.grade(run.kills, run.total, run.hits, cleared)
+	run.level = level
+	run.opened = -1
 	s.scrap += run.scrap
 	s.runs += 1
 	if cleared:
 		s.clears += 1
+		if Campaign.cleared(s, level, run.grade):
+			run.opened = level + 1
 	run.new_best = run.score > s.best
 	s.best = maxi(s.best, run.score)
 	Rules.save_game(s, save_path)
@@ -557,9 +600,14 @@ func step_vert(dt: float) -> void:
 
 
 func run_waves() -> void:
-	while wave_i < Rules.STAGE.size():
-		var w: Dictionary = Rules.STAGE[wave_i]
+	while wave_i < waves.size():
+		var w: Dictionary = waves[wave_i]
 		if stage_t < w.t:
+			break
+		if w.kind == "end":
+			# the level ends once its last foes are dealt with (or have had their time)
+			if queue.is_empty() and boss == null and (air_foes() == 0 or stage_t > w.t + 8.0):
+				level_clear()
 			break
 		if w.kind == "boss":
 			if boss == null and not boss_done:
@@ -588,11 +636,31 @@ func run_waves() -> void:
 	queue = rest
 
 
+func air_foes() -> int:
+	var n := 0
+	for f in foes:
+		if not f.dead and not f.ground and f.kind != "orb":
+			n += 1
+	return n
+
+
+## A level without the carrier is over: the ship flies off the top, then the results.
+func level_clear() -> void:
+	phase = "clear"
+	phase_t = 0.0
+	vacuum_t = 4.0
+	for b in bullets:
+		b.dead = true
+	run.score += 2000
+	say("LEVEL CLEAR", "%s  +2,000" % Campaign.level_name(level), 3.0)
+
+
 func new_foe(kind: String, mesh: Mesh) -> Obj:
 	var f := Obj.new()
 	f.kind = kind
 	var d: Dictionary = Rules.FOES[kind]
-	f.hp = d.hp
+	# later worlds field tougher foes
+	f.hp = d.hp * (float(world.tough) if kind not in ["boss", "orb"] else 1.0)
 	f.max_hp = d.hp
 	f.r = d.r
 	f.node = Models.instance(mesh)
@@ -646,13 +714,14 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			f.fire_t = 2.0
 		"boss":
 			var f := new_foe("boss", Models.boss_hull())
+			f.node.material_override = Models.tinted(world.tint)
 			f.rel = true
 			f.pos = Vector3(0, Rules.PY, top - 12.0)
 			f.x0 = 0.0
 			boss = f
 			boss_sec = 0
 			for part in [["bow", Models.boss_bow()], ["wings", Models.boss_wings()]]:
-				var mi := Models.instance(part[1])
+				var mi := Models.instance(part[1], Models.tinted(world.tint))
 				mi.name = part[0]
 				f.node.add_child(mi)
 			open_section()
@@ -662,7 +731,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 
 
 func ground_y(x: float, z: float) -> float:
-	var h := noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
+	var h := noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + Models.lift()
 	return maxf(0.0, minf(h, 0.8) * 1.6)
 
 
@@ -1119,7 +1188,7 @@ func bullet(at: Vector3, v: Vector3) -> Obj:
 	var b := Obj.new()
 	b.kind = "bullet"
 	b.pos = at
-	b.vel = v
+	b.vel = v * float(world.fire)
 	b.rel = true
 	b.r = 0.26
 	b.node = Models.instance(Models.shot_mesh(0.26), Models.glow(Color8(0xff, 0x4d, 0x8d)))
@@ -1155,7 +1224,7 @@ func orb(at: Vector3, speed: float) -> Obj:
 	o.r = Rules.FOES.orb.r
 	o.pos = at
 	# fired from things that fly with the ship: aimed in that moving frame
-	o.vel = (ppos - at).normalized() * speed - Vector3(0, 0, rail_speed())
+	o.vel = (ppos - at).normalized() * speed * float(world.fire) - Vector3(0, 0, rail_speed())
 	o.node = Models.instance(Models.shot_mesh(0.35), Models.glow(Color8(0xff, 0x4d, 0x8d)))
 	var dot := Models.instance(Models.shot_mesh(0.18), Models.glow(Color8(0xff, 0xf0, 0xf4)))
 	o.node.add_child(dot)
@@ -1267,7 +1336,7 @@ func kill(f: Obj) -> void:
 		return
 	sound.play("boom" if big >= 2.0 else "pop")
 	shake = maxf(shake, 0.12 * big)
-	var scrap := int(info.scrap)
+	var scrap := roundi(int(info.scrap) * float(world.scrap))
 	if pov_mode():
 		run.scrap += scrap
 		if scrap > 0:
@@ -1287,7 +1356,7 @@ func kill(f: Obj) -> void:
 		vacuum_t = 4.0
 		for b in bullets:
 			b.dead = true
-		stage_t = float(Rules.STAGE[wave_i].t) + 0.5
+		stage_t = float(waves[wave_i].t) + 0.5
 		run.score += 3000
 		say("BASTION DOWN", "+3,000")
 	if f == core:
@@ -1456,11 +1525,11 @@ func spawn_carrier() -> void:
 	car_fall = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	carrier.position = Vector3(0, 0, stern_z)
-	var hull := Models.instance(Models.carrier())
+	var hull := Models.instance(Models.carrier(), Models.tinted(world.tint))
 	carrier.add_child(hull)
 	cast_shadow_of(hull)
 	for part in [["plating", Models.carrier_plating()], ["tower", Models.carrier_tower()]]:
-		var mi := Models.instance(part[1])
+		var mi := Models.instance(part[1], Models.tinted(world.tint))
 		mi.name = part[0]
 		carrier.add_child(mi)
 	carrier.add_child(Models.instance(Models.carrier_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
@@ -1609,7 +1678,7 @@ func step_pov(dt: float) -> void:
 			phase = "clear"
 			phase_t = 0.0
 			run.score += 5000
-			say("SECTOR CLEAR", "Carrier destroyed  +5,000", 3.0)
+			say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Carrier destroyed  +5,000", 3.0)
 			return
 	drone_t -= dt
 	if drone_t <= 0.0:

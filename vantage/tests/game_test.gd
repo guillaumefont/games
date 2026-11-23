@@ -123,7 +123,8 @@ func stage() -> void:
 	var g := make_game()
 	await process_frame
 	g.s.up.missile = 2
-	g.launch()
+	g.s.open = 2
+	g.launch(2)   # Glass Coast's carrier run: the hand-made sector
 	# the mid-boss, top-down
 	run(g, 40.0, func() -> bool: return g.boss != null)
 	check(g.boss != null and g.phase == "vert", "the mid-boss arrives in the vertical stage")
@@ -287,7 +288,8 @@ func lingering() -> void:
 	print("shot range and time on screen")
 	var g := make_game()
 	await process_frame
-	g.launch()
+	g.s.open = 2
+	g.launch(2)
 	g.step(DT)
 	var o := g.new_shot(Vector3(0, Rules.PY, g.frame_z + g.view_top + 0.5), Vector3(0, 0, -30), 1.0)
 	check(not g.gone(o), "a shot still flies at the very top of the screen")

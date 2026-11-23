@@ -57,7 +57,8 @@ func _initialize() -> void:
 	for i in 40:
 		await tick()
 	await shot("1-hangar")
-	g.launch()
+	g.s.open = 2
+	g.launch(2)   # Glass Coast's carrier run
 	var marks := {"2-vertical": func() -> bool: return g.phase == "vert" and g.stage_t > 13.0,
 		"3-midboss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
 		"4-midboss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() <= 3,

@@ -8,7 +8,7 @@ and no recreation of any existing game. Star Breaker (`../star-breaker`) is a se
 merge the two.
 
 Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
-- One sector (Glass Coast): vertical waves, the **mid-boss** (top-down), more waves, then the **final boss**
+- The original sector, now level 1-3 (see Campaign below): vertical waves, the **mid-boss** (top-down), more waves, then the **final boss**
   fought in the third-person chase, which ends the sector. Guillaume swapped these on purpose: mid-boss
   top-down, final boss in the chase.
 - Bosses are bigger than the screen and taken apart **section by section**; each cleared section breaks
@@ -57,6 +57,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results, world edges
+godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, full levels
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -70,7 +71,26 @@ Explosions over time, from both cameras: same command with `tools/blast_shots.gd
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
 
+Every world (hangar, play, battleship): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/worlds.gd -- /tmp/worlds`
+
 Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/icon-512.png`.
+
+## Campaign (Guillaume, 2026-11-23: "a real timeline, with worlds and levels")
+
+- `scripts/campaign.gd` (`Campaign`): five worlds (Glass Coast, Ember Dunes, Iron Sprawl, Frost Shelf,
+  Cinder Reach) of three levels each, played in order: a **patrol** (waves, ends with an `end` wave once
+  the foes are dealt with), a **battleship** level (waves, then the Bastion ends it), a **carrier run**
+  (waves, Bastion mid-boss, waves, carrier chase: the old sector). 1-3 is the hand-made `Rules.STAGE`;
+  every other level's waves come from its world's `mix`, seeded by the level (same every time).
+- Each world has a terrain `theme` (`Models.THEMES`: sky, fog, light, `lift` of the land out of the
+  water; `Models.ground_col` and `Models.theme_prop` per theme; Glass Coast keeps the original props in
+  `ground_chunk`), and multipliers on foe hull (`tough`), bullet speed (`fire`) and `scrap`. Boss hulls
+  take the world's `tint`. `Models.theme` is a static var set by `Game.apply_theme`.
+- Save: `sel` (selected level), `open` (furthest open level), `grades` ("1-1" → best grade).
+  Clearing a level opens and selects the next. Old saves with a clear start in world 2.
+- The hangar's timeline (`Hud.build_campaign`): ‹ world › and the world's three levels; selecting one
+  shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
+- Next steps: per-world bosses and foe models (bosses are the same Bastion and carrier, tinted).
 
 ## Code map
 
