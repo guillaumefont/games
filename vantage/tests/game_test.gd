@@ -313,6 +313,40 @@ func lingering() -> void:
 	await process_frame
 
 
+## The chase camera looks far across the land: the ground must run past the fog's end in every
+## direction it can see, at both flanks of the reach and up high, so no edge of the world shows.
+func world_edges() -> void:
+	print("world edges")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	g.spawn_carrier()
+	g.begin_approach()
+	g.begin_pov()
+	var fog := 0.0
+	for we in g.find_children("*", "WorldEnvironment", false, false):
+		fog = (we as WorldEnvironment).environment.fog_depth_end
+	check(fog > 0.0, "the world has depth fog")
+	for o: Vector2 in [Vector2(-Rules.POV_REACH.x, 0), Vector2(Rules.POV_REACH.x, 0), Vector2(0, Rules.POV_REACH.y)]:
+		g.off = o
+		for i in 120:
+			g.off = o
+			g.step(DT)
+		var cam: Vector3 = g.cam.global_position
+		var box := AABB()
+		var first := true
+		for k in g.chunks:
+			var mi: MeshInstance3D = g.chunks[k]
+			var b: AABB = mi.global_transform * mi.mesh.get_aabb()
+			box = b if first else box.merge(b)
+			first = false
+		var ok := box.position.x <= cam.x - fog and box.end.x >= cam.x + fog and box.position.z <= cam.z - fog
+		check(ok, "ground runs past the fog from the chase camera at %s (x %.0f..%.0f, z to %.0f, camera %.0f, %.0f)" % [
+			o, box.position.x, box.end.x, box.position.z - cam.z, cam.x, cam.z])
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -322,5 +356,6 @@ func _initialize() -> void:
 	await lingering()
 	await stage()
 	await death()
+	await world_edges()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

@@ -569,13 +569,33 @@ static func ground_col(h: float) -> Color:
 	return c.lerp(ROCK, smoothstep(0.5, 0.56, h))
 
 
-static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float) -> Mesh:
+## The x of each column of ground vertices: `core` wide at `cell` spacing around the centre line,
+## then `flank` more on each side in ever wider cells, so the land runs out past the fog (the chase
+## camera looks far across it) for few extra triangles. Every chunk uses the same columns.
+static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32Array:
+	var n := roundi(core / cell)
+	var right := PackedFloat32Array()
+	for i in n / 2 + 1:
+		right.append(i * core / n)
+	var x := core * 0.5
+	var step := cell * 1.5
+	while x < core * 0.5 + flank - 0.01:
+		x = minf(x + step, core * 0.5 + flank)
+		right.append(x)
+		step *= 1.22
+	var cols := PackedFloat32Array()
+	for i in range(right.size() - 1, 0, -1):
+		cols.append(-right[i])
+	cols.append_array(right)
+	return cols
+
+
+static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float, flank := 0.0) -> Mesh:
 	var b := Builder.new()
-	var nx := roundi(size.x / cell)
+	var xs := ground_cols(size.x, cell, flank)
+	var nx := xs.size() - 1
 	var nz := roundi(size.y / cell)
-	var cx_ := size.x / nx
 	var cz_ := size.y / nz
-	var x0 := -size.x * 0.5
 	var hgt := func(x: float, z: float) -> float:
 		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
 	var height := func(h: float) -> float:
@@ -588,7 +608,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		var hr := []
 		var vr := []
 		for j in nz + 1:
-			var wx := x0 + i * cx_
+			var wx := xs[i]
 			var wz := z0 - j * cz_
 			var jx := (hash2(wx, wz) - 0.5) * cell * 0.3
 			var jz := (hash2(wz * 1.3, wx * 0.7) - 0.5) * cell * 0.3
@@ -662,6 +682,9 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
 			var r := hash2(cen.x * 1.7, cen.z * 0.3)
 			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
+			# the wide cells out on the flanks are far off in the fog: bare ground is enough
+			if xs[i + 1] - xs[i] > cell * 3.5:
+				continue
 			if avg >= 0.32 and avg < 0.52 and r < 0.8:
 				for n in 2 if r < 0.4 else 1:
 					var tp := cen + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2)
