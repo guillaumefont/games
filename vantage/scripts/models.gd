@@ -76,6 +76,11 @@ static func hash2(x: float, y: float) -> float:
 class Builder:
 	var st := SurfaceTool.new()
 	var n := 0
+	## Where parts go: everything added is moved by this (scenery is built round its own origin,
+	## then turned and placed).
+	var xf := Transform3D.IDENTITY
+	## False for things that sit on the ground: their bottom faces are never seen.
+	var bottoms := true
 
 	func _init() -> void:
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -83,6 +88,10 @@ class Builder:
 
 	## One triangle; `out` is roughly the direction its front faces.
 	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, out: Vector3) -> void:
+		a = xf * a
+		b = xf * b
+		c = xf * c
+		out = xf.basis * out
 		if (b - a).cross(c - a).dot(out) < 0.0:
 			var t := b
 			b = c
@@ -95,6 +104,10 @@ class Builder:
 
 	## A triangle with a colour per corner.
 	func tri_cols(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, out: Vector3) -> void:
+		a = xf * a
+		b = xf * b
+		c = xf * c
+		out = xf.basis * out
 		if (b - a).cross(c - a).dot(out) < 0.0:
 			var t := b
 			b = c
@@ -151,7 +164,8 @@ class Builder:
 		for i in nb:
 			var j := (i + 1) % nb
 			tri(ct, tp[i], tp[j], col, Vector3.UP)
-			tri(cb, bot[i], bot[j], sc.darkened(0.2), Vector3.DOWN)
+			if bottoms:
+				tri(cb, bot[i], bot[j], sc.darkened(0.2), Vector3.DOWN)
 			var o := ((bot[i] + bot[j]) * 0.5 - cb)
 			o.y = 0.0
 			if bev > 0.0:
@@ -179,13 +193,13 @@ class Builder:
 			tri(a, b, bot, col.darkened(0.25), o + Vector3.DOWN)
 
 	## A Godot primitive placed by `xf`.
-	func prim(p: PrimitiveMesh, xf: Transform3D, col: Color) -> void:
+	func prim(p: PrimitiveMesh, at: Transform3D, col: Color) -> void:
 		var arr := p.get_mesh_arrays()
 		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 		st.set_color(col)
 		for i in idx.size():
-			st.add_vertex(xf * v[idx[i]])
+			st.add_vertex(xf * (at * v[idx[i]]))
 		n += idx.size()
 
 	func commit() -> ArrayMesh:
@@ -571,6 +585,7 @@ static func ground_col(h: float) -> Color:
 
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float) -> Mesh:
 	var b := Builder.new()
+	b.bottoms = false
 	var nx := roundi(size.x / cell)
 	var nz := roundi(size.y / cell)
 	var cx_ := size.x / nx
@@ -657,22 +672,10 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					gv.append(q[k])
 					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
 					gc.append(qc[k])
-			# trees in the woods, the odd farmhouse on the grass
-			var avg: float = (hs[i][j] + hs[i + 1][j] + hs[i + 1][j + 1] + hs[i][j + 1]) * 0.25
-			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
-			var r := hash2(cen.x * 1.7, cen.z * 0.3)
+			# scenery: woods, villages, beaches, rocks and boats
+			var hs4: Array[float] = [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
 			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
-			if avg >= 0.32 and avg < 0.52 and r < 0.8:
-				for n in 2 if r < 0.4 else 1:
-					var tp := cen + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2)
-					var tall := 1.4 + hash2(tp.x, tp.z) * 0.9
-					var tc := FOREST.darkened(0.05 + r * 0.15)
-					b.prism(Vector3(tp.x, cy - 0.1, tp.z), ngon(0.8, 7, r * 6), 0, tall * 0.6, tc, Vector2(0.45, 0.45))
-					b.prism(Vector3(tp.x, cy - 0.1 + tall * 0.45, tp.z), ngon(0.6, 7, r * 6 + 0.4), 0, tall * 0.6, tc.lightened(0.06), Vector2(0.05, 0.05))
-			elif avg >= 0.12 and avg < 0.28 and r < 0.07:
-				b.box(Vector3(cen.x, cy + 0.35, cen.z), Vector3(1.1, 0.7, 0.8), Color8(0xee, 0xe6, 0xd8))
-				b.prism(Vector3(cen.x, cy + 0.7, cen.z), pts([Vector2(-0.62, -0.48), Vector2(0.62, -0.48), Vector2(0.62, 0.48),
-					Vector2(-0.62, 0.48)]), 0, 0.45, Color8(0xc0, 0x5a, 0x3e), Vector2(0.05, 1.0))
+			scatter(b, hs4, (q[0] + q[1] + q[2] + q[3]) * 0.25, cy)
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
@@ -681,6 +684,309 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	arr[Mesh.ARRAY_COLOR] = gc
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+
+# ---------------------------------------------------------------- scenery
+## Small things on the land and sea, built into each terrain chunk (one mesh, no extra draw
+## calls). Each is built round its own origin, then turned and placed with `Builder.xf`.
+const WALLS := [Color8(0xf4, 0xee, 0xe2), Color8(0xec, 0xdc, 0xbe), Color8(0xd8, 0xe6, 0xee), Color8(0xf2, 0xd6, 0xc2)]
+const ROOFS := [Color8(0xc0, 0x5a, 0x3e), Color8(0xa2, 0x46, 0x36), Color8(0x56, 0x68, 0x7e), Color8(0xd4, 0x7c, 0x4a)]
+const WOOD := Color8(0x8a, 0x62, 0x40)
+const DRIFT := Color8(0xc8, 0xb4, 0x96)
+const GLASS := Color8(0x35, 0x4e, 0x68)
+const BRICK := Color8(0x9a, 0x5a, 0x48)
+const LEAF := Color8(0x5a, 0x94, 0x44)
+const PALM := Color8(0x66, 0xa4, 0x40)
+const FOAM := Color8(0xdc, 0xf2, 0xf2)
+const STONE := Color8(0xc4, 0xba, 0xa6)
+const STONE_WET := Color8(0x96, 0x90, 0x86)
+
+
+## How many of each kind of scenery the chunks built so far hold (tests read it).
+static var scenery := {}
+
+
+static func count(kind: String) -> void:
+	scenery[kind] = scenery.get(kind, 0) + 1
+
+
+static func place(b: Builder, pos: Vector3, ang: float) -> void:
+	b.xf = Transform3D(Basis(Vector3.UP, ang), pos)
+
+
+## What grows or stands on one terrain cell, from the noise heights at its corners `h`;
+## `cen` is its centre and `cy` its lowest corner.
+static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> void:
+	var avg := (h[0] + h[1] + h[2] + h[3]) * 0.25
+	var lo := minf(minf(h[0], h[1]), minf(h[2], h[3]))
+	var hi := maxf(maxf(h[0], h[1]), maxf(h[2], h[3]))
+	var r := hash2(cen.x * 1.7, cen.z * 0.3)
+	var r2 := hash2(cen.z * 0.9 + 3.1, cen.x * 1.3)
+	var ang := r2 * TAU
+	var at := Vector3(cen.x, cy, cen.z)
+	if lo < 0.0 and hi >= 0.0:
+		# the shoreline: rocks in the surf, now and then a lighthouse on a point
+		if r < 0.0045 and avg > -0.15:
+			lighthouse(b, Vector3(cen.x, -0.4, cen.z), ang)
+		elif r < 0.12:
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 2.5, r2, true)
+	elif hi < 0.0:
+		# at sea: stacks in the shallows, fishing boats further out
+		if avg > -0.14 and r < 0.025:
+			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 16.0, r2, true)
+		elif avg < -0.22 and r < 0.0035:
+			boat(b, Vector3(cen.x, -0.4, cen.z), ang)
+	elif avg < 0.08:
+		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
+		if r < 0.08:
+			palm(b, at, r2)
+			if r < 0.025:
+				palm(b, at + Vector3(0.7, 0, 0.5).rotated(Vector3.UP, ang), r2 * 0.7 + 0.2)
+		elif r < 0.1:
+			count("driftwood")
+			place(b, at, ang)
+			b.box(Vector3(0, 0.04, 0), Vector3(1.1, 0.13, 0.13), DRIFT)
+			b.box(Vector3(0.25, 0.05, 0.16), Vector3(0.4, 0.09, 0.09), DRIFT.darkened(0.1))
+		elif r < 0.14:
+			rocks(b, at, 0.25 + (r - 0.1) * 5.0, r2, false)
+		elif r < 0.155:
+			parasol(b, at, ang, r2)
+		elif r < 0.3 and avg > 0.03:
+			# dune grass where the sand rises
+			place(b, at, ang)
+			count("dune grass")
+			for k in 3:
+				var tp := Vector3((k - 1) * 0.5, -0.05, (k % 2) * 0.4)
+				b.prism(tp, ngon(0.3 - k * 0.04, 5, k), 0, 0.3, Color8(0xa6, 0xb2, 0x62).darkened(k * 0.06), Vector2(0.3, 0.3))
+	elif avg < 0.3:
+		# the grass: villages here and there, a farm or a copse elsewhere
+		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
+		var even := (roundi(cen.x * 0.5) + roundi(cen.z * 0.5)) % 2 == 0
+		var lot := 0.32 if village else 0.025
+		if avg >= 0.11 and r < lot and even:
+			house(b, at, snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3, r2)
+		elif r < lot + 0.12:
+			broadleaf(b, at + Vector3((r2 - 0.5) * 0.8, 0, (r - 0.5) * 0.6), r2)
+		elif r < lot + 0.2:
+			bush(b, at + Vector3((r2 - 0.5), 0, 0), r2)
+		elif village and r < lot + 0.24:
+			count("hay")
+			place(b, at, ang)
+			for k in 2:
+				b.prism(Vector3(k * 0.5 - 0.25, -0.1, 0), ngon(0.2, 7), 0, 0.36, Color8(0xe0, 0xbc, 0x60))
+	elif avg < 0.52:
+		# the woods, with a boulder among the pines
+		if r < 0.8:
+			for n in 2 if r < 0.4 else 1:
+				conifer(b, at + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2), r)
+		elif r < 0.86:
+			rocks(b, at, 0.35, r2, false)
+	elif r < 0.3:
+		# bare rock on the heights
+		rocks(b, at, 0.45 + r, r2, false)
+	b.xf = Transform3D.IDENTITY
+
+
+static func conifer(b: Builder, p: Vector3, r: float) -> void:
+	count("conifer")
+	b.xf = Transform3D.IDENTITY
+	var tall := 1.4 + hash2(p.x, p.z) * 0.9
+	var tc := FOREST.darkened(0.05 + r * 0.15)
+	b.prism(Vector3(p.x, p.y - 0.1, p.z), ngon(0.8, 7, r * 6), 0, tall * 0.6, tc, Vector2(0.45, 0.45))
+	b.prism(Vector3(p.x, p.y - 0.1 + tall * 0.45, p.z), ngon(0.6, 7, r * 6 + 0.4), 0, tall * 0.6, tc.lightened(0.06), Vector2(0.05, 0.05))
+
+
+## A round-crowned tree: a stubby trunk and two tiers of foliage.
+static func broadleaf(b: Builder, p: Vector3, r: float) -> void:
+	place(b, p, r * TAU)
+	count("broadleaf")
+	var c := LEAF.darkened(r * 0.2).lerp(Color8(0x8c, 0xb4, 0x4a), maxf(0.0, r - 0.7) * 2.0)
+	var big := 0.85 + r * 0.35
+	b.prism(Vector3.ZERO, ngon(0.09, 5), -0.1, 0.55 * big, WOOD)
+	b.prism(Vector3(0, 0.45 * big, 0), ngon(0.6 * big, 7), 0, 0.42 * big, c, Vector2(1.08, 1.08))
+	b.prism(Vector3(0, 0.87 * big, 0), ngon(0.65 * big, 7, 0.2), 0, 0.42 * big, c.lightened(0.07), Vector2(0.35, 0.35))
+
+
+static func bush(b: Builder, p: Vector3, r: float) -> void:
+	count("bush")
+	place(b, p, r * TAU)
+	b.prism(Vector3.ZERO, ngon(0.34, 6), -0.1, 0.32, LEAF.darkened(0.15 + r * 0.1), Vector2(0.55, 0.55))
+	b.prism(Vector3(0.3, 0, 0.1), ngon(0.22, 6), -0.1, 0.22, LEAF.darkened(0.08), Vector2(0.5, 0.5))
+
+
+## One to three boulders round `p`, sized about `s`; `wet` ones are darker and ringed with surf.
+static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool) -> void:
+	count("sea rocks" if wet else "rocks")
+	place(b, p, r * TAU)
+	var n := 1 + int(r * 3.0)
+	for k in n:
+		var sz := s * (1.0 - k * 0.3)
+		var off := Vector3(k * s * 0.85, 0, (k % 2) * s * 0.6 - s * 0.3)
+		var out := PackedVector2Array()
+		for a in 6:
+			var rr := sz * (0.75 + hash2(r * 31.0 + a, k * 7.0 + a * 3.0) * 0.5)
+			var an := TAU * a / 6.0 + r * 2.0
+			out.append(Vector2(cos(an), sin(an)) * rr)
+		var c := (STONE_WET if wet else STONE).darkened(hash2(r + k, s) * 0.15)
+		var tall := sz * (0.6 + hash2(k, r * 9.0) * 0.5) + (0.25 if wet else 0.0)
+		b.prism(off, out, -0.3, tall, c, Vector2(0.6, 0.56), Vector2(sz * 0.12, -sz * 0.08))
+		if wet:
+			b.prism(off, ngon(sz * 1.75, 8, r), -0.43, -0.37, FOAM)
+
+
+## A palm: a slender trunk that leans and curves, a crown of drooping fronds.
+static func palm(b: Builder, p: Vector3, r: float) -> void:
+	count("palm")
+	place(b, p, r * TAU)
+	var tall := 1.3 + r * 0.6
+	var seg := tall / 4.0
+	var base := Vector3(0, -0.1, 0)
+	for k in 4:
+		var lean := Vector2(0.05 + k * 0.05, 0.0)
+		b.prism(base, ngon(0.11 - k * 0.012, 5), 0, seg + 0.04, WOOD.lightened(0.15 + (k % 2) * 0.08), Vector2(0.85, 0.85), lean)
+		base += Vector3(lean.x, seg, lean.y)
+	var top := base + Vector3(0, 0.05, 0)
+	b.octa(top + Vector3(0.05, -0.1, 0), 0.1, Color8(0x6a, 0x4a, 0x2c))
+	for k in 7:
+		var an := TAU * k / 7.0 + r
+		var d := Vector3(cos(an), 0, sin(an))
+		var side := Vector3(-d.z, 0, d.x)
+		var ln := 0.85 + hash2(r * 5.0, k) * 0.3
+		var mid := top + d * ln * 0.5 + Vector3(0, 0.08, 0)
+		var tip := top + d * ln + Vector3(0, -0.45, 0)
+		var c := PALM.darkened(0.12 * (k % 2))
+		b.tri(top, mid + side * 0.2, tip, c, Vector3.UP)
+		b.tri(top, tip, mid - side * 0.2, c.darkened(0.08), Vector3.UP)
+
+
+## A beach parasol in red and white, with a towel laid out beside it.
+static func parasol(b: Builder, p: Vector3, ang: float, r: float) -> void:
+	count("parasol")
+	place(b, p, ang)
+	b.prism(Vector3.ZERO, ngon(0.03, 4), -0.1, 0.8, WOOD.lightened(0.3))
+	var apex := Vector3(0, 0.9, 0)
+	var c: Color = ROOFS[int(r * 40.0) % 4].lightened(0.1)
+	for k in 8:
+		var a := Vector3(cos(TAU * k / 8.0), 0, sin(TAU * k / 8.0)) * 0.55 + Vector3(0, 0.68, 0)
+		var e := Vector3(cos(TAU * (k + 1) / 8.0), 0, sin(TAU * (k + 1) / 8.0)) * 0.55 + Vector3(0, 0.68, 0)
+		b.tri(apex, a, e, c if k % 2 == 0 else Color8(0xf6, 0xf2, 0xea), Vector3.UP)
+	b.box(Vector3(0.55, 0.01, 0.1), Vector3(0.32, 0.04, 0.6), Color8(0x4c, 0xb8, 0xd8) if r < 0.5 else Color8(0xf2, 0xc6, 0x3a))
+
+
+## A small fishing boat riding at sea level (y = -0.4): white hull, wooden deck, a wheelhouse.
+static func boat(b: Builder, p: Vector3, ang: float) -> void:
+	count("boat")
+	place(b, p, ang)
+	var hull := pts([Vector2(-0.26, 0.55), Vector2(0.26, 0.55), Vector2(0.32, -0.1), Vector2(0, -0.8), Vector2(-0.32, -0.1)])
+	b.prism(Vector3.ZERO, ngon(0.75, 10), -0.03, 0.02, FOAM, Vector2(1, 1))
+	b.prism(Vector3.ZERO, hull, -0.1, 0.18, Color8(0xf4, 0xf4, 0xf0), Vector2(1.05, 1.05), Vector2.ZERO, Color8(0x2e, 0x5a, 0x8a))
+	b.prism(Vector3(0, 0, 0.04), hull, 0.18, 0.2, WOOD.lightened(0.2), Vector2(0.82, 0.82))
+	b.box(Vector3(0, 0.34, 0.2), Vector3(0.32, 0.3, 0.28), Color8(0xf4, 0xf4, 0xf0))
+	b.box(Vector3(0, 0.52, 0.2), Vector3(0.38, 0.06, 0.34), Color8(0xc0, 0x5a, 0x3e))
+	b.box(Vector3(0, 0.36, 0.05), Vector3(0.26, 0.1, 0.03), GLASS)
+
+
+## A gabled roof over a w x d box whose walls end at y, ridge along x; gable ends in `wall`.
+static func gable(b: Builder, c: Vector3, w: float, d: float, y: float, rise: float, col: Color, wall: Color) -> void:
+	var o := 0.1
+	var x0 := c.x - w * 0.5
+	var x1 := c.x + w * 0.5
+	var fz := c.z + d * 0.5 + o
+	var bz := c.z - d * 0.5 - o
+	var ry := y + rise
+	b.quad(Vector3(x0 - o, y - 0.04, fz), Vector3(x1 + o, y - 0.04, fz), Vector3(x1 + o, ry, c.z), Vector3(x0 - o, ry, c.z), col, Vector3(0, 1, 1))
+	b.quad(Vector3(x0 - o, y - 0.04, bz), Vector3(x1 + o, y - 0.04, bz), Vector3(x1 + o, ry, c.z), Vector3(x0 - o, ry, c.z), col, Vector3(0, 1, -1))
+	# the eaves' thickness, a darker line that crisps the roof against the walls
+	b.quad(Vector3(x0 - o, y - 0.04, fz), Vector3(x1 + o, y - 0.04, fz), Vector3(x1 + o, y - 0.1, fz), Vector3(x0 - o, y - 0.1, fz), col.darkened(0.35), Vector3(0, 0, 1))
+	for x in [x0, x1]:
+		b.tri(Vector3(x, y, c.z - d * 0.5), Vector3(x, y, c.z + d * 0.5), Vector3(x, ry, c.z), wall.darkened(0.05), Vector3(signf(x - c.x), 0, 0))
+
+
+## Windows (and a door) on a wall facing +z at z, centred on x.
+static func facade(b: Builder, x: float, z: float, w: float, floors: int, door: bool) -> void:
+	for f in floors:
+		var y := 0.36 + f * 0.42
+		for k in 2:
+			var wx := x + (k - 0.5) * w * 0.5
+			if door and f == 0 and k == 0:
+				b.box(Vector3(wx, 0.17, z + 0.02), Vector3(0.2, 0.38, 0.05), WOOD)
+			else:
+				b.box(Vector3(wx, y, z + 0.02), Vector3(0.2, 0.17, 0.04), GLASS)
+
+
+## A house, one of three: a cottage, a two-storey house with a hipped roof, or an L-shaped
+## farmhouse; walls and roofs vary, gardens get a fence or a hedge.
+static func house(b: Builder, p: Vector3, ang: float, r: float) -> void:
+	count("house")
+	place(b, p, ang)
+	var base := b.xf
+	var wall: Color = WALLS[int(r * 17.0) % 4]
+	var roof: Color = ROOFS[int(r * 29.0) % 4]
+	var kind := int(r * 53.0) % 3
+	if kind == 0:
+		var w := 1.25
+		var d := 0.85
+		var y := 0.62
+		b.box(Vector3(0, (y - 0.4) * 0.5, 0), Vector3(w, y + 0.4, d), wall)
+		gable(b, Vector3.ZERO, w, d, y, 0.42, roof, wall)
+		b.box(Vector3(w * 0.28, y + 0.38, -d * 0.18), Vector3(0.16, 0.46, 0.16), BRICK)
+		facade(b, 0, d * 0.5, w, 1, true)
+		facade(b, 0, -d * 0.5 - 0.04, w, 1, false)
+	elif kind == 1:
+		var w := 1.05
+		var d := 0.95
+		var y := 1.02
+		b.box(Vector3(0, (y - 0.4) * 0.5, 0), Vector3(w, y + 0.4, d), wall)
+		b.prism(Vector3.ZERO, pts([Vector2(-w * 0.5 - 0.1, -d * 0.5 - 0.1), Vector2(w * 0.5 + 0.1, -d * 0.5 - 0.1),
+			Vector2(w * 0.5 + 0.1, d * 0.5 + 0.1), Vector2(-w * 0.5 - 0.1, d * 0.5 + 0.1)]), y - 0.04, y + 0.42, roof, Vector2(0.4, 0.04))
+		b.box(Vector3(-w * 0.3, y + 0.35, 0.1), Vector3(0.15, 0.42, 0.15), BRICK)
+		facade(b, 0, d * 0.5, w, 2, true)
+		b.xf = base * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
+		facade(b, 0, w * 0.5, d, 2, false)
+		b.xf = base
+	else:
+		var w := 1.5
+		var d := 0.72
+		var y := 0.56
+		b.box(Vector3(0, (y - 0.4) * 0.5, -0.15), Vector3(w, y + 0.4, d), wall)
+		gable(b, Vector3(0, 0, -0.15), w, d, y, 0.36, roof, wall)
+		facade(b, -0.2, d * 0.5 - 0.15, w * 0.7, 1, true)
+		# the wing, its ridge across the main one
+		b.xf = base * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.45, 0, 0.35))
+		b.box(Vector3(0, (y - 0.4) * 0.5, 0), Vector3(0.75, y + 0.4, 0.6), wall)
+		gable(b, Vector3.ZERO, 0.75, 0.6, y, 0.32, roof, wall)
+		b.xf = base
+		b.box(Vector3(0.45, 0.3, 0.66), Vector3(0.18, 0.15, 0.04), GLASS)
+	# the garden in front: a white picket fence or a hedge
+	var g := 0.62
+	var hedge := r > 0.6
+	var fc := LEAF.darkened(0.2) if hedge else Color8(0xf4, 0xf0, 0xe6)
+	var th := 0.12 if hedge else 0.05
+	var fh := 0.18 if hedge else 0.14
+	if r < 0.85:
+		var front := 0.95 if kind != 2 else 1.05
+		b.box(Vector3(0, fh * 0.5 - 0.1, front), Vector3(1.5, fh + 0.2, th), fc)
+		for sx in [-0.75, 0.75]:
+			b.box(Vector3(sx, fh * 0.5 - 0.1, front - g * 0.5 + 0.1), Vector3(th, fh + 0.2, g - 0.2), fc)
+	b.xf = Transform3D.IDENTITY
+
+
+## A lighthouse on a rocky foot: red and white bands, a gallery, a lit lantern, a red cap.
+static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
+	count("lighthouse")
+	rocks(b, p, 0.6, ang / TAU, true)
+	place(b, p, ang)
+	var y := 0.1
+	var rad := 0.36
+	for k in 4:
+		var c := Color8(0xf6, 0xf4, 0xee) if k % 2 == 0 else Color8(0xc8, 0x3c, 0x34)
+		b.prism(Vector3.ZERO, ngon(rad, 8), y, y + 0.5, c, Vector2(0.9, 0.9))
+		y += 0.5
+		rad *= 0.9
+	b.prism(Vector3.ZERO, ngon(rad + 0.12, 8), y, y + 0.06, Color8(0x3a, 0x3f, 0x48))
+	b.prism(Vector3.ZERO, ngon(rad * 0.8, 8), y + 0.06, y + 0.34, Color8(0xff, 0xe2, 0x8a))
+	b.prism(Vector3.ZERO, ngon(rad, 8), y + 0.34, y + 0.62, Color8(0xc8, 0x3c, 0x34), Vector2(0.08, 0.08))
+	b.xf = Transform3D.IDENTITY
 
 
 static func shot_mesh(r: float, stretch := 1.0) -> Mesh:
