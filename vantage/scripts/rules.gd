@@ -83,8 +83,10 @@ const UPGRADES := {
 
 
 static func fresh() -> Dictionary:
-	return {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
+	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
 		"up": {"cannon": 0, "missile": 0, "hull": 0, "magnet": 0}}
+	Campaign.fresh_into(s)
+	return s
 
 
 ## Any saved dictionary (or garbage) back to a valid save.
@@ -98,6 +100,7 @@ static func migrate(d: Variant) -> Dictionary:
 	if typeof(d.get("up")) == TYPE_DICTIONARY:
 		for k: String in ORDER:
 			s.up[k] = clampi(int(d.up.get(k, 0)), 0, UPGRADES[k].max)
+	Campaign.migrate_into(s, d)
 	return s
 
 

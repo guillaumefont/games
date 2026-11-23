@@ -610,7 +610,53 @@ static func carrier_lights() -> Mesh:
 ## sea, sand, grass and woods from a seeded noise, so chunks join seamlessly.
 ## The colour of the ground at noise height h, blended across bands so coasts and tree lines
 ## grade softly instead of stepping cell by cell.
+## The terrain theme of the current world (`Campaign.WORLDS`): "coast", "dunes", "city", "ice"
+## or "volcano". `ground_chunk` colours the land and picks its props by it.
+static var theme := "coast"
+
+## Each theme's sky (top, middle, horizon, below), fog, ambient light and sun.
+const THEMES := {
+	"coast": {"sky": [Color(0.24, 0.50, 0.80), Color(0.48, 0.74, 0.92), Color(0.86, 0.92, 0.94), Color(0.62, 0.78, 0.88)],
+		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "sun": Color8(0xff, 0xef, 0xd6)},
+	"dunes": {"sky": [Color(0.36, 0.56, 0.80), Color(0.66, 0.78, 0.88), Color(0.96, 0.88, 0.74), Color(0.86, 0.74, 0.58)],
+		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
+	"city": {"sky": [Color(0.30, 0.42, 0.62), Color(0.56, 0.64, 0.76), Color(0.84, 0.80, 0.78), Color(0.58, 0.60, 0.66)],
+		"fog": Color8(0xc8, 0xc8, 0xd0), "ambient": Color8(0xb8, 0xc0, 0xd4), "sun": Color8(0xff, 0xe2, 0xc8), "lift": 0.35},
+	"ice": {"sky": [Color(0.40, 0.58, 0.82), Color(0.66, 0.80, 0.92), Color(0.92, 0.95, 0.98), Color(0.74, 0.84, 0.92)],
+		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
+	"volcano": {"sky": [Color(0.22, 0.18, 0.26), Color(0.50, 0.32, 0.30), Color(0.86, 0.52, 0.34), Color(0.40, 0.24, 0.20)],
+		"fog": Color8(0x8c, 0x5c, 0x4c), "ambient": Color8(0xc8, 0x9c, 0x88), "sun": Color8(0xff, 0xc8, 0x90), "lift": 0.45},
+}
+
+
+## How far the theme raises the land out of the water (the coast keeps its sea; the dunes are
+## nearly all land, with the odd dry wash).
+static func lift() -> float:
+	return float(THEMES[theme].get("lift", 0.0))
+
+
 static func ground_col(h: float) -> Color:
+	match theme:
+		"dunes":
+			if h < 0.0:   # dry washes and salt pans
+				return Color8(0xc4, 0xa2, 0x70).lerp(Color8(0xe6, 0xd6, 0xb4), smoothstep(-0.1, -0.4, h))
+			var d := Color8(0xee, 0xd0, 0x92).lerp(Color8(0xe0, 0xa8, 0x66), smoothstep(0.3, 0.5, h))
+			return d.lerp(Color8(0xb4, 0x62, 0x40), smoothstep(0.74, 0.8, h))
+		"city":
+			if h < 0.0:   # canals
+				return Color8(0x2c, 0x52, 0x66).lerp(Color8(0x7a, 0x7e, 0x84), smoothstep(-0.06, 0.0, h))
+			var c := Color8(0x86, 0x8a, 0x90).lerp(Color8(0x6a, 0x8e, 0x56), smoothstep(0.3, 0.33, h) * (1.0 - smoothstep(0.4, 0.43, h)))
+			return c.lerp(Color8(0xa6, 0xa8, 0xac), smoothstep(0.7, 0.76, h))
+		"ice":
+			if h < 0.0:   # cold sea, pale where the shelf meets it
+				return Color8(0x1c, 0x3e, 0x60).lerp(Color8(0x6e, 0xae, 0xcc), smoothstep(-0.12, 0.0, h) * 0.8)
+			var c := Color8(0xd6, 0xea, 0xf4).lerp(Color8(0xf6, 0xfa, 0xfd), smoothstep(0.08, 0.14, h))
+			return c.lerp(Color8(0x8e, 0x9a, 0xa8), smoothstep(0.7, 0.76, h))
+		"volcano":
+			if h < 0.0:   # lava, a dark crust at its edge
+				return Color8(0xf0, 0x6a, 0x1e).lerp(Color8(0x50, 0x26, 0x1e), smoothstep(-0.1, 0.0, h))
+			var c := Color8(0x4a, 0x42, 0x42).lerp(Color8(0x74, 0x6c, 0x68), smoothstep(0.35, 0.5, h))
+			return c.lerp(Color8(0x8a, 0x44, 0x34), smoothstep(0.72, 0.78, h))
 	if h < 0.0:
 		# deep blue out at sea, turquoise shallows along the coast
 		return SEA.lerp(SEA_D, smoothstep(-0.08, -0.5, h)).lerp(Color8(0x3f, 0xa6, 0xb4), smoothstep(-0.1, 0.0, h) * 0.75)
@@ -648,7 +694,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	var nz := roundi(size.y / cell)
 	var cz_ := size.y / nz
 	var hgt := func(x: float, z: float) -> float:
-		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
+		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + lift()
 	var height := func(h: float) -> float:
 		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
 	# one vertex grid, jittered in world space so neighbouring chunks still meet
@@ -734,7 +780,13 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			# the wide cells out on the flanks are far off in the fog: bare ground is enough
 			if xs[i + 1] - xs[i] > cell * 3.5:
 				continue
-			scatter(b, hs4, (q[0] + q[1] + q[2] + q[3]) * 0.25, cy)
+			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
+			if theme != "coast":
+				# the other worlds' land (Glass Coast's scenery is scatter's)
+				b.xf = Transform3D.IDENTITY
+				theme_prop(b, (hs4[0] + hs4[1] + hs4[2] + hs4[3]) * 0.25, cen, cy, hash2(cen.x * 1.7, cen.z * 0.3))
+				continue
+			scatter(b, hs4, cen, cy)
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
@@ -1052,6 +1104,67 @@ static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
 	b.prism(Vector3.ZERO, ngon(rad * 0.8, 8), y + 0.06, y + 0.34, Color8(0xff, 0xe2, 0x8a))
 	b.prism(Vector3.ZERO, ngon(rad, 8), y + 0.34, y + 0.62, Color8(0xc8, 0x3c, 0x34), Vector2(0.08, 0.08))
 	b.xf = Transform3D.IDENTITY
+
+
+## The props of the other worlds' land (Glass Coast's trees and houses are in ground_chunk):
+## cacti, mesas and adobe in the dunes; blocks of buildings on a street grid in the city; pines,
+## ice shards and floes on the shelf; obsidian spires and lava rocks in the cinder fields.
+static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float) -> void:
+	var r2 := hash2(cen.z * 0.9, cen.x * 2.1)
+	match theme:
+		"dunes":
+			if avg >= 0.8 and r < 0.3:
+				var tall := 0.9 + r2 * 1.6
+				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.9 + r * 0.8, 6, r2 * 6), 0, tall, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
+			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
+				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.16, 6), 0, 1.3, Color8(0x5c, 0x8a, 0x4a), Vector2(0.8, 0.8))
+				b.prism(Vector3(cen.x + 0.28, cy + 0.5, cen.z), ngon(0.11, 6), 0, 0.5, Color8(0x5c, 0x8a, 0x4a), Vector2(0.8, 0.8))
+			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.07:
+				b.box(Vector3(cen.x, cy + 0.3, cen.z), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
+				b.box(Vector3(cen.x - 0.2, cy + 0.75, cen.z + 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
+		"city":
+			# streets every few metres, a park where the land is green
+			var gx := posmod(int(floor(cen.x / 2.0)), 4)
+			var gz := posmod(int(floor(cen.z / 2.0)), 5)
+			if avg < 0.02 or gx == 0 or gz == 0 or (avg >= 0.3 and avg < 0.43):
+				if avg >= 0.3 and avg < 0.43 and r < 0.35:
+					b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.6, 7, r * 6), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
+				return
+			var tall := 0.6 + r2 * r2 * 3.0
+			var cols := [Color8(0xd8, 0xd4, 0xcc), Color8(0x9e, 0xae, 0xc0), Color8(0xc4, 0x9a, 0x84), Color8(0x7e, 0x88, 0x96)]
+			var col: Color = cols[int(r * 40.0) % cols.size()]
+			b.box(Vector3(cen.x, cy + tall * 0.5 - 0.1, cen.z), Vector3(1.7, tall, 1.7), col)
+			b.box(Vector3(cen.x, cy + tall - 0.05, cen.z), Vector3(1.4, 0.12, 1.4), col.darkened(0.25))
+			if tall > 2.2:
+				b.box(Vector3(cen.x + 0.3, cy + tall + 0.15, cen.z - 0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
+		"ice":
+			if avg >= 0.28 and avg < 0.5 and r < 0.7:
+				var tall := 1.3 + r2 * 0.9
+				var tc := Color8(0x2e, 0x50, 0x4c).darkened(r * 0.2)
+				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.6, 6, r * 6), 0, tall, tc, Vector2(0.05, 0.05))
+				b.prism(Vector3(cen.x, cy + tall * 0.55, cen.z), ngon(0.45, 6, r * 6 + 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
+			elif avg >= 0.72 and r < 0.2:
+				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.5, 4, r2 * 6), 0, 1.0 + r2 * 1.4, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
+			elif avg < -0.05 and r < 0.06:
+				b.prism(Vector3(cen.x, -0.42, cen.z), ngon(0.7 + r2 * 0.8, 7, r * 6), 0, 0.14, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
+		"volcano":
+			if avg >= 0.62 and r < 0.28:
+				var tall := 1.0 + r2 * 1.8
+				b.prism(Vector3(cen.x, cy - 0.1, cen.z), ngon(0.55, 5, r2 * 6), 0, tall, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+			elif avg < -0.05 and r < 0.05:
+				b.prism(Vector3(cen.x, -0.45, cen.z), ngon(0.5 + r2 * 0.4, 6, r * 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
+
+
+## The vertex-coloured material tinted (a world's colours on its bosses).
+static func tinted(c: Color) -> Material:
+	if c == Color(1, 1, 1):
+		return mat()
+	var key := "tint%s" % c.to_html()
+	if not _cache.has(key):
+		var m: StandardMaterial3D = mat().duplicate()
+		m.albedo_color = c
+		_cache[key] = m
+	return _cache[key]
 
 
 static func shot_mesh(r: float, stretch := 1.0) -> Mesh:
