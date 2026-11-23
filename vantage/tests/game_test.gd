@@ -70,11 +70,12 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 		if g.pov_mode():
 			var best: Game.Obj = null
 			for f in g.foes:
-				if f.kind not in ["orb", "boss"] and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
+				if f.kind not in ["orb", "boss"] and g.lockable(f) and not g.cam.is_position_behind(f.pos) and f.pos.z < g.ppos.z - 4.0:
 					if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 						best = f
 			if best:
-				g.off = Vector2(best.pos.x, best.pos.y - Rules.PY)
+				# line the dipped guns up with it
+				g.off = Vector2(best.pos.x, best.pos.y + (g.ppos.z - best.pos.z) * Rules.AIM_DIP - g.chase_y)
 		g.step(DT)
 		if g.phase == "vert":
 			for f in g.foes:
@@ -214,37 +215,34 @@ func stage() -> void:
 	check(g.phase == "approach" and g.fortress != null, "the fortress arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
-	check(g.phase == "pov" and g.cam_mode == "chase", "on the fortress's tail, the camera behind the ship")
-	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + Rules.GAP_FAR)) < 0.5, "the ship lined up behind the fortress")
-	check(g.fort_sec == 0 and g.fort_parts.size() == Rules.FORTRESS_SECTIONS[0].mounts.size(), "its tail guns are the first section")
-	for i in 20:
-		g.step(DT)
-	check(g.fort_s == Rules.FORTRESS_SCALE, "the fortress grew during the swoop")
-	# a flying fortress: two wings with propellers that turn
-	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 2 * Models.WINGS.props.engines.size(), "a flying fortress: two wings with their engines")
-	var spin0: float = g.fort_props[0].rotation.z
-	g.step(DT)
-	check(absf(g.fort_props[0].rotation.z - spin0) > 0.1, "its propellers turn")
-	check(g.fortress.global_position.y > -2.0 and g.fort_point(Vector3(0, Rules.PY, 0)).y > Rules.PY, "it flies, its bay above the ship's altitude")
+	check(g.phase == "pov" and g.cam_mode == "chase", "behind the fortress's stern, the camera behind the ship")
+	var st := Rules.station(g.fort_id, 0)
+	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z - st.x)) < 0.5 and absf(g.ppos.y - (g.deck_y + st.y)) < 0.6,
+		"the ship lined up %.0f m behind its stern, level with its engines" % -st.x)
+	check(g.fort_sec == 0 and g.fort_parts.size() == Rules.FORTRESS_SECTIONS[0].guns.size(), "its engines are the first section")
+	check(g.fort_s == 1.0 and g.deck_y > Rules.CHASE_DECK - 0.5, "the fortress grew during the swoop and climbed to its height")
+	# Guillaume (2026-11-23): a huge fortress-class ship, no tunnel: a capital ship far longer and
+	# wider than the screen, cut into sections along its length
+	var L := Rules.fortress_len(g.fort_id)
+	check(L > 200.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
 	var vs := g.view_size()
-	# Guillaume (2026-11-23): "you don't see much of the spaceship": its stern and tower on screen,
-	# (the tower above shows as the ship climbs to it), its wings and engines reaching out past the screen's edges
-	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, Rules.PY, 0)))
-	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, Rules.PY, 0)))
-	var tower := g.cam.unproject_position(g.fort_point(Vector3(0, Rules.FORTRESS_TOP, 0)))
-	var w: Dictionary = Models.wing_spec(g.fort_id)
-	var tip := g.cam.unproject_position(g.fort_point(w.root + Vector3(w.span, w.rise, w.sweep)))
-	var engine := g.cam.unproject_position(g.fort_point(w.root + Models.prop_points(g.fort_id)[0]))
-	check(left.x > 0 and right.x < vs.x and tower.y > 0, "the fortress's stern fits on the screen (%s, %s, %s)" % [left, right, tower])
-	check(tip.x > vs.x and engine.x > vs.x * 0.5 and engine.x < vs.x, "its wings reach past the screen, an engine in view (%s, %s)" % [tip, engine])
+	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, 0, -10.0)))
+	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, 0, -10.0)))
+	# (wider than a phone's screen; at least most of a landscape test window)
+	check(right.x - left.x > vs.x * 0.8, "its hull fills the screen's width (%.0f..%.0f px of %.0f)" % [left.x, right.x, vs.x])
+	var nz := 0
+	for f in g.fort_parts:
+		var p := g.cam.unproject_position(f.pos)
+		if f.kind == "nozzle" and p.x > 0 and p.x < vs.x and p.y > 0 and p.y < vs.y:
+			nz += 1
+	check(nz >= 3, "its engines' nozzles on screen (%d)" % nz)
 	run(g, 1.0)
 	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
-	# (above it unless the ship climbs the tower: the camera follows the climb only partly)
-	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > minf(g.ppos.y, Rules.PY + 8.0), "the camera is behind and above it")
+	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > g.ppos.y, "the camera is behind and above it")
 	var gap := g.ppos.z - g.stern_z
 	var z0 := g.ppos.z
 	run(g, 1.0)
-	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 3.0, "ship and fortress fly forward together, outside")
+	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 1.0, "ship and fortress fly forward together, outside")
 	var kills: int = g.run.kills
 	g.off = Vector2.ZERO
 	for i in 40:
@@ -252,34 +250,73 @@ func stage() -> void:
 	g.drag_by(Vector2(150, -120))
 	for i in 30:
 		g.step(DT)
-	check(g.ppos.x > 2.0 and g.ppos.y > Rules.PY + 1.5, "dragging up right moves the ship there (%.1f, %.1f)" % [g.ppos.x, g.ppos.y - Rules.PY])
+	check(g.ppos.x > 2.0 and g.ppos.y > g.chase_y + 1.5, "dragging up right moves the ship there (%.1f, %.1f)" % [g.ppos.x, g.ppos.y - g.chase_y])
 	g.drag_by(Vector2(99999, -99999))
 	for i in 30:
 		g.step(DT)
-	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01 and g.ppos.y <= Rules.PY + Rules.POV_REACH.y + 0.01, "but no further than the play area")
+	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01 and g.ppos.y <= g.chase_y + Rules.POV_REACH.y + 0.01, "but no further than the play area")
 	var o := g.orb(g.ppos + Vector3(0, 0, -20), 10.0)
 	check(o.vel.z + Rules.RAIL > 9.0, "foes' orbs come at the ship at their own speed, whatever the rail speed")
+	# section by section along the ship, from the stern to the bow
+	var along0 := g.along
 	run(g, 60.0, func() -> bool: return g.fort_sec == 1)
-	check(g.fort_sec == 1 and not g.fortress.get_node("plating").visible, "tail guns down: the plating breaks off, the tower guns open")
-	run(g, 60.0, func() -> bool: return g.phase == "core")
-	check(g.fort_sec == 2 and not g.fortress.get_node("tower").visible, "tower guns down: the tower breaks off, the reactor opens")
-	check(g.phase == "core" and g.core != null and g.shielded(), "the reactor, shielded by its panels")
+	check(g.fort_sec == 1 and not g.fort_piece(0).visible, "engines down: their housings break off, the hangar deck opens")
+	run(g, Rules.ADVANCE + 0.1)
+	var st1 := Rules.station(g.fort_id, 1)
+	check(absf(g.along - st1.x) < 0.5 and g.along > along0 + 40.0 and absf(g.fly - Rules.FLY) < 0.1,
+		"the ship glides on along the hull, over the deck (%.0f m on)" % (g.along - along0))
+	check(g.ppos.y > g.deck_y + 3.0 and g.ppos.z < g.stern_z, "now flying over the deck")
+	# the gun deck's shield pylon guards its guns until it falls
+	run(g, 90.0, func() -> bool: return g.fort_sec == 2)
+	var pylon: Game.Obj = null
+	var guarded: Game.Obj = null
+	for f in g.fort_parts:
+		if f.kind == "pylon":
+			pylon = f
+		elif not f.dead:
+			guarded = f
+	check(pylon != null and guarded != null and g.fort_guarded(guarded) and not g.lockable(guarded), "a shield pylon guards the gun deck's guns")
+	if pylon and guarded:
+		var ghp := guarded.hp
+		g.damage(guarded, 5.0)
+		check(guarded.hp == ghp, "shots bounce off a shielded gun")
+		g.damage(pylon, 9999.0)
+		check(not g.fort_guarded(guarded) and g.lockable(guarded), "the pylon down, its guns can be hit")
+	run(g, 90.0, func() -> bool: return g.phase == "core")
+	check(g.phase == "core" and g.core != null and g.shielded(), "bridge guns down: its armour breaks off, the reactor shows, shielded by its panels")
+	check(not g.fort_piece(g.segs.size() - 1).visible, "(the bridge's armour is gone)")
 	check(g.run.kills > kills, "foes shot down in the chase")
 	var hp: float = g.core.hp
 	g.damage(g.core, 10.0)
 	check(g.core.hp == hp, "the shield stops shots on the core")
 	run(g, 40.0, func() -> bool: return g.phase == "escape")
-	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the fortress goes down")
-	var wing: Node3D = g.fortress.get_node("wing_l")
-	var wing_at := wing.global_position
-	run(g, Rules.CRASH_TIME * 0.6)
-	check(g.wing_off == wing and wing.global_position.distance_to(wing_at) > 15.0 and g.fortress.rotation.z > 0.15,
-		"its left wing snaps off and tumbles away, and it rolls onto that side")
-	check(g.prop_spin < Rules.PROP_SPIN, "its propellers wind down")
-	check(g.fortress != null and g.fortress.visible and g.fort_fall > 3.0 and g.fortress.rotation.x < -0.05,
-		"it noses over and falls, in sight (%.1f m down)" % g.fort_fall)
-	check(not g.cam.is_position_behind(g.fortress.global_position) and g.sound.played.has("crash"), "with the crash heard")
-	run(g, Rules.CRASH_TIME + 2.0, func() -> bool: return g.phase == "clear")
+	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the fortress breaks up")
+	# Guillaume: it dies in the air and drifts off the screen, not into the ground
+	var starts: Array[Vector3] = []
+	for seg in g.segs:
+		starts.append(seg.global_position)
+	var low := 1e9
+	var spread := true
+	for i in int(Rules.BREAKUP_TIME * 0.6 / DT):
+		g.step(DT)
+		for seg in g.segs:
+			low = minf(low, seg.global_position.y - Rules.HULL_DEPTH * 0.6)
+	for k in g.segs.size() - 1:
+		spread = spread and g.segs[k].global_position.distance_to(g.segs[k + 1].global_position) > \
+			starts[k].distance_to(starts[k + 1]) + 3.0
+	check(spread, "its hull parts at the seams and the pieces drift apart")
+	check(low > 4.0, "in the air: no piece comes near the ground (lowest %.1f m)" % low)
+	check(g.stern_z > g.ppos.z - Rules.fortress_len(g.fort_id) + 20.0 and g.sound.played.has("crash"), "the wreck drops back towards the ship, with the blasts heard")
+	run(g, Rules.BREAKUP_TIME, func() -> bool: return g.phase_t > Rules.BREAKUP_TIME - 0.1)
+	var shown := 0
+	for seg in g.segs:
+		var p: Vector3 = seg.global_position
+		if not g.cam.is_position_behind(p):
+			var px := g.cam.unproject_position(p)
+			if px.x > 0 and px.x < vs.x and px.y > 0 and px.y < vs.y:
+				shown += 1
+	check(shown == 0, "and drifts off the screen (%d pieces still on it)" % shown)
+	run(g, 3.0, func() -> bool: return g.phase == "clear")
 	check(g.phase == "clear" and g.cam_mode == "chase" and g.fortress == null, "the final boss is down: sector clear, still in the chase view")
 	run(g, 10.0, func() -> bool: return g.phase == "results")
 	check(g.phase == "results" and g.run.cleared, "results: sector cleared")
@@ -318,10 +355,22 @@ func death() -> void:
 func aiming() -> void:
 	print("aiming and hits")
 	for id: String in Rules.FORTRESSES:
+		# every gun within the chase's reach from its section's station: across, and between the
+		# lowest and highest the ship's dipped guns reach at that distance (with the aim assist)
 		var reach := true
-		for sec: Dictionary in Rules.FORTRESSES[id].sections:
-			for m: Vector2 in sec.mounts:
-				reach = reach and absf(m.x * Rules.FORTRESS_SCALE) <= Rules.POV_REACH.x and m.y <= 19.65 and m.y >= 2.0
+		var secs: Array = Rules.FORTRESSES[id].sections
+		for i in secs.size():
+			var st := Rules.station(id, i)
+			for g: Array in secs[i].guns:
+				var at := Rules.gun_at(id, i, g)
+				var dist := -at.z - st.x
+				var dip := dist * Rules.AIM_DIP
+				var lo := st.y - Rules.POV_DOWN - dip - Rules.AIM_ASSIST
+				var hi := st.y + Rules.POV_REACH.y - dip + Rules.AIM_ASSIST
+				var ok := absf(at.x) <= Rules.GUN_X and at.y >= lo and at.y <= hi and dist > 8.0 and dist < 45.0
+				if not ok:
+					print("    out of reach: ", id, " ", g, " dist ", dist, " y ", at.y, " in ", lo, "..", hi)
+				reach = reach and ok
 		check(reach, "every gun of the %s within the chase's reach" % Rules.FORTRESSES[id].name)
 	var g := make_game()
 	await process_frame
@@ -447,7 +496,7 @@ func swipe() -> void:
 	var d := g.pov_drag()
 	var across := g.view_size().x * Rules.POV_SWIPE
 	check(across * d.x >= 2.0 * Rules.POV_REACH.x - 0.01, "a %.0f px swipe crosses the whole fortress (%.1f m)" % [across, across * d.x])
-	check(g.view_size().y * Rules.POV_SWIPE * d.y >= Rules.POV_REACH.y + Rules.POV_DOWN - 0.01, "and one swipe up climbs the tower")
+	check(g.view_size().y * Rules.POV_SWIPE * d.y >= Rules.POV_REACH.y + Rules.POV_DOWN - 0.01, "and one swipe up climbs to the bridge")
 	g.queue_free()
 	await process_frame
 

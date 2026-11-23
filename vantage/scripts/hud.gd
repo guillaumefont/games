@@ -523,7 +523,10 @@ func draw_reticle(p: Vector2, k: float) -> void:
 ## Brackets on the foes ahead, so they read against the ground.
 func draw_locks() -> void:
 	for f: Game.Obj in game.foes:
-		if f.dead or f.kind == "orb":
+		if f.dead or (f.kind == "orb" and f.homing <= 0.0) or f.ground:
+			continue
+		# on the fortress, only the section being fought is bracketed
+		if f.on_fort and f.sec != game.fort_sec:
 			continue
 		if game.cam.is_position_behind(f.pos):
 			continue
@@ -531,7 +534,7 @@ func draw_locks() -> void:
 		var dist := game.cam.global_position.distance_to(f.pos)
 		var r := clampf(f.r * 700.0 / maxf(dist, 1.0), 14, 90)
 		var c := Color(RED, 0.85)
-		if f.kind == "core" and game.shielded():
+		if (f.kind == "core" and game.shielded()) or game.fort_guarded(f):
 			c = Color(CY, 0.7)
 		for sx in [-1, 1]:
 			for sy in [-1, 1]:

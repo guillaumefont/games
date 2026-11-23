@@ -36,6 +36,12 @@ class Obj:
 	var anchor := Vector3.INF
 	## Height a drone hovers at.
 	var size_y := 0.0
+	## A gun riding the fortress (its node is a child of its hull segment, at `anchor`), and
+	## the section it belongs to.
+	var on_fort := false
+	var sec := 0
+	## Seconds a rocket keeps homing in.
+	var homing := 0.0
 	## When a dart from behind reached its hold in the upper screen (-1: not yet).
 	var hold := -1.0
 	## Where a foe is heading (`Foes`), shots left in its burst, and whether it is out of reach
@@ -117,17 +123,27 @@ var approach_from := Vector3.ZERO
 var approach_stern := 0.0
 ## World z of the ship when the chase began (the ship is at rail_z - rail_s).
 var rail_z := 0.0
-## The fortress's current scale and lift (see Rules.FORTRESS_SCALE).
+## The fortress's current scale and its deck's height (see Rules.TOP_SCALE, CHASE_DECK).
 var fort_s := 1.0
-var fort_lift := 0.0
-## How far the fortress has fallen while going down.
-var fort_fall := 0.0
-## Its propellers (spun every frame), how fast they turn, and the wing that breaks off as it
-## goes down (and how that wing moves away, in the fortress's frame).
-var fort_props: Array[Node3D] = []
-var prop_spin := 0.0
-var wing_off: Node3D
-var wing_vel := Vector3.ZERO
+var deck_y := 0.0
+## Its hull segments (one a section), their drift and turn while it breaks up, the sections
+## already cleared (they burn), and how fast and far the wreck has dropped back.
+var segs: Array[Node3D] = []
+var seg_vel: Array[Vector3] = []
+var seg_spin: Array[Vector3] = []
+var burning: Array[int] = []
+var wreck_v := 0.0
+var wreck_d := 0.0
+## Where the ship flies along the fortress: metres ahead of its stern (`along`), height above
+## its deck (`fly`), the world height of that line (`chase_y`), and the glide to a section's
+## station (`Rules.station`): where it started and for how long it has gone.
+var along := 0.0
+var fly := 0.0
+var chase_y := Rules.PY
+var adv_from := Vector2.ZERO
+var adv_t := 0.0
+## Every gun on the ship (foes riding its segments).
+var fort_guns: Array[Obj] = []
 var boss_done := false
 ## The fortress's current section (in `fort.sections`), its live parts and their full hp.
 var fort_sec := 0
@@ -376,6 +392,7 @@ func launch(lv := -1) -> void:
 	queue.clear()
 	debuted = false
 	fortress_done = false
+	chase_y = Rules.PY
 	boss_done = false
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
@@ -662,7 +679,6 @@ func step(dt: float) -> void:
 		update_objs(dt)
 	elif phase == "down":
 		update_objs(dt)
-	spin_props(dt)
 	shake = maxf(0.0, shake - dt * 1.2)
 	blasts.step(dt)
 	update_chunks()
@@ -872,7 +888,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f):
+		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (f.sec != fort_sec or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1007,7 +1023,7 @@ func update_objs(dt: float) -> void:
 				list.remove_at(i)
 	# place nodes
 	for f in foes:
-		f.node.position = f.pos
+		f.node.position = f.anchor if f.on_fort else f.pos
 		var sc := 1.0 + f.flash * 0.6
 		f.node.scale = Vector3(sc, sc, sc) * f.size
 		var mi := f.node as MeshInstance3D
@@ -1033,7 +1049,7 @@ func update_objs(dt: float) -> void:
 func gone(o: Obj) -> bool:
 	# the mid-boss and its guns are never culled: it comes in from far above the top on a tall
 	# screen (Guillaume was stuck on 2-1: the Halo's rim guns were dropped before it arrived)
-	if o == boss or o in boss_parts:
+	if o == boss or o in boss_parts or o.on_fort:
 		return false
 	if pov_mode():
 		return o.pos.z > ppos.z + 4.0 or o.pos.z < ppos.z - 90.0 or o.t > 8.0 and o.kind in ["shot", "missile", "orb"]
@@ -1126,19 +1142,21 @@ func think(f: Obj, dt: float) -> void:
 			f.pos.x = clampf(f.pos.x, -Rules.POV_REACH.x - 1.0, Rules.POV_REACH.x + 1.0)
 			f.node.look_at(ppos, Vector3.UP, true)
 			f.node.rotate_object_local(Vector3.FORWARD, f.t * 2.0)
-		"sentry":
-			f.pos = fort_point(f.anchor)
-			var dist := ppos.z - f.pos.z
-			f.node.look_at(ppos, Vector3.UP, true)
-			if f.t >= f.fire_t and dist > 6.0 and dist < 45.0:
-				f.fire_t += 1.6
-				orb(f.pos + to_p.normalized() * 1.0, 11.0)
+		"nozzle", "twin", "quad", "pod", "mast", "dish", "pylon", "hatch":
+			think_gun(f, dt)
 		"orb":
 			f.node.rotation = Vector3(f.t * 4, f.t * 3, 0)
+			if f.homing > 0.0:
+				# a rocket: steers for the ship for a while (in the frame flying with it)
+				f.homing -= dt
+				var rel := f.vel + Vector3(0, 0, rail_speed())
+				var want := (ppos - f.pos).normalized() * 10.0 * float(world.fire)
+				rel = rel.lerp(want, minf(1.0, dt * 1.6))
+				f.vel = rel - Vector3(0, 0, rail_speed())
 		"panel":
 			if core:
 				var a := f.t * 0.9 + f.idx * TAU / 4.0
-				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6) * fort_s / Rules.FORTRESS_SCALE
+				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6) * fort_s
 				f.node.rotation = Vector3(PI / 2, 0, a)
 				if f.t >= f.fire_t and phase == "core":
 					f.fire_t += 2.6
@@ -1439,7 +1457,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f):
+			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and f.sec != fort_sec):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1461,7 +1479,7 @@ func collide(_dt: float) -> void:
 		if o.dead:
 			continue
 		for f in foes:
-			if f.dead or f.kind == "boss" or f.under:
+			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or f.sec != fort_sec)):
 				continue
 			var hit := false
 			if pov:
@@ -1555,7 +1573,7 @@ func seg_dist(a: Vector3, b: Vector3, p: Vector3) -> float:
 
 
 func damage(f: Obj, d: float) -> void:
-	if (f.kind == "core" and shielded()) or boss_shielded(f):
+	if (f.kind == "core" and shielded()) or boss_shielded(f) or fort_guarded(f):
 		f.flash = 0.05
 		pop(f.pos + Vector3(0, 0, 1.6), 0.4, Models.CYAN)
 		sound.play("shield")
@@ -1576,7 +1594,7 @@ func kill(f: Obj) -> void:
 	run.score += int(info.score)
 	if f.kind not in ["orb", "boss"] and not landmark(f):
 		run.kills += 1
-	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
+	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
 		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
 		"pillbox": 1.8, "rocket": 1.8, "howitzer": 2.0, "pulse": 1.8, "turret": 1.6, "ember": 1.6, "rotor": 1.5, "scarab": 1.5}.get(f.kind, 1.3)
@@ -1836,51 +1854,92 @@ func let_go(f: Obj) -> void:
 
 # ---------------------------------------------------------------- the fortress episode
 
+## The capital ship comes in ahead, seen from above at `Rules.TOP_SCALE`: hull segments (one a
+## section, `seg0`..), each with its superstructure (`piece`), and every gun on it, spawned now so
+## the whole armed ship shows.
 func spawn_fortress() -> void:
 	fortress = Node3D.new()
+	fortress.name = "fortress"
 	fort_sec = 0
 	fort_parts.clear()
-	fort_s = 1.0
-	fort_lift = Rules.FORTRESS_CRUISE
-	fort_fall = 0.0
+	fort_guns.clear()
+	segs.clear()
+	seg_vel.clear()
+	seg_spin.clear()
+	burning.clear()
+	wreck_v = 0.0
+	wreck_d = 0.0
+	fort_s = Rules.TOP_SCALE
+	deck_y = Rules.TOP_DECK
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
-	var hull := Models.instance(Models.fortress_hull(fort_id), Models.tinted(world.tint))
-	fortress.add_child(hull)
-	cast_shadow_of(hull)
-	# the wings, each with its engines: spinning propellers or jet nozzles, and their glow
-	fort_props.clear()
-	prop_spin = Rules.PROP_SPIN
-	wing_off = null
-	var w := Models.wing_spec(fort_id)
-	var jet: bool = w.jet
-	for side in [1.0, -1.0]:
-		var wing := Node3D.new()
-		wing.name = "wing_r" if side > 0 else "wing_l"
-		wing.position = w.root * Vector3(side, 1, 1)
-		var mi := Models.instance(Models.fortress_wing(fort_id, side), Models.tinted(world.tint))
-		wing.add_child(mi)
-		cast_shadow_of(mi)
-		wing.add_child(Models.instance(Models.fortress_exhausts(fort_id, side),
-			Models.glow(Color8(0xa8, 0xe0, 0xff) if jet else Color8(0xff, 0xc0, 0x70))))
-		for p in Models.prop_points(fort_id):
-			var prop := Models.instance(Models.fortress_nozzle() if jet else Models.fortress_prop())
-			prop.position = p * Vector3(side, 1, 1)
-			prop.rotation.z = rng.randf() * TAU
-			prop.set_meta("dir", 0.0 if jet else side)
-			wing.add_child(prop)
-			fort_props.append(prop)
-		fortress.add_child(wing)
-	for sec: Dictionary in fort.sections:
-		if sec.piece != "":
-			var mi := Models.instance(Models.fortress_piece(fort_id, sec.piece), Models.tinted(world.tint))
-			mi.name = sec.piece
-			fortress.add_child(mi)
-	fortress.add_child(Models.instance(Models.fortress_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
+	var mat := Models.tinted(world.tint)
+	for i in Capital.real_sections(fort_id):
+		var seg := Node3D.new()
+		seg.name = "seg%d" % i
+		var pv := Capital.pivot(fort_id, i)
+		seg.position = pv
+		var body := Node3D.new()
+		body.name = "body"
+		body.position = -pv
+		seg.add_child(body)
+		var hull := Models.instance(Capital.segment(fort_id, i), mat)
+		body.add_child(hull)
+		cast_shadow_of(hull)
+		var pm := Capital.piece(fort_id, i)
+		if pm:
+			var p := Models.instance(pm, mat)
+			p.name = "piece"
+			body.add_child(p)
+			cast_shadow_of(p)
+		fortress.add_child(seg)
+		segs.append(seg)
+	var lights := Models.instance(Capital.lights(fort_id), Models.glow(Capital.LIGHT))
+	lights.name = "lights"
+	fortress.add_child(lights)
 	add_child(fortress)
-	place_fortress(0.0)
+	place_fortress()
+	var secs: Array = fort.sections
+	for i in secs.size():
+		for g: Array in secs[i].guns:
+			spawn_gun(i, g)
 	say("FORTRESS AHEAD", fort.title)
 	sound.play("warning")
 	sound.music("carrier")
+
+
+## Section i's segment's frame (the fortress's own: its body undoes the segment's pivot).
+func seg_body(i: int) -> Node3D:
+	return segs[clampi(i, 0, segs.size() - 1)].get_node("body")
+
+
+## The superstructure of section i, or null.
+func fort_piece(i: int) -> Node3D:
+	if i >= segs.size():
+		return null
+	return seg_body(i).get_node_or_null("piece")
+
+
+## A gun on the ship (`Rules.SHIP_GUNS`): a foe whose node rides on its segment.
+func spawn_gun(i: int, g: Array) -> Obj:
+	var kind: String = g[0]
+	var f := new_foe(kind, Capital.gun(kind, fort_id))
+	f.on_fort = true
+	f.sec = i
+	f.anchor = Rules.gun_at(fort_id, i, g)
+	f.node.material_override = Models.tinted(world.tint)
+	f.idx = fort_guns.size()
+	f.fire_t = 1.2 + (f.idx % 4) * 0.45
+	var gm := Capital.gun_glow(kind)
+	if gm:
+		var gl := Models.instance(gm, Models.glow({"nozzle": Color8(0xff, 0xc4, 0x6a), "mast": Color8(0xff, 0x5a, 0x7a)}.get(kind, Models.CYAN)))
+		gl.name = "glow"
+		f.node.add_child(gl)
+	remove_child(f.node)
+	seg_body(i).add_child(f.node)
+	f.node.position = f.anchor
+	f.pos = fort_point(f.anchor)
+	fort_guns.append(f)
+	return f
 
 
 ## The swoop behind the ship: the vertical stage freezes, the ship drops in behind the
@@ -1893,7 +1952,7 @@ func begin_approach() -> void:
 	for f in foes:
 		if landmark(f):
 			let_go(f)
-		elif not f.dead:
+		elif not f.dead and not f.on_fort:
 			f.dead = true
 			pop(f.pos, 1.0, Models.AMBER)
 	for b in bullets:
@@ -1910,8 +1969,8 @@ func begin_approach() -> void:
 		hud.ping_scrap()
 		sound.play("scrap")
 	queue.clear()
-	set_cam("chase", 2.2)
-	say("INTERCEPT", "Bring the fortress down")
+	set_cam("chase", 2.4)
+	say("INTERCEPT", "Take the fortress apart")
 	sound.play("swoop")
 
 
@@ -1919,117 +1978,144 @@ func step_approach(dt: float) -> void:
 	frame_z -= Rules.SCROLL * maxf(0.0, 1.0 - phase_t / 1.2) * dt
 	var k := clampf(phase_t / Rules.APPROACH, 0.0, 1.0)
 	var e := k * k * (3.0 - 2.0 * k)
-	# the fortress speeds up to the rail speed while the ship falls in behind it
+	# the fortress grows to its true size and climbs while it speeds up to the rail speed, and
+	# the ship climbs in behind its stern, level with its engines
+	fort_s = lerpf(Rules.TOP_SCALE, 1.0, e)
+	deck_y = lerpf(Rules.TOP_DECK, Rules.CHASE_DECK, e)
 	stern_z = approach_stern - Rules.RAIL * Rules.APPROACH * 0.5 * k * k
-	var tail := Vector3(0, Rules.PY, stern_z + Rules.GAP_FAR)
+	var st := Rules.station(fort_id, 0)
+	var tail := Vector3(0, deck_y + st.y, stern_z - st.x * fort_s)
+	chase_y = Rules.CHASE_DECK + st.y
 	var side := smoothstep(0.0, 1.0, minf(1.0, k * 1.6))
-	ppos = Vector3(lerpf(approach_from.x, tail.x, side), Rules.PY, lerpf(approach_from.z, tail.z, e))
+	ppos = Vector3(lerpf(approach_from.x, tail.x, side), lerpf(approach_from.y, tail.y, e), lerpf(approach_from.z, tail.z, e))
 	pvel = Vector2((tail.x - approach_from.x) * (1.0 - side), 0)
-	fort_s = lerpf(1.0, Rules.FORTRESS_SCALE, e)
-	fort_lift = lerpf(Rules.FORTRESS_CRUISE, Rules.FORTRESS_LIFT, e)
-	place_fortress(0.0)
+	place_fortress()
 	if k >= 1.0:
 		begin_pov()
 
 
-## Opens the fortress's next section: its turrets, or the reactor and its panels.
+## Opens the fortress's next section: its guns (any already shot down don't count), or the
+## reactor and its panels. The ship glides on to the section's station meanwhile.
 func open_fort_section() -> void:
 	fort_parts.clear()
+	adv_from = Vector2(along, fly)
+	adv_t = 0.0
 	var sec: Dictionary = fort.sections[fort_sec]
-	if sec.mounts.is_empty():
+	if sec.kind == "core":
 		spawn_pov({"kind": "core", "n": 1})
 		phase = "core"
 		phase_t = 0.0
+		adv_t = Rules.ADVANCE
 	else:
-		spawn_pov({"kind": "sentry", "n": sec.mounts.size(), "mounts": sec.mounts})
+		for f in fort_guns:
+			if f.sec == fort_sec and not f.dead:
+				fort_parts.append(f)
+		if fort_parts.is_empty():
+			section_down()
+			return
 	fort_max = 0.0
 	for p in fort_parts:
-		fort_max += p.max_hp
+		fort_max += p.max_hp * (float(world.tough) if p.kind != "core" else 1.0)
 	say(sec.name, "Section %d of %d" % [fort_sec + 1, fort.sections.size()], 1.8)
 
 
-## A fortress part went down: once its section is cleared, that section breaks off.
+## A fortress part went down: once its section is cleared, its superstructure breaks off and the
+## ship moves on along the hull to the next.
 func fort_part_down(f: Obj) -> void:
 	fort_parts.erase(f)
 	if not fort_parts.is_empty() or f == core:
 		return
-	var sec: Dictionary = fort.sections[fort_sec]
-	var name: String = sec.piece
-	if fortress and name != "" and fortress.has_node(name):
-		fortress.get_node(name).visible = false
-		# a ripple of blasts across the piece as it breaks off, round where its guns were
+	section_down()
+
+
+func section_down() -> void:
+	var piece := fort_piece(fort_sec)
+	if piece and piece.visible:
+		piece.visible = false
+		# a ripple of blasts across the superstructure as it breaks off
+		var box: AABB = (piece as MeshInstance3D).mesh.get_aabb()
 		var pts: Array = []
-		for k in 8:
-			var m: Vector2 = sec.mounts[k % sec.mounts.size()]
-			pts.append(fort_point(Vector3(m.x + rng.randf_range(-1.5, 1.5), m.y + rng.randf_range(-1.5, 1.5), Models.mount_z(m))))
-		pop(pts[0], 3.6, Models.AMBER)
-		blasts.chain(pts.slice(1), 3.0, 0.7, fx_carry(), 5.0)
+		for k in 9:
+			pts.append(fort_point(box.position + box.size * Vector3(rng.randf(), rng.randf_range(0.3, 1.0), rng.randf())))
+		pop(pts[0], 4.0, Models.AMBER)
+		blasts.chain(pts.slice(1), 3.2, 0.8, fx_carry(), 5.5)
 		shake = 0.7
 		sound.play("crash")
+	if fort_sec < segs.size():
+		burning.append(fort_sec)
 	fort_sec += 1
 	open_fort_section()
 
 
-## Turns the fortress's propellers (each wing's the other way round); a broken wing's stop.
-func spin_props(dt: float) -> void:
-	if fortress == null:
-		return
-	for p in fort_props:
-		if is_instance_valid(p) and p.get_parent() != wing_off:
-			p.rotation.z += prop_spin * float(p.get_meta("dir")) * dt
-
-
-func place_fortress(bob: float) -> void:
-	fortress.position = Vector3(0, Rules.PY + fort_lift - Rules.PY * fort_s + bob - fort_fall, stern_z)
+func place_fortress() -> void:
+	fortress.position = Vector3(0, deck_y, stern_z)
 	fortress.scale = Vector3.ONE * fort_s
 
 
-## A point given on the fortress's model (its stern at z = 0) in the world, with its current
-## scale and lift.
+## A point given on the fortress's model (its stern at z = 0, its deck at y = 0) in the world,
+## at its current scale (before it breaks up).
 func fort_point(p: Vector3) -> Vector3:
-	return Vector3(p.x * fort_s, Rules.PY + fort_lift + (p.y - Rules.PY) * fort_s, stern_z + p.z * fort_s)
+	return Vector3(p.x * fort_s, deck_y + p.y * fort_s, stern_z + p.z * fort_s)
 
 
 func begin_pov() -> void:
 	phase = "pov"
 	phase_t = 0.0
 	fort_sec = 0
-	drone_t = 3.0
+	drone_t = 4.0
 	drone_n = 0
-	open_fort_section()
+	var st := Rules.station(fort_id, 0)
+	along = st.x
+	fly = st.y
+	fort_s = 1.0
+	deck_y = Rules.CHASE_DECK
 	rail_s = 0.0
 	rail_z = ppos.z
 	off = Vector2.ZERO
+	open_fort_section()
+	adv_t = Rules.ADVANCE
 	hud.show_play()
 
 
-## The chase, on rails: ship and fortress fly forward at `Rules.RAIL`; the drag moves the ship
-## in the plane facing the fortress (that's how you dodge), the guns fire straight ahead with
+## The chase, on rails: ship and fortress fly forward at `Rules.RAIL`, the ship over the
+## fortress's deck at its section's station (gliding on to the next when one falls); the drag
+## moves the ship in the plane facing forward (that's how you dodge); the guns fire ahead with
 ## a little aim assist.
 func step_pov(dt: float) -> void:
 	var v := rail_speed()
 	rail_s += v * dt
+	var line_z := rail_z - rail_s
+	if phase == "escape":
+		# climbing away from the blast, so the wreck drifts back beneath the ship
+		chase_y = Rules.CHASE_DECK + fly + Rules.CLIMB * smoothstep(0.0, 2.5, phase_t)
+	else:
+		adv_t += dt
+		var k := clampf(adv_t / Rules.ADVANCE, 0.0, 1.0)
+		var st := Rules.station(fort_id, fort_sec)
+		along = lerpf(adv_from.x, st.x, smoothstep(0.0, 1.0, k))
+		# up first, so the ship clears the stern's edge before it runs on over the deck
+		fly = lerpf(adv_from.y, st.y, smoothstep(0.0, 1.0, minf(1.0, k * 2.4)))
+		chase_y = Rules.CHASE_DECK + fly
 	off += knock * dt
 	knock = knock.move_toward(Vector2.ZERO, Rules.KNOCK_EASE * dt)
 	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
 	off.y = clampf(off.y, -Rules.POV_DOWN, Rules.POV_REACH.y)
 	var before := Vector2(ppos.x, ppos.y)
-	var cur := before.lerp(Vector2(off.x, Rules.PY + off.y), minf(1.0, dt * 10.0))
+	var cur := before.lerp(Vector2(off.x, chase_y + off.y), minf(1.0, dt * 10.0))
 	pvel = (cur - before) / maxf(dt, 0.001)
-	ppos = Vector3(cur.x, cur.y, rail_z - rail_s)
+	ppos = Vector3(cur.x, cur.y, line_z)
 	frame_z = ppos.z - 6.0
 	if fortress:
-		var gap := Rules.GAP_NEAR if phase == "core" else Rules.GAP_FAR
-		var want := ppos.z - gap
 		if phase == "escape":
-			# losing way: it drops back a little, but stays ahead and below the ship
-			want = ppos.z - Rules.GAP_FAR - phase_t * 5.0
-		stern_z = lerpf(stern_z, want, minf(1.0, dt * 0.6)) - v * dt
-		place_fortress(sin(phase_t * 0.7) * 0.3)
-	aim = cam.unproject_position(ppos + Vector3(0, 0.2, -Rules.AIM_AHEAD)) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
+			step_breakup(dt)
+		else:
+			stern_z = line_z + along
+			deck_y = Rules.CHASE_DECK + sin(phase_t * 0.5) * 0.25
+		place_fortress()
+		burn_cleared()
+	aim = cam.unproject_position(ppos + aim_dir() * Rules.AIM_AHEAD) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
 	if phase == "escape":
-		step_crash(dt)
-		if phase_t > Rules.CRASH_TIME:
+		if phase_t > Rules.BREAKUP_TIME:
 			if fortress:
 				fortress.queue_free()
 				fortress = null
@@ -2038,104 +2124,105 @@ func step_pov(dt: float) -> void:
 			run.score += 5000
 			say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
 			return
-	drone_t -= dt
-	if drone_t <= 0.0:
-		drone_t = float(fort.drones)
-		spawn_pov({"kind": "drone", "n": 3 + drone_n % 2})
-		drone_n += 1
+	else:
+		drone_t -= dt
+		if drone_t <= 0.0:
+			drone_t = float(fort.drones)
+			spawn_pov({"kind": "drone", "n": 2 + drone_n % 2})
+			drone_n += 1
 	fire_pov(dt)
 
 
-## The fortress going down: its engines catch fire and its propellers wind down, the left
-## wing snaps off at the root and tumbles away, and the fortress rolls onto that side, noses
-## over and falls out of the sky trailing smoke and explosions, to hit the sea (water spouts)
-## or the shore (a wall of fire) in one last blast.
-func step_crash(dt: float) -> void:
-	if fortress == null:
+## Cleared sections burn: now and then a fire on the deck of one in view.
+func burn_cleared() -> void:
+	if burning.is_empty() or fmod(phase_t, 0.12) >= get_process_delta_time() + 0.017:
 		return
-	var k := phase_t / Rules.CRASH_TIME
-	var snapped := phase_t > Rules.WING_SNAP
-	var roll := 0.12 * k + (0.85 * smoothstep(Rules.WING_SNAP, Rules.CRASH_TIME, phase_t) if snapped else 0.0)
-	fortress.rotation = Vector3(-0.5 * k * k, 0, roll + sin(phase_t * 3.0) * 0.02)
-	fort_fall += Rules.CRASH_FALL * phase_t * dt
-	prop_spin = maxf(Rules.PROP_SPIN * 0.25, prop_spin - Rules.PROP_SPIN * 0.3 * dt)
-	var carry := fx_carry()
-	# every engine burns, and the stern trails fire and smoke
-	if fmod(phase_t, 0.08) < dt:
-		var i := 0
-		for p in fort_props:
-			if is_instance_valid(p) and phase_t > 0.15 * i:
-				blasts.burn(p.global_position, 0.6 * fort_s, carry * 0.95)
-			i += 1
-		for p in [Vector3(-3.2, 9.0, 0.6), Vector3(2.8, 15.0, 0.2)]:
-			if phase_t > 0.5:
-				blasts.burn(fortress.to_global(p), 0.55 * fort_s, carry * 0.95)
-	# the left wing snaps at the root
-	var wing: Node3D = fortress.get_node_or_null("wing_l")
-	if snapped and wing and wing_off == null:
-		wing_off = wing
-		wing_vel = Vector3(-7.0, 2.0, 6.0)
-		var root := fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1))
-		pop(root, 5.5, Models.AMBER)
-		blasts.chain([fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1) + Vector3(-4, 0, 6)),
-			fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1) + Vector3(-2, 1, -8))], 4.0, 0.25, carry)
-		shake = 1.0
-		sound.play("crash", 2.0)
-	if wing_off:
-		wing_vel.y -= 9.0 * dt
-		wing_off.position += wing_vel * dt
-		wing_off.rotation += Vector3(0.5, 0.3, 1.6) * dt
-	if fmod(phase_t, 0.16) < dt:
-		# most on the tail, where they show, some along the hull and on the wing roots
-		var z := -rng.randf_range(0, 4.0) if rng.randf() < 0.55 else -rng.randf_range(4.0, Rules.FORTRESS_LEN * 0.3)
-		var at := fortress.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), z))
-		if rng.randf() < 0.25:
-			at = fortress.to_global(Models.wing_spec(fort_id).root * Vector3(1, 1, 1) + Vector3(rng.randf_range(0, 12), 0, rng.randf_range(-8, 8)))
-		pop(at, rng.randf_range(2.6, 4.6), Models.AMBER)
-		sound.play("boom", -4.0)
-		shake = maxf(shake, 0.3)
-	if phase_t > Rules.CRASH_TIME - 1.0 and not fortress.has_meta("impact"):
-		fortress.set_meta("impact", true)
-		# it hits the water (spouts) or the shore (a fireball) all along its hull, the wing apart
-		var drift := Vector3(0, 0, -rail_speed() * 0.6)
-		var hits: Array[Vector3] = []
-		for j in 6:
-			hits.append(fortress.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0)))
-		if wing_off:
-			hits.append(wing_off.to_global(Vector3(-float(Models.wing_spec(fort_id).span) * 0.5, 0, 0)))
-		var j := 0
-		for at in hits:
-			at.y = ground_y(at.x, at.z)
-			if at.y < 0.05:
-				blasts.splash(at, 11.0, drift)
-			blasts.later(0.05 + j * 0.07, at + Vector3(0, 1.5, 0), 6.0, Models.AMBER, drift)
-			j += 1
-		shake = 1.0
-		sound.play("crash", 3.0)
-	if phase_t > Rules.CRASH_TIME - 0.3:
-		fortress.visible = false
+	var i: int = burning[rng.randi() % burning.size()]
+	var r := Capital.seg_range(fort_id, i)
+	var d := rng.randf_range(r.x + 4.0, r.y - 4.0)
+	var at := seg_body(i).to_global(Vector3(rng.randf_range(-0.7, 0.7) * Capital.hw(fort_id, d), 0.4, -d))
+	if at.z < ppos.z - 2.0 and at.z > ppos.z - 120.0:
+		blasts.burn(at, rng.randf_range(1.4, 2.6), fx_carry() + Vector3(0, 0, wreck_v))
+
+
+## The ship's end (Guillaume: it dies in the air and drifts off the screen, never into the
+## ground). The reactor's blast, a chain of blasts running aft along the spine, then the hull
+## parts at its seams, bow first: each segment drifts apart from the next, turns a little and
+## sinks a few metres, burning, while the whole wreck loses way and slides back under the ship
+## and off the bottom of the screen.
+func step_breakup(dt: float) -> void:
+	var t := phase_t
+	wreck_v = Rules.DRIFT * t * t
+	wreck_d += wreck_v * dt
+	stern_z = rail_z - rail_s + along + wreck_d
+	var n := segs.size()
+	var carry := fx_carry() + Vector3(0, 0, wreck_v)
+	for i in n:
+		var seg := segs[i]
+		# seams part from the bow aft
+		var at := Rules.SEAM_GAP * (n - 1 - i) + 0.5
+		if t < at:
+			continue
+		if not seg.has_meta("free"):
+			seg.set_meta("free", true)
+			var side := -1.0 if i % 2 == 0 else 1.0
+			# each piece falls back from the one ahead of it, the bow slowest
+			seg_vel[i] = Vector3(side * rng.randf_range(3.0, 4.5), -rng.randf_range(0.8, 1.2) * Rules.SINK, (n - 1 - i) * 2.4)
+			seg_spin[i] = Vector3(rng.randf_range(-0.06, 0.06), side * rng.randf_range(0.08, 0.14), -side * rng.randf_range(0.06, 0.1))
+			# the seam blows: a row of blasts across the hull where it parts
+			var seam := Capital.seg_range(fort_id, i).y if i < n - 1 else Capital.seg_range(fort_id, i).x
+			var pts: Array = []
+			for k in 5:
+				pts.append(fortress.to_global(Vector3((k - 2) * Capital.hw(fort_id, seam) * 0.4, rng.randf_range(-6.0, 1.0), -seam)))
+			blasts.chain(pts, 4.6, 0.35, carry)
+			shake = maxf(shake, 0.8)
+			# scorched
+			for mi in seg.find_children("*", "MeshInstance3D", true, false):
+				if (mi as MeshInstance3D).material_override == Models.tinted(world.tint):
+					(mi as MeshInstance3D).material_override = Models.tinted(world.tint * Color(0.55, 0.5, 0.48))
+			sound.play("crash", 1.0)
+		var k := clampf((t - at) / 1.2, 0.0, 1.0)
+		seg.position += seg_vel[i] * k * dt
+		seg.rotation += seg_spin[i] * k * dt
+		# it burns and smokes all along, with blasts going off
+		for j in 2:
+			var r := Capital.seg_range(fort_id, i)
+			var d := rng.randf_range(r.x, r.y)
+			# fires along the deck and out of the broken ends
+			if j == 1:
+				d = r.x + 1.0 if rng.randf() < 0.5 else r.y - 1.0
+			if rng.randf() < dt * 9.0:
+				blasts.burn(seg_body(i).to_global(Vector3(rng.randf_range(-0.6, 0.6) * Capital.hw(fort_id, d), rng.randf_range(-4.0, 1.0), -d)),
+					rng.randf_range(3.0, 5.5), carry)
+		if fmod(t + i * 0.13, 0.55) < dt:
+			var r := Capital.seg_range(fort_id, i)
+			var d := rng.randf_range(r.x, r.y)
+			pop(seg_body(i).to_global(Vector3(rng.randf_range(-0.8, 0.8) * Capital.hw(fort_id, d), rng.randf_range(-8.0, 2.0), -d)),
+				rng.randf_range(3.0, 5.0), Models.AMBER)
+			sound.play("boom", -6.0)
 
 
 func spawn_pov(w: Dictionary) -> void:
+	var alive := 0
+	for f in foes:
+		if f.kind == "drone" and not f.dead:
+			alive += 1
 	for i in int(w.n):
 		match w.kind:
 			"drone":
-				# launched from the fortress's hangar, they fall back towards the ship
+				if alive >= 6:
+					continue
+				alive += 1
+				# launched from the deck ahead (or a hangar hatch), they climb to the ship's height
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
-				f.x0 = (i - (w.n - 1) * 0.5) * 2.2
-				f.size_y = Rules.PY + fort_lift + (i % 3) * 5.0
-				f.pos = fort_point(Vector3(rng.randf_range(-2, 2), Rules.PY, 1.0))
-				f.fire_t = 1.4 + i * 0.45
-			"sentry":
-				# a gun turret on the fortress: on its stern, the lower tower or the upper tower
-				var f := new_foe("sentry", Models.sentry())
-				var m: Vector2 = w.mounts[i]
-				f.anchor = Vector3(m.x, m.y, Models.mount_z(m))
-				f.size = 1.4
-				f.pos = fort_point(f.anchor)
-				f.fire_t = 0.8 + i * 0.5
-				fort_parts.append(f)
+				f.x0 = (i - (w.n - 1) * 0.5) * 2.6 + rng.randf_range(-1.5, 1.5)
+				f.size_y = chase_y + (i % 3) * 2.5 - 1.5
+				var from: Vector3 = w.get("from", Vector3.INF)
+				if from == Vector3.INF:
+					from = fort_point(Vector3(rng.randf_range(-6, 6), 0.5, -(along + 34.0)))
+				f.pos = from
+				f.fire_t = 1.6 + i * 0.45
 			"core":
 				var c := new_foe("core", Models.shot_mesh(1.4))
 				c.node.material_override = Models.glow(Color8(0xff, 0x7a, 0x3a))
@@ -2146,8 +2233,8 @@ func spawn_pov(w: Dictionary) -> void:
 						b.box(Vector3(cos(a), sin(a), 0) * 1.9, Vector3(0.5, 0.5, 0.3), Models.FOE_D)
 					return b.commit()))
 				c.node.add_child(ring)
-				c.anchor = Vector3(0, Rules.PY, 1.5)
-				c.size = 1.5
+				c.anchor = Capital.core_at(fort_id)
+				c.size = 1.6
 				c.pos = fort_point(c.anchor)
 				c.fire_t = 1.5
 				core = c
@@ -2161,10 +2248,116 @@ func spawn_pov(w: Dictionary) -> void:
 					fort_parts.append(p)
 
 
+## Whether a gun on the ship is shielded by a pylon of its section still standing.
+func fort_guarded(f: Obj) -> bool:
+	if not f.on_fort or f.kind == "pylon":
+		return false
+	for g in fort_guns:
+		if g.kind == "pylon" and g.sec == f.sec and not g.dead:
+			return true
+	return false
+
+
+## A gun on the ship: rides its segment, turns to the ship (a dish spins), fires its pattern
+## while its section is the one being fought (and the ship has arrived there).
+func think_gun(f: Obj, dt: float) -> void:
+	if fortress == null:
+		return
+	f.pos = f.node.global_position if f.node.is_inside_tree() else fort_point(f.anchor)
+	var to_p := ppos - f.pos
+	var local: Vector3 = (f.node.get_parent() as Node3D).to_local(ppos) - f.anchor if f.node.is_inside_tree() else to_p
+	match f.kind:
+		"twin", "quad", "pod":
+			f.node.rotation.y = lerp_angle(f.node.rotation.y, atan2(local.x, local.z), minf(1.0, dt * 3.0))
+		"dish":
+			f.node.rotation.y += dt * 1.3
+		"pylon":
+			f.node.get_node("glow").rotation.y += dt * 2.0
+	# a bubble over a shielded gun
+	var bub := f.node.get_node_or_null("shield")
+	var guarded := fort_guarded(f)
+	if guarded and bub == null:
+		var b := Models.instance(Capital.bubble(), Models.glow(Models.CYAN, 0.22))
+		b.name = "shield"
+		f.node.add_child(b)
+	elif not guarded and bub:
+		bub.queue_free()
+		if pov_mode():
+			pop(f.pos, 1.2, Models.CYAN)
+	var active := phase == "pov" and f.sec == fort_sec and adv_t > Rules.ADVANCE * 0.7
+	if not active or f.t < f.fire_t:
+		return
+	var dist := ppos.z - f.pos.z
+	if dist < 5.0 or dist > 70.0:
+		return
+	var dir := to_p.normalized()
+	var right := dir.cross(Vector3.UP).normalized()
+	var up := right.cross(dir)
+	var muzzle := f.pos + dir * 1.6
+	match f.kind:
+		"nozzle":
+			# a ring of fire that opens as it comes
+			f.fire_t = f.t + 3.2
+			for k in 8:
+				var a := TAU * k / 8.0 + f.t
+				shoot(muzzle, (dir + (right * cos(a) + up * sin(a)) * 0.22).normalized(), 9.0)
+		"twin":
+			# bursts of three aimed pairs
+			f.hold += 1.0
+			f.fire_t = f.t + (0.22 if int(f.hold) % 3 else 2.2)
+			for sx in [-0.5, 0.5]:
+				shoot(muzzle + right * sx, dir, 12.0)
+		"quad":
+			# a wide fan across, then one lifted
+			f.hold += 1.0
+			f.fire_t = f.t + 2.4
+			var lift := 0.12 if int(f.hold) % 2 else -0.04
+			for k in 7:
+				shoot(muzzle, (dir + right * (k - 3) * 0.13 + up * lift).normalized(), 9.5)
+		"pod":
+			# two rockets that climb out and home in for a while (they can be shot)
+			f.fire_t = f.t + 3.4
+			for sx in [-1.0, 1.0]:
+				var o := shoot(muzzle + right * sx * 0.8 + Vector3.UP, (up * 1.2 + right * sx * 0.6 + dir * 0.4).normalized(), 7.0)
+				o.homing = 2.6
+				o.node.scale = Vector3.ONE * 1.35
+		"mast":
+			# a quick stream straight at the ship, then a breather
+			f.hold += 1.0
+			f.fire_t = f.t + (0.09 if int(f.hold) % 6 else 2.6)
+			shoot(f.pos + dir * 0.8, dir, 15.0)
+		"dish":
+			# a turning spiral of two arms, three seconds on, a second and a half off
+			f.fire_t = f.t + 0.16
+			if fmod(f.t + f.idx, 4.5) < 3.0:
+				for k in 2:
+					var a := f.t * 2.4 + PI * k
+					shoot(muzzle, (dir + (right * cos(a) + up * sin(a)) * 0.3).normalized(), 8.5)
+		"pylon":
+			f.fire_t = f.t + 3.0
+			shoot(muzzle, dir, 10.0)
+		"hatch":
+			# a pair of drones up out of the hangar
+			f.fire_t = f.t + 5.5
+			spawn_pov({"kind": "drone", "n": 2, "from": f.pos + Vector3(0, 1.0, 0)})
+
+
+## An orb fired along `dir` at `speed` (in the frame that flies with the ship).
+func shoot(at: Vector3, dir: Vector3, speed: float) -> Obj:
+	var o := orb(at, 0.0)
+	o.vel = dir * speed * float(world.fire) - Vector3(0, 0, rail_speed())
+	return o
+
+
+## Where the guns aim from the ship: ahead and a little down, at the deck's guns.
+func aim_dir() -> Vector3:
+	return Vector3(0, -Rules.AIM_DIP, -1).normalized()
+
+
 func fire_pov(dt: float) -> void:
 	fire_cd -= dt
 	var gun := Rules.cannon(Rules.level(s, "cannon"))
-	if fire_cd <= 0.0:
+	if fire_cd <= 0.0 and phase != "escape":
 		fire_cd += gun.period
 		var target := aim_point()
 		for sh: Array in gun.shots:
@@ -2176,16 +2369,25 @@ func fire_pov(dt: float) -> void:
 	fire_missiles(dt)
 
 
-## Where the guns converge: straight ahead of the ship, or the foe closest to that line
-## (aim assist).
+## Whether the ship's guns can lock onto a foe: not a shielded one, and on the ship only the
+## section being fought (the others' guns can't be hit yet either: shots fly past them).
+func lockable(f: Obj) -> bool:
+	if f.dead or landmark(f) or f.kind == "orb" and f.homing <= 0.0:
+		return false
+	if (f.kind == "core" and shielded()) or fort_guarded(f):
+		return false
+	return not f.on_fort or f.sec == fort_sec
+
+
+## Where the guns converge: ahead along `aim_dir`, or the foe closest to that line (aim assist).
 func aim_point() -> Vector3:
 	var o := ppos
-	var d := Vector3.FORWARD
-	var best := Rules.AIM_AHEAD * 1.5
+	var d := aim_dir()
+	var best := Rules.AIM_AHEAD * 1.7
 	var at := o + d * Rules.AIM_AHEAD
 	var best_miss := 1e9
 	for f in foes:
-		if f.dead or (f.kind == "core" and shielded()) or landmark(f):
+		if not lockable(f) or f.kind == "orb":
 			continue
 		var t := (f.pos - o).dot(d)
 		if t < 4.0 or t > best:
@@ -2200,16 +2402,35 @@ func aim_point() -> Vector3:
 func begin_escape() -> void:
 	phase = "escape"
 	phase_t = 0.0
+	var at := core.pos if core else ppos + Vector3(0, -6, -30)
 	core = null
 	for f in foes:
 		if landmark(f):
 			let_go(f)
 		elif not f.dead:
 			f.dead = true
-			pop(f.pos, 1.0, Models.AMBER)
-	shake = 0.8
-	say("REACTOR DOWN", "The fortress is going down")
-	sound.play("crash")
+			if not f.on_fort:
+				pop(f.pos, 1.0, Models.AMBER)
+	for b in bullets:
+		b.dead = true
+	seg_vel.resize(segs.size())
+	seg_spin.resize(segs.size())
+	seg_vel.fill(Vector3.ZERO)
+	seg_spin.fill(Vector3.ZERO)
+	if fortress and fortress.has_node("lights"):
+		fortress.get_node("lights").visible = false
+	# the reactor goes up, then a chain of blasts runs aft along the spine
+	pop(at, 9.0, Models.AMBER)
+	blasts.ring(at, 9.0, Color8(0xff, 0xe8, 0xb0), fx_carry())
+	var pts: Array = []
+	var core_d := Rules.section_at(fort_id, Capital.real_sections(fort_id) - 1) + Capital.CORE_DZ
+	for k in 12:
+		var d := maxf(4.0, core_d - k * 9.0)
+		pts.append(fort_point(Vector3(rng.randf_range(-6, 6), rng.randf_range(0.0, 3.0), -d)))
+	blasts.chain(pts, 4.2, 1.6, fx_carry())
+	shake = 1.2
+	say("REACTOR DOWN", "The fortress is breaking up")
+	sound.play("crash", 3.0)
 
 
 # ---------------------------------------------------------------- camera
@@ -2217,8 +2438,12 @@ func begin_escape() -> void:
 func pose(mode: String) -> Array:
 	if mode == "chase":
 		# behind and above the ship, following it partly so it moves on screen
-		var at := Vector3(ppos.x * 0.78, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 4.2, ppos.z + 8.5)
-		var look := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 2.0, ppos.z - 40.0)
+		# over the fortress's deck the line (`chase_y`) is high above the ground; the camera looks
+		# a little down at the guns on the deck. As the fortress breaks up it pulls up and back to
+		# watch the pieces drift away beneath.
+		var rise := smoothstep(0.0, 2.5, phase_t) if phase == "escape" else (1.0 if phase == "clear" else 0.0)
+		var at := Vector3(ppos.x * 0.78, chase_y + (ppos.y - chase_y) * 0.75 + 4.2 + rise * 9.0, ppos.z + 8.5 + rise * 18.0)
+		var look := Vector3(ppos.x * 0.55, chase_y + (ppos.y - chase_y) * 0.6 - 0.5 - rise * 16.0, ppos.z - 40.0 + rise * 6.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]

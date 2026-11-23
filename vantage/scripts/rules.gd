@@ -18,7 +18,7 @@ const SCROLL := 8.0
 const PLAYER_R := 0.42
 ## Ramming (Game.ram): flying into a foe costs a hit of hull and throws the ship back at KNOCK
 ## units/s (easing off at KNOCK_EASE/s). Small foes break up; others take RAM_DMG. Foes are
-## touched within RAM_R of their radius. Ground targets, scenery and the fortress (always ahead
+## touched within RAM_R of their radius. Ground targets, scenery and the fortress (flown over, clear
 ## of the ship) can't be rammed; the Bastion's hull is a wall (Game.boss_rammed).
 const RAMMABLE := ["dart", "swing", "heavy", "drone", "gull", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
 	"ember", "wyrm"]
@@ -30,69 +30,113 @@ const KNOCK_EASE := 30.0
 const PICK_R := 1.0
 
 # ---------------------------------------------------------------- the fortress (POV episode)
-## The fortress: `FORTRESS_LEN` long, its bay (the opening in its tail where the reactor
-## shows) centred on the flight altitude.
-const FORTRESS_LEN := 120.0
-## The fortress is tall and narrow (it fits a portrait screen in the chase): half width, the
-## height of its hull and of its tower, and its hangar (half width, half height).
-const FORTRESS_HW := 5.0
-const FORTRESS_TOP := 13.0
-const TOWER_TOP := 21.0
-const BAY_HW := 3.0
-const BAY_HH := 2.3
-## The final bosses, flying fortresses taken apart in sections like the mid-bosses: each section's
-## gun mounts are (x, y) on the fortress's stern (z from `Models.mount_z`), all within the ship's
-## reach in the chase (|x| <= 4.6, y <= 19.6, tested), on a `piece` that breaks off when the
-## section falls: `collar` (gun pods either side of the bay), `plating` (armour on the stern),
-## `tower` (a casemate on the spine) or `fin` (a tall dorsal fin). The last section is the
-## reactor in the bay behind its shield panels. Each fortress has its own hull section (`hull`:
-## box, round or hex), wings (`Models.WINGS`: propellers, short stubs, jets), tail (`fins`), paint,
-## accent colour and drone rate. Each level has its own (`Campaign.fortress_of`).
+## The final boss (Guillaume, 2026-11-23: "a huge fortress class ship, you clear it section by
+## section as you advance along the ship"): a capital ship far wider than the screen and some
+## 200 m long. The chase comes in behind its stern and flies forward over its deck; each section
+## is a stretch of hull with its own guns, and once they're down the ship glides on to the next
+## (`ADVANCE` s), from the engines at the stern to the bridge and its reactor at the bow. There is
+## no tunnel: everything is out in the open sky.
+##
+## Model frame: the stern at z = 0, the bow at z = -`fortress_len`, the deck at y = 0 (the hull
+## below it, `HULL_DEPTH` deep), x across. In the chase the deck flies `CHASE_DECK` above the ground,
+## at scale 1; seen from above before the swoop it is `TOP_SCALE` of that, its deck `TOP_DECK`.
+const CHASE_DECK := 27.0
+const HULL_DEPTH := 14.0
+const TOP_SCALE := 0.3
+const TOP_DECK := 7.5
+## Its deck's half width (the hull flares a little past it below), much wider than the chase's
+## reach: its edges run off the screen, and every gun stands within |x| <= `GUN_X` (tested).
+const FORTRESS_HW := 21.0
+const GUN_X := 10.0
+## Past the last section, the bow's taper.
+const BOW_LEN := 34.0
+## Where the ship sits at each section: the guns start `LEAD` ahead of the ship (`at` of the
+## section, from the stern), and the ship flies `fly` above the deck (the engines' nozzles are on
+## the stern's face, so that section is flown lower, behind the stern).
+const LEAD := 12.0
+const FLY := 7.5
+const ADVANCE := 2.6
+## The guns a ship can carry (each its own look in `Models.ship_gun` and its pattern in
+## `Game.think_gun`): `nozzle` (an engine's exhaust, on the stern's face, rings of fire), `twin`
+## (a twin-barrel turret, aimed bursts), `quad` (flak, wide fans), `pod` (a missile box: rockets
+## that home in and can be shot), `mast` (a lance mast: quick streams), `dish` (a radar dish: a
+## turning spiral), `pylon` (a shield pylon: the rest of its section is shielded until it falls)
+## and `hatch` (a hangar hatch that launches drones).
+const SHIP_GUNS := ["nozzle", "twin", "quad", "pod", "mast", "dish", "pylon", "hatch"]
+## Each gun's centre above the deck (its hit point), for guns standing on the deck.
+const GUN_H := {"twin": 1.7, "quad": 1.6, "pod": 2.0, "mast": 6.5, "dish": 3.0, "pylon": 3.4, "hatch": 0.7, "nozzle": 0.0}
+## The ships. Each section: `name`, `kind` (its look: engines, hangar, guns, missiles, lances,
+## bridge; the last is the reactor, `core`), `len` (m of hull) and its `guns`: [kind, x, dz] on the
+## deck `dz` ahead of the section's start, or [kind, x, y, dz] where the gun sits higher (a nozzle
+## low on the stern, a gun up the bridge). Clearing a section breaks off its `piece` of
+## superstructure (`Models.ship_piece`). Each ship also has its hull's look (`hull`: slab, wedge,
+## round), paint, accent and drone rate (s). Each level has its own (`Campaign.fortress_of`).
 const FORTRESSES := {
-	"goliath": {"name": "Goliath", "title": "Goliath-class flying fortress", "hull": "box", "wings": "props", "fins": "twin",
-		"paint": "steel", "accent": Color8(0xff, 0xa8, 0x2e), "drones": 6.5, "sections": [
-		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
-			Vector2(4.0, 9.0), Vector2(-2.0, 10.8), Vector2(2.0, 10.8)]},
-		{"name": "GUN TOWER", "piece": "tower", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
-			Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
-		{"name": "REACTOR", "piece": "", "mounts": []},
+	"goliath": {"name": "Goliath", "title": "Goliath-class dreadnought", "hull": "slab",
+		"paint": "steel", "accent": Color8(0xff, 0xa8, 0x2e), "drones": 7.0, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 44.0, "guns": [["nozzle", -7.5, -6.5, 0.0], ["nozzle", -2.5, -6.5, 0.0],
+			["nozzle", 2.5, -6.5, 0.0], ["nozzle", 7.5, -6.5, 0.0], ["twin", -6.0, 8.0], ["twin", 6.0, 8.0]]},
+		{"name": "HANGAR DECK", "kind": "hangar", "len": 46.0, "guns": [["hatch", -4.5, 10.0], ["hatch", 4.5, 10.0],
+			["twin", -8.0, 22.0], ["twin", 8.0, 22.0], ["quad", 0.0, 26.0]]},
+		{"name": "GUN DECK", "kind": "guns", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["twin", -7.0, 10.0],
+			["twin", 7.0, 10.0], ["quad", -4.0, 24.0], ["quad", 4.0, 24.0], ["twin", 0.0, 8.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# an armoured airship: a round envelope, short engine stubs, a cross of tail fins
-	"zephyr": {"name": "Zephyr", "title": "Zephyr war airship", "hull": "round", "wings": "stubs", "fins": "cross",
-		"paint": "ivory", "accent": Color8(0x4c, 0xe0, 0xa8), "drones": 7.0, "sections": [
-		{"name": "GONDOLA GUNS", "piece": "collar", "mounts": [Vector2(-4.0, 3.4), Vector2(4.0, 3.4), Vector2(-4.0, 8.6),
-			Vector2(4.0, 8.6)]},
-		{"name": "ENVELOPE GUNS", "piece": "plating", "mounts": [Vector2(-3.4, 10.6), Vector2(3.4, 10.6), Vector2(0.0, 12.0)]},
-		{"name": "TOP TURRETS", "piece": "tower", "mounts": [Vector2(-2.4, 15.0), Vector2(2.4, 15.0), Vector2(0.0, 18.0)]},
-		{"name": "REACTOR", "piece": "", "mounts": []},
+	# a sky carrier: a round-bellied hull, two hangar decks and drones in swarms
+	"zephyr": {"name": "Zephyr", "title": "Zephyr sky carrier", "hull": "round",
+		"paint": "ivory", "accent": Color8(0x4c, 0xe0, 0xa8), "drones": 5.0, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 40.0, "guns": [["nozzle", -6.0, -6.0, 0.0], ["nozzle", 0.0, -6.0, 0.0],
+			["nozzle", 6.0, -6.0, 0.0], ["quad", -7.0, 9.0], ["quad", 7.0, 9.0]]},
+		{"name": "FLIGHT DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 8.0], ["hatch", 5.0, 8.0],
+			["hatch", 0.0, 20.0], ["twin", -8.0, 24.0], ["twin", 8.0, 24.0]]},
+		{"name": "AFT HANGARS", "kind": "hangar", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["hatch", -5.0, 8.0],
+			["hatch", 5.0, 8.0], ["quad", -8.0, 20.0], ["quad", 8.0, 20.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["quad", 0.0, 5.6, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# a jet bomber: a peaked hull, swept wings with jet engines, one tall gun fin
-	"talon": {"name": "Talon", "title": "Talon jet fortress", "hull": "hex", "wings": "jets", "fins": "none",
-		"paint": "iron", "accent": Color8(0xff, 0x58, 0x40), "drones": 5.5, "sections": [
-		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 3.4), Vector2(4.0, 3.4), Vector2(-3.6, 10.2),
-			Vector2(3.6, 10.2)]},
-		{"name": "GUN FIN", "piece": "fin", "mounts": [Vector2(-1.4, 15.0), Vector2(1.4, 15.0), Vector2(-1.4, 18.6),
-			Vector2(1.4, 18.6)]},
-		{"name": "REACTOR", "piece": "", "mounts": []},
+	# a missile cruiser: a sharp wedge of a hull, missile banks and a lance array
+	"talon": {"name": "Talon", "title": "Talon missile cruiser", "hull": "wedge",
+		"paint": "iron", "accent": Color8(0xff, 0x58, 0x40), "drones": 7.5, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 38.0, "guns": [["nozzle", -5.0, -6.0, 0.0], ["nozzle", 5.0, -6.0, 0.0],
+			["pod", -6.5, 9.0], ["pod", 6.5, 9.0]]},
+		{"name": "MISSILE BANKS", "kind": "missiles", "len": 46.0, "guns": [["pylon", 0.0, 24.0], ["pod", -7.0, 8.0],
+			["pod", 7.0, 8.0], ["pod", -4.0, 20.0], ["pod", 4.0, 20.0]]},
+		{"name": "LANCE ARRAY", "kind": "lances", "len": 42.0, "guns": [["mast", -6.0, 12.0], ["mast", 0.0, 16.0],
+			["mast", 6.0, 12.0], ["twin", -3.5, 6.0], ["twin", 3.5, 6.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", 0.0, 11.0, 23.0], ["pod", -6.0, 6.0, 12.0],
+			["pod", 6.0, 6.0, 12.0], ["mast", 0.0, 10.5, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# the biggest: four engines a wing, guns round its bay, on its stern and up its tower
-	"leviathan": {"name": "Leviathan", "title": "Leviathan super-fortress", "hull": "box", "wings": "props4", "fins": "twin",
-		"paint": "olive", "accent": Color8(0xff, 0xd8, 0x40), "drones": 6.0, "sections": [
-		{"name": "BAY GUNS", "piece": "collar", "mounts": [Vector2(-4.2, 3.4), Vector2(4.2, 3.4), Vector2(-4.2, 6.0),
-			Vector2(4.2, 6.0), Vector2(-4.2, 8.6), Vector2(4.2, 8.6)]},
-		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-3.0, 10.6), Vector2(3.0, 10.6), Vector2(0.0, 11.8)]},
-		{"name": "GUN TOWER", "piece": "tower", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
-			Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
-		{"name": "REACTOR", "piece": "", "mounts": []},
+	# the biggest: six engines, a hangar, a gun deck, missile banks and the bridge
+	"leviathan": {"name": "Leviathan", "title": "Leviathan super-dreadnought", "hull": "slab",
+		"paint": "olive", "accent": Color8(0xff, 0xd8, 0x40), "drones": 6.5, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 44.0, "guns": [["nozzle", -8.0, -5.0, 0.0], ["nozzle", -4.0, -8.0, 0.0],
+			["nozzle", 0.0, -5.0, 0.0], ["nozzle", 4.0, -8.0, 0.0], ["nozzle", 8.0, -5.0, 0.0], ["twin", 0.0, 9.0]]},
+		{"name": "HANGAR DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 10.0], ["hatch", 5.0, 10.0],
+			["quad", -8.0, 22.0], ["quad", 8.0, 22.0]]},
+		{"name": "GUN DECK", "kind": "guns", "len": 44.0, "guns": [["twin", -7.0, 8.0], ["twin", 7.0, 8.0],
+			["twin", 0.0, 14.0], ["quad", -5.0, 24.0], ["quad", 5.0, 24.0]]},
+		{"name": "MISSILE BANKS", "kind": "missiles", "len": 42.0, "guns": [["pylon", 0.0, 22.0], ["pod", -7.0, 8.0],
+			["pod", 7.0, 8.0], ["mast", -4.0, 18.0], ["mast", 4.0, 18.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# a three-jet raider with a peaked hull and a crown of guns on its tower
-	"wyvern": {"name": "Wyvern", "title": "Wyvern heavy raider", "hull": "hex", "wings": "jets3", "fins": "twin",
-		"paint": "cobalt", "accent": Color8(0xb4, 0x80, 0xff), "drones": 5.0, "sections": [
-		{"name": "TAIL GUNS", "piece": "plating", "mounts": [Vector2(-4.0, 4.4), Vector2(4.0, 4.4), Vector2(-2.6, 10.6),
-			Vector2(2.6, 10.6), Vector2(0.0, 11.8)]},
-		{"name": "CROWN", "piece": "tower", "mounts": [Vector2(-3.4, 14.6), Vector2(3.4, 14.6), Vector2(-1.2, 17.4),
-			Vector2(1.2, 17.4), Vector2(0.0, 19.6)]},
-		{"name": "REACTOR", "piece": "", "mounts": []},
+	# a fast raider: a wedge hull, flak and lances, three engines
+	"wyvern": {"name": "Wyvern", "title": "Wyvern battle raider", "hull": "wedge",
+		"paint": "cobalt", "accent": Color8(0xb4, 0x80, 0xff), "drones": 6.0, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 38.0, "guns": [["nozzle", -6.0, -5.5, 0.0], ["nozzle", 0.0, -7.5, 0.0],
+			["nozzle", 6.0, -5.5, 0.0], ["mast", -6.0, 10.0], ["mast", 6.0, 10.0]]},
+		{"name": "FLAK DECK", "kind": "guns", "len": 44.0, "guns": [["quad", -6.0, 8.0], ["quad", 6.0, 8.0],
+			["quad", 0.0, 16.0], ["twin", -7.5, 22.0], ["twin", 7.5, 22.0]]},
+		{"name": "LANCE ARRAY", "kind": "lances", "len": 42.0, "guns": [["pylon", 0.0, 22.0], ["mast", -6.0, 10.0],
+			["mast", 0.0, 12.0], ["mast", 6.0, 10.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", -3.5, 11.0, 23.0], ["dish", 3.5, 11.0, 23.0],
+			["twin", -6.0, 5.7, 12.0], ["twin", 6.0, 5.7, 12.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
 }
 ## The hand-made sector's fortress (kept for the tests and tools that look at it).
@@ -102,16 +146,50 @@ const FORTRESS_SECTIONS: Array = FORTRESSES.goliath.sections
 static func fortress_parts(id := "goliath") -> int:
 	var n := 0
 	for sec: Dictionary in FORTRESSES[id].sections:
-		n += 5 if sec.mounts.is_empty() else sec.mounts.size()
+		n += 5 if sec.kind == "core" else sec.guns.size()
 	return n
 
 
-## The chase (third person, outside): how far the ship may move from the centre line
-## (x either side, wide enough to fly past the fortress's flanks at its chase scale; y up; `POV_DOWN` down; the fortress is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
-## to the fortress's stern while chasing and while fighting its reactor, the swoop's length,
-## where the guns converge and how far the aim assist reaches.
-const POV_REACH := Vector2(11.0, 36.0)
-const POV_DOWN := 2.5
+## Where each section starts, from the stern (m), and the ship's whole length.
+static func section_at(id: String, i: int) -> float:
+	var z := 0.0
+	var secs: Array = FORTRESSES[id].sections
+	for k in mini(i, secs.size()):
+		z += float(secs[k].len)
+	return z
+
+
+static func fortress_len(id: String) -> float:
+	return section_at(id, 99) + BOW_LEN
+
+
+## A gun's place on the ship's model: x, height and z (the stern at 0, the bow towards -z).
+static func gun_at(id: String, i: int, g: Array) -> Vector3:
+	var at := section_at(id, i)
+	if g.size() >= 4:
+		return Vector3(float(g[1]), float(g[2]), -(at + float(g[3])))
+	return Vector3(float(g[1]), float(GUN_H[g[0]]), -(at + float(g[2])))
+
+
+## Where the ship flies while fighting section i: [distance ahead of the stern (negative: behind
+## it), height above the deck]. The engines are fought from behind the stern, level with them.
+static func station(id: String, i: int) -> Vector2:
+	var secs: Array = FORTRESSES[id].sections
+	i = mini(i, secs.size() - 1)
+	if secs[i].kind == "core":
+		i -= 1
+	var fly := FLY
+	if secs[i].kind == "engines":
+		fly = -0.5
+	return Vector2(section_at(id, i) - LEAD - (10.0 if secs[i].kind == "engines" else 0.0), fly)
+
+
+## The chase (third person, outside): how far the ship may move from its line (x either side, y up;
+## `POV_DOWN` down), the on-rails speed, the swoop's length, where the guns converge (a little
+## below straight ahead, `AIM_DIP`, since most guns stand on the deck below) and how far the aim
+## assist reaches.
+const POV_REACH := Vector2(11.0, 13.0)
+const POV_DOWN := 3.5
 ## The share of the screen's width (and height) one swipe needs to cross the whole reach.
 const POV_SWIPE := 0.7
 const RAIL := 18.0
@@ -119,26 +197,23 @@ const RAIL := 18.0
 ## about 2 s with an ease); touching again brings it back up to full speed over `SLOW_RESUME` s.
 const SLOW_STOP := 2.0
 const SLOW_RESUME := 0.25
-const GAP_FAR := 24.0
-const GAP_NEAR := 16.0
-## In the chase the fortress grows (during the swoop) to `FORTRESS_SCALE` times its size, its
-## hangar `FORTRESS_LIFT` above the flight altitude; `GAP_FAR` behind it the stern, inner wings and
-## engines fill the view (Guillaume wanted to see more of the ship) and the wing tips run off it.
-const FORTRESS_SCALE := 1.3
-const FORTRESS_LIFT := 6.0
-## Before the swoop, seen from above, it cruises this far above where it sits in the chase's
-## frame, so it flies clear of the land (its bay above the flight altitude).
-const FORTRESS_CRUISE := 3.0
-## Its propellers' spin (radians a second).
-const PROP_SPIN := 16.0
-const APPROACH := 2.6
+const APPROACH := 2.8
 const AIM_AHEAD := 32.0
-## The fortress going down after its reactor: how long, how fast it falls (m/s per second), and
-## when its left wing snaps off.
-const CRASH_TIME := 5.0
-const CRASH_FALL := 2.2
-const WING_SNAP := 1.2
-const AIM_ASSIST := 3.0
+const AIM_DIP := 0.12
+const AIM_ASSIST := 3.4
+## The ship's end (Guillaume, 2026-11-23: "die in the air and drift out of screen, not into the
+## ground"): the reactor blows, a chain of blasts runs aft along the spine, and the hull breaks
+## apart at its section seams, bow first. The pieces burn, spread apart, turn a little and sink a
+## few metres while the wreck loses way and drifts back under and behind the ship, off the screen.
+## Nothing reaches the ground. `BREAKUP_TIME` s in all.
+const BREAKUP_TIME := 6.5
+## Each seam parts `SEAM_GAP` s after the one ahead of it.
+const SEAM_GAP := 0.4
+## The wreck's slowing (m/s per s per s: it drifts back by DRIFT * t^3 / 3) and its pieces' sink.
+const DRIFT := 2.2
+const SINK := 1.1
+## Meanwhile the ship climbs away from the blast, so the pieces pass beneath it.
+const CLIMB := 16.0
 
 # ---------------------------------------------------------------- upgrades
 const ORDER := ["cannon", "missile", "hull", "magnet"]
@@ -273,6 +348,14 @@ const FOES := {
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
+	"nozzle": {"hp": 34.0, "r": 2.4, "score": 500, "scrap": 25},
+	"twin": {"hp": 26.0, "r": 1.8, "score": 400, "scrap": 20},
+	"quad": {"hp": 28.0, "r": 1.8, "score": 400, "scrap": 20},
+	"pod": {"hp": 26.0, "r": 1.8, "score": 450, "scrap": 20},
+	"mast": {"hp": 22.0, "r": 1.7, "score": 450, "scrap": 20},
+	"dish": {"hp": 34.0, "r": 2.2, "score": 600, "scrap": 30},
+	"pylon": {"hp": 20.0, "r": 1.7, "score": 500, "scrap": 25},
+	"hatch": {"hp": 30.0, "r": 2.3, "score": 450, "scrap": 20},
 	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
 	"lighthouse": {"hp": 70.0, "r": 2.0, "score": 500, "scrap": 25},
 	"house": {"hp": 30.0, "r": 2.2, "score": 150, "scrap": 10},
