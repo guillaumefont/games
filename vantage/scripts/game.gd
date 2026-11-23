@@ -62,6 +62,8 @@ var foes: Array[Obj] = []
 var shots: Array[Obj] = []
 var bullets: Array[Obj] = []
 var picks: Array[Obj] = []
+## While above zero, every coin on screen flies to the ship (after the mid-boss).
+var vacuum_t := 0.0
 var fx: Array[Obj] = []
 
 # the player
@@ -95,6 +97,8 @@ var rail_z := 0.0
 ## The carrier's current scale and lift (see Rules.CARRIER_SCALE).
 var car_s := 1.0
 var car_lift := 0.0
+## How far the carrier has fallen while going down.
+var car_fall := 0.0
 var boss_done := false
 ## The carrier's current section (Rules.CARRIER_SECTIONS), its live parts and their full hp.
 var car_sec := 0
@@ -109,6 +113,7 @@ const SHADOW_Y := 1.45
 var shadows: Array[MeshInstance3D] = []
 var sun_slide := Vector2.ZERO
 var cam: Camera3D
+var sound: Sound
 var cam_mode := "top"
 var cam_from := Transform3D()
 var cam_from_fov := 29.0
@@ -221,6 +226,8 @@ void sky() {
 	engine_glow.position = Vector3(0, -0.05, 1.4)
 	engine_glow.scale = Vector3(1.6, 1, 3)
 	ship.add_child(engine_glow)
+	sound = Sound.new()
+	add_child(sound)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
@@ -242,6 +249,7 @@ func to_hangar() -> void:
 	set_cam("top", 0.0)
 	update_chunks()
 	hud.show_hangar()
+	sound.music("sortie", true)
 	if not driven and not checked_update:
 		checked_update = true
 		check_update()
@@ -267,6 +275,8 @@ func launch() -> void:
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("SECTOR 1", "Glass Coast")
+	sound.play("launch")
+	sound.music("sortie")
 
 
 # ---------------------------------------------------------------- updates
@@ -300,6 +310,21 @@ func check_update() -> void:
 		hud.refresh_hangar()
 
 
+## The version on the title screen was tapped: reload into a newer build, or check for one.
+func version_tap() -> void:
+	sound.play("tap")
+	if new_build > 0:
+		refresh_game()
+		return
+	hud.version_note = "checking…"
+	hud.refresh_hangar()
+	await check_update()
+	hud.version_note = "" if new_build > 0 else "up to date"
+	hud.refresh_hangar()
+	if new_build > 0:
+		refresh_game()
+
+
 ## Restarts the game so the launch check loads the newest build.
 func refresh_game() -> void:
 	Rules.save_game(s, save_path)
@@ -314,6 +339,7 @@ func buy(key: String) -> bool:
 	var ok := Rules.buy(s, key)
 	if ok:
 		Rules.save_game(s, save_path)
+		sound.play("buy")
 	return ok
 
 
@@ -330,6 +356,9 @@ func end_run(cleared: bool) -> void:
 	phase = "results"
 	phase_t = 0.0
 	hud.show_results()
+	if cleared:
+		sound.play("clear")
+	sound.music("sortie", true)
 
 
 func clear_all() -> void:
@@ -385,7 +414,16 @@ func drag_by(px: Vector2) -> void:
 		prel += px * world_per_px
 		clamp_player()
 	elif phase in ["pov", "core", "escape"]:
-		off += Vector2(px.x, -px.y) * Rules.POV_DRAG
+		off += Vector2(px.x, -px.y) * pov_drag()
+
+
+## Metres per pixel of drag in the chase: a swipe across most of the screen (`Rules.POV_SWIPE`)
+## carries the ship from one flank of the carrier to the other, and likewise from the bottom
+## to the top of the tower.
+func pov_drag() -> Vector2:
+	var vs := view_size()
+	return Vector2(2.0 * Rules.POV_REACH.x / maxf(vs.x * Rules.POV_SWIPE, 1.0),
+		(Rules.POV_REACH.y + Rules.POV_DOWN) / maxf(vs.y * Rules.POV_SWIPE, 1.0))
 
 
 func keys(dt: float) -> void:
@@ -399,7 +437,7 @@ func keys(dt: float) -> void:
 	if Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S):
 		d.y += 1
 	if d != Vector2.ZERO:
-		var px_per_s := 11.0 / world_per_px if phase == "vert" else 11.0 / Rules.POV_DRAG
+		var px_per_s := Vector2.ONE * 11.0 / world_per_px if phase == "vert" else Vector2(14.0, 20.0) / pov_drag()
 		drag_by(d.normalized() * px_per_s * dt)
 	if phase == "hangar" and Input.is_key_pressed(KEY_ENTER):
 		launch()
@@ -578,6 +616,8 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 				f.node.add_child(mi)
 			open_section()
 			say("WARNING", "Bastion-class battleship")
+			sound.play("warning")
+			sound.music("carrier")
 
 
 func ground_y(x: float, z: float) -> float:
@@ -594,6 +634,7 @@ func fire_vert(dt: float) -> void:
 			var a := deg_to_rad(sh[1])
 			var o := new_shot(ppos + Vector3(sh[0], 0, -0.9), Vector3(sin(a), 0, -cos(a)) * 46.0, gun.dmg)
 			o.rel = true
+		sound.play("shot")
 	fire_missiles(dt)
 
 
@@ -629,6 +670,7 @@ func fire_missiles(dt: float) -> void:
 		miss_cd = 0.2
 		return
 	miss_cd = period
+	sound.play("missile")
 	targets.sort_custom(func(a: Obj, b: Obj) -> bool: return a.pos.distance_squared_to(ppos) < b.pos.distance_squared_to(ppos))
 	for k in Rules.missile_count(lv):
 		var side := -1.0 if k % 2 == 0 else 1.0
@@ -721,14 +763,15 @@ func update_objs(dt: float) -> void:
 		if b.rel:
 			b.pos.z += dz
 		b.pos += b.vel * dt
+	vacuum_t = maxf(0.0, vacuum_t - dt)
 	for p in picks:
 		p.t += dt
 		if p.rel:
 			p.pos.z += dz
 		var to := ppos - p.pos
 		to.y = 0
-		if phase in ["vert", "clear"] and to.length() < Rules.magnet_radius(s):
-			p.pos += to.normalized() * minf(to.length(), 16.0 * dt)
+		if phase in ["vert", "clear"] and (vacuum_t > 0.0 or to.length() < Rules.magnet_radius(s)):
+			p.pos += to.normalized() * minf(to.length(), (30.0 if vacuum_t > 0.0 else 16.0) * dt)
 		else:
 			p.vel = p.vel.lerp(Vector3(0, 0, 2.5), minf(1.0, dt * 2.5))
 			p.pos += p.vel * dt
@@ -974,6 +1017,7 @@ func part_down(f: Obj) -> void:
 			var z := rng.randf_range(2.0, 9.0) if name == "bow" else rng.randf_range(-4.0, 1.5)
 			pop(boss.pos + Vector3(x, 1.0, z), 2.4, Models.AMBER)
 		shake = 0.7
+		sound.play("crash")
 	boss_sec += 1
 	if boss_sec < Rules.BOSS_SECTIONS.size():
 		open_section()
@@ -981,6 +1025,8 @@ func part_down(f: Obj) -> void:
 		var b := boss
 		for k in 10:
 			pop(b.pos + Vector3(rng.randf_range(-4, 4), 1.0, rng.randf_range(-10, 8)), 3.5, Models.AMBER)
+		sound.play("crash")
+		sound.music("sortie")
 		kill(b)
 
 
@@ -1128,6 +1174,7 @@ func collide(_dt: float) -> void:
 		if not p.dead and flat_dist(p.pos, ppos) < Rules.PICK_R:
 			p.dead = true
 			run.scrap += int(p.dmg)
+			sound.play("scrap")
 			hud.ping_scrap()
 
 
@@ -1145,11 +1192,14 @@ func damage(f: Obj, d: float) -> void:
 	if (f.kind == "core" and shielded()) or boss_shielded(f):
 		f.flash = 0.05
 		pop(f.pos + Vector3(0, 0, 1.6), 0.4, Models.CYAN)
+		sound.play("shield")
 		return
 	f.hp -= d
 	f.flash = 0.08
 	if f.hit < -0.08:
 		f.hit = 0.05
+	if f.hp > 0.0:
+		sound.play("hit")
 	if f.hp <= 0.0:
 		kill(f)
 
@@ -1164,6 +1214,7 @@ func kill(f: Obj) -> void:
 	pop(f.pos, big, Models.AMBER)
 	if f.kind == "orb":
 		return
+	sound.play("boom" if big >= 2.0 else "pop")
 	shake = maxf(shake, 0.12 * big)
 	var scrap := int(info.scrap)
 	if pov_mode():
@@ -1182,6 +1233,7 @@ func kill(f: Obj) -> void:
 		# the mid-boss: the sector carries on, its clock picks up after the boss's wave
 		boss = null
 		boss_done = true
+		vacuum_t = 4.0
 		for b in bullets:
 			b.dead = true
 		stage_t = float(Rules.STAGE[wave_i].t) + 0.5
@@ -1191,7 +1243,7 @@ func kill(f: Obj) -> void:
 		begin_escape()
 
 
-func drop(at: Vector3, value: float) -> void:
+func drop(at: Vector3, value: float) -> Obj:
 	var p := Obj.new()
 	p.kind = "scrap"
 	p.rel = true
@@ -1205,6 +1257,7 @@ func drop(at: Vector3, value: float) -> void:
 		return b.commit()), Models.glow(Color8(0xff, 0xd8, 0x5a)))
 	add_child(p.node)
 	picks.append(p)
+	return p
 
 
 func hurt() -> void:
@@ -1215,7 +1268,9 @@ func hurt() -> void:
 	inv = 1.6
 	shake = 0.5
 	hud.flash_hurt()
+	sound.play("hurt")
 	if hp <= 0:
+		sound.play("down")
 		pop(ppos, 3.0, Models.AMBER)
 		ship.visible = false
 		var was_pov := pov_mode()
@@ -1323,7 +1378,7 @@ func update_chunks() -> void:
 	for k in range(first, first + 5):
 		want[k] = true
 		if not chunks.has(k):
-			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 3.0), Models.ground_mat())
+			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
 	for k in chunks.keys():
@@ -1338,6 +1393,7 @@ func spawn_carrier() -> void:
 	carrier = Node3D.new()
 	car_s = 1.0
 	car_lift = 0.0
+	car_fall = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	carrier.position = Vector3(0, 0, stern_z)
 	var hull := Models.instance(Models.carrier())
@@ -1350,6 +1406,8 @@ func spawn_carrier() -> void:
 	carrier.add_child(Models.instance(Models.carrier_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
 	add_child(carrier)
 	say("CARRIER AHEAD", "Get on its tail")
+	sound.play("warning")
+	sound.music("carrier")
 
 
 ## The swoop behind the ship: the vertical stage freezes, the ship drops in behind the
@@ -1365,9 +1423,21 @@ func begin_approach() -> void:
 			pop(f.pos, 1.0, Models.AMBER)
 	for b in bullets:
 		b.dead = true
+	# the stage is over: whatever scrap is still about is collected
+	var left := 0
+	for p in picks:
+		if not p.dead:
+			p.dead = true
+			left += int(p.dmg)
+			pop(p.pos, 0.4, Models.AMBER)
+	if left > 0:
+		run.scrap += left
+		hud.ping_scrap()
+		sound.play("scrap")
 	queue.clear()
 	set_cam("chase", 2.2)
 	say("INTERCEPT", "Bring the carrier down")
+	sound.play("swoop")
 
 
 func step_approach(dt: float) -> void:
@@ -1416,12 +1486,13 @@ func car_part_down(f: Obj) -> void:
 				else Vector3(rng.randf_range(-4.0, 4.0), rng.randf_range(13.0, 21.0), -2.0)
 			pop(carrier_point(at), 3.0, Models.AMBER)
 		shake = 0.7
+		sound.play("crash")
 	car_sec += 1
 	open_car_section()
 
 
 func place_carrier(bob: float) -> void:
-	carrier.position = Vector3(0, Rules.PY + car_lift - Rules.PY * car_s + bob, stern_z)
+	carrier.position = Vector3(0, Rules.PY + car_lift - Rules.PY * car_s + bob - car_fall, stern_z)
 	carrier.scale = Vector3.ONE * car_s
 
 
@@ -1460,19 +1531,18 @@ func step_pov(dt: float) -> void:
 	if carrier:
 		var gap := Rules.GAP_NEAR if phase == "core" else Rules.GAP_FAR
 		var want := ppos.z - gap
+		if phase == "escape":
+			# losing way: it drops back a little, but stays ahead and below the ship
+			want = ppos.z - Rules.GAP_FAR - phase_t * 5.0
 		stern_z = lerpf(stern_z, want, minf(1.0, dt * 0.6)) - v * dt
 		place_carrier(sin(phase_t * 0.7) * 0.3)
 	aim = cam.unproject_position(ppos + Vector3(0, 0.2, -Rules.AIM_AHEAD)) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
 	if phase == "escape":
-		if carrier and fmod(phase_t, 0.12) < dt:
-			pop(Vector3(rng.randf_range(-9, 9), Rules.PY + rng.randf_range(0, 5), stern_z - rng.randf_range(0, 60)), 4.0, Models.AMBER)
-			shake = 0.35
-		if carrier and phase_t > 1.3:
-			carrier.queue_free()
-			carrier = null
-			pop(Vector3(0, Rules.PY + 2.0, stern_z - 10.0), 10.0, Models.AMBER)
-			shake = 1.0
-		if phase_t > 2.0:
+		step_crash(dt)
+		if phase_t > Rules.CRASH_TIME:
+			if carrier:
+				carrier.queue_free()
+				carrier = null
 			phase = "clear"
 			phase_t = 0.0
 			run.score += 5000
@@ -1484,6 +1554,29 @@ func step_pov(dt: float) -> void:
 		spawn_pov({"kind": "drone", "n": 3 + drone_n % 2})
 		drone_n += 1
 	fire_pov(dt)
+
+
+## The carrier going down: fires break out along the hull, it noses over and rolls, falls
+## out of the sky trailing explosions, and hits the sea in one last blast.
+func step_crash(dt: float) -> void:
+	if carrier == null:
+		return
+	var k := phase_t / Rules.CRASH_TIME
+	carrier.rotation = Vector3(-0.42 * k * k, 0, 0.3 * k + sin(phase_t * 3.0) * 0.02)
+	car_fall += Rules.CRASH_FALL * phase_t * dt
+	if fmod(phase_t, 0.16) < dt:
+		var at := carrier.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), -rng.randf_range(0, Rules.CARRIER_LEN * 0.4)))
+		pop(at, 4.0, Models.AMBER)
+		sound.play("boom", -4.0)
+		shake = maxf(shake, 0.3)
+	if phase_t > Rules.CRASH_TIME - 1.0 and not carrier.has_meta("splashed"):
+		carrier.set_meta("splashed", true)
+		for j in 6:
+			pop(Vector3(rng.randf_range(-14, 14), 0.5, stern_z - rng.randf_range(0, 50)), 9.0, Models.AMBER)
+		shake = 1.0
+		sound.play("crash", 3.0)
+	if phase_t > Rules.CRASH_TIME - 0.3:
+		carrier.visible = false
 
 
 func spawn_pov(w: Dictionary) -> void:
@@ -1543,6 +1636,7 @@ func fire_pov(dt: float) -> void:
 			var dir := (target - from).normalized().rotated(Vector3.UP, -deg_to_rad(sh[1]) * 0.35)
 			var o := new_shot(from, dir * 80.0 - Vector3(0, 0, rail_speed()), gun.dmg)
 			o.node.scale = Vector3(0.8, 0.8, 6.0)
+		sound.play("shot")
 	fire_missiles(dt)
 
 
@@ -1577,6 +1671,7 @@ func begin_escape() -> void:
 			pop(f.pos, 1.0, Models.AMBER)
 	shake = 0.8
 	say("REACTOR DOWN", "The carrier is going down")
+	sound.play("crash")
 
 
 # ---------------------------------------------------------------- camera

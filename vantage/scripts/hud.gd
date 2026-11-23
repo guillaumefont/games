@@ -20,6 +20,9 @@ var results: Control
 var hangar_scrap: Label
 var hangar_best: Label
 var update_btn: Button
+var version_btn: Button
+## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
+var version_note := ""
 var rows := {}
 var res_title: Label
 var res_body: Label
@@ -124,6 +127,16 @@ func build_hangar() -> void:
 	tag.text = "Sector 1 · Glass Coast"
 	tag.reparent(hangar)
 	place(tag, Rect2(0, 0, 1, 0), Rect2(0, 218, 0, 40))
+	# the running version; a tap checks for a newer one and reloads into it
+	version_btn = Button.new()
+	version_btn.flat = true
+	version_btn.focus_mode = Control.FOCUS_NONE
+	version_btn.add_theme_font_size_override("font_size", 22)
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		version_btn.add_theme_color_override(c, DIM)
+	version_btn.pressed.connect(func() -> void: game.version_tap())
+	hangar.add_child(version_btn)
+	place(version_btn, Rect2(0, 0, 1, 0), Rect2(120, 262, -240, 48))
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", glass())
 	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
@@ -198,8 +211,14 @@ func refresh_hangar() -> void:
 		b.disabled = not Rules.can_buy(s, key)
 	hangar_best.text = "Best score  %s   ·   Sorties  %d" % [Rules.fmt(s.best), s.runs]
 	var build: String = ProjectSettings.get_setting("application/config/version", "")
-	if build != "":
-		hangar_best.text += "   ·   " + build
+	if build == "":
+		build = "dev"
+	if game.new_build > 0:
+		version_btn.text = "Version %s  ·  build %d is out, tap to update" % [build, game.new_build]
+		version_btn.add_theme_color_override("font_color", GOLD)
+	else:
+		version_btn.text = "Version %s%s" % [build, ("  ·  " + version_note) if version_note != "" else ""]
+		version_btn.add_theme_color_override("font_color", DIM)
 	update_btn.visible = game.new_build > 0
 	update_btn.text = "New version %d · restart" % game.new_build
 

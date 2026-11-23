@@ -67,6 +67,8 @@ func _initialize() -> void:
 		"8-tower": func() -> bool: return g.phase == "pov" and g.car_sec == 1 and g.car_parts.size() <= 4,
 		"9-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
 		"9b-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
+		"9b2-carrier-falling": func() -> bool: return g.phase == "escape" and g.phase_t > 2.6,
+		"9b3-carrier-crash": func() -> bool: return g.phase == "escape" and g.phase_t > 4.1,
 		"9c-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
 	for i in 60 * 240:
 		await tick()
