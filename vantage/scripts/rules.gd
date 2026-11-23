@@ -22,13 +22,24 @@ const PICK_R := 1.0
 ## The carrier: `CARRIER_LEN` long, its hangar (the opening at the stern where the reactor
 ## shows) centred on the flight altitude.
 const CARRIER_LEN := 180.0
-const TUNNEL_HW := 4.0
-const TUNNEL_HH := 3.0
+## The carrier is tall and narrow (it fits a portrait screen in the chase): half width, the
+## height of its hull and of its tower, and its hangar (half width, half height).
+const CARRIER_HW := 5.0
+const CARRIER_TOP := 13.0
+const TOWER_TOP := 21.0
+const HANGAR_HW := 3.0
+const HANGAR_HH := 2.3
+## Turret mounts on the carrier's stern (x, y): either side of the hangar, on the hull above
+## it and up the tower. All within the ship's reach in the chase.
+const MOUNTS := [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0), Vector2(4.0, 9.0),
+	Vector2(-2.0, 10.5), Vector2(2.0, 10.5), Vector2(-3.0, 14.5), Vector2(3.0, 14.5),
+	Vector2(0.0, 17.5), Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]
 ## The chase (third person, outside): how far the ship may move from the centre line
-## (x, y up; down is 80 % of it), metres per pixel of drag, the on-rails speed, the distance
+## (x either side, y up; `POV_DOWN` down; the carrier is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
 ## to the carrier's stern while chasing and while fighting its reactor, the swoop's length,
 ## where the guns converge and how far the aim assist reaches.
-const POV_REACH := Vector2(6.0, 3.0)
+const POV_REACH := Vector2(4.5, 13.0)
+const POV_DOWN := 2.5
 const POV_DRAG := 0.016
 const RAIL := 18.0
 const GAP_FAR := 30.0

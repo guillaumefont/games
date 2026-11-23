@@ -323,85 +323,72 @@ static func panel() -> Mesh:
 
 
 # ---------------------------------------------------------------- the carrier
-## The carrier, stern (the hangar mouth) at z = 0, bow at z = -CARRIER_LEN, its tunnel
-## centred on y = Rules.PY. The outside is what the vertical stage sees; the inside is the
-## POV episode: ribs, light strips, pipes, the reactor room.
+## The carrier, stern at z = 0, bow at z = -CARRIER_LEN: tall and narrow, a hull with an open
+## hangar at the stern (where the reactor shows in the chase) and a stepped tower above it.
+## From the vertical stage you see its long deck; in the chase, its tall stern.
 static func carrier() -> Mesh:
 	return cached("carrier", func() -> Mesh:
 		var b := Builder.new()
 		var L := Rules.CARRIER_LEN
 		var y := Rules.PY
-		var hw := Rules.TUNNEL_HW
-		var hh := Rules.TUNNEL_HH
-		var W := 9.5
+		var W := Rules.CARRIER_HW
+		var top := Rules.CARRIER_TOP
+		var hw := Rules.HANGAR_HW
+		var hh := Rules.HANGAR_HH
+		var bot := 0.8
+		var deep := 7.0
 		var zc := -L * 0.5
-		var inner := Color8(0x4c, 0x52, 0x5c)
-		var floor_c := Color8(0x3b, 0x40, 0x49)
-		# outer shell (four slabs round the tunnel)
-		b.box(Vector3(0, y + hh + 1.2, zc), Vector3(W * 2, 2.4, L), DECK, Vector2(0.96, 0.995))
-		b.box(Vector3(0, y - hh - 1.0, zc), Vector3(W * 2 - 1.5, 2.0, L), HULL_D)
+		var inner := Color8(0x2c, 0x31, 0x39)
+		# hull behind the hangar, then the stern section round the hangar mouth
+		b.box(Vector3(0, (bot + top) * 0.5, -deep - (L - deep) * 0.5), Vector3(W * 2, top - bot, L - deep), HULL, Vector2(0.94, 0.995))
+		b.box(Vector3(0, (bot + y - hh) * 0.5, -deep * 0.5), Vector3(W * 2, y - hh - bot, deep), HULL_D)
+		b.box(Vector3(0, (y + hh + top) * 0.5, -deep * 0.5), Vector3(W * 2, top - y - hh, deep), HULL, Vector2(0.94, 1.0))
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, zc), Vector3(W - hw, hh * 2, L), HULL)
-			# armour belts and sponsons along the sides
+			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, -deep * 0.5), Vector3(W - hw, hh * 2, deep), HULL)
+		b.box(Vector3(0, y, -deep + 0.1), Vector3(hw * 2, hh * 2, 0.2), inner)
+		b.box(Vector3(0, y - hh + 0.05, -deep * 0.5), Vector3(hw * 2, 0.1, deep), inner.lightened(0.1))
+		# keel and armour belts along the sides
+		b.box(Vector3(0, bot - 0.5, zc), Vector3(W * 1.2, 1.0, L * 0.92), HULL_D, Vector2(1.4, 1.0))
+		for sx in [1.0, -1.0]:
 			for k in 6:
-				var z := -12.0 - k * 30.0
-				b.box(Vector3(sx * (W + 0.6), y + 0.6, z), Vector3(1.2, 2.2, 14.0), HULL_D, Vector2(0.6, 0.95))
-		# inner walls (lighter, they face the tunnel)
-		b.box(Vector3(0, y - hh + 0.05, zc), Vector3(hw * 2, 0.1, L), floor_c)
-		b.box(Vector3(0, y + hh - 0.05, zc), Vector3(hw * 2, 0.1, L), inner.darkened(0.2))
-		# deck: runway stripes, island, gun mounts
-		var dy := y + hh + 2.4
-		for k in 18:
-			b.box(Vector3(0, dy + 0.01, -5.0 - k * 10.0), Vector3(0.6, 0.04, 4.0), Color8(0xe8, 0xe0, 0xc8))
+				b.box(Vector3(sx * (W + 0.4), 7.5, -12.0 - k * 30.0), Vector3(0.8, 6.0, 14.0), HULL_D, Vector2(0.6, 0.95))
+		# deck: runway stripes and amber edges
+		for k in 16:
+			b.box(Vector3(0, top + 0.01, -46.0 - k * 8.5), Vector3(0.5, 0.04, 3.5), Color8(0xe8, 0xe0, 0xc8))
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * 6.5, dy + 0.01, zc), Vector3(0.25, 0.04, L - 6), AMBER)
-		b.prism(Vector3(-6.2, dy, -70), pts([Vector2(-1.5, -9), Vector2(1.5, -9), Vector2(1.5, 7),
-			Vector2(-1.5, 7)]), 0, 4.5, HULL, Vector2(0.7, 0.8))
-		b.box(Vector3(-6.2, dy + 5.0, -72), Vector3(1.6, 1.0, 4.0), HULL_D)
-		b.box(Vector3(-6.2, dy + 3.6, -63.2), Vector3(2.0, 0.6, 0.2), CYAN)
-		for k in 5:
-			var z := -25.0 - k * 32.0
-			b.prism(Vector3(5.5, dy, z), ngon(1.2, 8, PI / 8), 0, 0.7, HULL_D, Vector2(0.8, 0.8))
-			b.box(Vector3(5.5, dy + 0.9, z + 1.0), Vector3(0.3, 0.3, 1.8), HULL)
-		# the hangar mouth's frame (stern) and the bow opening
-		for z in [0.0, -L]:
-			var dz := 0.4 if z == 0.0 else -0.4
-			b.box(Vector3(0, y + hh + 0.3, z + dz * 0.5), Vector3(hw * 2 + 1.2, 0.6, 0.5), AMBER)
-			b.box(Vector3(0, y - hh - 0.3, z + dz * 0.5), Vector3(hw * 2 + 1.2, 0.6, 0.5), AMBER)
-			for sx in [1.0, -1.0]:
-				b.box(Vector3(sx * (hw + 0.3), y, z + dz * 0.5), Vector3(0.6, hh * 2, 0.5), AMBER)
-		# stern engines either side of the mouth
+			b.box(Vector3(sx * (W - 0.5), top + 0.01, zc), Vector3(0.22, 0.04, L - 6), AMBER)
+		# the stepped tower over the stern
+		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), HULL, Vector2(0.92, 0.97))
+		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.85, 0.95))
+		b.box(Vector3(0, Rules.TOWER_TOP + 0.6, -16.0), Vector3(1.0, 1.2, 1.0), HULL_D)
+		b.box(Vector3(0, Rules.TOWER_TOP + 2.2, -16.0), Vector3(0.25, 2.2, 0.25), STEEL_D)
+		# amber frame round the hangar mouth
+		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
+		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
 		for sx in [1.0, -1.0]:
-			b.prism(Vector3(sx * 7.0, 0, 0.6), ngon(1.5, 8, PI / 8), y - 1.5, y + 1.5, HULL_D)
-		# inside: ribs every 6 m, pipes, the reactor room's ring
-		for k in int(L / 6.0):
-			var z := -3.0 - k * 6.0
-			var rc := Color8(0x66, 0x6e, 0x7a)
-			for sx in [1.0, -1.0]:
-				b.box(Vector3(sx * (hw - 0.2), y, z), Vector3(0.4, hh * 2, 0.6), rc)
-			b.box(Vector3(0, y + hh - 0.2, z), Vector3(hw * 2, 0.4, 0.6), rc)
-			b.box(Vector3(0, y - hh + 0.15, z), Vector3(hw * 2, 0.2, 0.6), rc.darkened(0.2))
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw - 0.55), y + hh - 0.7, zc), Vector3(0.3, 0.3, L), Color8(0x8a, 0x6a, 0x3c))
-			b.box(Vector3(sx * (hw - 0.5), y - hh + 0.6, zc), Vector3(0.25, 0.25, L), NAVY)
+			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), AMBER)
+			# stern engines low on the hull
+			b.prism(Vector3(sx * 3.4, 0, 0.5), ngon(1.1, 8, PI / 8), 1.0, 2.4, NAVY, Vector2(0.85, 0.85))
+		# stern face panelling above the hangar and up the tower
+		for k in 3:
+			b.box(Vector3(0, top - 1.2 - k * 1.4, 0.05), Vector3(W * 2 - 1.0, 0.12, 0.1), HULL_D)
 		return b.commit())
 
 
-## The carrier's interior lights (glowing strips), a separate mesh with a glow material.
+## The carrier's lights (engines, hangar strips, tower windows), a separate mesh with a glow
+## material.
 static func carrier_lights() -> Mesh:
 	return cached("carrier_lights", func() -> Mesh:
 		var b := Builder.new()
-		var L := Rules.CARRIER_LEN
 		var y := Rules.PY
-		var hw := Rules.TUNNEL_HW
-		var hh := Rules.TUNNEL_HH
-		for k in int(L / 6.0):
-			var z := -6.0 - k * 6.0
-			b.box(Vector3(0, y + hh - 0.42, z), Vector3(2.4, 0.05, 0.25), Color.WHITE)
-			for sx in [1.0, -1.0]:
-				b.box(Vector3(sx * (hw - 0.07), y - 1.2, z), Vector3(0.05, 0.25, 1.6), Color.WHITE)
-		# floor guide line
-		b.box(Vector3(0, y - hh + 0.12, -L * 0.5), Vector3(0.12, 0.03, L), Color.WHITE)
+		var hw := Rules.HANGAR_HW
+		var hh := Rules.HANGAR_HH
+		for k in 3:
+			b.box(Vector3(0, y + hh - 0.3, -1.5 - k * 2.0), Vector3(hw * 1.4, 0.05, 0.25), Color.WHITE)
+		for sx in [1.0, -1.0]:
+			b.prism(Vector3(sx * 3.4, 0, 0.62), ngon(0.75, 8, PI / 8), 1.2, 2.2, Color.WHITE)
+		for k in 4:
+			b.box(Vector3((k - 1.5) * 1.6, 18.8, -2.95), Vector3(1.0, 0.5, 0.1), Color.WHITE)
 		return b.commit())
 
 

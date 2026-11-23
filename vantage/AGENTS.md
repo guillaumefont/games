@@ -15,7 +15,9 @@ Design so far (first prototype, 2026-11-23):
   episode stays **outside** and in **third person**. The ship chases the carrier on rails
   (`Rules.RAIL`, `GAP_FAR`/`GAP_NEAR`); the drag moves the ship across the view (`Rules.POV_REACH`,
   `POV_DRAG`), which is how you dodge; guns fire ahead with aim assist (`Game.aim_point`). Turrets and
-  the reactor are mounted on the carrier (`Obj.anchor`, relative to its stern). Orbs inherit the rail
+  the reactor are mounted on the carrier (`Obj.anchor`, relative to its stern). The carrier is tall and
+  narrow (Guillaume, 2026-11-23: targets on a wide ship's sides were hard to hit on a portrait screen),
+  so every mount (`Rules.MOUNTS`) is within the ship's reach; the ship climbs high to reach the tower. Orbs inherit the rail
   speed (they fly with the ship's frame) and can be shot down.
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 

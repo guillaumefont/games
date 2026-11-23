@@ -31,6 +31,8 @@ class Obj:
 	var flash := 0.0
 	## Mount point on the carrier (x, y, z from its stern) for turrets and the reactor.
 	var anchor := Vector3.INF
+	## Height a drone hovers at.
+	var size_y := 0.0
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -86,6 +88,7 @@ var approach_from := Vector3.ZERO
 var approach_stern := 0.0
 ## World z of the ship when the chase began (the ship is at rail_z - rail_s).
 var rail_z := 0.0
+var sentry_n := 0
 
 # camera
 var cam: Camera3D
@@ -623,7 +626,7 @@ func think(f: Obj, dt: float) -> void:
 			if f.t < 9.0:
 				vz += (dist - keep) * 1.6
 				f.pos.x = lerpf(f.pos.x, f.x0 + sin(f.t * 1.6 + f.idx) * 1.8, minf(1.0, dt * 2.0))
-				f.pos.y = lerpf(f.pos.y, Rules.PY + 0.5 + cos(f.t * 1.3 + f.idx * 2.0) * 1.6, minf(1.0, dt * 2.0))
+				f.pos.y = lerpf(f.pos.y, f.size_y + cos(f.t * 1.3 + f.idx * 2.0) * 1.6, minf(1.0, dt * 2.0))
 				if f.t >= f.fire_t and dist < 40.0:
 					f.fire_t += 1.9
 					orb(f.pos + Vector3(0, 0, 0.6), 12.0)
@@ -1035,6 +1038,7 @@ func begin_pov() -> void:
 	phase_t = 0.0
 	rail_s = 0.0
 	rail_z = ppos.z
+	sentry_n = 0
 	pov_i = 0
 	off = Vector2.ZERO
 	hud.show_play()
@@ -1051,7 +1055,7 @@ func step_pov(dt: float) -> void:
 		phase_t = 0.0
 		say("REACTOR", "Break its shield panels")
 	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
-	off.y = clampf(off.y, -Rules.POV_REACH.y * 0.8, Rules.POV_REACH.y)
+	off.y = clampf(off.y, -Rules.POV_DOWN, Rules.POV_REACH.y)
 	var before := Vector2(ppos.x, ppos.y)
 	var cur := before.lerp(Vector2(off.x, Rules.PY + off.y), minf(1.0, dt * 10.0))
 	pvel = (cur - before) / maxf(dt, 0.001)
@@ -1089,14 +1093,18 @@ func spawn_pov(w: Dictionary) -> void:
 				# launched from the carrier's hangar, they fall back towards the ship
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
-				f.x0 = (i - (w.n - 1) * 0.5) * 2.6
+				f.x0 = (i - (w.n - 1) * 0.5) * 2.2
+				f.size_y = Rules.PY + 1.0 + (i % 3) * 4.0
 				f.pos = Vector3(rng.randf_range(-2, 2), Rules.PY + rng.randf_range(-1, 1), stern_z + 1.0)
 				f.fire_t = 1.4 + i * 0.45
 			"sentry":
 				# gun turrets on the carrier's stern, either side of the hangar
 				var f := new_foe("sentry", Models.sentry())
-				var sx := -1.0 if i % 2 == 0 else 1.0
-				f.anchor = Vector3(sx * rng.randf_range(5.5, 8.5), Rules.PY + rng.randf_range(-1.5, 3.5), 0.8)
+				var m: Vector2 = Rules.MOUNTS[(sentry_n * 5 + i * 3) % Rules.MOUNTS.size()]
+				sentry_n += 1
+				# flush with the stern face, the lower tower or the upper tower
+				var fz := 0.9 if m.y < Rules.CARRIER_TOP else (-0.4 if m.y < 17.0 else -2.4)
+				f.anchor = Vector3(m.x, m.y, fz)
 				f.pos = f.anchor + Vector3(0, 0, stern_z)
 				f.fire_t = 0.6 + i * 0.4
 			"core":
@@ -1205,8 +1213,8 @@ func step_exit(dt: float) -> void:
 func pose(mode: String) -> Array:
 	if mode == "chase":
 		# behind and above the ship, following it partly so it moves on screen
-		var at := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.5 + 2.1, ppos.z + 6.8)
-		var look := Vector3(ppos.x * 0.35, Rules.PY + (ppos.y - Rules.PY) * 0.3 + 0.2, ppos.z - 22.0)
+		var at := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 2.1, ppos.z + 6.8)
+		var look := Vector3(ppos.x * 0.35, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 0.6, ppos.z - 22.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]
