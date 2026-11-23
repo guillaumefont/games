@@ -114,6 +114,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   ground. Everything placed with `place()` is drawn `PROP_SCALE` (1.5x) larger so it reads on a phone
   (Guillaume found life size too small); houses keep to one per 4 x 4 lot. `Models.scenery` counts
   what was built (tested).
+- Landmarks (Guillaume, 2026-11-23: prominent scenery can be destroyed): lighthouses, boats and the
+  two-storey houses are not baked into the chunk. `scatter` lists them in `Models.marks`; `Game.update_chunks`
+  gives each its own node (`Models.landmark`, centred `MARK_H` above its base) under the chunk, and
+  `spawn_marks` makes it a ground foe (`Rules.LANDMARKS`, stats in `Rules.FOES`) as it scrolls into view in
+  the vertical stage only. Shot down: explosion, score and scrap (not a kill), a `Models.ruin` left on the
+  chunk, which `to_hangar` rebuilds (`ruined`). Missiles, aim assist and the chase ignore them; leaving
+  play (`let_go`, culling) keeps the node, since the chunk owns it.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)

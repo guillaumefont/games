@@ -424,6 +424,62 @@ func scenery() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-23): prominent scenery, the lighthouse for one, can be destroyed.
+func landmarks() -> void:
+	print("landmarks")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	var found: Game.Obj = null
+	for i in int(60.0 / DT):
+		g.hp = 3
+		g.step(DT)
+		for f in g.foes:
+			if g.landmark(f) and not f.dead and g.on_screen(f):
+				found = f
+		if found:
+			break
+	check(found != null, "a landmark comes into play in the vertical stage")
+	if found == null:
+		g.queue_free()
+		return
+	check(found.ground and found.node.get_parent() in g.chunks.values(), "it is part of the ground (%s)" % found.kind)
+	var kills: int = g.run.kills
+	var score: int = g.run.score
+	var picks := g.picks.size()
+	var parent := found.node.get_parent()
+	var children := parent.get_child_count()
+	g.damage(found, 1.0)
+	check(not found.dead and found.hit > 0.0, "a hit landmark flashes")
+	g.damage(found, 999.0)
+	check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
+	check(g.picks.size() > picks, "it drops scrap")
+	check(parent.get_child_count() == children + 1 and g.ruined.size() == 1, "a ruin is left where it stood")
+	# the chase lets standing landmarks go without blowing them up
+	g.step(DT)
+	var standing := 0
+	for m: Dictionary in g.marks:
+		if is_instance_valid(m.node):
+			standing += 1
+	g.spawn_carrier()
+	g.begin_approach()
+	g.step(DT)
+	var after := 0
+	for f in g.foes:
+		if g.landmark(f):
+			after += 1
+	check(after == 0, "no landmark is a target in the chase")
+	var still := 0
+	for m: Dictionary in g.marks:
+		if is_instance_valid(m.node):
+			still += 1
+	check(still >= standing - 1, "landmarks still stand in the chase (%d of %d)" % [still, standing])
+	g.to_hangar()
+	check(g.ruined.is_empty(), "back in the hangar, ruined ground is rebuilt for the next sortie")
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -433,6 +489,7 @@ func _initialize() -> void:
 	await swipe()
 	await lingering()
 	await scenery()
+	await landmarks()
 	await stage()
 	await death()
 	await world_edges()
