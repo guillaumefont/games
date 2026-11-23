@@ -47,27 +47,27 @@ const PALETTE := {
 		"bark": Color("#6b4a34"), "log_top": Color("#5a843a"), "cut": Color("#d8b480"),
 	},
 	"sand": {
-		"ground": Color("#e3b47c"), "ground_dots": Color("#d8a46c"),
+		"ground": Color("#e6bb84"), "ground_dots": Color("#efcd9c"),
 		"ambient": Color("#f0cdb8"), "sun": Color("#ffe2b8"),
-		"road": Color("#92684e"), "patch": Color("#7e5a42"), "patch_amt": 0.35, "patch_rough": 1.0,
+		"road": Color("#8e5c44"), "patch": Color("#7a4e3a"), "patch_amt": 0.35, "patch_rough": 1.0,
 		"streak": Color("#d4a674"), "edge": Color("#efcc98"), "road_rough": 0.95,
-		"verge": Color("#d9a874"), "bank_face": Color("#cf9a66"),
+		"verge": Color("#dcab78"), "bank_face": Color("#cf9a66"),
 		"sky": Color("#9ccbec"), "shade": Color("#6a3a62"), "glint": Color("#fff0d4"),
-		"rim": Color("#ffe2cc"), "cactus": Color("#4f8f6a"), "palm": Color("#457f3e"),
-		"stone": [Color("#b06e48"), Color("#dca476")], "wall": Color("#e2b585"), "hut_roof": Color("#c98c5a"),
+		"rim": Color("#ffe2cc"), "cactus": Color("#55876a"), "palm": Color("#3f7d44"),
+		"stone": [Color("#b06e48"), Color("#dca476")], "wall": Color("#f0e2cc"), "hut_roof": Color("#c8714a"),
 		"gantry": Color("#5a3a2e"),
 		"bark": Color("#b4a088"), "log_top": Color("#cdbca2"), "cut": Color("#e6d2b0"),
 	},
 	"rock": {
-		"ground": Color("#767b6c"), "ground_dots": Color("#6a6f60"),
+		"ground": Color("#727a62"), "ground_dots": Color("#7e8668"),
 		"ambient": Color("#c3c8d6"), "sun": Color("#ffe6c8"),
 		"road": Color("#5c5a58"), "patch": Color("#6c6864"), "patch_amt": 0.4, "patch_rough": 0.9,
 		"streak": Color("#87837e"), "edge": Color("#aaaca2"), "road_rough": 0.9,
 		"verge": Color("#7e8274"), "bank_face": Color("#787b70"),
 		"sky": Color("#a6b8dc"), "shade": Color("#3a3458"), "glint": Color("#ffecd0"),
-		"rim": Color("#dce4ff"), "spire": Color("#6a6c6c"), "heather": Color("#8a6a9a"),
-		"stone": [Color("#5a5d5e"), Color("#8e908c")], "moss": Color("#7d9a50"),
-		"wall": Color("#9a988e"), "hut_roof": Color("#5a5c66"), "gantry": Color("#3e3c40"),
+		"rim": Color("#dce4ff"), "spire": Color("#6c6f76"), "heather": Color("#8a6a9a"),
+		"stone": [Color("#5a5d5e"), Color("#8e908c")], "moss": Color("#6e7f52"),
+		"wall": Color("#8f6e52"), "hut_roof": Color("#7a8290"), "gantry": Color("#3e3c40"),
 		"bark": Color("#6e655c"), "log_top": Color("#6a8448"), "cut": Color("#cdb894"),
 	},
 }
@@ -121,6 +121,83 @@ static func _fill(n: int, v) -> Array:
 	a.resize(n)
 	a.fill(v)
 	return a
+
+# A palm: a gently curving ringed trunk and a crown of long arched fronds, each creased
+# down its spine and drooping to a darker tip (instead of a leafy ball on a stick).
+static func palm(h: float, pal: Dictionary, seed_: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var U := 0.01
+	var tri := func(a: Vector3, b: Vector3, c: Vector3, col: Color) -> void:
+		var nrm := (b - a).cross(c - a).normalized()
+		if nrm.y < 0.0:
+			nrm = -nrm
+			var t := b; b = c; c = t
+		st.set_color(col)
+		st.set_normal(nrm)
+		for v in [a, b, c]:
+			st.add_vertex(v * U)
+	var bark: Color = pal["bark"]
+	var segs := 5
+	var lean := func(y: float) -> Vector3: return Vector3(pow(y / h, 2.0) * h * 0.18, 0, 0)
+	for k in segs:
+		var y0 := h * k / segs
+		var y1 := h * (k + 1) / segs
+		var r0 := 8.5 - k * 0.7
+		var r1 := r0 - 0.9
+		var col := bark.darkened(0.12) if k % 2 == 0 else bark
+		var o0: Vector3 = lean.call(y0)
+		var o1: Vector3 = lean.call(y1)
+		for j in 5:
+			var a0 := TAU * j / 5 + k * 0.4
+			var a1 := TAU * (j + 1) / 5 + k * 0.4
+			var p0 := o0 + Vector3(cos(a0) * r0, y0, sin(a0) * r0)
+			var p1 := o0 + Vector3(cos(a1) * r0, y0, sin(a1) * r0)
+			var p2 := o1 + Vector3(cos(a1) * r1, y1, sin(a1) * r1)
+			var p3 := o1 + Vector3(cos(a0) * r1, y1, sin(a0) * r1)
+			var nrm := (p1 - p0).cross(p2 - p0).normalized()
+			st.set_color(col.lightened(0.06 * maxf(nrm.x, 0.0)))
+			for v in [p0, p2, p1, p0, p3, p2]:
+				st.set_normal(-nrm)
+				st.add_vertex(v * U)
+	var top: Vector3 = lean.call(h) + Vector3(0, h, 0)
+	var leaf: Color = pal["palm"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_
+	var n := 7
+	for f in n:
+		var ang := TAU * f / n + rng.randf() * 0.4
+		var dir := Vector3(cos(ang), 0, sin(ang))
+		var side := Vector3(-dir.z, 0, dir.x)
+		var length := 68.0 + rng.randf() * 18.0
+		# spine: rises a little, then arcs down to the tip
+		var pts: Array[Vector3] = []
+		for i in 5:
+			var t := i / 4.0
+			pts.append(top + dir * length * t + Vector3(0, 14.0 * sin(t * PI * 0.8) - 34.0 * t * t, 0))
+		for i in 4:
+			var t0 := i / 4.0
+			var t1 := (i + 1) / 4.0
+			var w0 := 15.0 * sin(clampf(t0, 0.08, 1.0) * PI) + 2.0
+			var w1 := 15.0 * sin(t1 * PI * 0.97) + 1.0
+			var c := leaf.lightened(0.1 - 0.1 * t0) if i < 3 else leaf.darkened(0.15)
+			var a: Vector3 = pts[i]; var b: Vector3 = pts[i + 1]
+			for sgn: float in [1.0, -1.0]:
+				# each half droops below the spine: a creased frond
+				var ea := a + side * w0 * sgn + Vector3(0, -w0 * 0.35, 0)
+				var eb := b + side * w1 * sgn + Vector3(0, -w1 * 0.35, 0)
+				var cc := c if sgn > 0 else c.darkened(0.08)
+				tri.call(a, b, eb, cc)
+				tri.call(a, eb, ea, cc)
+	# a few coconuts under the crown
+	for k in 3:
+		var a2 := TAU * k / 3.0 + 0.5
+		var cpos := top + Vector3(cos(a2) * 7.0, -6.0, sin(a2) * 7.0)
+		for j in 4:
+			var b0 := TAU * j / 4.0
+			var b1 := TAU * (j + 1) / 4.0
+			tri.call(cpos + Vector3(0, 6, 0), cpos + Vector3(cos(b0) * 5.0, 0, sin(b0) * 5.0), cpos + Vector3(cos(b1) * 5.0, 0, sin(b1) * 5.0), Color("#6a4a2e"))
+	return st.commit()
 
 # A snowy pine: a tapering stack of scalloped tiers, each dark at its heart and lighter at
 # the rim, with a ragged snow cap that drips down between the branches.
