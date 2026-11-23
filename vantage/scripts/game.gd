@@ -1734,6 +1734,13 @@ func update_chunks() -> void:
 			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0, CHUNK_FLANK), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
+			# the city's fires and smoke, animated in their shaders
+			var fx := City.fx_mesh() if Models.theme == "city" else null
+			if fx:
+				var fxi := MeshInstance3D.new()
+				fxi.mesh = fx
+				fxi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				mi.add_child(fxi)
 			# the landmarks get their own nodes, so they can be shot down
 			for m: Dictionary in Models.marks:
 				var node := Models.instance(Models.landmark(m.kind, m.r))
