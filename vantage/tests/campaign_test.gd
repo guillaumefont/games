@@ -253,6 +253,18 @@ func levels() -> void:
 	g.to_hangar()
 	check(g.level == 1 and g.hud.go_btn.text.contains("1-2"), "back in the hangar, 1-2 is selected")
 	check(g.hud.level_btns[1].text.contains(Campaign.midboss(1).name), "its button names its mid-boss")
+	# a mid-boss still far above the top (a tall screen) keeps its guns until it arrives
+	g.launch(3)
+	g.mid_id = "halo"
+	g.mid = Rules.MIDBOSSES.halo
+	g.spawn_vert("boss", 0.0, 0, 1)
+	g.boss.pos.z = g.frame_z - 70.0
+	for p in g.boss_parts:
+		p.pos = g.mount_point(p.anchor)
+	g.step(DT)
+	check(g.boss_parts.all(func(p: Game.Obj) -> bool: return g.foes.has(p) and is_instance_valid(p.node)) and g.foes.has(g.boss),
+		"a mid-boss far above the screen keeps its guns (2-1 was stuck)")
+	g.to_hangar()
 	# every mid-boss design, flown down section by section
 	for id: String in Rules.MIDBOSSES:
 		var lv := 0

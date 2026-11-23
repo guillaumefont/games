@@ -1007,6 +1007,10 @@ func update_objs(dt: float) -> void:
 
 
 func gone(o: Obj) -> bool:
+	# the mid-boss and its guns are never culled: it comes in from far above the top on a tall
+	# screen (Guillaume was stuck on 2-1: the Halo's rim guns were dropped before it arrived)
+	if o == boss or o in boss_parts:
+		return false
 	if pov_mode():
 		return o.pos.z > ppos.z + 4.0 or o.pos.z < ppos.z - 90.0 or o.t > 8.0 and o.kind in ["shot", "missile", "orb"]
 	if o in foes and landmark(o) and phase != "vert":

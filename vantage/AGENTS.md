@@ -211,6 +211,8 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
   once broken off, and a spinning hull is turned). Ground targets and
   scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
+- The mid-boss and its guns are never culled (`Game.gone`): it spawns far above the top on a tall phone, and
+  a culled gun left its section unbeatable (Guillaume stuck on 2-1, tested).
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
