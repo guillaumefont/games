@@ -161,9 +161,13 @@ var marks: Array = []
 var ruined := {}
 var hud: Hud
 var boss: Obj
-## The boss's current section (index in Rules.BOSS_SECTIONS) and its live parts.
+## The level's mid-boss (`Rules.MIDBOSSES`: its id and design), its current section (index in
+## its sections), the section's live parts and their full hp.
+var mid_id := "bastion"
+var mid: Dictionary = Rules.MIDBOSSES.bastion
 var boss_sec := 0
 var boss_parts: Array[Obj] = []
+var boss_max := 1.0
 var banner := ""
 var banner_t := 0.0
 var sub_banner := ""
@@ -324,6 +328,8 @@ func pick_level(lv: int) -> void:
 	s.sel = lv
 	world = Campaign.world_of(lv)
 	waves = Campaign.waves(lv)
+	mid_id = Campaign.midboss_of(lv)
+	mid = Rules.MIDBOSSES[mid_id]
 	apply_theme(world.theme)
 
 
@@ -781,19 +787,22 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			f.pos = Vector3(f.x0, Rules.PY, top - 2.0)
 			f.fire_t = 2.0
 		"boss":
-			var f := new_foe("boss", Models.boss_hull())
+			var f := new_foe("boss", Models.midboss_hull(mid_id))
 			f.node.material_override = Models.tinted(world.tint)
 			f.rel = true
 			f.pos = Vector3(0, Rules.PY, top - 12.0)
 			f.x0 = 0.0
 			boss = f
 			boss_sec = 0
-			for part in [["bow", Models.boss_bow()], ["wings", Models.boss_wings()]]:
-				var mi := Models.instance(part[1], Models.tinted(world.tint))
-				mi.name = part[0]
-				f.node.add_child(mi)
+			# each section's piece is its own mesh, so it can break off
+			for sec: Dictionary in mid.sections:
+				if sec.piece != "":
+					var mi := Models.instance(Models.midboss_piece(mid_id, sec.piece), Models.tinted(world.tint))
+					mi.name = sec.piece
+					f.node.add_child(mi)
+					cast_shadow_of(mi)
 			open_section()
-			say("WARNING", "Bastion-class battleship")
+			say("WARNING", mid.title)
 			sound.play("warning")
 			sound.music("carrier")
 
@@ -953,6 +962,11 @@ func update_objs(dt: float) -> void:
 			p.vel = p.vel.lerp(Vector3(0, 0, 2.5), minf(1.0, dt * 2.5))
 			p.pos += p.vel * dt
 	collide(dt)
+	# a landmark whose ground chunk went (scrolled off before the landmark did) goes with it
+	for f in foes:
+		if landmark(f) and not f.dead and not is_instance_valid(f.node):
+			f.dead = true
+			f.node = null
 	# cull
 	for list: Array in [foes, shots, bullets, picks]:
 		for i in range(list.size() - 1, -1, -1):
@@ -1065,7 +1079,7 @@ func think(f: Obj, dt: float) -> void:
 				pass
 		"boss":
 			think_boss(f, dt)
-		"cannon", "flak", "battery", "bridge":
+		"cannon", "flak", "battery", "bridge", "lance", "spiral", "dome":
 			think_part(f, dt)
 		"drone":
 			var dist := ppos.z - f.pos.z
@@ -1116,51 +1130,99 @@ func think(f: Obj, dt: float) -> void:
 					o.vel = dir * 10.0 - Vector3(0, 0, rail_speed())
 
 
-## The boss's hull: comes down from the top, sways a little, and pushes closer each time a
-## section falls. Its parts ride on it and fire on their own (think_part).
+## The boss's hull: comes down from the top, then flies its design's way (`move`), pushing
+## closer each time a section falls. Its parts ride on it and fire on their own (think_part).
 func think_boss(f: Obj, dt: float) -> void:
-	var want_z := frame_z + Rules.BOSS_Z + Rules.BOSS_PUSH * boss_sec
-	f.pos.z = lerpf(f.pos.z, want_z + (sin(f.t * 0.5) * 0.6 if f.t > 4.0 else 0.0), minf(1.0, dt * (0.7 if f.t < 4.0 else 1.2)))
-	f.pos.x = lerpf(f.pos.x, sin(f.t * 0.35) * 1.4 if f.t > 4.0 else 0.0, minf(1.0, dt))
-	f.node.rotation.z = sin(f.t * 0.35) * -0.04
+	var t := f.t
+	var on := t > 4.0
+	var base := Rules.BOSS_Z + Rules.BOSS_PUSH * boss_sec
+	# come down far enough that the section's deepest gun shows (a short screen sees less)
+	var deepest := 0.0
+	for p in boss_parts:
+		deepest = minf(deepest, (Basis(Vector3.UP, f.node.rotation.y) * p.anchor).z)
+	var want_z := frame_z + clampf(view_top + 3.5 - deepest, base, base + 6.0)
+	var want_x := 0.0
+	var dz := 0.0
+	var rot := Vector3.ZERO
+	match mid.move:
+		"sway":
+			want_x = sin(t * 0.35) * 1.4
+			dz = sin(t * 0.5) * 0.6
+			rot.z = sin(t * 0.35) * -0.04
+		"strafe":
+			# long sweeps from side to side, banking into them
+			want_x = sin(t * 0.45) * 3.0
+			dz = sin(t * 0.9) * 0.5
+			rot.z = -cos(t * 0.45) * 0.08
+		"spin":
+			want_x = sin(t * 0.3) * 1.2
+			dz = sin(t * 0.6) * 0.5
+			rot.y = t * 0.3
+		"weave":
+			want_x = sin(t * 0.4) * 2.2
+			dz = sin(t * 0.55) * 0.8
+			rot.y = cos(t * 0.4) * 0.1
+			rot.z = sin(t * 0.8) * 0.05
+		"charge":
+			# every few seconds it lunges at the player, then backs off
+			want_x = sin(t * 0.3) * 1.2
+			dz = pow(maxf(0.0, sin(t * 0.8)), 6.0) * 3.5
+	if not on:
+		want_x = 0.0
+		dz = 0.0
+		rot = Vector3(0, rot.y if mid.move == "spin" else 0.0, 0)
+	f.pos.z = lerpf(f.pos.z, want_z + dz, minf(1.0, dt * (0.7 if not on else 1.2)))
+	f.pos.x = lerpf(f.pos.x, want_x, minf(1.0, dt))
+	f.node.rotation = rot
+
+
+## Where a part's mount is on the boss now (the hull turns, for a spinning one).
+func mount_point(anchor: Vector3) -> Vector3:
+	return boss.pos + Basis(Vector3.UP, boss.node.rotation.y) * anchor
 
 
 func open_section() -> void:
 	boss_parts.clear()
-	var sec: Dictionary = Rules.BOSS_SECTIONS[boss_sec]
+	var sec: Dictionary = mid.sections[boss_sec]
+	boss_max = 0.0
 	for k in sec.parts.size():
 		var p: Dictionary = sec.parts[k]
-		var mesh: Mesh = {"cannon": Models.boss_cannon(), "flak": Models.turret(), "battery": Models.boss_battery(),
-			"bridge": Models.boss_bridge()}[p.kind]
-		var f := new_foe(p.kind, mesh)
+		var f := new_foe(p.kind, Models.boss_part(p.kind))
+		f.node.material_override = Models.tinted(world.tint)
+		f.hp *= float(Campaign.BOSS_HP[level % Campaign.PER_WORLD])
+		f.max_hp = f.hp
+		boss_max += f.hp
 		f.rel = true
 		f.anchor = p.at
 		f.idx = k
 		f.size = 1.35
-		f.pos = boss.pos + p.at
+		f.pos = mount_point(p.at)
 		f.fire_t = 4.0 + k * 0.45 if boss_sec == 0 else 1.5 + k * 0.4
 		boss_parts.append(f)
 	if boss_sec > 0:
-		say(sec.name, "Section %d of %d" % [boss_sec + 1, Rules.BOSS_SECTIONS.size()], 1.8)
+		say(sec.name, "Section %d of %d" % [boss_sec + 1, mid.sections.size()], 1.8)
 
 
 ## A part of the boss: rides on the hull, turns to the player, fires its pattern.
 func think_part(f: Obj, dt: float) -> void:
 	if boss == null:
 		return
-	f.pos = boss.pos + f.anchor
+	f.pos = mount_point(f.anchor)
 	var to_p := ppos - seen(f.pos)
-	if f.kind != "bridge":
+	if f.kind not in Rules.BOSS_HEARTS:
 		f.node.rotation.y = atan2(to_p.x, to_p.z)
+	else:
+		f.node.rotation.y = boss.node.rotation.y
 	if boss.t < 4.0 or f.t < f.fire_t:
 		return
 	var muzzle := seen(f.pos) + Vector3(to_p.x, 0, to_p.z).normalized() * 1.0
+	var flat := Vector3(muzzle.x, Rules.PY, muzzle.z)
 	match f.kind:
 		"cannon":
 			f.fire_t = f.t + 1.7
 			for k in 3:
 				var d := Vector3(to_p.x, 0, to_p.z).normalized().rotated(Vector3.UP, (k - 1) * 0.07)
-				bullet(Vector3(muzzle.x, Rules.PY, muzzle.z), d * (10.5 + k * 0.8))
+				bullet(flat, d * (10.5 + k * 0.8))
 		"flak":
 			f.fire_t = f.t + 1.4
 			fan(muzzle, 5, 0.9, 8.5)
@@ -1170,57 +1232,86 @@ func think_part(f: Obj, dt: float) -> void:
 			for k in 7:
 				var a := base + (k - 3) * 0.22
 				bullet(Vector3(f.pos.x, Rules.PY, f.pos.z), Vector3(sin(a) * 0.6, 0, 1).normalized().rotated(Vector3.UP, sin(base) * 0.5) * 7.5)
+		"lance":
+			# a burst of five quick shots straight at the ship, then a breather
+			f.hold += 1.0
+			if f.hold >= 5.0:
+				f.hold = 0.0
+				f.fire_t = f.t + 2.0
+			else:
+				f.fire_t = f.t + 0.12
+			bullet(flat, Vector3(to_p.x, 0, to_p.z).normalized() * 12.0)
+		"spiral":
+			# two arms of a turning spiral, three seconds on, a second and a half off
+			f.fire_t = f.t + 0.13
+			if fmod(f.t + f.idx * 1.5, 4.5) < 3.0:
+				var a := f.t * 2.2 + f.idx
+				for k in 2:
+					var ang := a + PI * k
+					bullet(Vector3(f.pos.x, Rules.PY, f.pos.z), Vector3(sin(ang), 0, cos(ang)) * 6.5)
 		"bridge":
-			if f.t >= f.fire_t:
-				f.fire_t = f.t + 0.1
-				var a := f.t * 2.4
-				for k in 3:
-					var ang := a + TAU * k / 3.0
-					bullet(Vector3(f.pos.x, Rules.PY, f.pos.z + 1.5), Vector3(sin(ang), 0, cos(ang)) * 7.0)
-				if fmod(f.t, 1.6) < 0.1:
-					aimed(f.pos + Vector3(-2.0, 0, 1.0), 11.0)
-					aimed(f.pos + Vector3(2.0, 0, 1.0), 11.0)
+			f.fire_t = f.t + 0.1
+			var a := f.t * 2.4
+			for k in 3:
+				var ang := a + TAU * k / 3.0
+				bullet(Vector3(f.pos.x, Rules.PY, f.pos.z + 1.5), Vector3(sin(ang), 0, cos(ang)) * 7.0)
+			if fmod(f.t, 1.6) < 0.1:
+				aimed(f.pos + Vector3(-2.0, 0, 1.0), 11.0)
+				aimed(f.pos + Vector3(2.0, 0, 1.0), 11.0)
+		"dome":
+			# rings with a turning gap to slip through, and an aimed pair between them
+			f.hold += 1.0
+			f.fire_t = f.t + 0.9
+			if int(f.hold) % 2 == 1:
+				var n := 18
+				var gap := int(f.hold * 1.7) % n
+				for k in n:
+					if k == gap or k == (gap + 1) % n:
+						continue
+					var ang := TAU * k / n + f.hold * 0.2
+					bullet(Vector3(f.pos.x, Rules.PY, f.pos.z), Vector3(sin(ang), 0, cos(ang)) * 6.0)
+			else:
+				aimed(f.pos + Vector3(-1.6, 0, 1.0), 10.5)
+				aimed(f.pos + Vector3(1.6, 0, 1.0), 10.5)
 
 
-## A boss part went down: when its section is cleared, that section breaks off and the next
-## one opens; the bridge going down sinks the whole ship.
+## A boss part went down: when its section is cleared, that section's piece breaks off and the
+## next one opens; the heart going down blows the whole hull up.
 func part_down(f: Obj) -> void:
 	boss_parts.erase(f)
 	if not boss_parts.is_empty():
 		return
-	var name: String = ["bow", "wings", ""][boss_sec]
+	var sec: Dictionary = mid.sections[boss_sec]
+	var name: String = sec.piece
 	if name != "" and boss.node.has_node(name):
 		boss.node.get_node(name).visible = false
-		# a ripple of blasts across the section as it breaks off, then a big one
+		# a ripple of blasts across the section as it breaks off, round where its guns were
 		var pts: Array = []
-		for k in 7:
-			var x := rng.randf_range(-2.5, 2.5) if name == "bow" else rng.randf_range(4.0, 11.0) * (1 if k % 2 == 0 else -1)
-			var z := rng.randf_range(2.0, 9.0) if name == "bow" else rng.randf_range(-4.0, 1.5)
-			pts.append(boss.pos + Vector3(x, 1.0, z))
+		for k in 8:
+			var p: Dictionary = sec.parts[k % sec.parts.size()]
+			pts.append(mount_point(p.at + Vector3(rng.randf_range(-1.5, 1.5), 0.0, rng.randf_range(-1.5, 1.5))))
 		pop(pts[0], 3.0, Models.AMBER)
-		blasts.chain(pts.slice(1), 2.4, 0.6, fx_carry(), 0.0 if name == "wings" else 4.0)
-		if name == "wings":
-			blasts.later(0.7, boss.pos + Vector3(8.0, 1.0, -1.0), 3.6, Models.AMBER, fx_carry())
-			blasts.later(0.8, boss.pos + Vector3(-8.0, 1.0, -1.0), 3.6, Models.AMBER, fx_carry())
+		blasts.chain(pts.slice(1), 2.6, 0.7, fx_carry())
 		shake = 0.7
 		sound.play("crash")
 	boss_sec += 1
-	if boss_sec < Rules.BOSS_SECTIONS.size():
+	if boss_sec < mid.sections.size():
 		open_section()
 	else:
 		var b := boss
-		# the bridge: the whole hull goes up from stern to bow, then one huge blast
+		# the heart: the whole hull goes up from stern to bow, then one huge blast
 		var pts: Array = []
 		for k in 10:
-			pts.append(b.pos + Vector3(rng.randf_range(-4, 4), 1.0, lerpf(8.0, -10.0, k / 9.0) + rng.randf_range(-1, 1)))
+			pts.append(mount_point(Vector3(rng.randf_range(-4, 4), 1.0, lerpf(7.0, -6.0, k / 9.0) + rng.randf_range(-1, 1))))
 		blasts.chain(pts, 3.5, 1.0, fx_carry(), 7.0)
 		sound.play("crash")
 		sound.music("sortie")
 		kill(b)
 
 
+## Only the heart is shielded, until its section opens (it is the last).
 func boss_shielded(f: Obj) -> bool:
-	return f.kind == "bridge" and boss_sec < Rules.BOSS_SECTIONS.size() - 1
+	return f.kind in Rules.BOSS_HEARTS and boss_sec < mid.sections.size() - 1
 
 
 ## The boss bar: the current section's health left (0..1) and its name.
@@ -1234,12 +1325,9 @@ func boss_bar() -> Array:
 	if boss == null:
 		return []
 	var hp := 0.0
-	var mx := 0.0
-	for k in Rules.BOSS_SECTIONS[boss_sec].parts.size():
-		mx += Rules.FOES[Rules.BOSS_SECTIONS[boss_sec].parts[k].kind].hp
 	for p in boss_parts:
 		hp += maxf(0.0, p.hp)
-	return [hp / maxf(mx, 1.0), "%s  %d/%d" % [Rules.BOSS_SECTIONS[boss_sec].name, boss_sec + 1, Rules.BOSS_SECTIONS.size()]]
+	return [hp / maxf(boss_max, 1.0), "%s · %s  %d/%d" % [mid.name.to_upper(), mid.sections[boss_sec].name, boss_sec + 1, mid.sections.size()]]
 
 
 func rail_speed() -> float:
@@ -1351,7 +1439,7 @@ func collide(_dt: float) -> void:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
 				hurt()
-		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss", "cannon", "flak", "battery", "bridge"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R and not (f.vel.z < 0.0 and f.t < 1.0):
+		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss"] and f.kind not in Rules.BOSS_PART_KINDS and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R and not (f.vel.z < 0.0 and f.t < 1.0):
 			damage(f, 6.0)
 			hurt()
 	# pickups
@@ -1395,7 +1483,7 @@ func kill(f: Obj) -> void:
 	run.score += int(info.score)
 	if f.kind not in ["orb", "boss"] and not landmark(f):
 		run.kills += 1
-	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
+	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
 		"duck": 1.8}.get(f.kind, 1.3)
 	if landmark(f):
@@ -1434,7 +1522,7 @@ func kill(f: Obj) -> void:
 			b.dead = true
 		stage_t = float(waves[wave_i].t) + 0.5
 		run.score += 3000
-		say("BASTION DOWN", "+3,000")
+		say("%s DOWN" % mid.name.to_upper(), "+3,000")
 	if f == core:
 		begin_escape()
 

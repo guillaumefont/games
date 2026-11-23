@@ -512,6 +512,190 @@ static func boss_bridge() -> Mesh:
 		return b.commit())
 
 
+# ---------------------------------------------------------------- the other mid-bosses
+## Every mid-boss (`Rules.MIDBOSSES`) is a hull that stays and a piece per section that breaks
+## off; its guns are separate parts (`boss_part`). Nose to +z, decks round y = 0.7..1.2 so the
+## parts' mounts sit on them.
+const OLIVE := Color8(0x7a, 0x84, 0x4c)
+const OLIVE_D := Color8(0x4c, 0x55, 0x34)
+const IVORY := Color8(0xd6, 0xd8, 0xd2)
+const IVORY_D := Color8(0x8e, 0x96, 0x9a)
+const COBALT := Color8(0x2c, 0x4a, 0x7c)
+const COBALT_D := Color8(0x1e, 0x2c, 0x48)
+const IRON := Color8(0x4a, 0x46, 0x44)
+const IRON_D := Color8(0x2e, 0x2a, 0x2a)
+const RUST := Color8(0xd0, 0x5c, 0x2a)
+
+
+static func midboss_hull(id: String) -> Mesh:
+	if id == "bastion":
+		return boss_hull()
+	return cached("mid_%s" % id, func() -> Mesh:
+		var b := Builder.new()
+		match id:
+			"mantis":
+				# a long segmented body, a raised carapace, the eye's socket near its tail
+				b.prism(Vector3.ZERO, pts([Vector2(0, 6.2), Vector2(1.8, 4.2), Vector2(2.6, -0.8), Vector2(2.2, -5.4),
+					Vector2(1.0, -7.2), Vector2(-1.0, -7.2), Vector2(-2.2, -5.4), Vector2(-2.6, -0.8), Vector2(-1.8, 4.2)]),
+					-0.8, 0.8, OLIVE_D, Vector2(0.9, 0.95))
+				for k in 4:
+					b.prism(Vector3(0, 0, 3.0 - k * 2.4), ngon(1.7 - k * 0.12, 6, PI / 6), 0.8, 1.2, OLIVE, Vector2(0.7, 0.7))
+				b.prism(Vector3(0, 0, -1.2), ngon(2.0, 10), 0.8, 1.0, HULL_D)
+				b.prism(Vector3(0, 0, 4.6), ngon(1.0, 8, PI / 8), 0.8, 1.3, HULL_D)
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 2.3, 0.3, -2.0), Vector3(0.4, 0.8, 5.0), AMBER, Vector2(0.6, 0.95))
+					b.prism(Vector3(sx * 1.0, 0, -7.0), ngon(0.7, 8, PI / 8), -0.5, 0.5, HULL)
+			"halo":
+				# a hub with an inner ring round it
+				b.prism(Vector3.ZERO, ngon(2.4, 12), -0.9, 1.2, IVORY_D, Vector2(0.85, 0.85))
+				b.prism(Vector3.ZERO, ngon(1.7, 12), 1.2, 1.5, IVORY)
+				ring(b, 3.8, 4.6, 16, -0.5, 0.8, IVORY)
+				for k in 16:
+					var a := TAU * (k + 0.5) / 16.0
+					b.box(Vector3(sin(a) * 4.2, 0.82, cos(a) * 4.2), Vector3(0.2, 0.06, 0.2), CYAN)
+			"twin":
+				# the keel between the hulls, the bridge's base at its stern
+				b.prism(Vector3.ZERO, pts([Vector2(0, 2.8), Vector2(1.6, 1.4), Vector2(1.6, -5.6), Vector2(0.8, -6.6),
+					Vector2(-0.8, -6.6), Vector2(-1.6, -5.6), Vector2(-1.6, 1.4)]), -0.7, 0.8, COBALT_D, Vector2(0.9, 0.95))
+				b.box(Vector3(0, 0.9, -2.4), Vector3(2.6, 0.3, 3.4), HULL_D)
+				for k in 3:
+					b.box(Vector3(0, 0.82, 1.4 - k * 2.6), Vector3(2.4, 0.04, 0.24), AMBER)
+			"hammer":
+				# a thick body, the heart's armoured cradle near its stern
+				b.prism(Vector3.ZERO, pts([Vector2(2.2, 5.4), Vector2(2.6, 1.0), Vector2(2.4, -5.0), Vector2(1.4, -6.6),
+					Vector2(-1.4, -6.6), Vector2(-2.4, -5.0), Vector2(-2.6, 1.0), Vector2(-2.2, 5.4)]), -0.9, 0.9, IRON, Vector2(0.9, 0.95))
+				b.prism(Vector3(0, 0, -3.0), ngon(2.0, 8, PI / 8), 0.9, 1.2, IRON_D)
+				for sx in [1.0, -1.0]:
+					b.prism(Vector3(sx * 1.2, 0, -6.6), ngon(0.8, 8, PI / 8), -0.6, 0.6, HULL)
+					b.box(Vector3(sx * 2.5, 0.4, 0.0), Vector3(0.3, 0.6, 8.0), RUST, Vector2(0.6, 0.95))
+		return b.commit())
+
+
+static func midboss_piece(id: String, piece: String) -> Mesh:
+	if id == "bastion":
+		return boss_bow() if piece == "bow" else boss_wings()
+	return cached("mid_%s_%s" % [id, piece], func() -> Mesh:
+		var b := Builder.new()
+		var parts: Array = []
+		for sec: Dictionary in Rules.MIDBOSSES[id].sections:
+			if sec.piece == piece:
+				parts = sec.parts
+		match [id, piece]:
+			["mantis", "claws"]:
+				for sx in [1.0, -1.0]:
+					slab(b, Vector2(sx * 2.2, 1.2), Vector2(sx * 4.4, 2.6), 1.4, -0.4, 0.7, OLIVE)
+					slab(b, Vector2(sx * 4.4, 2.6), Vector2(sx * 5.0, 7.6), 1.6, -0.4, 0.8, OLIVE)
+					slab(b, Vector2(sx * 5.2, 7.4), Vector2(sx * 3.0, 9.6), 1.0, -0.3, 0.6, AMBER)
+					b.prism(Vector3(sx * 4.4, 0, 2.6), ngon(1.0, 8, PI / 8), -0.5, 0.75, OLIVE_D)
+			["mantis", "pods"]:
+				for sx in [1.0, -1.0]:
+					slab(b, Vector2(sx * 2.3, -2.0), Vector2(sx * 5.6, -2.2), 1.0, -0.2, 0.5, OLIVE_D)
+					slab(b, Vector2(sx * 6.2, 0.6), Vector2(sx * 6.2, -5.6), 1.9, -0.6, 0.8, OLIVE)
+					b.box(Vector3(sx * 6.2, 0.1, -5.7), Vector3(1.2, 0.8, 0.3), AMBER)
+			["halo", "rim"]:
+				ring(b, 4.6, 6.2, 24, -0.4, 0.6, IVORY_D)
+				for k in 24:
+					if k % 2 == 0:
+						var a := TAU * k / 24.0
+						b.box(Vector3(sin(a) * 6.1, 0.3, cos(a) * 6.1), Vector3(0.3, 0.5, 0.3), CYAN)
+			["halo", "spokes"]:
+				for p: Dictionary in parts:
+					var at := Vector2(p.at.x, p.at.z)
+					slab(b, at.normalized() * 2.2, at.normalized() * 4.0, 1.2, 0.0, 1.0, IVORY)
+			["twin", "port"], ["twin", "starboard"]:
+				var sx := -1.0 if piece == "port" else 1.0
+				var c := Vector3(sx * 4.6, 0, 0)
+				b.prism(c, pts([Vector2(0, 8.4), Vector2(1.6, 5.6), Vector2(1.7, -5.0), Vector2(1.0, -6.6),
+					Vector2(-1.0, -6.6), Vector2(-1.7, -5.0), Vector2(-1.6, 5.6)]), -0.9, 0.8, COBALT, Vector2(0.88, 0.95))
+				b.box(c + Vector3(0, 0.82, 1.0), Vector3(0.4, 0.06, 9.0), FOE)
+				# the beams joining it to the keel
+				for z in [3.4, -3.8]:
+					b.box(Vector3(sx * 2.4, 0.3, z), Vector3(2.4, 0.6, 1.0), COBALT_D)
+			["twin", "deck"]:
+				b.prism(Vector3(0, 0, 2.2), pts([Vector2(0, 2.8), Vector2(2.8, 1.2), Vector2(2.8, -1.4), Vector2(-2.8, -1.4),
+					Vector2(-2.8, 1.2)]), 0.0, 1.0, COBALT, Vector2(0.9, 0.9))
+				b.box(Vector3(0, 1.02, 4.0), Vector3(2.0, 0.05, 0.24), AMBER)
+			["hammer", "hammer"]:
+				b.prism(Vector3(0, 0, 6.6), pts([Vector2(-7.4, -1.2), Vector2(7.4, -1.2), Vector2(7.6, 0.6), Vector2(6.8, 1.6),
+					Vector2(-6.8, 1.6), Vector2(-7.6, 0.6)]), -0.7, 0.8, IRON, Vector2(0.97, 0.9))
+				b.box(Vector3(0, 0.82, 7.9), Vector3(12.0, 0.06, 0.3), RUST)
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 7.4, 0.0, 6.4), Vector3(0.5, 1.2, 2.6), HULL_D)
+			["hammer", "fins"]:
+				for sx in [1.0, -1.0]:
+					b.prism(Vector3.ZERO, pts([Vector2(sx * 2.2, 2.4), Vector2(sx * 5.8, -1.6), Vector2(sx * 5.4, -3.0),
+						Vector2(sx * 2.2, -1.2)]) if sx < 0 else pts([Vector2(sx * 2.2, -1.2), Vector2(sx * 5.4, -3.0),
+						Vector2(sx * 5.8, -1.6), Vector2(sx * 2.2, 2.4)]), -0.3, 0.6, IRON_D, Vector2(0.97, 0.97))
+					b.box(Vector3(sx * 4.0, 0.62, -1.0), Vector3(2.2, 0.05, 0.22), RUST)
+				b.prism(Vector3(0, 0, 2.2), ngon(1.3, 8, PI / 8), 0.9, 1.3, IRON_D)
+		# a platform under each of the section's guns
+		for p: Dictionary in parts:
+			b.prism(Vector3(p.at.x, 0, p.at.z), ngon(0.95, 8, PI / 8), p.at.y - 0.4, p.at.y - 0.15, HULL_D)
+		return b.commit())
+
+
+## A convex slab from a to b (x, z) `w` wide, from y0 to y1: arms, beams, struts.
+static func slab(b: Builder, from: Vector2, to: Vector2, w: float, y0: float, y1: float, col: Color) -> void:
+	var d := (to - from).normalized()
+	var n := Vector2(-d.y, d.x) * w * 0.5
+	var o := pts([from + n, to + n, to - n, from - n])
+	# the outline must wind the same way as every other prism's (anticlockwise seen from above)
+	if (o[1] - o[0]).cross(o[2] - o[1]) < 0.0:
+		o.reverse()
+	b.prism(Vector3.ZERO, o, y0, y1, col)
+
+
+## A flat ring from radius r0 to r1 in n segments.
+static func ring(b: Builder, r0: float, r1: float, n: int, y0: float, y1: float, col: Color) -> void:
+	for k in n:
+		var a0 := TAU * k / n
+		var a1 := TAU * (k + 1) / n
+		var o := pts([Vector2(sin(a0), cos(a0)) * r0, Vector2(sin(a0), cos(a0)) * r1,
+			Vector2(sin(a1), cos(a1)) * r1, Vector2(sin(a1), cos(a1)) * r0])
+		if (o[1] - o[0]).cross(o[2] - o[1]) < 0.0:
+			o.reverse()
+		b.prism(Vector3.ZERO, o, y0, y1, col)
+
+
+## A mid-boss's gun, by kind (barrels along +z, turned to the player).
+static func boss_part(kind: String) -> Mesh:
+	match kind:
+		"cannon":
+			return boss_cannon()
+		"flak":
+			return turret()
+		"battery":
+			return boss_battery()
+		"bridge":
+			return boss_bridge()
+	return cached("part_" + kind, func() -> Mesh:
+		var b := Builder.new()
+		match kind:
+			"lance":
+				# one long barrel on a sloped mantlet
+				b.prism(Vector3.ZERO, ngon(0.8, 8, PI / 8), 0.0, 0.5, HULL, Vector2(0.75, 0.75))
+				b.box(Vector3(0, 0.6, -0.1), Vector3(0.9, 0.4, 1.0), FOE_D, Vector2(0.7, 0.8))
+				b.box(Vector3(0, 0.6, 1.3), Vector3(0.26, 0.26, 2.2), HULL_D)
+				b.box(Vector3(0, 0.6, 2.45), Vector3(0.34, 0.34, 0.16), AMBER)
+			"spiral":
+				# a squat drum with four short barrels round it
+				b.prism(Vector3.ZERO, ngon(0.95, 8, PI / 8), 0.0, 0.7, HULL_D, Vector2(0.85, 0.85))
+				for k in 4:
+					var a := TAU * k / 4.0
+					b.box(Vector3(sin(a) * 0.95, 0.4, cos(a) * 0.95), Vector3(0.3 + absf(cos(a)) * 0.0, 0.24, 0.3) + Vector3(absf(sin(a)), 0, absf(cos(a))) * 0.6, HULL)
+				b.prism(Vector3(0, 0.7, 0), ngon(0.45, 8), 0.0, 0.2, AMBER)
+			"dome":
+				# the heart: a stepped armoured dome with a glowing eye band
+				b.prism(Vector3.ZERO, ngon(2.0, 10), -0.4, 0.4, HULL_D, Vector2(0.9, 0.9))
+				b.prism(Vector3(0, 0.4, 0), ngon(1.75, 10), 0.0, 0.35, FOE)
+				b.prism(Vector3(0, 0.75, 0), ngon(1.6, 10), 0.0, 0.5, FOE_D, Vector2(0.75, 0.75))
+				b.prism(Vector3(0, 1.25, 0), ngon(1.15, 10), 0.0, 0.4, FOE, Vector2(0.5, 0.5))
+				for k in 10:
+					var a := TAU * (k + 0.5) / 10.0
+					b.box(Vector3(sin(a) * 1.74, 0.58, cos(a) * 1.74), Vector3(0.36, 0.14, 0.36), AMBER)
+		return b.commit())
+
+
 # ---------------------------------------------------------------- foes inside the fortress
 ## Security drone: a diamond with four fins and an amber eye facing the player (+z).
 static func drone() -> Mesh:

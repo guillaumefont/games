@@ -1,6 +1,6 @@
 extends SceneTree
 ## The campaign: worlds and levels, their waves, progress and unlocks in the save, the level
-## select in the hangar, each world's look, and full runs of a patrol and a battleship level.
+## select in the hangar, each world's look, and full runs of a level, and every mid-boss flown down.
 ##   godot --headless --path . --script tests/campaign_test.gd
 
 const SAVE := "user://test_campaign.json"
@@ -46,18 +46,45 @@ func data() -> void:
 				bosses += 1
 			if ws[k].kind == "fortress":
 				fortresses += 1
-		var kind := Campaign.kind_of(lv)
 		var last: String = ws[-1].kind
-		var shape := false
-		match kind:
-			"patrol":
-				shape = bosses == 0 and fortresses == 0 and last == "end"
-			"battleship":
-				shape = bosses == 1 and fortresses == 0 and last == "end" and ws[-2].kind == "boss"
-			"fortress":
-				shape = bosses == 1 and fortresses == 1 and last == "fortress"
-		check(sorted and shape and ws.size() > 8 and Campaign.foes_in(lv) > 30,
-			"%s %s (%s): %d waves, in order, ends right" % [Campaign.code(lv), Campaign.level_name(lv), kind, ws.size()])
+		var boss_first := false
+		for k in ws.size():
+			if ws[k].kind == "boss":
+				boss_first = k < ws.size() - 1 and ws.slice(k).any(func(w: Dictionary) -> bool: return w.kind == "fortress")
+		check(sorted and bosses == 1 and fortresses == 1 and last == "fortress" and boss_first and ws.size() > 6 and Campaign.foes_in(lv) > 30,
+			"%s %s: %d waves, in order, a mid-boss (%s) then the fortress" % [Campaign.code(lv), Campaign.level_name(lv), ws.size(), Campaign.midboss(lv).name])
+	var used := {}
+	for w in Campaign.WORLDS.size():
+		var here := {}
+		for k in Campaign.PER_WORLD:
+			here[Campaign.midboss_of(w * Campaign.PER_WORLD + k)] = true
+			used[Campaign.midboss_of(w * Campaign.PER_WORLD + k)] = true
+		check(here.size() == Campaign.PER_WORLD, "%s: three levels, three different mid-bosses" % Campaign.WORLDS[w].name)
+	check(used.size() == Rules.MIDBOSSES.size() and used.size() >= 5, "every mid-boss design is flown (%d)" % used.size())
+	check(Campaign.midboss_of(Campaign.PER_WORLD - 1) == "bastion", "the hand-made sector keeps the Bastion")
+	var layouts := {}
+	for id: String in Rules.MIDBOSSES:
+		var m: Dictionary = Rules.MIDBOSSES[id]
+		var reach := true
+		var pieces := true
+		var key := ""
+		for k in m.sections.size():
+			var sec: Dictionary = m.sections[k]
+			key += "%d," % sec.parts.size()
+			for p: Dictionary in sec.parts:
+				reach = reach and absf(p.at.x) <= 7.0 and p.at.z >= -5.0 and p.at.z <= 8.0
+				reach = reach and Rules.FOES.has(p.kind) and p.kind in Rules.BOSS_PART_KINDS
+				reach = reach and Models.boss_part(p.kind) != null
+				key += p.kind
+			if k < m.sections.size() - 1:
+				pieces = pieces and sec.piece != "" and Models.midboss_piece(id, sec.piece).get_surface_count() > 0
+		var heart: Dictionary = m.sections[-1]
+		layouts[key] = true
+		check(m.sections.size() >= 3 and pieces and Models.midboss_hull(id).get_surface_count() > 0,
+			"%s: %d sections, each with a piece that breaks off" % [m.title, m.sections.size()])
+		check(heart.parts.size() == 1 and heart.parts[0].kind in Rules.BOSS_HEARTS, "%s: its heart is the last section" % m.name)
+		check(reach, "%s: every gun within reach and on screen" % m.name)
+	check(layouts.size() == Rules.MIDBOSSES.size(), "no two mid-bosses are laid out alike")
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
 	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's fortress run is the hand-made sector")
 
@@ -93,7 +120,8 @@ func make_game(s: Dictionary) -> Game:
 	return g
 
 
-## Plays until `until` (immortal), weaving under the foes or lining up with the boss's parts.
+## Plays until `until` (immortal), weaving under the foes or lining up with the boss's parts,
+## and in the chase with the nearest foe it can hurt.
 func run(g: Game, secs: float, until: Callable) -> void:
 	for i in int(secs / DT):
 		g.hp = maxi(g.hp, 2)
@@ -101,6 +129,14 @@ func run(g: Game, secs: float, until: Callable) -> void:
 		if not g.boss_parts.is_empty():
 			tx = g.boss_parts[0].pos.x
 		g.prel.x = lerpf(g.prel.x, tx, 0.08)
+		if g.pov_mode():
+			var best: Game.Obj = null
+			for f in g.foes:
+				if f.kind not in ["orb", "boss"] and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
+					if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
+						best = f
+			if best:
+				g.off = Vector2(best.pos.x, best.pos.y - Rules.PY)
 		g.step(DT)
 		if until.call():
 			return
@@ -129,7 +165,18 @@ func select() -> void:
 	check(g.level == 2 and Models.theme == "coast", "back to Glass Coast")
 	g.launch(4)
 	check(g.phase == "vert" and g.level == 4 and g.s.sel == 4, "launch plays the selected level")
+	await process_frame   # the old world's chunks are freed now
 	g.step(DT)
+	check(g.marks.all(func(m: Dictionary) -> bool: return is_instance_valid(m.node)), "the old world's landmarks are let go")
+	# a landmark still in play whose chunk goes first leaves play with it
+	var mark := Game.Obj.new()
+	mark.kind = "house"
+	mark.ground = true
+	mark.node = Node3D.new()
+	g.foes.append(mark)
+	mark.node.free()
+	g.step(DT)
+	check(not g.foes.has(mark), "a landmark whose chunk is gone leaves play")
 	var dart := g.new_foe("dart", Models.dart())
 	check(is_equal_approx(dart.hp, Rules.FOES.dart.hp * 1.3), "foes are tougher in world 2")
 	var b := g.bullet(Vector3.ZERO, Vector3(0, 0, 10))
@@ -163,20 +210,37 @@ func levels() -> void:
 	var g := make_game(s)
 	await process_frame
 	g.launch(0)
-	run(g, 120.0, func() -> bool: return g.phase == "results")
-	check(g.phase == "results" and g.run.cleared, "1-1, a patrol, ends once its waves are done")
-	check(g.boss == null and g.fortress == null, "without a boss")
+	var met := [false, false]   # lambdas capture by value: an array to write into
+	run(g, 240.0, func() -> bool:
+		met[0] = met[0] or g.boss != null
+		met[1] = met[1] or g.fortress != null
+		return g.phase == "results")
+	check(g.phase == "results" and g.run.cleared, "1-1 is cleared")
+	check(met[0] and met[1], "after its mid-boss and its fortress")
 	check(g.s.open == 1 and g.s.sel == 1 and g.run.opened == 1 and g.s.grades.has("1-1"), "it opens 1-2 and keeps the grade")
 	check(g.hud.res_body.text.contains("Unlocked"), "the results say what opened")
 	g.to_hangar()
 	check(g.level == 1 and g.hud.go_btn.text.contains("1-2"), "back in the hangar, 1-2 is selected")
-	g.launch()
-	var met := [false]   # lambdas capture by value: an array to write into
-	run(g, 200.0, func() -> bool:
-		met[0] = met[0] or g.boss != null
-		return g.phase == "results")
-	check(met[0] and g.phase == "results" and g.run.cleared, "1-2 ends with the battleship")
-	check(g.s.open == 2, "and opens 1-3")
+	check(g.hud.level_btns[1].text.contains(Campaign.midboss(1).name), "its button names its mid-boss")
+	# every mid-boss design, flown down section by section
+	for id: String in Rules.MIDBOSSES:
+		var lv := 0
+		while Campaign.midboss_of(lv) != id:
+			lv += 1
+		g.s.open = Campaign.count() - 1
+		g.launch(lv)
+		var secs := [0]
+		var hidden := [true]
+		run(g, 200.0, func() -> bool:
+			if g.boss != null and g.boss_sec > secs[0]:
+				var piece: String = g.mid.sections[secs[0]].piece
+				hidden[0] = hidden[0] and not g.boss.node.get_node(piece).visible
+				secs[0] = g.boss_sec
+			return g.boss_done or g.phase == "results")
+		var m: Dictionary = Rules.MIDBOSSES[id]
+		check(g.boss_done and secs[0] == m.sections.size() - 1 and hidden[0],
+			"%s (%s): taken apart in %d sections, each breaking off" % [m.name, Campaign.code(lv), m.sections.size()])
+		g.to_hangar()
 	g.queue_free()
 	await process_frame
 

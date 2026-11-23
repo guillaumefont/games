@@ -302,7 +302,7 @@ func refresh_campaign() -> void:
 		var open := Campaign.is_open(s, lv)
 		var sel := lv == game.level
 		var grade: String = s.grades.get(Campaign.code(lv), "")
-		var kind: String = {"patrol": "Patrol", "battleship": "Battleship", "fortress": "Fortress"}[Campaign.kind_of(lv)]
+		var kind: String = Campaign.midboss(lv).name
 		b.disabled = not open
 		b.text = "%s\n%s\n%s" % [Campaign.code(lv), Campaign.level_name(lv) if open else "Locked",
 			("Grade " + grade) if grade != "" else kind]
