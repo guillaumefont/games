@@ -9,6 +9,7 @@ Monorepo for Guillaume's games. The first three games were imported from their o
 | [`aurite-front/`](aurite-front/) | [guillaumefont/aurite-front](https://github.com/guillaumefont/aurite-front) |
 | [`perigee/`](perigee/) | None: started here (2026-11-16) |
 | [`mer-des-brumes/`](mer-des-brumes/) | None: started here (2026-11-18) |
+| [`vantage/`](vantage/) | None: started here (2026-11-23) |
 
 Use `git log -- <folder>` to see a game's history.
 
@@ -23,6 +24,7 @@ All the games are published on one GitHub Pages site: https://guillaumefont.gith
 | Aurite Front | [`/games/aurite-front/`](https://guillaumefont.github.io/games/aurite-front/) | `/games/aurite-front/pr/N/` |
 | Perigee | [`/games/perigee/`](https://guillaumefont.github.io/games/perigee/) | `/games/perigee/pr/N/` |
 | Mer des Brumes | [`/games/mer-des-brumes/`](https://guillaumefont.github.io/games/mer-des-brumes/) | `/games/mer-des-brumes/pr/N/` |
+| Vantage | [`/games/vantage/`](https://guillaumefont.github.io/games/vantage/) | `/games/vantage/pr/N/` |
 
 ## CI
 
@@ -31,9 +33,10 @@ change touches that game's folder (or its workflows):
 
 - `<game>-build.yml` exports Web and/or Android, publishes the build to its folder on the `gh-pages` branch,
   and comments a preview link on pull requests (removed when the PR closes).
-- `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml`, `perigee-test.yml`, `mer-des-brumes-test.yml` run the headless tests.
+- `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml`, `perigee-test.yml`, `mer-des-brumes-test.yml`, `vantage-test.yml` run the headless tests.
   Perigee is a Godot game too since 2026-11-16; its builds also publish the original web prototype under `prototype/`.
   Mer des Brumes (pirate naval battles, 2026-11-18) does the same with its web prototype.
+  Vantage (vertical shmup with third-person chase episodes, 2026-11-23) has no self-update yet.
 - `ci-gate.yml` (check **CI gate**) waits for the workflows a PR triggers and passes only if all of them pass.
   It is the one required check on `main`.
 - `pages.yml` deploys the whole `gh-pages` branch, plus the site's root pages from `.github/pages/`
