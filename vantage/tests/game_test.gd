@@ -610,7 +610,7 @@ func scenery() -> void:
 	var g := make_game()
 	await process_frame
 	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush", "duck"],
-		"dunes": ["mesa", "cactus", "adobe", "pyramid"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "helipad"], "ice": ["pine", "snowman"],
+		"dunes": ["mesa", "cactus", "adobe", "pyramid"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "helipad", "fire", "ruin", "crater", "wreck", "rubble"], "ice": ["pine", "snowman"],
 		"volcano": ["spire", "stone head"]}
 	var before := Models.theme
 	for theme: String in want:
@@ -618,17 +618,23 @@ func scenery() -> void:
 		Models.scenery.clear()
 		Models.marks.clear()
 		var top := -INF
+		var flames := -INF
 		for k in 16:
 			var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 			for i in m.get_surface_count():
 				for v: Vector3 in m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
 					top = maxf(top, v.y)
+			# the city's flames at their tallest flicker (tongues up to 1.9 s, stretched by up to 1.45)
+			for f: Dictionary in City.fires if theme == "city" else []:
+				flames = maxf(flames, f.p.y + f.s * 1.9 * 1.45)
 		for mk: Dictionary in Models.marks:
 			var lm := Models.landmark(mk.kind, mk.r)
 			top = maxf(top, mk.pos.y + Models.mark_h(mk.kind) + lm.get_aabb().end.y)
 		for kind: String in want[theme]:
 			check(Models.scenery.get(kind, 0) > 0, "%s has %s (%d)" % [theme, kind, Models.scenery.get(kind, 0)])
 		check(top < Rules.PY - 0.5, "%s: scenery stays under the flight altitude (top %.1f)" % [theme, top])
+		if theme == "city":
+			check(flames < Rules.PY - 0.5 and City.SMOKE_TOP < Rules.PY - 0.5, "city: flames (%.1f) and smoke stay under the ship" % flames)
 		if theme == "coast":
 			check(Models.scenery.get("house", 0) >= 12, "villages, not just the odd farmhouse (%d houses)" % Models.scenery.get("house", 0))
 	Models.theme = before

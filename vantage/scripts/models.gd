@@ -1379,8 +1379,9 @@ const THEMES := {
 		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "fire": Color8(0xff, 0x24, 0x5e), "sun": Color8(0xff, 0xef, 0xd6)},
 	"dunes": {"sky": [Color(0.36, 0.56, 0.80), Color(0.66, 0.78, 0.88), Color(0.96, 0.88, 0.74), Color(0.86, 0.74, 0.58)],
 		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "fire": Color8(0x8a, 0x2c, 0xff), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
-	"city": {"sky": [Color(0.30, 0.42, 0.62), Color(0.56, 0.64, 0.76), Color(0.84, 0.80, 0.78), Color(0.58, 0.60, 0.66)],
-		"fog": Color8(0xc8, 0xc8, 0xd0), "ambient": Color8(0xb8, 0xc0, 0xd4), "fire": Color8(0xff, 0x24, 0x5e), "sun": Color8(0xff, 0xe2, 0xc8), "lift": 0.35},
+	# a city at war: a sky of smoke, lit orange low down by the fires; magenta shots stand out from the flames
+	"city": {"sky": [Color(0.12, 0.12, 0.13), Color(0.24, 0.23, 0.23), Color(0.46, 0.32, 0.24), Color(0.20, 0.19, 0.19)],
+		"fog": Color8(0x48, 0x46, 0x46), "ambient": Color8(0x94, 0x94, 0x98), "fire": Color8(0xff, 0x2c, 0xe0), "sun": Color8(0xd0, 0xc0, 0xb4), "lift": 0.35},
 	"ice": {"sky": [Color(0.40, 0.58, 0.82), Color(0.66, 0.80, 0.92), Color(0.92, 0.95, 0.98), Color(0.74, 0.84, 0.92)],
 		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "fire": Color8(0xff, 0x3a, 0x1a), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
 	"volcano": {"sky": [Color(0.22, 0.18, 0.26), Color(0.50, 0.32, 0.30), Color(0.86, 0.52, 0.34), Color(0.40, 0.24, 0.20)],
@@ -1403,9 +1404,9 @@ static func ground_col(h: float) -> Color:
 			return d.lerp(Color8(0xb4, 0x62, 0x40), smoothstep(0.74, 0.8, h))
 		"city":
 			if h < 0.0:   # canals
-				return Color8(0x2c, 0x52, 0x66).lerp(Color8(0x7a, 0x7e, 0x84), smoothstep(-0.06, 0.0, h))
-			# grassy banks along the canals, concrete under the blocks (City paves the rest)
-			return Color8(0x6a, 0x8e, 0x56).lerp(Color8(0x86, 0x8a, 0x90), smoothstep(0.1, 0.16, h))
+				return Color8(0x3a, 0x48, 0x4c).lerp(Color8(0x4e, 0x4e, 0x4e), smoothstep(-0.06, 0.0, h))
+			# scorched banks along the canals, ash-grey concrete under the blocks (City paves the rest)
+			return Color8(0x44, 0x40, 0x36).lerp(Color8(0x56, 0x56, 0x58), smoothstep(0.1, 0.16, h))
 		"ice":
 			if h < 0.0:   # cold sea, pale where the shelf meets it
 				return Color8(0x1c, 0x3e, 0x60).lerp(Color8(0x6e, 0xae, 0xcc), smoothstep(-0.12, 0.0, h) * 0.8)
@@ -2121,17 +2122,17 @@ static func stone_head(b: Builder, p: Vector3) -> void:
 
 
 ## The city's colours (City builds the city) and its comically big cars.
-const ASPHALT := Color8(0x4a, 0x4e, 0x58)
-const KERB := Color8(0xb2, 0xb4, 0xb8)
-const PAINT := Color8(0xf2, 0xf0, 0xe6)
-const CARS := [Color8(0xe0, 0x3c, 0x3c), Color8(0xf2, 0xc4, 0x2e), Color8(0x2e, 0x7a, 0xd0), Color8(0xf4, 0xf4, 0xf0), Color8(0x3c, 0xa0, 0x5a)]
+const ASPHALT := Color8(0x34, 0x34, 0x38)
+const KERB := Color8(0x74, 0x74, 0x76)
+const PAINT := Color8(0xa8, 0xa4, 0x96)
+const CARS := [Color8(0x7a, 0x3a, 0x34), Color8(0x8a, 0x7a, 0x44), Color8(0x3e, 0x52, 0x6a), Color8(0x8c, 0x8a, 0x86), Color8(0x4a, 0x5e, 0x46)]
 
 
 ## A little car, comically big like the rest: a coloured body, a glass cabin, dark wheels.
-static func car(b: Builder, p: Vector3, ang: float, r: float) -> void:
+static func car(b: Builder, p: Vector3, ang: float, r: float, col := Color(0, 0, 0, 0)) -> void:
 	count("car")
 	place(b, p, ang)
-	var c: Color = CARS[int(r * 997.0) % CARS.size()]
+	var c: Color = CARS[int(r * 997.0) % CARS.size()] if col.a == 0.0 else col
 	b.box(Vector3(0, 0.1, 0), Vector3(0.42, 0.16, 0.82), c)
 	b.box(Vector3(0, 0.25, 0.04), Vector3(0.36, 0.14, 0.42), c.lightened(0.08))
 	for e in [[-0.181, -1.0], [0.261, 1.0]]:   # windscreen and rear window
