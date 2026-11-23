@@ -45,12 +45,14 @@ const MAGMA := Color8(0xff, 0x7a, 0x1e)
 
 
 static func is_ground(kind: String) -> bool:
-	return kind in GROUND
+	return kind in GROUND or Towers.is_tower(kind)
 
 
 # ---------------------------------------------------------------- models
 
 static func mesh(kind: String, idx := 0) -> Mesh:
+	if Towers.is_tower(kind):
+		return Towers.base(Models.theme)
 	match kind:
 		"gull": return gull()
 		"rotor": return rotor()
@@ -476,10 +478,10 @@ static func dry_x(g: Game, x: float, z: float, me: Game.Obj) -> Vector2:
 	return Vector2(x, z)
 
 
-## No other ground foe (but `me`) stands within 3 m of (x, z).
+## No other ground foe (but `me`) stands within 3.5 m of (x, z).
 static func clear(g: Game, x: float, z: float, me: Game.Obj) -> bool:
 	for f in g.foes:
-		if f != me and f.kind in GROUND and not f.dead and Vector2(f.pos.x - x, f.pos.z - z).length() < 3.0:
+		if f != me and is_ground(f.kind) and not f.dead and Vector2(f.pos.x - x, f.pos.z - z).length() < 3.5:
 			return false
 	return true
 
@@ -494,7 +496,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	if is_ground(kind):
 		f.ground = true
 		var sx := clampf(x * 1.25 + spread * 4.0, -6.5, 6.5)
-		var at := dry_x(g, sx, gz, f) if kind in DRY else Vector2(sx, gz)
+		var at := dry_x(g, sx, gz, f) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
 		f.pos = Vector3(at.x, g.ground_y(at.x, at.y), at.y)
 		sx = at.x
 		f.x0 = sx
@@ -502,6 +504,10 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 		f.rel = true
 		f.x0 = x * 1.25
 		f.pos = Vector3(f.x0, Rules.PY, top)
+	if Towers.is_tower(kind):
+		f.fire_t = 1.5 + 0.4 * i
+		Towers.build(g, f)
+		return
 	match kind:
 		"gull":
 			f.pos.x = clampf(f.x0 + spread * 1.4, -6.5, 6.5)
@@ -597,6 +603,9 @@ static func face(f: Game.Obj, d: Vector3, dt: float, k := 8.0) -> void:
 
 
 static func think(g: Game, f: Game.Obj, dt: float) -> void:
+	if Towers.is_tower(f.kind):
+		Towers.think(g, f, dt)
+		return
 	match f.kind:
 		"gull":
 			# dives at the ship, fires at the bottom of its dive, pulls up and climbs away

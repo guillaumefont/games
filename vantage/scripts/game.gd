@@ -791,13 +791,6 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			f.x0 = x * 1.25
 			f.pos = Vector3(f.x0, Rules.PY, top)
 			f.fire_t = 1.2 + 0.15 * i
-		"turret":
-			var f := new_foe("turret", Models.turret())
-			f.ground = true
-			var sx := x * 1.25 + (i - (n - 1) * 0.5) * 4.0
-			var gz := frame_z + minf(view_ground_top, top - frame_z - 3.0) - 2.0
-			f.pos = Vector3(clampf(sx, -7.0, 7.0), ground_y(sx, gz), gz)
-			f.fire_t = 1.5 + 0.4 * i
 		"heavy":
 			var f := new_foe("heavy", Models.heavy())
 			f.rel = true
@@ -1099,16 +1092,6 @@ func think(f: Obj, dt: float) -> void:
 			if f.t >= f.fire_t:
 				f.fire_t += 2.2
 				aimed(f.pos, 9.5)
-		"turret":
-			var at := seen(f.pos)
-			to_p = ppos - at
-			var z := at.z - frame_z
-			f.node.rotation.y = atan2(to_p.x, to_p.z)
-			if f.t >= f.fire_t and z > Rules.Z_TOP and z < Rules.Z_BOT - 4.0:
-				f.fire_t += 2.4
-				for k in 3:
-					var dir := Vector3(to_p.x, 0, to_p.z).normalized().rotated(Vector3.UP, (k - 1) * 0.12)
-					bullet(at, dir * 9.5)
 		"heavy":
 			var z := f.pos.z - frame_z
 			if f.t < 2.2:
@@ -1596,7 +1579,7 @@ func kill(f: Obj) -> void:
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
 		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
-		"pillbox": 1.8, "ember": 1.6, "rotor": 1.5, "scarab": 1.5}.get(f.kind, 1.3)
+		"pillbox": 1.8, "rocket": 1.8, "howitzer": 2.0, "pulse": 1.8, "turret": 1.6, "ember": 1.6, "rotor": 1.5, "scarab": 1.5}.get(f.kind, 1.3)
 	if landmark(f):
 		# the landmark falls: a ruin stays on the ground where it stood
 		var k := int(f.anchor.z)

@@ -139,7 +139,9 @@ static func waves(lv: int) -> Array:
 	var t := beats(out, rng, w, {debut(lv): 1}, 1.5, 1.6)
 	t = beats(out, rng, w, mix, t, float(span[0]), debut(lv))
 	out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-	t = beats(out, rng, w, mix, t + 4.0, t + 4.0 + float(span[1]))
+	# after the mid-boss, the kind met in the level before comes back first
+	t = beats(out, rng, w, {debut(lv - 1): 1}, t + 4.0, t + 4.1) if lv > 0 else t + 4.0
+	t = beats(out, rng, w, mix, t, t + float(span[1]), debut(lv - 1) if lv > 0 else "")
 	out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
 	return out
 
@@ -154,6 +156,8 @@ static func debut(lv: int) -> String:
 ## then those of earlier worlds, a little each.
 static func mix_of(lv: int) -> Dictionary:
 	var mix: Dictionary = world_of(lv).mix.duplicate()
+	# gun towers come in several types now (`Towers`): more of them
+	mix["turret"] = int(mix.get("turret", 0)) + 3
 	var w := lv / PER_WORLD
 	for k in range(lv + 1):
 		var kind: String = Foes.INTRO[k]
@@ -169,6 +173,7 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, mix: Di
 	for k: String in mix:
 		total += int(mix[k])
 	var heavies := 0
+	var towers := rng.randi_range(0, 3)
 	while t < until:
 		var pick := ""
 		for tries in 4:
@@ -198,7 +203,11 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, mix: Di
 				wave.merge({"kind": "swing", "n": 6, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5), "gap": 0.37})
 			"turret":
 				var n := rng.randi_range(1, 3)
-				wave.merge({"kind": "turret", "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
+				# one of the gun towers the world fields (`Towers.BY_WORLD`)
+				var types: Array = Towers.BY_WORLD[maxi(0, WORLDS.find(w))]
+				var kind: String = types[towers % types.size()]   # in turn, so a level shows several
+				towers += 1
+				wave.merge({"kind": kind, "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
 			"heavy":
 				wave.merge({"kind": "heavy", "n": 1, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5)})
 			_:
