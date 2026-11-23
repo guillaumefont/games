@@ -588,9 +588,9 @@ static func fortress() -> Mesh:
 			b.box(Vector3(fx, 19.2, -1.6), Vector3(1.2, 0.3, 3.0), AMBER)
 			b.octa(Vector3(fx, 8.6, -2.6), 1.2, HULL_D, Vector3(1.0, 0.9, 2.2))
 		# a ventral gondola bristling with guns, keel plates, armour belts down the flanks
-		b.box(Vector3(0, bot - 0.3, -80.0), Vector3(W * 1.1, 0.6, 120.0), HULL_D, Vector2(0.75, 1.0))
+		b.box(Vector3(0, bot - 0.3, -L * 0.5), Vector3(W * 1.1, 0.6, L * 0.8), HULL_D, Vector2(0.75, 1.0))
 		for sx in [1.0, -1.0]:
-			for k in 5:
+			for k in 4:
 				b.box(Vector3(sx * (W + 0.3), 6.2, -14.0 - k * 26.0), Vector3(0.6, 6.0, 16.0), ARMOUR, Vector2(0.6, 0.95))
 				# gun blisters between the belts, high and low
 				var bz := -27.0 - k * 26.0
@@ -598,26 +598,26 @@ static func fortress() -> Mesh:
 				along_z(b, Vector3(sx * (W + 0.7), 10.8, bz), ngon(0.14, 6), -0.4, -2.6, STEEL_D)
 				b.octa(Vector3(sx * (W + 0.2), 2.6, bz + 8.0), 0.9, HULL_D, Vector3(0.9, 0.9, 1.2))
 		# the spine: plating seams and a row of twin turrets on top
-		for k in 9:
-			b.box(Vector3(0, top + 0.02, -46.0 - k * 12.0), Vector3(W * 1.6, 0.06, 0.25), HULL_D)
-		for k in 4:
-			gun_turret(b, Vector3(0, top + 0.3, -60.0 - k * 22.0), 1.5, 2)
+		for k in 6:
+			b.box(Vector3(0, top + 0.02, -36.0 - k * 12.0), Vector3(W * 1.6, 0.06, 0.25), HULL_D)
+		for k in 3:
+			gun_turret(b, Vector3(0, top + 0.3, -48.0 - k * 20.0), 1.5, 2)
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (W - 0.9), top + 0.02, -100.0), Vector3(0.22, 0.05, 110.0), AMBER)
+			b.box(Vector3(sx * (W - 0.9), top + 0.02, -L * 0.55), Vector3(0.22, 0.05, L - 20.0), AMBER)
 		return b.commit())
 
 
 ## Where the wings meet the fuselage (x of the right root, y, z of the root's mid chord), their
 ## span, and the engines' places along the span.
-const WING_ROOT := Vector3(4.6, 9.4, -30.0)
-const WING_SPAN := 30.0
-const WING_ENGINES := [8.5, 19.5]
+const WING_ROOT := Vector3(4.6, 9.4, -46.0)
+const WING_SPAN := 54.0
+const WING_ENGINES := [11.0, 23.0, 36.0]
 
 
 ## A point on the right wing at `along` (0 at the root, 1 at the tip): the wing's local frame
 ## (x out, y up, z aft) at its mid chord, and its chord there.
 static func wing_at(along: float) -> Array:
-	return [Vector3(along * WING_SPAN, along * 1.6, along * 9.0), lerpf(30.0, 12.0, along)]
+	return [Vector3(along * WING_SPAN, along * 2.6, along * 17.0), lerpf(34.0, 11.0, along)]
 
 
 ## One wing (`side` 1 right, -1 left), built round its root: a long tapered wing with a slight
@@ -629,8 +629,8 @@ static func fortress_wing(side: float) -> Mesh:
 		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
 		var keep := b.xf
 		b.xf = keep * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3.ZERO)
-		b.prism(Vector3.ZERO, pts([Vector2(0, -15.0), Vector2(-0.8, -10.0), Vector2(-0.6, 9.0), Vector2(0, 15.0),
-			Vector2(0.55, 9.0), Vector2(0.7, -10.0)]), 0.0, WING_SPAN, ARMOUR, Vector2(0.5, 0.4), Vector2(-1.6, 9.0))
+		b.prism(Vector3.ZERO, pts([Vector2(0, -17.0), Vector2(-1.0, -11.0), Vector2(-0.75, 10.0), Vector2(0, 17.0),
+			Vector2(0.7, 10.0), Vector2(0.9, -11.0)]), 0.0, WING_SPAN, ARMOUR, Vector2(0.45, 11.0 / 34.0), Vector2(-2.6, 17.0))
 		b.xf = keep
 		var tip: Vector3 = wing_at(1.0)[0]
 		b.box(tip + Vector3(0.2, 0, -1.0), Vector3(0.4, 0.5, 6.0), AMBER)
@@ -644,7 +644,7 @@ static func fortress_wing(side: float) -> Mesh:
 			along_z(b, at + Vector3(0, 0, ch * 0.5 + 3.4), ngon(0.55, 8, PI / 8), 0.0, 1.9, STEEL_D)
 			b.box(at + Vector3(0, 1.0, 0), Vector3(0.8, 1.2, ch * 0.7), HULL_D)
 			b.box(at + Vector3(0, -1.45, ch * 0.2), Vector3(0.5, 0.2, ch * 0.4), AMBER)
-		for f in [0.36, 0.78]:
+		for f in [0.3, 0.6, 0.86]:
 			var w: Array = wing_at(f)
 			gun_turret(b, w[0] + Vector3(0, 0.55, -2.0), 1.0, 2)
 		return b.commit())
@@ -667,7 +667,7 @@ static func fortress_prop() -> Mesh:
 		for k in 4:
 			var keep := b.xf
 			b.xf = Transform3D(Basis(Vector3.BACK, TAU * k / 4.0 + 0.3), Vector3.ZERO)
-			b.box(Vector3(0, 1.6, 0), Vector3(0.55, 2.8, 0.14), NAVY, Vector2(0.6, 1.0))
+			b.box(Vector3(0, 1.9, 0), Vector3(0.6, 3.4, 0.14), NAVY, Vector2(0.6, 1.0))
 			b.xf = keep
 		return b.commit())
 

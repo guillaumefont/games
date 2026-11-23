@@ -1711,7 +1711,7 @@ func step_crash(dt: float) -> void:
 		for j in 6:
 			hits.append(fortress.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0)))
 		if wing_off:
-			hits.append(wing_off.to_global(Vector3(-12, 0, 0)))
+			hits.append(wing_off.to_global(Vector3(-Models.WING_SPAN * 0.5, 0, 0)))
 		var j := 0
 		for at in hits:
 			at.y = ground_y(at.x, at.z)

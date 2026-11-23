@@ -68,6 +68,9 @@ Screenshots (needs a display; one per key moment of a full run):
 
 Explosions over time, from both cameras: same command with `tools/blast_shots.gd -- /tmp/blasts`.
 
+The final boss alone, without playing the stage (arrival, swoop, each section, an overview with no fog, the
+fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`.
+
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
 

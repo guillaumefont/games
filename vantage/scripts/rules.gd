@@ -19,9 +19,9 @@ const PLAYER_R := 0.42
 const PICK_R := 1.0
 
 # ---------------------------------------------------------------- the fortress (POV episode)
-## The fortress: `FORTRESS_LEN` long, its hangar (the opening at the stern where the reactor
+## The fortress: `FORTRESS_LEN` long, its bay (the opening in its tail where the reactor
 ## shows) centred on the flight altitude.
-const FORTRESS_LEN := 180.0
+const FORTRESS_LEN := 120.0
 ## The fortress is tall and narrow (it fits a portrait screen in the chase): half width, the
 ## height of its hull and of its tower, and its hangar (half width, half height).
 const FORTRESS_HW := 5.0

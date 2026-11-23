@@ -162,7 +162,7 @@ func stage() -> void:
 		g.step(DT)
 	check(g.fort_s == Rules.FORTRESS_SCALE, "the fortress grew during the swoop")
 	# a flying fortress: two wings with propellers that turn
-	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 4, "a flying fortress: two wings, four engines")
+	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 2 * Models.WING_ENGINES.size(), "a flying fortress: two wings with their engines")
 	var spin0: float = g.fort_props[0].rotation.z
 	g.step(DT)
 	check(absf(g.fort_props[0].rotation.z - spin0) > 0.1, "its propellers turn")
