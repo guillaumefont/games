@@ -156,6 +156,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   ice, carved stone heads in the cinders. All destroyable. Landmarks are sturdy (Guillaume saw some fall before
   they showed): hp in `Rules.FOES`, and shots only hurt them `Rules.LANDMARK_IN` inside the top of the screen
   (`Game.well_in_view`; tested).
+- City roads (Guillaume asked for roads in the city): `Models.city_roads` lays asphalt avenues (along z, 3 m, every
+  8 m) and streets (along x, 2.4 m, every 10 m) on the city's block grid, with kerbs, dashed centre lines, zebra
+  crossings and flat bridges over the canals, into the ground's own surface (matte, one draw call), draped from
+  the land's height at each edge. Comically big cars sit in the lanes. Towers, parks and landmarks keep off the
+  road cells (`theme_prop` "city").
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
