@@ -1,0 +1,35 @@
+name: Vantage headless test
+
+on:
+  pull_request:
+    paths:
+      - "vantage/**"
+      - ".github/workflows/vantage-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "vantage/**"
+      - ".github/workflows/vantage-*.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: vantage
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Godot
+        run: |
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q godot.zip
+          mv Godot_v4.7.2-stable_linux.x86_64 godot
+      - name: Import project
+        run: ./godot --headless --path . --import
+      - name: The game (rules, controls, the carrier episode, boss, death, results)
+        run: ./godot --headless --path . --script tests/game_test.gd
+      - name: Self-update (game pack download, checks, APK offer)
+        run: ./godot --headless --path . --script tests/update_test.gd
+      - name: App icons (project icon, Android launcher layers)
+        run: ./godot --headless --path . --script tests/icon_test.gd
