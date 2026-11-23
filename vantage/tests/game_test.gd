@@ -315,6 +315,28 @@ func lingering() -> void:
 	await process_frame
 
 
+## Shadows go into a mask only the mask camera sees, and one plane under the game camera darkens
+## the ground from it, so overlapping faces and shadows can't stack into dark patches.
+func shadows() -> void:
+	var g := make_game()
+	await process_frame
+	g.launch()
+	run(g, 3.0)
+	check(not g.shadows.is_empty(), "models cast shadows")
+	var ok := true
+	for sh in g.shadows:
+		ok = ok and sh.layers == Game.SHADOW_LAYER
+	check(ok, "every shadow is drawn only into the shadow mask")
+	check(g.cam.cull_mask & Game.SHADOW_LAYER == 0 and g.shadow_cam.cull_mask == Game.SHADOW_LAYER, "the game camera skips shadow casters, the mask camera sees only them")
+	check(g.shadow_cam.global_transform.is_equal_approx(g.cam.global_transform) and is_equal_approx(g.shadow_cam.fov, g.cam.fov), "the mask camera follows the game camera")
+	var c := g.cam.global_position
+	check(is_equal_approx(g.shadow_plane.global_position.y, Game.SHADOW_Y) and Vector2(g.shadow_plane.global_position.x - c.x, g.shadow_plane.global_position.z - c.z).length() < 0.01, "the shadow plane lies under the camera at shadow height")
+	var hw := (g.shadow_plane.mesh as PlaneMesh).size.x * 0.5
+	check(hw >= g.cam.far, "the shadow plane reaches the far plane")
+	g.queue_free()
+	await process_frame
+
+
 ## The chase camera looks far across the land: the ground must run past the fog's end in every
 ## direction it can see, at both flanks of the reach and up high, so no edge of the world shows.
 func world_edges() -> void:
@@ -405,6 +427,7 @@ func scenery() -> void:
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
+	await shadows()
 	await controls()
 	await aiming()
 	await swipe()
