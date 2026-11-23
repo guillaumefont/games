@@ -229,7 +229,7 @@ static func hit_mat() -> StandardMaterial3D:
 	if not _cache.has("hit"):
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.albedo_color = Color(1.0, 0.96, 0.85, 0.75)
+		m.albedo_color = Color(1.0, 0.9, 0.75, 0.32)
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		_cache["hit"] = m

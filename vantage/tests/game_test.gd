@@ -42,6 +42,11 @@ func rules() -> void:
 	check(Rules.load_game(SAVE) == Rules.migrate(s), "saves and loads")
 
 
+## Foes counted as they spawn in the vertical stage, and those that appeared on screen.
+var entries := 0
+var popped_in := 0
+
+
 func make_game() -> Game:
 	if FileAccess.file_exists(SAVE):
 		DirAccess.remove_absolute(SAVE)
@@ -71,6 +76,12 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 			if best:
 				g.off = Vector2(best.pos.x, best.pos.y - Rules.PY)
 		g.step(DT)
+		if g.phase == "vert":
+			for f in g.foes:
+				if f.kind in ["dart", "swing", "heavy", "turret"] and f.t <= DT * 1.5:
+					entries += 1
+					if g.on_screen(f):
+						popped_in += 1
 		if until.is_valid() and until.call():
 			return
 
@@ -133,6 +144,11 @@ func stage() -> void:
 	run(g, 60.0, func() -> bool: return g.boss == null)
 	check(g.boss == null and g.boss_done and g.phase == "vert", "mid-boss down, the sector carries on")
 	check(g.stage_t < Rules.STAGE[g.wave_i].t + 1.0 and g.stage_t > t0 - 5.0, "the waves pick up where they stopped")
+	check(entries > 20 and popped_in == 0, "foes enter from off-screen (%d entries, %d inside)" % [entries, popped_in])
+	var froms := {}
+	for w: Dictionary in Rules.STAGE:
+		froms[w.get("from", "top")] = true
+	check(froms.has("left") and froms.has("right") and froms.has("back") and froms.has("top"), "from every edge: top, left, right and back")
 	# the final boss: the carrier, chased in third person
 	run(g, 60.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.carrier != null, "the carrier arrives and the swoop begins")

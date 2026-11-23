@@ -57,6 +57,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results
+godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 ```
 
@@ -79,7 +80,19 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   in the vertical stage and 3D in the chase.
 - `scripts/hud.gd` (`Hud`): HUD, chase reticle and target brackets (drawn in `_draw`), hangar, results.
 
+## Self-update (Android)
+
+Same scheme as mer-des-brumes and star-breaker: `scenes/boot.tscn` (`scripts/boot.gd`) is the main scene. It
+checks `update.json` at launch and loads a newer `vantage.pck` built for the same shell; a new shell (engine,
+`project.godot`, `export_presets.cfg`, the updater) offers the new APK instead, so avoid needless edits to those
+files. `boot.gd` must not use any game class. The hangar also checks quietly and shows a "New version N ·
+restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
+
 ## Gotchas
+
+- Foes spawn past the edges the camera actually shows (`Game.update_view`: a tall phone sees more than
+  the play field), from the top, the sides or the back (`from` in `Rules.STAGE`). Tested.
+
 
 - Android and Web use the Compatibility renderer. Take screenshots with `--rendering-method gl_compatibility`.
 - Vertex colours are sRGB: the shared material sets `vertex_color_is_srgb`.
