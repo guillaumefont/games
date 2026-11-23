@@ -137,6 +137,11 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   pooled and past `Blasts.CAP` live pieces a blast is only its flash. Blasts are carried
   (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
   or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
+- Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`) time eases to a stop over
+  `Rules.SLOW_STOP` s once no finger (or direction key) is down, and back up over `SLOW_RESUME` s on touch.
+  `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
+  paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already
+  lifted). Tests and tools that call `step` directly are unaffected; `tick` is what the pause test drives.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every carrier mount at `CARRIER_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores

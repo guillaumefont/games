@@ -86,6 +86,62 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 			return
 
 
+## Lifting the finger slows time down to a pause; touching again ramps it back up.
+func slow_pause() -> void:
+	print("slow-motion pause")
+	var g := make_game()
+	await process_frame
+	g.touching = false
+	g.tick(DT)
+	check(g.time_k == 1.0, "the hangar never pauses")
+	g.launch()
+	check(g.paused(), "after the launch tap the stage waits for a finger")
+	var t0 := g.stage_t
+	g.tick(DT)
+	check(g.stage_t == t0, "paused, the stage doesn't move")
+	g.touching = true
+	g.tick(DT)
+	var k1 := g.time_speed()
+	check(k1 > 0.0 and k1 < 0.2 and g.stage_t > t0, "touching starts time again, gently (%.3f)" % k1)
+	for i in int(Rules.SLOW_RESUME / DT) + 2:
+		g.tick(DT)
+	check(g.time_speed() == 1.0, "and soon at full speed")
+	var t1 := g.stage_t
+	g.tick(DT)
+	check(is_equal_approx(g.stage_t - t1, DT), "full speed is real time")
+	g.touching = false
+	var last := DT
+	var slowing := true
+	for i in int(Rules.SLOW_STOP / DT) + 2:
+		var before := g.stage_t
+		g.tick(DT)
+		var d := g.stage_t - before
+		slowing = slowing and d <= last + 1e-6
+		last = d
+	check(slowing, "lifting the finger slows time steadily")
+	check(g.paused(), "until the game is paused (after %.1f s)" % Rules.SLOW_STOP)
+	var x0 := g.prel.x
+	t0 = g.stage_t
+	for i in 60:
+		g.tick(DT)
+	check(g.stage_t == t0 and g.prel.x == x0, "and it stays paused")
+	g.touching = true
+	g.notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(not g.touching, "leaving the app lifts the finger")
+	# the chase pauses the same way
+	g.touching = true
+	g.spawn_carrier()
+	g.begin_approach()
+	for i in 30:
+		g.tick(DT)
+	g.touching = false
+	for i in int(Rules.SLOW_STOP / DT) + 2:
+		g.tick(DT)
+	check(g.paused() and g.phase == "approach", "the swoop into the chase pauses too")
+	g.queue_free()
+	await process_frame
+
+
 func controls() -> void:
 	print("controls")
 	var g := make_game()
@@ -427,6 +483,7 @@ func _initialize() -> void:
 	rules()
 	await shadows()
 	await controls()
+	await slow_pause()
 	await aiming()
 	await swipe()
 	await lingering()
