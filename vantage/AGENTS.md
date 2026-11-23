@@ -18,24 +18,30 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   breaks off; the last section is the heart (`BOSS_HEARTS`), shielded until then. Each flies its own way
   (`move`, `Game.think_boss`); the hull comes down far enough that the section's deepest gun shows on a
   short screen. Parts stay within |x| <= 7, z -5..8 (tested). The hull can't be hurt; it holds the wave
-  clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss, a flying
-  fortress (Guillaume turned the sea carrier into one, 2026-11-23): a huge armoured aircraft. Five designs
-  (`Rules.FORTRESSES`: Goliath, Zephyr airship, Talon jet, Leviathan, Wyvern), each with its hull section
-  (`hull`: box, round, hex), wings (`Models.WINGS`: propellers, stubs, jets; a jet's "props" are nozzles that
-  don't spin), tail (`fins`), `paint`, `accent` and drone rate (`drones` s). Its sections' gun mounts sit on a
-  `piece` that breaks off (`plating`, `collar`, `tower`, `fin`: `Models.fortress_piece`; z from
-  `Models.mount_z`); the last is the reactor behind four shield panels (phase `core`). The bay, `FORTRESS_HW`
-  and the mount limits (|x| <= 4.6, y 2..19.6) are shared, so every gun stays within the chase's reach.
+  clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss: a capital ship
+  (Guillaume, 2026-11-23, after rejecting the flying fortress as "a glorified transport with the same useless
+  tunnel": "a huge fortress class ship, you clear it sections per sections as you advance along the ship").
+  Five designs (`Rules.FORTRESSES`: Goliath dreadnought, Zephyr sky carrier, Talon missile cruiser,
+  Leviathan super-dreadnought, Wyvern raider), 200-250 m long and wider than the screen (`FORTRESS_HW`), each
+  with its hull look (`hull`: slab, wedge, round), paint, accent, drone rate and its own list of sections from
+  stern to bow: `engines` (nozzles on the stern's face, fought from behind it), `hangar`, `guns`, `missiles`,
+  `lances`, then the `bridge`, whose armour breaks off to show the reactor (`core`, behind four shield panels).
+  Each section lists its guns (`Rules.SHIP_GUNS`: nozzle, twin, quad, pod, mast, dish, pylon, hatch; looks in
+  `Capital.gun`, patterns in `Game.think_gun`); a `pylon` shields the rest of its section until it falls
+  (`Game.fort_guarded`), a `hatch` launches drones. Only the current section's guns fire, take hits and get
+  brackets. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
+  and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
-  **outside** and in **third person** (Guillaume rejected a first-person tunnel). The fortress grows to
-  `FORTRESS_SCALE` during the swoop (`fort_s`, `fort_lift`; `Game.fort_point()` maps model points to the
-  world) and flies `GAP_FAR`/`GAP_NEAR` ahead, far enough that its whole stern, the inner wings and
-  their engines show while the wing tips run off the screen (Guillaume: "you don't see much of the
-  spaceship"); the chase camera sits a little high and looks far ahead. Its body is narrow so every
-  target is within the ship's reach (Guillaume found a wide ship's sides hard to hit).
+  **outside** and in **third person** (Guillaume rejected a first-person tunnel). Seen from above the
+  fortress is `TOP_SCALE` of its size; during the swoop it grows to full size and climbs to `CHASE_DECK`
+  (`fort_s`, `deck_y`; `Game.fort_point()` maps model points to the world). In the chase the ship flies with
+  it at the rail speed, `along` metres ahead of its stern and `fly` above its deck (`chase_y` is that line's
+  height); the camera looks a little down at the deck. The hull runs off both sides of the screen, but every
+  gun stands within |x| <= `GUN_X` and within the reach of the ship's dipped guns from its station (tested).
 - In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
-  dodge; guns fire ahead with aim assist (`Game.aim_point`). Orbs inherit the rail speed and can be shot.
+  dodge; guns fire ahead and a little down (`AIM_DIP`) with aim assist (`Game.aim_point`). Orbs inherit the
+  rail speed and can be shot; a pod's rockets home in for a while (`Obj.homing`).
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 
@@ -82,9 +88,10 @@ Explosions over time, from both cameras: same command with `tools/blast_shots.gd
 
 Every mid-boss as it arrives and after its first section: same command with `tools/midboss_shots.gd -- /tmp/midbosses`.
 
-The final boss alone, without playing the stage (arrival, swoop, each section, an overview with no fog, the
-fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`. Every fortress side by side (from above, on its
-tail, an overview, after its first section): `tools/fortress_lineup.gd -- /tmp/fortresses`.
+The final boss alone, without playing the stage (arrival, swoop, each section and the glide to it, overviews
+with no fog, the break-up): same command with `tools/fortress_shots.gd -- /tmp/fortress [id]`. Every fortress
+side by side (from above, behind its stern, an overview, over its second and third sections):
+`tools/fortress_lineup.gd -- /tmp/fortresses`.
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
@@ -121,13 +128,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   stage's waves by time, the fortress's waves by rail distance), pure functions on the save dictionary.
   Save: `user://save.json`.
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
-  `prism`, `box`, `octa`), cached by name. The fortresses are smooth instead (Guillaume found the boxy
-  ones "too blocky"): `Builder.loft` skins rings of points (`Models.oval`, superellipse sections) with
-  smooth normals, so fuselages, airfoils (`Models.airfoil`), nacelles, domes and capsules are lofts.
-  A fortress's fuselage is one mesh (`fortress_hull`), stern (open bay, its edge rounded off by
-  `STERN_IN`) at z = 0, the bay centred on the flight altitude
-  `Rules.PY`; each wing (`wing_l`, `wing_r` nodes, built round its `WINGS` root) carries its engines, exhaust
-  glow and propellers or nozzles (`Game.fort_props`, spun by `Game.spin_props`).
+  `prism`, `box`, `octa`, and `loft`, which skins rings of points like `Models.oval` with smooth normals),
+  cached by name.
+- `scripts/capital.gd` (`Capital`): the capital ships' meshes, in their model frame (stern at z = 0, bow at
+  -`Rules.fortress_len`, deck at y = 0). The hull is one flat-shaded `segment` a section (plated deck in
+  lanes, edge parapets, armour belt, keel; `hw` gives the deck's half width along the hull), each with its
+  deck fittings and its breakaway `piece`; `gun` builds each kind of gun round its hit point, facing aft.
+  In the game each segment is a node `segN` at its `pivot` with a `body` child undoing it, so guns (foes with
+  `on_fort`, their nodes children of the body at `anchor`) ride it and it can turn when the ship breaks up.
 - `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
   (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
   short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
@@ -233,11 +241,11 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   through. Every mid-boss's hull is a wall (`Game.boss_rammed`, tested against its outlines from above,
   `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
   once broken off, and a spinning hull is turned). Ground targets and
-  scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
+  scenery pass under the ship; in the chase the ship flies over the fortress's deck, clear of it and short of its superstructure, so it can't be rammed.
 - The mid-boss and its guns are never culled (`Game.gone`): it spawns far above the top on a tall phone, and
   a culled gun left its section unbeatable (Guillaume stuck on 2-1, tested).
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
-- The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
+- Every fortress gun must be within the chase's reach from its section's station (tested in `aiming`).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
@@ -253,13 +261,13 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
   height field, so chunks meet seamlessly) and 20% facet, colours blend per vertex in narrow bands,
   hollows are darkened. No random per-facet shade.
-- After its reactor the fortress goes down for `Rules.CRASH_TIME` (`Game.step_crash`, `fort_fall`): engines
-  burn, propellers wind down, the left wing snaps off at `WING_SNAP` and tumbles away (`wing_off`, moved in the
-  fortress's frame), it rolls onto that side, noses over and hits the sea or the shore; it stays in sight (tested).
-- Seen from above before the swoop it cruises `FORTRESS_CRUISE` higher than its chase frame's base, so it
-  flies clear of the land; the swoop blends that into `FORTRESS_LIFT`.
+- After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
+  "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
+  spine, the seams part bow first (`SEAM_GAP`), each segment drifts apart, turns, sinks a little, scorched and
+  burning, while the wreck loses way (`DRIFT`) and slides back under the ship, which climbs away (`CLIMB`) with
+  the camera. No piece comes near the ground and all are off the screen by the end (tested).
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
-  (`Game.pov_drag`), so the ship gets from one flank of the fortress to the other in one move.
+  (`Game.pov_drag`), so the ship gets from one side of the fortress's guns to the other in one move.
 - The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per
   side in ever wider cells (`Models.ground_cols`, bare of trees), and `CHUNKS_AHEAD` chunks are kept, so the
   ground runs past the fog's end from the chase camera in every direction (tested in `world_edges`).

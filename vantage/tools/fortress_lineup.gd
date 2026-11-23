@@ -1,6 +1,6 @@
 extends SceneTree
-## Every fortress side by side (needs a display): each one from above as it arrives, on its tail
-## in the chase, an overview with no fog, and in the chase after its first section breaks off.
+## Every fortress side by side (needs a display): each one from above as it arrives, behind its
+## stern in the chase, an overview with no fog, and over its deck at its second and third sections.
 ##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/fortress_lineup.gd -- /tmp/fortresses
 
 var out := "/tmp/fortresses"
@@ -59,15 +59,16 @@ func _initialize() -> void:
 		await shot("%d-%s-2-chase" % [n, id])
 		env.fog_enabled = false
 		g.cam.far = 2000.0
-		var mid := g.fort_point(Vector3(0, 8.0, -60.0))
-		g.cam.global_transform = Transform3D(Basis(), mid + Vector3(-200.0, 100.0, 220.0)).looking_at(mid, Vector3.UP)
+		var mid := g.fort_point(Vector3(0, 0, -Rules.fortress_len(id) * 0.5))
+		g.cam.global_transform = Transform3D(Basis(), mid + Vector3(-190.0, 120.0, 210.0)).looking_at(mid, Vector3.UP)
 		await shot("%d-%s-3-overview" % [n, id])
 		env.fog_enabled = true
 		g.cam.far = 400.0
-		for p in g.fort_parts.duplicate():
-			g.damage(p, 99999.0)
-		g.off = Vector2(0, 8.0)
-		await tick(100)
-		await shot("%d-%s-4-section2" % [n, id])
+		for k in 2:
+			for p in g.fort_parts.duplicate():
+				g.damage(p, 99999.0)
+			g.off = Vector2.ZERO
+			await tick(int(Rules.ADVANCE * 60) + 60)
+			await shot("%d-%s-%d-section%d" % [n, id, 4 + k, g.fort_sec + 1])
 		n += 1
 	quit()

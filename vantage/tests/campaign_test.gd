@@ -106,15 +106,19 @@ func data() -> void:
 	var looks := {}
 	for id: String in Rules.FORTRESSES:
 		var f: Dictionary = Rules.FORTRESSES[id]
-		var pieces := true
+		var ok: bool = f.sections[-1].kind == "core" and f.sections[-1].guns.is_empty() and f.sections[0].kind == "engines"
+		var kinds := []
 		for k in f.sections.size() - 1:
 			var sec: Dictionary = f.sections[k]
-			pieces = pieces and sec.piece in ["plating", "collar", "tower", "fin"] and not sec.mounts.is_empty() \
-				and Models.fortress_piece(id, sec.piece).get_surface_count() > 0
-		looks["%s/%s/%s/%s" % [f.hull, f.wings, f.fins, f.paint]] = true
-		check(pieces and f.sections[-1].mounts.is_empty() and Models.fortress_hull(id).get_surface_count() > 0
-			and Models.fortress_wing(id, 1.0).get_surface_count() > 0 and Models.WINGS.has(f.wings),
-			"%s: %d sections, each with a piece that breaks off, then the reactor" % [f.title, f.sections.size()])
+			kinds.append(sec.kind)
+			ok = ok and not sec.guns.is_empty() and Capital.segment(id, k).get_surface_count() > 0 \
+				and Capital.piece(id, k).get_surface_count() > 0
+			for g: Array in sec.guns:
+				ok = ok and g[0] in Rules.SHIP_GUNS and Rules.FOES.has(g[0])
+		ok = ok and kinds[-1] == "bridge" and Rules.fortress_len(id) > 180.0
+		looks["%s/%s/%s" % [f.hull, f.paint, kinds]] = true
+		check(ok, "%s: %.0f m, %d sections from the engines to the bridge, each with its guns and a piece that breaks off, then the reactor" % [
+			f.title, Rules.fortress_len(id), f.sections.size()])
 	check(looks.size() == Rules.FORTRESSES.size(), "no two fortresses look alike")
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
 	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's fortress run is the hand-made sector")
@@ -163,11 +167,12 @@ func run(g: Game, secs: float, until: Callable) -> void:
 		if g.pov_mode():
 			var best: Game.Obj = null
 			for f in g.foes:
-				if f.kind not in ["orb", "boss"] and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
+				if f.kind not in ["orb", "boss"] and g.lockable(f) and not g.cam.is_position_behind(f.pos) and f.pos.z < g.ppos.z - 4.0:
 					if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 						best = f
 			if best:
-				g.off = Vector2(best.pos.x, best.pos.y - Rules.PY)
+				# line the dipped guns up with it
+				g.off = Vector2(best.pos.x, best.pos.y + (g.ppos.z - best.pos.z) * Rules.AIM_DIP - g.chase_y)
 		g.step(DT)
 		if until.call():
 			return
@@ -298,17 +303,17 @@ func levels() -> void:
 				g.stage_t = g.waves[k].t
 		var secs := [0]
 		var hidden := [true]
-		var snapped := [false]
-		run(g, 240.0, func() -> bool:
-			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < g.fort.sections.size() - 1:
-				var piece: String = g.fort.sections[secs[0]].piece
-				hidden[0] = hidden[0] and not g.fortress.get_node(piece).visible
+		var broke := [false]
+		run(g, 300.0, func() -> bool:
+			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < g.segs.size():
+				hidden[0] = hidden[0] and not g.fort_piece(secs[0]).visible
 				secs[0] = g.fort_sec
-			snapped[0] = snapped[0] or g.wing_off != null
+			if g.phase == "escape" and g.fortress != null and g.segs.size() > 1:
+				broke[0] = broke[0] or g.segs[0].position.distance_to(Capital.pivot(id, 0)) > 3.0
 			return g.phase == "results")
 		var f: Dictionary = Rules.FORTRESSES[id]
-		check(g.run.cleared and secs[0] == f.sections.size() - 1 and hidden[0] and snapped[0],
-			"%s (%s): chased down in %d sections, each breaking off, then loses a wing" % [f.name, Campaign.code(lv), f.sections.size()])
+		check(g.run.cleared and secs[0] == f.sections.size() - 1 and hidden[0] and broke[0],
+			"%s (%s): taken apart in %d sections from stern to bow, each breaking off, then breaks up" % [f.name, Campaign.code(lv), f.sections.size()])
 		g.to_hangar()
 	g.queue_free()
 	await process_frame
