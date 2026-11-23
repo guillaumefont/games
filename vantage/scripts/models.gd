@@ -1,0 +1,470 @@
+class_name Models
+extends RefCounted
+## Low poly models built in code: flat shaded, vertex coloured, one mesh per object. No
+## imported art: everything here is original.
+
+const STEEL := Color8(0xdc, 0xe3, 0xea)
+const STEEL_D := Color8(0x7d, 0x8b, 0x99)
+const CYAN := Color8(0x3d, 0xd6, 0xf5)
+const NAVY := Color8(0x24, 0x34, 0x4a)
+const FOE := Color8(0xc8, 0x3a, 0x3a)
+const FOE_D := Color8(0x4a, 0x3c, 0x44)
+const AMBER := Color8(0xff, 0xa8, 0x2e)
+const HULL := Color8(0x5c, 0x63, 0x6e)
+const HULL_D := Color8(0x3a, 0x3f, 0x48)
+const DECK := Color8(0x76, 0x7d, 0x86)
+const SEA := Color8(0x2b, 0x7a, 0xa3)
+const SEA_D := Color8(0x1f, 0x5c, 0x86)
+const SAND := Color8(0xe3, 0xcf, 0x98)
+const GRASS := Color8(0x74, 0xa8, 0x4e)
+const FOREST := Color8(0x3f, 0x77, 0x44)
+const ROCK := Color8(0x9a, 0x94, 0x88)
+const SKY := Color8(0x9c, 0xd4, 0xee)
+
+static var _mat: StandardMaterial3D
+static var _cache := {}
+
+
+## The shared vertex-coloured material.
+static func mat() -> StandardMaterial3D:
+	if _mat == null:
+		_mat = StandardMaterial3D.new()
+		_mat.vertex_color_use_as_albedo = true
+		_mat.vertex_color_is_srgb = true
+		_mat.roughness = 0.85
+	return _mat
+
+
+## A glowing unshaded material (shots, lights, engines).
+static func glow(c: Color, alpha := 1.0) -> StandardMaterial3D:
+	var key := "g%s%s" % [c.to_html(), alpha]
+	if not _cache.has(key):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(c, alpha)
+		if alpha < 1.0:
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_cache[key] = m
+	return _cache[key]
+
+
+static func hash2(x: float, y: float) -> float:
+	var s := sin(x * 12.9898 + y * 78.233) * 43758.5453
+	return s - floor(s)
+
+
+## Collects coloured triangles from many parts into one flat-shaded mesh.
+class Builder:
+	var st := SurfaceTool.new()
+	var n := 0
+
+	func _init() -> void:
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.set_smooth_group(0xFFFFFFFF)
+
+	## One triangle; `out` is roughly the direction its front faces.
+	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, out: Vector3) -> void:
+		if (b - a).cross(c - a).dot(out) < 0.0:
+			var t := b
+			b = c
+			c = t
+		st.set_color(col)
+		st.add_vertex(a)
+		st.add_vertex(c)
+		st.add_vertex(b)
+		n += 3
+
+	func quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color, out: Vector3) -> void:
+		tri(a, b, c, col, out)
+		tri(a, c, d, col, out)
+
+	## A convex outline (x, z) extruded from y0 to y1 around `c`; the top outline is scaled by
+	## `top` (tapers) and shifted by `shift` (x, z). Side colour `side` defaults to `col`
+	## darkened.
+	func prism(c: Vector3, outline: PackedVector2Array, y0: float, y1: float, col: Color,
+			top := Vector2.ONE, shift := Vector2.ZERO, side := Color(0, 0, 0, 0)) -> void:
+		var sc := col.darkened(0.18) if side.a == 0.0 else side
+		var nb := outline.size()
+		var bot: Array[Vector3] = []
+		var tp: Array[Vector3] = []
+		var mid := Vector2.ZERO
+		for p in outline:
+			mid += p
+		mid /= nb
+		for p in outline:
+			bot.append(c + Vector3(p.x, y0, p.y))
+			var q := mid + (p - mid) * top + shift
+			tp.append(c + Vector3(q.x, y1, q.y))
+		var cb := c + Vector3(mid.x, y0, mid.y)
+		var ct := c + Vector3(mid.x + shift.x, y1, mid.y + shift.y)
+		for i in nb:
+			var j := (i + 1) % nb
+			tri(ct, tp[i], tp[j], col, Vector3.UP)
+			tri(cb, bot[i], bot[j], sc.darkened(0.2), Vector3.DOWN)
+			var o := ((bot[i] + bot[j]) * 0.5 - cb)
+			o.y = 0.0
+			quad(bot[i], bot[j], tp[j], tp[i], sc, o)
+
+	## An axis-aligned box.
+	func box(c: Vector3, s: Vector3, col: Color, top := Vector2.ONE) -> void:
+		var h := s * 0.5
+		prism(Vector3(c.x, 0, c.z), PackedVector2Array([Vector2(-h.x, -h.z), Vector2(h.x, -h.z),
+			Vector2(h.x, h.z), Vector2(-h.x, h.z)]), c.y - h.y, c.y + h.y, col, top)
+
+	## A diamond (octahedron) of radius r, squashed by `sc`.
+	func octa(c: Vector3, r: float, col: Color, sc := Vector3.ONE) -> void:
+		var px := [Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(-1, 0, 0), Vector3(0, 0, -1)]
+		for i in 4:
+			var a: Vector3 = c + px[i] * r * sc
+			var b: Vector3 = c + px[(i + 1) % 4] * r * sc
+			var top := c + Vector3(0, r * sc.y, 0)
+			var bot := c - Vector3(0, r * sc.y, 0)
+			var o: Vector3 = (px[i] + px[(i + 1) % 4])
+			tri(a, b, top, col, o + Vector3.UP)
+			tri(a, b, bot, col.darkened(0.25), o + Vector3.DOWN)
+
+	## A Godot primitive placed by `xf`.
+	func prim(p: PrimitiveMesh, xf: Transform3D, col: Color) -> void:
+		var arr := p.get_mesh_arrays()
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+		st.set_color(col)
+		for i in idx.size():
+			st.add_vertex(xf * v[idx[i]])
+		n += idx.size()
+
+	func commit() -> ArrayMesh:
+		st.generate_normals()
+		return st.commit()
+
+
+static func ngon(r: float, n: int, rot := 0.0) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		var a := rot + TAU * i / n
+		out.append(Vector2(cos(a), sin(a)) * r)
+	return out
+
+
+static func pts(a: Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p: Vector2 in a:
+		out.append(p)
+	return out
+
+
+static func mirror(a: Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p: Vector2 in a:
+		out.append(Vector2(-p.x, p.y))
+	out.reverse()
+	return out
+
+
+static func instance(m: Mesh, material: Material = null) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.material_override = material if material else mat()
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+
+static func cached(key: String, f: Callable) -> Mesh:
+	if not _cache.has(key):
+		_cache[key] = f.call()
+	return _cache[key]
+
+
+# ---------------------------------------------------------------- the player's ship
+## The Vantage fighter, nose to -z: a slim fuselage, forward-swept canards and swept main
+## wings, twin tail fins, a cyan canopy.
+static func player() -> Mesh:
+	return cached("player", func() -> Mesh:
+		var b := Builder.new()
+		# fuselage
+		b.prism(Vector3.ZERO, pts([Vector2(0, -1.5), Vector2(0.28, -0.7), Vector2(0.34, 0.9),
+			Vector2(0.22, 1.25), Vector2(-0.22, 1.25), Vector2(-0.34, 0.9), Vector2(-0.28, -0.7)]),
+			-0.18, 0.18, STEEL, Vector2(0.7, 0.92))
+		# canopy
+		b.prism(Vector3(0, 0.0, -0.35), pts([Vector2(0, -0.55), Vector2(0.17, -0.1), Vector2(0.15, 0.35),
+			Vector2(-0.15, 0.35), Vector2(-0.17, -0.1)]), 0.18, 0.36, CYAN, Vector2(0.45, 0.6))
+		# main wings (right then left)
+		for sx in [1.0, -1.0]:
+			var w := [Vector2(0.3, 0.0), Vector2(1.55, 0.75), Vector2(1.55, 1.0), Vector2(0.3, 1.05)]
+			var o := PackedVector2Array()
+			for p: Vector2 in w:
+				o.append(Vector2(p.x * sx, p.y))
+			if sx < 0:
+				o.reverse()
+			b.prism(Vector3.ZERO, o, -0.06, 0.04, STEEL)
+			# wing tip stripe
+			b.box(Vector3(1.45 * sx, 0.06, 0.88), Vector3(0.2, 0.05, 0.28), CYAN)
+			# canard
+			var cn := [Vector2(0.25, -0.75), Vector2(0.75, -0.55), Vector2(0.75, -0.42), Vector2(0.25, -0.4)]
+			var oc := PackedVector2Array()
+			for p: Vector2 in cn:
+				oc.append(Vector2(p.x * sx, p.y))
+			if sx < 0:
+				oc.reverse()
+			b.prism(Vector3.ZERO, oc, -0.03, 0.03, STEEL_D)
+			# tail fin
+			b.prism(Vector3(0.24 * sx, 0, 0), pts([Vector2(-0.03, 0.55), Vector2(0.03, 0.55),
+				Vector2(0.03, 1.2), Vector2(-0.03, 1.2)]), 0.1, 0.6, NAVY, Vector2(1, 0.45), Vector2(0, 0.25))
+			# engine
+			b.box(Vector3(0.16 * sx, -0.05, 1.22), Vector3(0.2, 0.22, 0.18), NAVY)
+		return b.commit())
+
+
+# ---------------------------------------------------------------- foes of the vertical stage
+## Small crimson interceptor (nose to +z: towards the player).
+static func dart() -> Mesh:
+	return cached("dart", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, pts([Vector2(0, 1.0), Vector2(0.9, -0.6), Vector2(0.3, -0.35),
+			Vector2(0, -0.7), Vector2(-0.3, -0.35), Vector2(-0.9, -0.6)]), -0.12, 0.12, FOE, Vector2(0.8, 0.8))
+		b.prism(Vector3(0, 0, -0.05), ngon(0.22, 5, -PI / 2), 0.12, 0.3, AMBER, Vector2(0.5, 0.5))
+		return b.commit())
+
+
+## Twin-boom weaver.
+static func swing() -> Mesh:
+	return cached("swing", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, ngon(0.45, 6, PI / 6), -0.2, 0.2, FOE_D, Vector2(0.7, 0.7))
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(0.65 * sx, 0, 0.1), Vector3(0.22, 0.22, 1.5), FOE, Vector2(0.7, 0.8))
+			b.box(Vector3(0.65 * sx, 0, 0.9), Vector3(0.14, 0.14, 0.2), AMBER)
+		b.box(Vector3(0, 0, 0), Vector3(1.3, 0.08, 0.35), FOE_D)
+		return b.commit())
+
+
+## Ground flak turret (sits on the ground, y = 0).
+static func turret() -> Mesh:
+	return cached("turret", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, ngon(1.0, 8, PI / 8), 0.0, 0.45, FOE_D, Vector2(0.85, 0.85))
+		b.prism(Vector3.ZERO, ngon(0.6, 6), 0.45, 0.9, FOE, Vector2(0.75, 0.75))
+		b.box(Vector3(0, 0.75, 0.65), Vector3(0.18, 0.18, 0.9), HULL_D)
+		return b.commit())
+
+
+## Gunship: a wide armoured hull with four engine pods.
+static func heavy() -> Mesh:
+	return cached("heavy", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, pts([Vector2(0, 1.7), Vector2(1.1, 1.0), Vector2(2.0, -0.4), Vector2(1.6, -1.2),
+			Vector2(-1.6, -1.2), Vector2(-2.0, -0.4), Vector2(-1.1, 1.0)]), -0.3, 0.3, FOE_D, Vector2(0.85, 0.85))
+		b.prism(Vector3(0, 0, 0.1), ngon(0.7, 6), 0.3, 0.65, FOE, Vector2(0.6, 0.6))
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(1.4 * sx, 0, -1.25), Vector3(0.45, 0.4, 0.5), HULL_D)
+			b.box(Vector3(0.6 * sx, 0, -1.25), Vector3(0.45, 0.4, 0.5), HULL_D)
+			b.box(Vector3(1.0 * sx, 0.32, 0.7), Vector3(0.18, 0.18, 0.8), AMBER)
+		return b.commit())
+
+
+## The sector's guardian: a long battleship with a bridge and two broad wings.
+static func boss() -> Mesh:
+	return cached("boss", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, pts([Vector2(0, 3.4), Vector2(1.5, 2.2), Vector2(1.8, -2.6), Vector2(1.0, -3.3),
+			Vector2(-1.0, -3.3), Vector2(-1.8, -2.6), Vector2(-1.5, 2.2)]), -0.5, 0.5, FOE_D, Vector2(0.88, 0.92))
+		for sx in [1.0, -1.0]:
+			var w := [Vector2(1.6, 1.2), Vector2(4.4, -0.4), Vector2(4.4, -1.3), Vector2(1.7, -1.6)]
+			var o := PackedVector2Array()
+			for p: Vector2 in w:
+				o.append(Vector2(p.x * sx, p.y))
+			if sx < 0:
+				o.reverse()
+			b.prism(Vector3.ZERO, o, -0.18, 0.18, FOE)
+			b.prism(Vector3(3.3 * sx, 0.18, -0.6), ngon(0.45, 6), 0.0, 0.35, HULL_D, Vector2(0.7, 0.7))
+			b.box(Vector3(3.3 * sx, 0.45, 0.0), Vector3(0.16, 0.16, 0.9), AMBER)
+		b.prism(Vector3(0, 0, -0.8), pts([Vector2(-0.8, -0.8), Vector2(0.8, -0.8), Vector2(0.6, 0.9),
+			Vector2(-0.6, 0.9)]), 0.5, 1.4, HULL, Vector2(0.7, 0.75))
+		b.box(Vector3(0, 1.5, -0.55), Vector3(0.9, 0.12, 0.3), AMBER)
+		b.prism(Vector3(0, 0, 1.6), ngon(0.6, 8), 0.5, 0.9, FOE, Vector2(0.7, 0.7))
+		b.box(Vector3(0, 0.75, 2.4), Vector3(0.22, 0.22, 1.2), HULL_D)
+		return b.commit())
+
+
+# ---------------------------------------------------------------- foes inside the carrier
+## Security drone: a diamond with four fins and an amber eye facing the player (+z).
+static func drone() -> Mesh:
+	return cached("drone", func() -> Mesh:
+		var b := Builder.new()
+		b.octa(Vector3.ZERO, 0.7, FOE_D, Vector3(1, 0.8, 1))
+		for i in 4:
+			var a := TAU * i / 4.0 + PI / 4
+			var d := Vector3(cos(a), sin(a), 0)
+			b.box(d * 0.75, Vector3(0.12 + abs(d.x) * 0.4, 0.12 + abs(d.y) * 0.4, 0.5), FOE)
+		b.prism(Vector3(0, 0, 0.5), ngon(0.22, 6), -0.22, 0.22, AMBER)
+		return b.commit())
+
+
+## Wall sentry gun (barrel along +z, the base against a wall along -x).
+static func sentry() -> Mesh:
+	return cached("sentry", func() -> Mesh:
+		var b := Builder.new()
+		b.box(Vector3(-0.3, 0, 0), Vector3(0.6, 1.4, 1.4), HULL_D)
+		b.octa(Vector3(0.15, 0, 0), 0.55, FOE)
+		b.box(Vector3(0.3, 0, 0.6), Vector3(0.2, 0.2, 1.1), FOE_D)
+		b.box(Vector3(0.3, 0, 1.15), Vector3(0.24, 0.24, 0.1), AMBER)
+		return b.commit())
+
+
+## A shield panel of the reactor.
+static func panel() -> Mesh:
+	return cached("panel", func() -> Mesh:
+		var b := Builder.new()
+		b.box(Vector3.ZERO, Vector3(1.5, 0.3, 1.5), FOE_D)
+		b.box(Vector3(0, 0.17, 0), Vector3(1.0, 0.06, 1.0), FOE)
+		return b.commit())
+
+
+# ---------------------------------------------------------------- the carrier
+## The carrier, stern (the hangar mouth) at z = 0, bow at z = -CARRIER_LEN, its tunnel
+## centred on y = Rules.PY. The outside is what the vertical stage sees; the inside is the
+## POV episode: ribs, light strips, pipes, the reactor room.
+static func carrier() -> Mesh:
+	return cached("carrier", func() -> Mesh:
+		var b := Builder.new()
+		var L := Rules.CARRIER_LEN
+		var y := Rules.PY
+		var hw := Rules.TUNNEL_HW
+		var hh := Rules.TUNNEL_HH
+		var W := 9.5
+		var zc := -L * 0.5
+		var inner := Color8(0x4c, 0x52, 0x5c)
+		var floor_c := Color8(0x3b, 0x40, 0x49)
+		# outer shell (four slabs round the tunnel)
+		b.box(Vector3(0, y + hh + 1.2, zc), Vector3(W * 2, 2.4, L), DECK, Vector2(0.96, 0.995))
+		b.box(Vector3(0, y - hh - 1.0, zc), Vector3(W * 2 - 1.5, 2.0, L), HULL_D)
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, zc), Vector3(W - hw, hh * 2, L), HULL)
+			# armour belts and sponsons along the sides
+			for k in 6:
+				var z := -12.0 - k * 30.0
+				b.box(Vector3(sx * (W + 0.6), y + 0.6, z), Vector3(1.2, 2.2, 14.0), HULL_D, Vector2(0.6, 0.95))
+		# inner walls (lighter, they face the tunnel)
+		b.box(Vector3(0, y - hh + 0.05, zc), Vector3(hw * 2, 0.1, L), floor_c)
+		b.box(Vector3(0, y + hh - 0.05, zc), Vector3(hw * 2, 0.1, L), inner.darkened(0.2))
+		# deck: runway stripes, island, gun mounts
+		var dy := y + hh + 2.4
+		for k in 18:
+			b.box(Vector3(0, dy + 0.01, -5.0 - k * 10.0), Vector3(0.6, 0.04, 4.0), Color8(0xe8, 0xe0, 0xc8))
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * 6.5, dy + 0.01, zc), Vector3(0.25, 0.04, L - 6), AMBER)
+		b.prism(Vector3(-6.2, dy, -70), pts([Vector2(-1.5, -9), Vector2(1.5, -9), Vector2(1.5, 7),
+			Vector2(-1.5, 7)]), 0, 4.5, HULL, Vector2(0.7, 0.8))
+		b.box(Vector3(-6.2, dy + 5.0, -72), Vector3(1.6, 1.0, 4.0), HULL_D)
+		b.box(Vector3(-6.2, dy + 3.6, -63.2), Vector3(2.0, 0.6, 0.2), CYAN)
+		for k in 5:
+			var z := -25.0 - k * 32.0
+			b.prism(Vector3(5.5, dy, z), ngon(1.2, 8, PI / 8), 0, 0.7, HULL_D, Vector2(0.8, 0.8))
+			b.box(Vector3(5.5, dy + 0.9, z + 1.0), Vector3(0.3, 0.3, 1.8), HULL)
+		# the hangar mouth's frame (stern) and the bow opening
+		for z in [0.0, -L]:
+			var dz := 0.4 if z == 0.0 else -0.4
+			b.box(Vector3(0, y + hh + 0.3, z + dz * 0.5), Vector3(hw * 2 + 1.2, 0.6, 0.5), AMBER)
+			b.box(Vector3(0, y - hh - 0.3, z + dz * 0.5), Vector3(hw * 2 + 1.2, 0.6, 0.5), AMBER)
+			for sx in [1.0, -1.0]:
+				b.box(Vector3(sx * (hw + 0.3), y, z + dz * 0.5), Vector3(0.6, hh * 2, 0.5), AMBER)
+		# stern engines either side of the mouth
+		for sx in [1.0, -1.0]:
+			b.prism(Vector3(sx * 7.0, 0, 0.6), ngon(1.5, 8, PI / 8), y - 1.5, y + 1.5, HULL_D)
+		# inside: ribs every 6 m, pipes, the reactor room's ring
+		for k in int(L / 6.0):
+			var z := -3.0 - k * 6.0
+			var rc := Color8(0x66, 0x6e, 0x7a)
+			for sx in [1.0, -1.0]:
+				b.box(Vector3(sx * (hw - 0.2), y, z), Vector3(0.4, hh * 2, 0.6), rc)
+			b.box(Vector3(0, y + hh - 0.2, z), Vector3(hw * 2, 0.4, 0.6), rc)
+			b.box(Vector3(0, y - hh + 0.15, z), Vector3(hw * 2, 0.2, 0.6), rc.darkened(0.2))
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * (hw - 0.55), y + hh - 0.7, zc), Vector3(0.3, 0.3, L), Color8(0x8a, 0x6a, 0x3c))
+			b.box(Vector3(sx * (hw - 0.5), y - hh + 0.6, zc), Vector3(0.25, 0.25, L), NAVY)
+		return b.commit())
+
+
+## The carrier's interior lights (glowing strips), a separate mesh with a glow material.
+static func carrier_lights() -> Mesh:
+	return cached("carrier_lights", func() -> Mesh:
+		var b := Builder.new()
+		var L := Rules.CARRIER_LEN
+		var y := Rules.PY
+		var hw := Rules.TUNNEL_HW
+		var hh := Rules.TUNNEL_HH
+		for k in int(L / 6.0):
+			var z := -6.0 - k * 6.0
+			b.box(Vector3(0, y + hh - 0.42, z), Vector3(2.4, 0.05, 0.25), Color.WHITE)
+			for sx in [1.0, -1.0]:
+				b.box(Vector3(sx * (hw - 0.07), y - 1.2, z), Vector3(0.05, 0.25, 1.6), Color.WHITE)
+		# floor guide line
+		b.box(Vector3(0, y - hh + 0.12, -L * 0.5), Vector3(0.12, 0.03, L), Color.WHITE)
+		return b.commit())
+
+
+# ---------------------------------------------------------------- terrain
+## One chunk of ground, `size.y` long from z0 towards -z, `size.x` wide: a low poly coast of
+## sea, sand, grass and woods from a seeded noise, so chunks join seamlessly.
+static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float) -> Mesh:
+	var b := Builder.new()
+	var nx := int(size.x / cell)
+	var nz := int(size.y / cell)
+	var x0 := -size.x * 0.5
+	var hgt := func(x: float, z: float) -> float:
+		var n := noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
+		return n
+	var height := func(h: float) -> float:
+		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
+	for i in nx:
+		for j in nz:
+			var xa := x0 + i * cell
+			var za := z0 - j * cell
+			var c := [Vector2(xa, za), Vector2(xa + cell, za), Vector2(xa + cell, za - cell), Vector2(xa, za - cell)]
+			var hs := []
+			var avg := 0.0
+			for p: Vector2 in c:
+				var h: float = hgt.call(p.x, p.y)
+				hs.append(h)
+				avg += h
+			avg /= 4.0
+			var col: Color
+			if avg < 0.0:
+				col = SEA if avg > -0.25 else SEA_D
+			elif avg < 0.08:
+				col = SAND
+			elif avg < 0.32:
+				col = GRASS
+			elif avg < 0.5:
+				col = FOREST
+			else:
+				col = ROCK
+			col = col.lightened((hash2(xa, za) - 0.5) * (0.035 if avg < 0.0 else 0.08))
+			var v := []
+			for k in 4:
+				v.append(Vector3(c[k].x, height.call(hs[k]), c[k].y))
+			b.quad(v[0], v[1], v[2], v[3], col, Vector3.UP)
+			# a few trees on the woods, houses on the grass
+			var r := hash2(xa * 1.7, za * 0.3)
+			var cx := xa + cell * 0.5
+			var cz := za - cell * 0.5
+			var cy: float = height.call(avg)
+			if avg >= 0.32 and avg < 0.5 and r < 0.55:
+				b.prism(Vector3(cx + (r - 0.3) * 2, cy, cz), ngon(0.7, 5, r * 6), 0, 1.6, FOREST.darkened(0.15), Vector2(0.05, 0.05))
+			elif avg >= 0.1 and avg < 0.3 and r < 0.06:
+				b.box(Vector3(cx, cy + 0.35, cz), Vector3(1.1, 0.7, 0.8), Color8(0xee, 0xe6, 0xd8))
+				b.prism(Vector3(cx, cy + 0.7, cz), pts([Vector2(-0.62, -0.48), Vector2(0.62, -0.48), Vector2(0.62, 0.48),
+					Vector2(-0.62, 0.48)]), 0, 0.45, Color8(0xc0, 0x5a, 0x3e), Vector2(0.05, 1.0))
+	return b.commit()
+
+
+static func shot_mesh(r: float, stretch := 1.0) -> Mesh:
+	return cached("shot%s_%s" % [r, stretch], func() -> Mesh:
+		var s := SphereMesh.new()
+		s.radius = r
+		s.height = r * 2 * stretch
+		s.radial_segments = 6
+		s.rings = 3
+		return s)
