@@ -130,7 +130,7 @@ func slow_pause() -> void:
 	check(not g.touching, "leaving the app lifts the finger")
 	# the chase pauses the same way
 	g.touching = true
-	g.spawn_carrier()
+	g.spawn_fortress()
 	g.begin_approach()
 	for i in 30:
 		g.tick(DT)
