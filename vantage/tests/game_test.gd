@@ -389,6 +389,8 @@ func ramming() -> void:
 	check(g.hp == 5 and not t.dead, "ground turrets pass under the ship")
 	t.dead = true
 	# the Bastion: its hull is a wall that hurts, its wings only until they break off
+	g.mid_id = "bastion"
+	g.mid = Rules.MIDBOSSES.bastion
 	g.spawn_vert("boss", 0.0, 0, 1)
 	var b := g.boss
 	b.pos = Vector3(0, Rules.PY, g.frame_z - 6.0)

@@ -29,7 +29,7 @@ jobs:
         run: ./godot --headless --path . --import
       - name: The game (rules, controls, the fortress episode, boss, death, results)
         run: ./godot --headless --path . --script tests/game_test.gd
-      - name: Campaign (worlds and levels, unlocks, level select, world looks, full levels)
+      - name: Campaign (worlds and levels, unlocks, level select, world looks, a full level, every mid-boss)
         run: ./godot --headless --path . --script tests/campaign_test.gd
       - name: Self-update (game pack download, checks, APK offer)
         run: ./godot --headless --path . --script tests/update_test.gd

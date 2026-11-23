@@ -12,8 +12,13 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   fought in the third-person chase, which ends the sector. Guillaume swapped these on purpose: mid-boss
   top-down, final boss in the chase.
 - Bosses are bigger than the screen and taken apart **section by section**; each cleared section breaks
-  off its mesh. Mid-boss, the Bastion battleship (`Rules.BOSS_SECTIONS`): bow guns, wing batteries,
-  bridge; its hull can't be hurt; it holds the wave clock until it's down. Final boss, the flying
+  off its mesh. Mid-bosses (`Rules.MIDBOSSES`, five designs: Bastion battleship, Mantis gunship, Halo
+  platform, Corsair twin hull, Hammerhead dreadnought): each section lists its parts (kinds in
+  `Rules.BOSS_PART_KINDS`, patterns in `Game.think_part`) and a `piece` (`Models.midboss_piece`) that
+  breaks off; the last section is the heart (`BOSS_HEARTS`), shielded until then. Each flies its own way
+  (`move`, `Game.think_boss`); the hull comes down far enough that the section's deepest gun shows on a
+  short screen. Parts stay within |x| <= 7, z -5..8 (tested). The hull can't be hurt; it holds the wave
+  clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss, the flying
   fortress (Guillaume turned the sea carrier into one, 2026-11-23): a huge armoured aircraft
   (`Rules.FORTRESS_SECTIONS`): tail guns (on the `plating` mesh), the dorsal gun tower (the `tower` mesh), then
   the reactor behind four shield panels (phase `core`). Drones launch from its tail bay every `DRONE_EVERY` s.
@@ -58,7 +63,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
-godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, full levels
+godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -68,6 +73,8 @@ Screenshots (needs a display; one per key moment of a full run):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots`
 
 Explosions over time, from both cameras: same command with `tools/blast_shots.gd -- /tmp/blasts`.
+
+Every mid-boss as it arrives and after its first section: same command with `tools/midboss_shots.gd -- /tmp/midbosses`.
 
 The final boss alone, without playing the stage (arrival, swoop, each section, an overview with no fog, the
 fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`.
@@ -82,10 +89,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 ## Campaign (Guillaume, 2026-11-23: "a real timeline, with worlds and levels")
 
 - `scripts/campaign.gd` (`Campaign`): five worlds (Glass Coast, Ember Dunes, Iron Sprawl, Frost Shelf,
-  Cinder Reach) of three levels each, played in order: a **patrol** (waves, ends with an `end` wave once
-  the foes are dealt with), a **battleship** level (waves, then the Bastion ends it), a **fortress run**
-  (waves, Bastion mid-boss, waves, fortress chase: the old sector). 1-3 is the hand-made `Rules.STAGE`;
-  every other level's waves come from its world's `mix`, seeded by the level (same every time).
+  Cinder Reach) of three levels each, played in order. Guillaume (2026-11-23): "mid bosses and final
+  fortresses for every level", so every level is waves, a mid-boss, waves, the fortress chase
+  (`LENGTHS`: the first level of a world shortest). Each level has its own mid-boss (`midboss_of`:
+  three different ones per world, `MIDBOSS_ORDER`); 1-3 is the hand-made `Rules.STAGE` and keeps the
+  Bastion. Every other level's waves come from its world's `mix`, seeded by the level (same every time).
+  The hangar's level buttons name the level's mid-boss. (`Game.level_clear` and the `end` wave remain
+  for a level without a fortress, though none uses them now.)
 - Each world has a terrain `theme` (`Models.THEMES`: sky, fog, light, `lift` of the land out of the
   water; `Models.ground_col` and `Models.theme_prop` per theme; Glass Coast keeps the original props in
   `ground_chunk`), and multipliers on foe hull (`tough`), bullet speed (`fire`) and `scrap`. Boss hulls
@@ -94,7 +104,7 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   Clearing a level opens and selects the next. Old saves with a clear start in world 2.
 - The hangar's timeline (`Hud.build_campaign`): ‹ world › and the world's three levels; selecting one
   shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
-- Next steps: per-world bosses and foe models (bosses are the same Bastion and fortress, tinted).
+- Next steps: fortress variants (the fortress is the same model, tinted), per-world foe models.
 
 ## Code map
 
@@ -190,8 +200,9 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
 - Ramming (Guillaume, 2026-11-23: collisions between the ship and enemies damage the ship): `Game.ram`.
   Flying into an air foe (`Rules.RAMMABLE`) costs a hit and throws the ship back (`Game.knock`, eased off);
   darts, swings and drones break up, heavies take `RAM_DMG`. During the blink after a hit the ship passes
-  through. The Bastion's hull is a wall (`Game.boss_rammed`, tested against the same outlines its meshes
-  are built from, `Models.BOSS_HULL` etc.; bow and wings stop counting once broken off). Ground targets and
+  through. Every mid-boss's hull is a wall (`Game.boss_rammed`, tested against its outlines from above,
+  `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
+  once broken off, and a spinning hull is turned). Ground targets and
   scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).

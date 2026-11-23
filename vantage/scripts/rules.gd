@@ -190,6 +190,9 @@ const FOES := {
 	"flak": {"hp": 45.0, "r": 1.45, "score": 500, "scrap": 20},
 	"battery": {"hp": 55.0, "r": 1.55, "score": 600, "scrap": 25},
 	"bridge": {"hp": 260.0, "r": 2.7, "score": 6000, "scrap": 300},
+	"lance": {"hp": 50.0, "r": 1.5, "score": 600, "scrap": 25},
+	"spiral": {"hp": 60.0, "r": 1.6, "score": 700, "scrap": 30},
+	"dome": {"hp": 280.0, "r": 2.8, "score": 6000, "scrap": 300},
 	"drone": {"hp": 4.0, "r": 0.9, "score": 150, "scrap": 10},
 	"sentry": {"hp": 16.0, "r": 1.4, "score": 400, "scrap": 25},
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
@@ -241,41 +244,82 @@ const STAGE := [
 
 
 
-## The mid-boss, a battleship bigger than the screen, taken apart section by section:
-## each section's parts (kind, position on the ship: x, y, z towards its bow) must all go down
-## before the next section opens. The bridge is shielded until the last section. Nose to +z.
-const BOSS_SECTIONS := [
-	{"name": "BOW GUNS", "parts": [
-		{"kind": "cannon", "at": Vector3(-1.6, 1.4, 6.5)}, {"kind": "cannon", "at": Vector3(1.6, 1.4, 6.5)},
-		{"kind": "flak", "at": Vector3(-3.0, 1.0, 3.0)}, {"kind": "flak", "at": Vector3(3.0, 1.0, 3.0)}]},
-	{"name": "WING BATTERIES", "parts": [
-		{"kind": "battery", "at": Vector3(-5.4, 0.8, 0.2)}, {"kind": "battery", "at": Vector3(5.4, 0.8, 0.2)},
-		{"kind": "battery", "at": Vector3(-7.0, 0.8, -1.8)}, {"kind": "battery", "at": Vector3(7.0, 0.8, -1.8)}]},
-	{"name": "BRIDGE", "parts": [{"kind": "bridge", "at": Vector3(0.0, 1.8, -3.6)}]},
-]
+## The mid-bosses, each bigger than the screen and taken apart section by section: each
+## section's parts (kind, position on the hull: x, y, z towards its bow) must all go down before
+## the next section opens, and its `piece` (a separate mesh, `Models.midboss_piece`) breaks off.
+## The last section is the boss's heart (a `bridge` or a `dome`), shielded until then. Nose to +z.
+## Every part stays within the play field's width (|x| <= 7) and z -5..8, so it is in reach and
+## on screen. `move` is how the hull flies (`Game.think_boss`). Each level has its own
+## (`Campaign.midboss_of`).
+const MIDBOSSES := {
+	"bastion": {"name": "Bastion", "title": "Bastion-class battleship", "move": "sway", "sections": [
+		{"name": "BOW GUNS", "piece": "bow", "parts": [
+			{"kind": "cannon", "at": Vector3(-1.6, 1.4, 6.5)}, {"kind": "cannon", "at": Vector3(1.6, 1.4, 6.5)},
+			{"kind": "flak", "at": Vector3(-3.0, 1.0, 3.0)}, {"kind": "flak", "at": Vector3(3.0, 1.0, 3.0)}]},
+		{"name": "WING BATTERIES", "piece": "wings", "parts": [
+			{"kind": "battery", "at": Vector3(-5.4, 0.8, 0.2)}, {"kind": "battery", "at": Vector3(5.4, 0.8, 0.2)},
+			{"kind": "battery", "at": Vector3(-7.0, 0.8, -1.8)}, {"kind": "battery", "at": Vector3(7.0, 0.8, -1.8)}]},
+		{"name": "BRIDGE", "piece": "", "parts": [{"kind": "bridge", "at": Vector3(0.0, 1.8, -3.6)}]},
+	]},
+	# a long gunship reaching for the player with two armoured claws
+	"mantis": {"name": "Mantis", "title": "Mantis-class gunship", "move": "strafe", "sections": [
+		{"name": "CLAWS", "piece": "claws", "parts": [
+			{"kind": "lance", "at": Vector3(-5.0, 1.1, 7.6)}, {"kind": "lance", "at": Vector3(5.0, 1.1, 7.6)},
+			{"kind": "flak", "at": Vector3(-4.4, 1.0, 2.6)}, {"kind": "flak", "at": Vector3(4.4, 1.0, 2.6)}]},
+		{"name": "ENGINE PODS", "piece": "pods", "parts": [
+			{"kind": "spiral", "at": Vector3(-6.2, 1.0, -2.2)}, {"kind": "spiral", "at": Vector3(6.2, 1.0, -2.2)},
+			{"kind": "cannon", "at": Vector3(0.0, 1.5, 4.6)}]},
+		{"name": "EYE", "piece": "", "parts": [{"kind": "dome", "at": Vector3(0.0, 1.6, -1.2)}]},
+	]},
+	# a round platform that turns slowly, guns all round its rim
+	"halo": {"name": "Halo", "title": "Halo-class sky platform", "move": "spin", "sections": [
+		{"name": "RIM GUNS", "piece": "rim", "parts": [
+			{"kind": "cannon", "at": Vector3(2.7, 1.2, 4.68)}, {"kind": "flak", "at": Vector3(5.4, 1.0, 0.0)},
+			{"kind": "cannon", "at": Vector3(2.7, 1.2, -4.68)}, {"kind": "flak", "at": Vector3(-2.7, 1.0, -4.68)},
+			{"kind": "cannon", "at": Vector3(-5.4, 1.2, 0.0)}, {"kind": "flak", "at": Vector3(-2.7, 1.0, 4.68)}]},
+		{"name": "SPOKES", "piece": "spokes", "parts": [
+			{"kind": "battery", "at": Vector3(0.0, 1.3, 3.2)}, {"kind": "battery", "at": Vector3(2.77, 1.3, -1.6)},
+			{"kind": "battery", "at": Vector3(-2.77, 1.3, -1.6)}]},
+		{"name": "CORE", "piece": "", "parts": [{"kind": "dome", "at": Vector3(0.0, 2.0, 0.0)}]},
+	]},
+	# two long hulls on a shared deck: each hull is a section
+	"twin": {"name": "Corsair", "title": "Corsair twin-hull cruiser", "move": "weave", "sections": [
+		{"name": "PORT HULL", "piece": "port", "parts": [
+			{"kind": "cannon", "at": Vector3(-4.6, 1.4, 5.4)}, {"kind": "lance", "at": Vector3(-4.6, 1.2, 1.2)},
+			{"kind": "flak", "at": Vector3(-4.6, 1.0, -2.8)}]},
+		{"name": "STARBOARD HULL", "piece": "starboard", "parts": [
+			{"kind": "cannon", "at": Vector3(4.6, 1.4, 5.4)}, {"kind": "lance", "at": Vector3(4.6, 1.2, 1.2)},
+			{"kind": "flak", "at": Vector3(4.6, 1.0, -2.8)}]},
+		{"name": "DECK", "piece": "deck", "parts": [
+			{"kind": "spiral", "at": Vector3(0.0, 1.2, 3.0)}]},
+		{"name": "BRIDGE", "piece": "", "parts": [{"kind": "bridge", "at": Vector3(0.0, 1.8, -2.4)}]},
+	]},
+	# a T-shaped dreadnought: a wide gun bar at its bow, and it lunges at the player
+	"hammer": {"name": "Hammerhead", "title": "Hammerhead dreadnought", "move": "charge", "sections": [
+		{"name": "HAMMER", "piece": "hammer", "parts": [
+			{"kind": "cannon", "at": Vector3(-2.6, 1.4, 7.0)}, {"kind": "cannon", "at": Vector3(2.6, 1.4, 7.0)},
+			{"kind": "battery", "at": Vector3(-6.2, 0.9, 6.2)}, {"kind": "battery", "at": Vector3(6.2, 0.9, 6.2)}]},
+		{"name": "FINS", "piece": "fins", "parts": [
+			{"kind": "lance", "at": Vector3(-4.8, 1.0, -0.6)}, {"kind": "lance", "at": Vector3(4.8, 1.0, -0.6)},
+			{"kind": "spiral", "at": Vector3(0.0, 1.4, 2.2)}]},
+		{"name": "HEART", "piece": "", "parts": [{"kind": "dome", "at": Vector3(0.0, 1.8, -3.0)}]},
+	]},
+}
+## The parts that make up a mid-boss (Game.think_part fires their patterns), and its hearts.
+const BOSS_PART_KINDS := ["cannon", "flak", "battery", "lance", "spiral", "bridge", "dome"]
+const BOSS_HEARTS := ["bridge", "dome"]
+## The hand-made sector's mid-boss (kept for the tests and tools that look at it).
+const BOSS_SECTIONS: Array = MIDBOSSES.bastion.sections
 ## How far down the screen (relative z of the boss's centre) the boss sits, and how much
 ## closer it pushes after each section is destroyed.
 const BOSS_Z := Z_TOP + 8.0
 const BOSS_PUSH := 2.2
 
 
-static func boss_parts() -> int:
+static func boss_parts(id := "bastion") -> int:
 	var n := 0
-	for sec: Dictionary in BOSS_SECTIONS:
+	for sec: Dictionary in MIDBOSSES[id].sections:
 		n += sec.parts.size()
-	return n
-
-
-## Count of foes in the stage that can be shot down (for the results' kill rate).
-static func stage_foes() -> int:
-	var n := 0
-	for w: Dictionary in STAGE:
-		if w.kind == "boss":
-			n += boss_parts()
-		elif w.kind != "fortress":
-			n += int(w.n)
-	for sec: Dictionary in FORTRESS_SECTIONS:
-		n += 5 if sec.mounts.is_empty() else sec.mounts.size()
 	return n
 
 

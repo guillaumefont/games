@@ -5,16 +5,21 @@ extends RefCounted
 ## (`Models.THEMES`), its own mix of foes, and gets tougher (foe hull, bullet speed) and richer
 ## (scrap) than the last.
 ##
-## Every world plays its three levels the same way:
-## - level 1, a patrol: waves only, the level ends once the last wave is dealt with;
-## - level 2, the battleship: waves, then the Bastion (top-down), which ends the level;
-## - level 3, the fortress run: waves, the Bastion as mid-boss, more waves, then the fortress
-##   chased in third person, which ends the world.
-## Glass Coast's fortress run is the hand-made sector (`Rules.STAGE`); the other levels are
+## Every level plays the same way (Guillaume, 2026-11-23: "mid bosses and final fortresses for
+## every level"): waves, a mid-boss (top-down), more waves, then a fortress chased in third
+## person, which ends the level. The first level of a world is the shortest, the third the
+## longest; each level has its own mid-boss (`midboss_of`), never the same twice in a world.
+## Glass Coast's third level is the hand-made sector (`Rules.STAGE`); the other levels are
 ## built from their world's mix by `waves()`, the same every time (seeded by the level).
 
 const PER_WORLD := 3
-const KINDS := ["patrol", "battleship", "fortress"]
+## Seconds of waves before the mid-boss and after it, by level in the world.
+const LENGTHS := [[12.0, 10.0], [15.0, 14.0], [17.0, 17.0]]
+## The mid-bosses' hull (hp of their parts), by level in the world: the first is a little quicker.
+const BOSS_HP := [0.75, 0.9, 1.0]
+## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a
+## world's three levels have three different ones and each world starts on a new one.
+const MIDBOSS_ORDER := ["mantis", "halo", "bastion", "twin", "hammer"]
 
 ## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
 ## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
@@ -46,8 +51,13 @@ static func world_of(lv: int) -> Dictionary:
 	return WORLDS[clampi(lv, 0, count() - 1) / PER_WORLD]
 
 
-static func kind_of(lv: int) -> String:
-	return KINDS[lv % PER_WORLD]
+## The level's mid-boss id (a key of `Rules.MIDBOSSES`).
+static func midboss_of(lv: int) -> String:
+	return MIDBOSS_ORDER[(lv / PER_WORLD + lv % PER_WORLD) % MIDBOSS_ORDER.size()]
+
+
+static func midboss(lv: int) -> Dictionary:
+	return Rules.MIDBOSSES[midboss_of(lv)]
 
 
 ## "2-3" for the third level of the second world.
@@ -102,30 +112,20 @@ static func cleared(s: Dictionary, lv: int, grade: String) -> bool:
 
 # ---------------------------------------------------------------- the waves of a level
 
-## The waves of a level, by stage time, in the shape of `Rules.STAGE`. A level that doesn't end
-## with the fortress ends with an "end" wave: the level clears once its foes are dealt with.
+## The waves of a level, by stage time, in the shape of `Rules.STAGE`: waves, the mid-boss,
+## waves, the fortress.
 static func waves(lv: int) -> Array:
-	var kind := kind_of(lv)
 	if lv == PER_WORLD - 1:
 		return Rules.STAGE
 	var w: Dictionary = world_of(lv)
+	var span: Array = LENGTHS[lv % PER_WORLD]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7919 * (lv + 1)
 	var out: Array = []
-	var t := 1.5
-	match kind:
-		"patrol":
-			t = beats(out, rng, w, t, 30.0)
-			out.append({"t": t + 2.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
-		"battleship":
-			t = beats(out, rng, w, t, 26.0)
-			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-			out.append({"t": t + 3.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
-		"fortress":
-			t = beats(out, rng, w, t, 17.0)
-			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-			t = beats(out, rng, w, t + 4.0, t + 4.0 + 17.0)
-			out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
+	var t := beats(out, rng, w, 1.5, float(span[0]))
+	out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
+	t = beats(out, rng, w, t + 4.0, t + 4.0 + float(span[1]))
+	out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
 	return out
 
 
@@ -179,7 +179,7 @@ static func foes_in(lv: int) -> int:
 	var n := 0
 	for w: Dictionary in waves(lv):
 		if w.kind == "boss":
-			n += Rules.boss_parts()
+			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
 			for sec: Dictionary in Rules.FORTRESS_SECTIONS:
 				n += 5 if sec.mounts.is_empty() else sec.mounts.size()
