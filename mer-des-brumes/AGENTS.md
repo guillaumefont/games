@@ -11,8 +11,8 @@ Guillaume's decisions so far (keep them unless he changes his mind):
 - Broadside combat: guns fire within arcs to the sides (plus bow/stern chasers on some hulls). The tactic is
   to get behind the enemy; the AI (`Rules.ai_choose`) also manoeuvres for this.
 - Manual aim (2026-11-23): a connected player fires only with the green aim stick (bottom right, in a
-  fight): direction and reach pick the point on the water, letting go fires every loaded battery that
-  bears there. The ship defends itself (manoeuvres and fires alone) **only while the player is
+  fight): only its direction counts (2026-11-23: "uniquement la direction, pas la distance"); the balls
+  fly as far as the foe is, within range. Letting go fires every loaded battery that bears that way. The ship defends itself (manoeuvres and fires alone) **only while the player is
   disconnected** (`Game.connected`, false on app pause / focus loss), never while connected.
 - Upgrades are capped per hull; past the caps you buy a new hull (Sloop: fast; Frégate: better armed, bow
   and stern guns; Galion). A new hull starts without upgrades.

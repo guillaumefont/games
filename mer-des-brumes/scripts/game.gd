@@ -356,12 +356,14 @@ func can_aim() -> bool:
 	return connected and alive and not hud.port_open() and combat and combat.e.state != "sink"
 
 
-## Where the green stick points: its direction on the water, its reach the distance.
+## Where the balls will fall: the green stick only picks the direction; they fly as far as
+## the foe is (within the guns' range), so the player only has to point the guns.
 func aim_point() -> Vector3:
 	var pp := P.pos()
 	var d := hud.aim_vec.normalized()
-	var k := clampf((hud.aim_mag - Hud.AIM_DEAD) / (1.0 - Hud.AIM_DEAD), 0, 1)
-	var r := lerpf(6.0, float(P.st.range), k)
+	var r := float(P.st.range)
+	if combat and combat.e.state != "sink":
+		r = clampf(combat.e.xz().distance_to(P.xz()), 6.0, r)
 	return Vector3(pp.x + d.x * r, 0, pp.z + d.y * r)
 
 

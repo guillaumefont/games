@@ -203,15 +203,17 @@ func game() -> void:
 	touch(ac, true)
 	await process_frame
 	check(g.hud.aim_active and not g.hud.joy_active, "a thumb on the green stick aims, it doesn't steer")
-	var rng_m: float = g.P.st.range
-	var k := (12.0 - 6.0) / (rng_m - 6.0)
-	touch(ac + Vector2(Hud.AIM_R * (Hud.AIM_DEAD + k * (1 - Hud.AIM_DEAD)), 0), true, true)
+	touch(ac + Vector2(Hud.AIM_R * 0.4, 0), true, true)
 	await process_frame
 	g.step(1.0 / 60)
 	var at := g.aim_point()
-	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "direction and reach give the point where the balls fall")
+	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "the stick picks the direction; the balls fly as far as the foe")
+	touch(ac + Vector2(Hud.AIM_R, 0), true, true)
+	await process_frame
+	g.step(1.0 / 60)
+	check(g.aim_point().distance_to(at) < 0.3, "pushing the stick further doesn't change the distance")
 	check(g.aim_mark.visible, "the aim shows on the water")
-	touch(ac + Vector2(Hud.AIM_R * (Hud.AIM_DEAD + k * (1 - Hud.AIM_DEAD)), 0), false)
+	touch(ac + Vector2(Hud.AIM_R, 0), false)
 	await process_frame
 	check(g.s.balls == balls - 1 and g.balls.size() >= 1 and not g.hud.aim_active, "letting go fires the battery that bears")
 	for i in 120:
