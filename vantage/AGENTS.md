@@ -156,11 +156,16 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   ice, carved stone heads in the cinders. All destroyable. Landmarks are sturdy (Guillaume saw some fall before
   they showed): hp in `Rules.FOES`, and shots only hurt them `Rules.LANDMARK_IN` inside the top of the screen
   (`Game.well_in_view`; tested).
-- City roads (Guillaume asked for roads in the city): `Models.city_roads` lays asphalt avenues (along z, 3 m, every
-  8 m) and streets (along x, 2.4 m, every 10 m) on the city's block grid, with kerbs, dashed centre lines, zebra
-  crossings and flat bridges over the canals, into the ground's own surface (matte, one draw call), draped from
-  the land's height at each edge. Comically big cars sit in the lanes. Towers, parks and landmarks keep off the
-  road cells (`theme_prop` "city").
+- `scripts/city.gd` (`City`): Iron Sprawl's city (Guillaume wanted many varied buildings per block, angled
+  roads and features to spot: towers, bridges...). `City.build` is called from `ground_chunk` for the "city"
+  theme. The grid is turned by `City.ANGLE`; `to_local`/`to_world` convert. Avenues (4 m, every 16 m) and streets
+  (2 m, every 14 m) are laid in 2 m steps into the ground's own surface, ramping up onto bridges (railings,
+  piers) over the canals; every third avenue carries an elevated expressway (deck at `HWY_Y` on pillars).
+  Blocks are split into lots of setback towers, glass towers, brick mid-rises and shop rows (or a courtyard
+  ring); roofs get antennas, spires, helipads, water tanks, gardens or AC units, picked to fit under the
+  flight altitude (`Ctx.cap`). Some blocks are parks (fountain, water tower landmark), plazas (obelisk or
+  fountain, kiosks) or a stadium. Each road step, span and block is built by the chunk holding its centre.
+  Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
