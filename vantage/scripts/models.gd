@@ -147,6 +147,8 @@ class Builder:
 	var xf := Transform3D.IDENTITY
 	## False for things that sit on the ground: their bottom faces are never seen.
 	var bottoms := true
+	## False skips prism's bevelled top edge (small parts, built by the thousand, don't need it).
+	var bevels := true
 
 	func _init() -> void:
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -253,7 +255,7 @@ class Builder:
 		for p in outline:
 			minr = minf(minr, (p - mid).length())
 		var bev := 0.0
-		if top.x > 0.5 and top.y > 0.5 and y1 - y0 > 0.12 and minr > 0.12:
+		if bevels and top.x > 0.5 and top.y > 0.5 and y1 - y0 > 0.12 and minr > 0.12:
 			bev = minf(minf(0.16, (y1 - y0) * 0.3), minr * 0.22)
 		var yb := y1 - bev
 		var inset := 1.0 - bev / maxf(minr, 0.001) * 0.9
@@ -1402,8 +1404,8 @@ static func ground_col(h: float) -> Color:
 		"city":
 			if h < 0.0:   # canals
 				return Color8(0x2c, 0x52, 0x66).lerp(Color8(0x7a, 0x7e, 0x84), smoothstep(-0.06, 0.0, h))
-			var c := Color8(0x86, 0x8a, 0x90).lerp(Color8(0x6a, 0x8e, 0x56), smoothstep(0.3, 0.33, h) * (1.0 - smoothstep(0.4, 0.43, h)))
-			return c.lerp(Color8(0xa6, 0xa8, 0xac), smoothstep(0.7, 0.76, h))
+			# grassy banks along the canals, concrete under the blocks (City paves the rest)
+			return Color8(0x6a, 0x8e, 0x56).lerp(Color8(0x86, 0x8a, 0x90), smoothstep(0.1, 0.16, h))
 		"ice":
 			if h < 0.0:   # cold sea, pale where the shelf meets it
 				return Color8(0x1c, 0x3e, 0x60).lerp(Color8(0x6e, 0xae, 0xcc), smoothstep(-0.12, 0.0, h) * 0.8)
@@ -1545,9 +1547,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			scatter(b, hs4, cen, cy)
 	if theme == "city":
-		var road_h := func(x: float, z: float) -> float:
-			return maxf(ground_h.call(x, z), 0.0)
-		var roads := city_roads(b, z0, size, road_h)
+		var roads := City.build(b, z0, size, hgt, height)
 		gv.append_array(PackedVector3Array(roads[0]))
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
@@ -2001,37 +2001,9 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				b.box(Vector3(0, 0.3, 0), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
 				b.box(Vector3(-0.2, 0.75, 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
 		"city":
-			# streets between blocks, two towers to a block, a park where the land is green
-			var gx := posmod(int(floor(cen.x / 2.0)), 4)
-			var gz := posmod(int(floor(cen.z / 2.0)), 5)
-			var road := gx == 0 or gz == 0
-			if avg < -0.05 and r < 0.012 and not road:
-				mark("duck", Vector3(cen.x, -0.4, cen.z), r2 * TAU, r2)   # a giant rubber duck in the canal
-				return
-			if avg < 0.02 or gx == 0 or gz == 0 or (avg >= 0.3 and avg < 0.43):
-				if road:
-					return
-				if avg >= 0.3 and avg < 0.43 and r >= 0.12 and r < 0.14:
-					mark("water tower", at, r2 * TAU, r2)
-				elif avg >= 0.3 and avg < 0.43 and r < 0.12:
-					count("park tree")
-					place(b, at, r * 6.0)
-					b.prism(Vector3(0, -0.1, 0), ngon(0.6, 7), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
-				return
-			if gx != 2 or gz % 2 == 0:
-				return
-			count("tower")
-			var tall := 0.6 + r2 * r2 * 1.2
-			var cols := [Color8(0xd8, 0xd4, 0xcc), Color8(0x9e, 0xae, 0xc0), Color8(0xc4, 0x9a, 0x84), Color8(0x7e, 0x88, 0x96)]
-			var col: Color = cols[int(r * 40.0) % cols.size()]
-			place(b, Vector3(floor(cen.x / 2.0) * 2.0 + 1.0, cy, floor(cen.z / 2.0) * 2.0 + 2.0), 0.0)
-			b.box(Vector3(0, tall * 0.5 - 0.1, 0), Vector3(1.9, tall, 1.44), col)
-			b.box(Vector3(0, tall - 0.05, 0), Vector3(1.6, 0.12, 1.14), col.darkened(0.25))
-			# rows of windows on the side the camera sees
-			for f in int(tall / 0.4):
-				b.box(Vector3(0, 0.25 + f * 0.4, 0.73), Vector3(1.5, 0.12, 0.03), GLASS)
-			if tall > 1.2:
-				b.box(Vector3(0.3, tall + 0.15, -0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
+			# the city itself is City.build's; the canals get the odd giant rubber duck
+			if avg < -0.05 and r < 0.012 and not City.on_road(cen.x, cen.z, 1.5):
+				mark("duck", Vector3(cen.x, -0.4, cen.z), r2 * TAU, r2)
 		"ice":
 			if avg >= 0.05 and avg < 0.28 and r < 0.004:
 				mark("snowman", at, r2 * TAU, r2)
@@ -2148,104 +2120,11 @@ static func stone_head(b: Builder, p: Vector3) -> void:
 		b.box(Vector3(sx, 0.75, 0), Vector3(0.08, 0.5, 0.2), st.darkened(0.08))     # ears
 
 
-## The city's roads, on its block grid (see theme_prop "city"): avenues along z every 8 m, 3 m wide,
-## streets along x every 10 m, 2.4 m wide. Asphalt with sidewalks, dashed centre lines and zebra
-## crossings, draped on the land just above it (flat bridges over the canals), with comically big
-## cars in the lanes. Returns the road's triangles [vertices, normals, colours] for the ground's
-## own surface; the cars go into `b`.
+## The city's colours (City builds the city) and its comically big cars.
 const ASPHALT := Color8(0x4a, 0x4e, 0x58)
 const KERB := Color8(0xb2, 0xb4, 0xb8)
 const PAINT := Color8(0xf2, 0xf0, 0xe6)
 const CARS := [Color8(0xe0, 0x3c, 0x3c), Color8(0xf2, 0xc4, 0x2e), Color8(0x2e, 0x7a, 0xd0), Color8(0xf4, 0xf4, 0xf0), Color8(0x3c, 0xa0, 0x5a)]
-
-
-static func city_roads(b: Builder, z0: float, size: Vector2, ground_h: Callable) -> Array:
-	var gv := []
-	var gn := []
-	var gc := []
-	var hw := size.x * 0.5
-	var z1 := z0 - size.y
-	# a flat quad across a road: `u0..u1` across it (between its edges, where the land's height is
-	# ha and hb), `v0..v1` along it; `along_z` says which way it runs
-	var lay := func(along_z: bool, c: float, half: float, ha: Vector2, hb: Vector2, u0: float, u1: float,
-			v0: float, v1: float, up: float, col: Color) -> void:
-		var p := []
-		for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
-			var f := (q.x + half) / (half * 2.0)
-			var hv: Vector2 = ha if q.y == v0 else hb
-			var y := lerpf(hv.x, hv.y, f) + up
-			p.append(Vector3(c + q.x, y, q.y) if along_z else Vector3(q.y, y, c + q.x))
-		for t: Array in [[0, 1, 2], [0, 2, 3]]:
-			var n: Vector3 = (p[t[1]] - p[t[0]]).cross(p[t[2]] - p[t[0]])
-			# Godot's front faces wind clockwise seen from their front (as in the ground above)
-			var order := t if n.y < 0.0 else [t[0], t[2], t[1]]
-			for k: int in order:
-				gv.append(p[k])
-				gn.append(Vector3.UP)
-				gc.append(col)
-	var avenue := func(x: float) -> bool:   # inside an avenue (along z)
-		return posmod(x + 0.5, 8.0) < 3.0
-	var street := func(z: float) -> bool:   # inside a street (along x)
-		return posmod(z + 0.2, 10.0) < 2.4
-	# avenues, along z, centred on x = 8k + 1, 3 m wide
-	for k in range(floori(-hw / 8.0), ceili(hw / 8.0) + 1):
-		var xc := k * 8.0 + 1.0
-		if xc - 1.5 < -hw or xc + 1.5 > hw:
-			continue
-		var z := z0
-		var hz := Vector2(ground_h.call(xc - 1.5, z), ground_h.call(xc + 1.5, z))
-		while z > z1 + 0.01:
-			var zn := maxf(z - 1.0, z1)
-			var zm := (z + zn) * 0.5
-			var hn := Vector2(ground_h.call(xc - 1.5, zn), ground_h.call(xc + 1.5, zn))
-			lay.call(true, xc, 1.5, hz, hn, -1.5, 1.5, z, zn, 0.08, ASPHALT)
-			if not street.call(zm):
-				lay.call(true, xc, 1.5, hz, hn, -1.5, -1.2, z, zn, 0.11, KERB)
-				lay.call(true, xc, 1.5, hz, hn, 1.2, 1.5, z, zn, 0.11, KERB)
-				if posmod(zm, 4.0) < 2.0:
-					lay.call(true, xc, 1.5, hz, hn, -0.06, 0.06, z, zn, 0.1, PAINT)
-				# a zebra crossing on each side of a junction
-				var to_street := posmod(zm + 0.2, 10.0)
-				if to_street < 3.4 or to_street >= 9.0:
-					for st in 5:
-						var sx := -1.0 + st * 0.5
-						lay.call(true, xc, 1.5, hz, hn, sx - 0.14, sx + 0.14, z, zn, 0.1, PAINT)
-				var r := hash2(xc * 3.1, zm * 1.7)
-				if r < 0.07:
-					var y := (hz.x + hz.y) * 0.5 + 0.08
-					car(b, Vector3(xc + (0.7 if r < 0.035 else -0.7), y, zm), 0.0 if r < 0.035 else PI, r)
-			z = zn
-			hz = hn
-	# streets, along x, centred on z = 10m + 1, 2.4 m wide
-	for m in range(floori(z1 / 10.0), ceili(z0 / 10.0) + 1):
-		var zc := m * 10.0 + 1.0
-		if zc + 1.2 > z0 or zc - 1.2 < z1:
-			continue
-		# metre steps from x.5 to x.5, so each step is wholly in or out of an avenue (edges at 8k - 0.5
-		# and 8k + 2.5), and the avenues cover the junctions
-		var x := -hw + 0.5
-		var hx := Vector2(ground_h.call(x, zc - 1.2), ground_h.call(x, zc + 1.2))
-		while x < hw - 0.51:
-			var xn := x + 1.0
-			var xm := (x + xn) * 0.5
-			var hn := Vector2(ground_h.call(xn, zc - 1.2), ground_h.call(xn, zc + 1.2))
-			if avenue.call(xm):
-				x = xn
-				hx = hn
-				continue
-			lay.call(false, zc, 1.2, hx, hn, -1.2, 1.2, x, xn, 0.08, ASPHALT)
-			lay.call(false, zc, 1.2, hx, hn, -1.2, -0.95, x, xn, 0.11, KERB)
-			lay.call(false, zc, 1.2, hx, hn, 0.95, 1.2, x, xn, 0.11, KERB)
-			if posmod(xm, 4.0) < 2.0:
-				lay.call(false, zc, 1.2, hx, hn, -0.06, 0.06, x, xn, 0.1, PAINT)
-			var r := hash2(xm * 2.3, zc * 0.7)
-			if r < 0.05:
-				var y := (hx.x + hx.y) * 0.5 + 0.08
-				car(b, Vector3(xm, y, zc + (0.55 if r < 0.025 else -0.55)), PI * 0.5 if r < 0.025 else -PI * 0.5, r)
-			x = xn
-			hx = hn
-	b.xf = Transform3D.IDENTITY
-	return [gv, gn, gc]
 
 
 ## A little car, comically big like the rest: a coloured body, a glass cabin, dark wheels.
@@ -2255,8 +2134,9 @@ static func car(b: Builder, p: Vector3, ang: float, r: float) -> void:
 	var c: Color = CARS[int(r * 997.0) % CARS.size()]
 	b.box(Vector3(0, 0.1, 0), Vector3(0.42, 0.16, 0.82), c)
 	b.box(Vector3(0, 0.25, 0.04), Vector3(0.36, 0.14, 0.42), c.lightened(0.08))
-	b.box(Vector3(0, 0.25, -0.18), Vector3(0.34, 0.1, 0.03), GLASS)
-	b.box(Vector3(0, 0.25, 0.26), Vector3(0.34, 0.1, 0.03), GLASS)
+	for e in [[-0.181, -1.0], [0.261, 1.0]]:   # windscreen and rear window
+		var z: float = e[0]
+		b.quad(Vector3(-0.17, 0.2, z), Vector3(0.17, 0.2, z), Vector3(0.17, 0.3, z), Vector3(-0.17, 0.3, z), GLASS, Vector3(0, 0, e[1]))
 	for sx in [-0.22, 0.22]:
 		b.box(Vector3(sx, 0.05, 0), Vector3(0.05, 0.1, 0.66), Color8(0x24, 0x24, 0x2a))   # the wheels, one dark band a side
 
