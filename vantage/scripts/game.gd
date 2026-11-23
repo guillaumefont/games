@@ -837,7 +837,7 @@ func new_shot(at: Vector3, v: Vector3, dmg: float, missile := false) -> Obj:
 	o.vel = v
 	o.dmg = dmg
 	o.r = 0.3 if missile else 0.22
-	o.node = Models.shot_node(0.12 if missile else 0.1, Models.AMBER if missile else Models.SHOT_BODY, Models.SHOT_RIM)
+	o.node = Models.shot_node(0.12 if missile else 0.1, Models.AMBER if missile else Models.SHOT_BODY, Models.AMBER if missile else Models.SHOT_HALO, 0.0, 4.0, 0.6)
 	o.node.scale = Vector3(1, 1, 2.2 if missile else 3.2)
 	add_child(o.node)
 	o.node.position = at
@@ -1353,7 +1353,7 @@ func bullet(at: Vector3, v: Vector3) -> Obj:
 	b.vel = v * float(world.fire)
 	b.rel = true
 	b.r = 0.26
-	b.node = Models.shot_node(0.3, Models.BULLET_BODY, Models.BULLET_RIM, 0.16)
+	b.node = Models.shot_node(0.3, Models.fire_col(), Models.fire_col(), 0.16)
 	b.node.get_node("core").position.y = 0.17
 	add_child(b.node)
 	b.node.position = at
@@ -1385,7 +1385,7 @@ func orb(at: Vector3, speed: float) -> Obj:
 	o.pos = at
 	# fired from things that fly with the ship: aimed in that moving frame
 	o.vel = (ppos - at).normalized() * speed * float(world.fire) - Vector3(0, 0, rail_speed())
-	o.node = Models.shot_node(0.35, Models.BULLET_BODY, Models.BULLET_RIM, 0.18)
+	o.node = Models.shot_node(0.35, Models.fire_col(), Models.fire_col(), 0.18)
 	add_child(o.node)
 	foes.append(o)
 	return o
