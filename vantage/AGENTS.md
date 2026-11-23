@@ -56,7 +56,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results
+godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results, world edges
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -66,6 +66,9 @@ Screenshots (needs a display; one per key moment of a full run):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots`
 
 Explosions over time, from both cameras: same command with `tools/blast_shots.gd -- /tmp/blasts`.
+
+Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
+`xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
 
 Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/icon-512.png`.
 
@@ -77,6 +80,18 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
   `prism`, `box`, `octa`), cached by name. The carrier is one mesh, stern (open hangar) at z = 0, the
   hangar centred on the flight altitude `Rules.PY`.
+- `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
+  (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
+  short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
+  above it (`Game.hangar_ship_z`). Test layouts at several phone ratios in a SubViewport (a headless
+  root window can't be resized).
+- Scenery (`Models.scatter`, called per terrain cell from `ground_chunk`): villages of three kinds of
+  house (gabled cottage, two-storey with hipped roof, L-shaped farmhouse; windows, doors, chimneys,
+  fences or hedges), round-crowned trees, bushes and hay on the grass; pines in the woods; palms,
+  driftwood, pebbles, dune grass and parasols on the beaches; rocks with a ring of surf, lighthouses and
+  fishing boats along the coast. All of it goes into the chunk's one mesh (no extra draw calls), built
+  round its own origin and placed with `Builder.xf`; `Builder.bottoms = false` skips faces under the
+  ground. `Models.scenery` counts what was built (tested).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
@@ -135,6 +150,9 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   (`Game.step_crash`, `car_fall`) before the sector clears; it stays in sight (tested).
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
   (`Game.pov_drag`), so the ship gets from one flank of the carrier to the other in one move.
+- The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per
+  side in ever wider cells (`Models.ground_cols`, bare of trees), and `CHUNKS_AHEAD` chunks are kept, so the
+  ground runs past the fog's end from the chase camera in every direction (tested in `world_edges`).
 - `Models.ground_chunk` caps terrain height so the ground stays well under the flight altitude.
 - Place HUD controls with anchors and offsets (`Hud.place`), not `position`: the HUD is stretched.
 - In a `SceneTree` script, `await process_frame` after `add_child` before stepping the game, or

@@ -1,7 +1,7 @@
 extends SceneTree
 ## The game: rules (upgrades, saves, grades), the vertical stage's controls, the swoop into
 ## the mid-boss's sections, the carrier chase (final boss: dodging, reactor shield), death
-## and results. Runs headless:
+## and results, the scenery. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
 const SAVE := "user://test_save.json"
@@ -313,6 +313,93 @@ func lingering() -> void:
 	await process_frame
 
 
+## The chase camera looks far across the land: the ground must run past the fog's end in every
+## direction it can see, at both flanks of the reach and up high, so no edge of the world shows.
+func world_edges() -> void:
+	print("world edges")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	g.spawn_carrier()
+	g.begin_approach()
+	g.begin_pov()
+	var fog := 0.0
+	for we in g.find_children("*", "WorldEnvironment", false, false):
+		fog = (we as WorldEnvironment).environment.fog_depth_end
+	check(fog > 0.0, "the world has depth fog")
+	for o: Vector2 in [Vector2(-Rules.POV_REACH.x, 0), Vector2(Rules.POV_REACH.x, 0), Vector2(0, Rules.POV_REACH.y)]:
+		g.off = o
+		for i in 120:
+			g.off = o
+			g.step(DT)
+		var cam: Vector3 = g.cam.global_position
+		var box := AABB()
+		var first := true
+		for k in g.chunks:
+			var mi: MeshInstance3D = g.chunks[k]
+			var b: AABB = mi.global_transform * mi.mesh.get_aabb()
+			box = b if first else box.merge(b)
+			first = false
+		var ok := box.position.x <= cam.x - fog and box.end.x >= cam.x + fog and box.position.z <= cam.z - fog
+		check(ok, "ground runs past the fog from the chase camera at %s (x %.0f..%.0f, z to %.0f, camera %.0f, %.0f)" % [
+			o, box.position.x, box.end.x, box.position.z - cam.z, cam.x, cam.z])
+	g.queue_free()
+	await process_frame
+
+
+## The hangar on tall and short phones: the panel is whole on screen (its LAUNCH button
+## included, with a bottom margin), below the title, and the ship idles in the sky above it.
+## A tall phone once pushed the panel's bottom off the screen and the ship sat on its top edge.
+## Each screen is a SubViewport as wide as the game's 720 px and as tall as the phone's ratio.
+func hangar_fits() -> void:
+	print("hangar layout")
+	for res: Vector2i in [Vector2i(1080, 2410), Vector2i(720, 1280), Vector2i(1080, 1920), Vector2i(1200, 1600)]:
+		var sv := SubViewport.new()
+		sv.size = Vector2i(720, roundi(720.0 * res.y / res.x))
+		root.add_child(sv)
+		var g: Game = load("res://scenes/main.tscn").instantiate()
+		g.save_path = SAVE
+		g.driven = true
+		sv.add_child(g)
+		await process_frame
+		g.new_build = 99   # the update button makes the panel its tallest
+		g.hud.refresh_hangar()
+		for i in 3:
+			await process_frame
+		g.step(DT)
+		var vp := g.view_size()
+		var p := g.hud.hangar_panel
+		var r := p.get_global_rect()
+		var top := r.position.y   # the global rect is the scaled panel
+		var bottom := r.end.y
+		check(absf(top - g.hud.hangar_panel_top()) < 1.0, "%s: the ship is placed against the panel's real top" % res)
+		check(vp.y == sv.size.y and bottom <= vp.y - 20.0 and top >= Hud.HANGAR_TOP - 1.0,
+			"%s: the hangar panel fits (%.0f to %.0f of %.0f)" % [res, top, bottom, vp.y])
+		var sy := g.cam.unproject_position(g.ppos).y
+		check(sy > Hud.HANGAR_TOP and sy < top - 40.0, "%s: the ship idles above the panel (y %.0f)" % [res, sy])
+		sv.free()
+
+
+## Guillaume (2026-11-23): more detailed houses, rocks on the beaches and other scenery.
+func scenery() -> void:
+	print("scenery")
+	var g := make_game()
+	await process_frame
+	Models.scenery.clear()
+	var top := -INF
+	for k in 16:
+		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+		for i in m.get_surface_count():
+			for v: Vector3 in m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
+				top = maxf(top, v.y)
+	for kind: String in ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush"]:
+		check(Models.scenery.get(kind, 0) > 0, "the coast has %s (%d)" % [kind, Models.scenery.get(kind, 0)])
+	check(Models.scenery.get("house", 0) >= 20, "villages, not just the odd farmhouse (%d houses)" % Models.scenery.get("house", 0))
+	check(top < Rules.PY - 2.0, "scenery stays well under the flight altitude (top %.1f)" % top)
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -320,7 +407,10 @@ func _initialize() -> void:
 	await aiming()
 	await swipe()
 	await lingering()
+	await scenery()
 	await stage()
 	await death()
+	await world_edges()
+	await hangar_fits()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)
