@@ -118,11 +118,12 @@ const RAIL := 18.0
 ## about 2 s with an ease); touching again brings it back up to full speed over `SLOW_RESUME` s.
 const SLOW_STOP := 2.0
 const SLOW_RESUME := 0.25
-const GAP_FAR := 10.0
-const GAP_NEAR := 9.0
+const GAP_FAR := 24.0
+const GAP_NEAR := 16.0
 ## In the chase the fortress grows (during the swoop) to `FORTRESS_SCALE` times its size, its
-## hangar `FORTRESS_LIFT` above the flight altitude, so up close it overflows the screen.
-const FORTRESS_SCALE := 2.2
+## hangar `FORTRESS_LIFT` above the flight altitude; `GAP_FAR` behind it the stern, inner wings and
+## engines fill the view (Guillaume wanted to see more of the ship) and the wing tips run off it.
+const FORTRESS_SCALE := 1.3
 const FORTRESS_LIFT := 6.0
 ## Before the swoop, seen from above, it cruises this far above where it sits in the chase's
 ## frame, so it flies clear of the land (its bay above the flight altitude).

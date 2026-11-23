@@ -30,8 +30,10 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
   **outside** and in **third person** (Guillaume rejected a first-person tunnel). The fortress grows to
   `FORTRESS_SCALE` during the swoop (`fort_s`, `fort_lift`; `Game.fort_point()` maps model points to the
-  world) and flies `GAP_FAR`/`GAP_NEAR` ahead, so it overflows the screen. It is tall and narrow so
-  every target is within the ship's reach (Guillaume found a wide ship's sides hard to hit).
+  world) and flies `GAP_FAR`/`GAP_NEAR` ahead, far enough that its whole stern, the inner wings and
+  their engines show while the wing tips run off the screen (Guillaume: "you don't see much of the
+  spaceship"); the chase camera sits a little high and looks far ahead. Its body is narrow so every
+  target is within the ship's reach (Guillaume found a wide ship's sides hard to hit).
 - In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
   dodge; guns fire ahead with aim assist (`Game.aim_point`). Orbs inherit the rail speed and can be shot.
 - Boss targets have generous hit radii (Guillaume found them too small).
@@ -119,10 +121,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   stage's waves by time, the fortress's waves by rail distance), pure functions on the save dictionary.
   Save: `user://save.json`.
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
-  `prism`, `box`, `octa`), cached by name. A fortress's fuselage is one mesh (`fortress_hull`), stern (open
-  bay, cut from its own section with `Models.clip`) at z = 0, the bay centred on the flight altitude
+  `prism`, `box`, `octa`), cached by name. The fortresses are smooth instead (Guillaume found the boxy
+  ones "too blocky"): `Builder.loft` skins rings of points (`Models.oval`, superellipse sections) with
+  smooth normals, so fuselages, airfoils (`Models.airfoil`), nacelles, domes and capsules are lofts.
+  A fortress's fuselage is one mesh (`fortress_hull`), stern (open bay, its edge rounded off by
+  `STERN_IN`) at z = 0, the bay centred on the flight altitude
   `Rules.PY`; each wing (`wing_l`, `wing_r` nodes, built round its `WINGS` root) carries its engines, exhaust
-  glow and propellers or nozzles (`Game.fort_props`, spun by `Game.spin_props`). `Models.along_z` extrudes an outline along the hull (fuselage, nacelles, barrels).
+  glow and propellers or nozzles (`Game.fort_props`, spun by `Game.spin_props`).
 - `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
   (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
   short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
