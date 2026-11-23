@@ -76,6 +76,7 @@ under an `## AGENTS.md` heading in the PR body.
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss and fortress
+godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -95,6 +96,9 @@ side by side (from above, behind its stern, an overview, over its second and thi
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
+
+Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
+gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.
 
 Every world (hangar, play, battleship): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/worlds.gd -- /tmp/worlds`
 
@@ -120,7 +124,23 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
 - Each level also has its own fortress (`fortress_of`, `FORTRESS_ORDER`: three different ones per world,
   and no two levels with the same pair of bosses); 1-3 keeps the Goliath.
-- Next steps: per-world foe models.
+- Foes (Guillaume, 2026-11-23: "I keep meeting the same enemies", then "staggered types", added on
+  top of the first ones, never replacing them): `scripts/foes.gd` (`Foes`). Each level debuts one new kind
+  (`Foes.INTRO`, a world's three are its own: seaplanes, gyrocopters and pillboxes on the coast; scarab
+  skimmers, tanks and sand borers in the dunes; kamikaze quadcopters, flak guns and gunships in the city;
+  lancers, hovercraft and spiral crystals on the ice; magma drones, mortar walkers and a segmented wyrm in the
+  cinders). The debut opens its level (`Campaign.waves`) with a "NEW FOE" banner; later levels keep every kind
+  met (`Campaign.mix_of`: this world's 4, earlier worlds' 2, the first foes from the world's `mix`). Each kind
+  has its model, entry, movement and attack in `Foes` (`spawn`, `think`); moving parts are child meshes tagged
+  `part` (they flash with the hit). Hold positions are offsets from `view_top`, so they work on every screen
+  ratio. Static ground foes look for dry land (`Foes.dry_x`, `Game.land`). Flak shells (`Game.shell`) burst into
+  rings; a borer under the sand (`Obj.under`) can't be hit.
+- Gun towers (Guillaume, 2026-11-23: "different types of towers", "customize tower for each world, snowy,
+  sandy, on a building"): `scripts/towers.gd` (`Towers`). Four types (`TYPES`: flak `turret`, `rocket`
+  battery, `howitzer`, `pulse` mast), fielded by world (`BY_WORLD`; a level's "turret" waves take them in
+  turn). Each stands on its world's footing (`Towers.base`): sandbagged pad, sandstone block in a drift, a
+  whole building in the city, snowed-over pad (snow on the gun too), basalt crag with magma. The node sits at
+  the gun's height (`Towers.height`) so it's hit where the gun shows; the gun is a `top` part that turns.
 
 ## Code map
 

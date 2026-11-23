@@ -44,6 +44,11 @@ class Obj:
 	var homing := 0.0
 	## When a dart from behind reached its hold in the upper screen (-1: not yet).
 	var hold := -1.0
+	## Where a foe is heading (`Foes`), shots left in its burst, and whether it is out of reach
+	## (a borer under the sand).
+	var goal := Vector3.ZERO
+	var burst := 0
+	var under := false
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -99,6 +104,8 @@ var time_k := 1.0
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
+## Whether this run's new kind of foe (`Campaign.debut`) has been announced.
+var debuted := false
 var world: Dictionary = Campaign.WORLDS[0]
 var waves: Array = Rules.STAGE
 var sky_mat: ShaderMaterial
@@ -383,6 +390,7 @@ func launch(lv := -1) -> void:
 	stage_t = 0.0
 	wave_i = 0
 	queue.clear()
+	debuted = false
 	fortress_done = false
 	chase_y = Rules.PY
 	boss_done = false
@@ -799,13 +807,6 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			f.x0 = x * 1.25
 			f.pos = Vector3(f.x0, Rules.PY, top)
 			f.fire_t = 1.2 + 0.15 * i
-		"turret":
-			var f := new_foe("turret", Models.turret())
-			f.ground = true
-			var sx := x * 1.25 + (i - (n - 1) * 0.5) * 4.0
-			var gz := frame_z + minf(view_ground_top, top - frame_z - 3.0) - 2.0
-			f.pos = Vector3(clampf(sx, -7.0, 7.0), ground_y(sx, gz), gz)
-			f.fire_t = 1.5 + 0.4 * i
 		"heavy":
 			var f := new_foe("heavy", Models.heavy())
 			f.rel = true
@@ -831,6 +832,17 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			say("WARNING", mid.title)
 			sound.play("warning")
 			sound.music("carrier")
+		_:
+			Foes.spawn(self, kind, x, i, n, from)
+			# each level brings in a new kind of foe: announced the first time it shows
+			if kind == Campaign.debut(level) and not debuted:
+				debuted = true
+				say("NEW FOE", Foes.NAMES[kind], 2.4)
+
+
+## The land's noise value at (x, z): below zero is the sea (or a canal).
+func land(x: float, z: float) -> float:
+	return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + Models.lift()
 
 
 func ground_y(x: float, z: float) -> float:
@@ -876,7 +888,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and on_screen(f) and not (f.on_fort and (f.sec != fort_sec or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (f.sec != fort_sec or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -970,11 +982,19 @@ func update_objs(dt: float) -> void:
 		if o.kind == "missile":
 			steer_missile(o, dt)
 		o.pos += o.vel * dt
+	var bursts: Array[Obj] = []
 	for b in bullets:
 		b.t += dt
 		if b.rel:
 			b.pos.z += dz
 		b.pos += b.vel * dt
+		if b.burst > 0 and b.t >= b.life:
+			bursts.append(b)
+	for b in bursts:
+		# a flak shell bursts into a ring of shots
+		b.dead = true
+		pop(b.pos, 0.7, Models.fire_col())
+		ring(b.pos, b.burst, 5.5, b.t * 3.0)
 	vacuum_t = maxf(0.0, vacuum_t - dt)
 	for p in picks:
 		p.t += dt
@@ -1009,13 +1029,17 @@ func update_objs(dt: float) -> void:
 		var mi := f.node as MeshInstance3D
 		if mi:
 			mi.material_overlay = Models.hit_mat() if f.hit > 0.0 else null
+			# moving parts (rotors, turrets, fans) flash with it
+			for c in mi.get_children():
+				if c.has_meta("part"):
+					(c as MeshInstance3D).material_overlay = mi.material_overlay
 	for o in shots:
 		o.node.position = o.pos
 		if o.vel.length() > 0.1:
 			o.node.look_at(o.pos + o.vel, Vector3.UP if absf(o.vel.normalized().y) < 0.95 else Vector3.FORWARD)
 	for b in bullets:
 		b.node.position = b.pos
-		var pulse := 1.0 + 0.2 * sin(b.t * 18.0)
+		var pulse := (1.0 + 0.2 * sin(b.t * 18.0)) * b.size
 		b.node.scale = Vector3(pulse, pulse, pulse)
 	for p in picks:
 		p.node.position = p.pos + Vector3(0, 0.3 * sin(p.t * 5.0), 0)
@@ -1084,16 +1108,6 @@ func think(f: Obj, dt: float) -> void:
 			if f.t >= f.fire_t:
 				f.fire_t += 2.2
 				aimed(f.pos, 9.5)
-		"turret":
-			var at := seen(f.pos)
-			to_p = ppos - at
-			var z := at.z - frame_z
-			f.node.rotation.y = atan2(to_p.x, to_p.z)
-			if f.t >= f.fire_t and z > Rules.Z_TOP and z < Rules.Z_BOT - 4.0:
-				f.fire_t += 2.4
-				for k in 3:
-					var dir := Vector3(to_p.x, 0, to_p.z).normalized().rotated(Vector3.UP, (k - 1) * 0.12)
-					bullet(at, dir * 9.5)
 		"heavy":
 			var z := f.pos.z - frame_z
 			if f.t < 2.2:
@@ -1160,6 +1174,8 @@ func think(f: Obj, dt: float) -> void:
 					var dir := (ppos + Vector3(cos(a), sin(a), 0) * 2.2 - at).normalized()
 					var o := orb(at, 0.0)
 					o.vel = dir * 10.0 - Vector3(0, 0, rail_speed())
+		_:
+			Foes.think(self, f, dt)
 
 
 ## The boss's hull: comes down from the top, then flies its design's way (`move`), pushing
@@ -1395,6 +1411,24 @@ func aimed(at: Vector3, speed: float) -> void:
 	bullet(Vector3(at.x, Rules.PY, at.z), d.normalized() * speed)
 
 
+## A ring of n bullets from `at`, turned by `rot`.
+func ring(at: Vector3, n: int, speed: float, rot := 0.0) -> void:
+	for k in n:
+		var a := rot + TAU * k / n
+		bullet(Vector3(at.x, Rules.PY, at.z), Vector3(sin(a), 0, cos(a)) * speed)
+
+
+## A flak shell: a big slow bullet that flies to `to` and bursts there into a ring of n.
+func shell(at: Vector3, to: Vector3, speed: float, n: int) -> Obj:
+	var d := Vector3(to.x - at.x, 0, to.z - at.z)
+	var b := bullet(Vector3(at.x, Rules.PY, at.z), d.normalized() * speed if d.length() > 0.1 else Vector3(0, 0, speed))
+	b.life = clampf(d.length() / b.vel.length(), 0.4, 3.0)
+	b.burst = n
+	b.node.scale = Vector3.ONE * 1.5
+	b.size = 1.5
+	return b
+
+
 func fan(at: Vector3, n: int, spread: float, speed: float) -> void:
 	var d := Vector3(ppos.x - at.x, 0, ppos.z - at.z).normalized()
 	for k in n:
@@ -1423,7 +1457,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or not on_screen(f) or (f.on_fort and f.sec != fort_sec):
+			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and f.sec != fort_sec):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1445,7 +1479,7 @@ func collide(_dt: float) -> void:
 		if o.dead:
 			continue
 		for f in foes:
-			if f.dead or f.kind == "boss" or (f.on_fort and (not pov or f.sec != fort_sec)):
+			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or f.sec != fort_sec)):
 				continue
 			var hit := false
 			if pov:
@@ -1562,7 +1596,8 @@ func kill(f: Obj) -> void:
 		run.kills += 1
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
-		"duck": 1.8}.get(f.kind, 1.3)
+		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
+		"pillbox": 1.8, "rocket": 1.8, "howitzer": 2.0, "pulse": 1.8, "turret": 1.6, "ember": 1.6, "rotor": 1.5, "scarab": 1.5}.get(f.kind, 1.3)
 	if landmark(f):
 		# the landmark falls: a ruin stays on the ground where it stood
 		var k := int(f.anchor.z)

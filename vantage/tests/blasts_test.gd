@@ -107,6 +107,12 @@ func in_game() -> void:
 	var c := g.fx_carry()
 	check(c.z < 0.0 and c.z > -Rules.SCROLL - 0.01, "in the stage, air blasts drift with the scroll")
 	check(g.fx_carry(true) == Vector3.ZERO, "and ground blasts stay on the ground")
+	# nothing else on screen to blow up while the shake eases
+	g.wave_i = g.waves.size()
+	g.queue.clear()
+	for o in g.foes:
+		if o != f:
+			o.dead = true
 	g.shake = 1.0
 	var before := g.cam.global_transform
 	g.step(DT)
