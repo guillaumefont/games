@@ -823,8 +823,7 @@ func new_shot(at: Vector3, v: Vector3, dmg: float, missile := false) -> Obj:
 	o.vel = v
 	o.dmg = dmg
 	o.r = 0.3 if missile else 0.22
-	o.node = Models.instance(Models.shot_mesh(0.12 if missile else 0.1),
-		Models.glow(Models.AMBER if missile else Color8(0x9c, 0xf6, 0xff)))
+	o.node = Models.shot_node(0.12 if missile else 0.1, Models.AMBER if missile else Models.SHOT_BODY, Models.SHOT_RIM)
 	o.node.scale = Vector3(1, 1, 2.2 if missile else 3.2)
 	add_child(o.node)
 	o.node.position = at
@@ -1261,10 +1260,8 @@ func bullet(at: Vector3, v: Vector3) -> Obj:
 	b.vel = v * float(world.fire)
 	b.rel = true
 	b.r = 0.26
-	b.node = Models.instance(Models.shot_mesh(0.26), Models.glow(Color8(0xff, 0x4d, 0x8d)))
-	var core_dot := Models.instance(Models.shot_mesh(0.13), Models.glow(Color8(0xff, 0xe8, 0xf0)))
-	core_dot.position.y = 0.15
-	b.node.add_child(core_dot)
+	b.node = Models.shot_node(0.3, Models.BULLET_BODY, Models.BULLET_RIM, 0.16)
+	b.node.get_node("core").position.y = 0.17
 	add_child(b.node)
 	b.node.position = at
 	bullets.append(b)
@@ -1295,9 +1292,7 @@ func orb(at: Vector3, speed: float) -> Obj:
 	o.pos = at
 	# fired from things that fly with the ship: aimed in that moving frame
 	o.vel = (ppos - at).normalized() * speed * float(world.fire) - Vector3(0, 0, rail_speed())
-	o.node = Models.instance(Models.shot_mesh(0.35), Models.glow(Color8(0xff, 0x4d, 0x8d)))
-	var dot := Models.instance(Models.shot_mesh(0.18), Models.glow(Color8(0xff, 0xf0, 0xf4)))
-	o.node.add_child(dot)
+	o.node = Models.shot_node(0.35, Models.BULLET_BODY, Models.BULLET_RIM, 0.18)
 	add_child(o.node)
 	foes.append(o)
 	return o
@@ -1611,10 +1606,10 @@ func update_chunks() -> void:
 func spawn_marks() -> void:
 	for i in range(marks.size() - 1, -1, -1):
 		var m: Dictionary = marks[i]
-		var node: Node3D = m.node
-		if not is_instance_valid(node) or node.is_queued_for_deletion() or not chunks.has(m.chunk):
+		if not is_instance_valid(m.node) or m.node.is_queued_for_deletion() or not chunks.has(m.chunk):
 			marks.remove_at(i)
 			continue
+		var node: Node3D = m.node
 		if phase != "vert" or m.live:
 			continue
 		var z := seen(node.position).z - frame_z

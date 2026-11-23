@@ -406,6 +406,40 @@ func shadows() -> void:
 
 ## The chase camera looks far across the land: the ground must run past the fog's end in every
 ## direction it can see, at both flanks of the reach and up high, so no edge of the world shows.
+## Bullets must read on every world's ground (Guillaume, 2026-11-23: invisible on sand): each
+## shot has a dark rim (back faces of a bigger copy) that stands out from light ground, and a
+## saturated body that stands out from dark ground (sea, forest, lava crust).
+func readable_fire() -> void:
+	print("readable fire")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	var b := g.bullet(Vector3(0, Rules.PY, g.frame_z), Vector3.ZERO)
+	var sh := g.new_shot(g.ppos, Vector3(0, 0, -40), 1.0)
+	for o: Game.Obj in [b, sh]:
+		var rim := o.node.get_node_or_null("rim") as MeshInstance3D
+		var m := rim.material_override as StandardMaterial3D if rim else null
+		check(m != null and m.cull_mode == BaseMaterial3D.CULL_FRONT and rim.scale.x > 1.2, "%s has a dark rim round it" % o.kind)
+	var lum := func(c: Color) -> float: return c.srgb_to_linear().get_luminance()
+	# on every ground either the rim stands out by brightness or the body by colour
+	var keep := Models.theme
+	var lost := []
+	var rim_l: float = lum.call(Models.BULLET_RIM)
+	var d := Models.BULLET_BODY
+	for theme: String in Models.THEMES:
+		Models.theme = theme
+		for i in 41:
+			var c := Models.ground_col(-1.0 + i * 0.05)
+			var by_rim: float = (lum.call(c) + 0.05) / (rim_l + 0.05)
+			var by_hue := Vector3(c.r - d.r, c.g - d.g, c.b - d.b).length()
+			if by_rim < 3.0 and by_hue < 0.5:
+				lost.append("%s %s" % [theme, c.to_html(false)])
+	Models.theme = keep
+	check(lost.is_empty(), "bullets stand out from every world's ground %s" % ("" if lost.is_empty() else str(lost)))
+	g.queue_free()
+	await process_frame
+
+
 func world_edges() -> void:
 	print("world edges")
 	var g := make_game()
@@ -560,6 +594,7 @@ func _initialize() -> void:
 	await landmarks()
 	await stage()
 	await death()
+	await readable_fire()
 	await world_edges()
 	await hangar_fits()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)

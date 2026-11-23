@@ -57,7 +57,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, fortress chase (final boss), death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, full levels
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
@@ -175,6 +175,11 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
   paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already
   lifted). Tests and tools that call `step` directly are unaffected; `tick` is what the pause test drives.
+- Bullets must read on every world (Guillaume, 2026-11-23: invisible on sand). Every shot is
+  `Models.shot_node`: a body, a dark rim (back faces of a 1.4x copy, `Models.rim`, an inverted hull, so it
+  works from both cameras) and for enemy fire a hot core. Enemy fire is `BULLET_BODY`/`BULLET_RIM`; keep
+  new ground colours clear of it (tested in `readable_fire`). Close-ups over each world's ground:
+  `tools/bullet_shots.gd -- /tmp/bullets` (same command as the screenshots).
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores

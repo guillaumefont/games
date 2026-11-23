@@ -67,6 +67,42 @@ static func glow(c: Color, alpha := 1.0) -> StandardMaterial3D:
 	return _cache[key]
 
 
+## A dark rim drawn round a shot: the back faces of a slightly bigger copy of its mesh (an
+## inverted hull), so the shot keeps a dark outline over any ground, from either camera.
+static func rim(c: Color) -> StandardMaterial3D:
+	var key := "rim%s" % c.to_html()
+	if not _cache.has(key):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = c
+		m.cull_mode = BaseMaterial3D.CULL_FRONT
+		_cache[key] = m
+	return _cache[key]
+
+
+## Enemy fire: a hot core, a saturated body and a dark rim, readable on sand, snow, lava or sea.
+const BULLET_CORE := Color8(0xff, 0xfa, 0xe0)
+const BULLET_BODY := Color8(0xff, 0x24, 0x5e)
+const BULLET_RIM := Color8(0x26, 0x04, 0x12)
+## The ship's shots: cyan with a deep blue rim.
+const SHOT_BODY := Color8(0x9c, 0xf6, 0xff)
+const SHOT_RIM := Color8(0x06, 0x22, 0x3a)
+
+
+## A shot node: `body` mesh of radius `r`, a dark rim round it and, if `core` > 0, a hot core.
+static func shot_node(r: float, body: Color, rim_col: Color, core := 0.0, core_col := BULLET_CORE) -> MeshInstance3D:
+	var n := instance(shot_mesh(r), glow(body))
+	var edge := instance(shot_mesh(r), rim(rim_col))
+	edge.scale = Vector3.ONE * 1.4
+	edge.name = "rim"
+	n.add_child(edge)
+	if core > 0.0:
+		var c := instance(shot_mesh(core), glow(core_col))
+		c.name = "core"
+		n.add_child(c)
+	return n
+
+
 static func hash2(x: float, y: float) -> float:
 	var s := sin(x * 12.9898 + y * 78.233) * 43758.5453
 	return s - floor(s)
