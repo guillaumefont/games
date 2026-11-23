@@ -67,39 +67,69 @@ static func glow(c: Color, alpha := 1.0) -> StandardMaterial3D:
 	return _cache[key]
 
 
-## A dark rim drawn round a shot: the back faces of a slightly bigger copy of its mesh (an
-## inverted hull), so the shot keeps a dark outline over any ground, from either camera.
-static func rim(c: Color) -> StandardMaterial3D:
-	var key := "rim%s" % c.to_html()
+## A soft halo round a shot: a camera-facing disc whose colour fades out from the centre. Mixed
+## over the ground (not added), so it tints sand, snow or lava with the shot's colour instead of
+## washing out; it reads from both cameras.
+const HALO_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled;
+uniform vec4 col : source_color;
+void vertex() {
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(vec4(length(MODEL_MATRIX[0].xyz), 0, 0, 0), vec4(0, length(MODEL_MATRIX[1].xyz), 0, 0), vec4(0, 0, 1, 0), vec4(0, 0, 0, 1));
+}
+void fragment() {
+	float d = length(UV - 0.5) * 2.0;
+	float a = 1.0 - smoothstep(0.0, 1.0, d);
+	ALBEDO = col.rgb;
+	ALPHA = col.a * a * (0.6 + 0.4 * a);
+}
+"""
+
+
+static func halo_mat(c: Color) -> ShaderMaterial:
+	var key := "halo%s" % c.to_html()
 	if not _cache.has(key):
-		var m := StandardMaterial3D.new()
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.albedo_color = c
-		m.cull_mode = BaseMaterial3D.CULL_FRONT
+		var sh := Shader.new()
+		sh.code = HALO_SHADER
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.set_shader_parameter("col", c)
 		_cache[key] = m
 	return _cache[key]
 
 
-## Enemy fire: a hot core, a saturated body and a dark rim, readable on sand, snow, lava or sea.
+static func halo_mesh() -> Mesh:
+	return cached("halo", func() -> Mesh:
+		var q := QuadMesh.new()
+		q.size = Vector2(2, 2)
+		return q)
+
+
+## Enemy fire takes each world's `fire` colour (`THEMES`), picked to stand apart from its ground:
+## a white-hot core, a saturated body and a soft halo of the same colour.
 const BULLET_CORE := Color8(0xff, 0xfa, 0xe0)
-const BULLET_BODY := Color8(0xff, 0x24, 0x5e)
-const BULLET_RIM := Color8(0x26, 0x04, 0x12)
-## The ship's shots: cyan with a deep blue rim.
+## The ship's shots: cyan with a soft blue halo.
 const SHOT_BODY := Color8(0x9c, 0xf6, 0xff)
-const SHOT_RIM := Color8(0x06, 0x22, 0x3a)
+const SHOT_HALO := Color8(0x2a, 0x6c, 0xff)
 
 
-## A shot node: `body` mesh of radius `r`, a dark rim round it and, if `core` > 0, a hot core.
-static func shot_node(r: float, body: Color, rim_col: Color, core := 0.0, core_col := BULLET_CORE) -> MeshInstance3D:
+static func fire_col() -> Color:
+	return THEMES[theme].get("fire", Color8(0xff, 0x24, 0x5e))
+
+
+## A shot node: `body` mesh of radius `r`, a soft `halo` disc `glow_k` times its size and, if
+## `core` > 0, a hot core.
+static func shot_node(r: float, body: Color, halo: Color, core := 0.0, glow_k := 3.4, halo_a := 0.75) -> MeshInstance3D:
 	var n := instance(shot_mesh(r), glow(body))
-	var edge := instance(shot_mesh(r), rim(rim_col))
-	edge.scale = Vector3.ONE * 1.4
-	edge.name = "rim"
-	n.add_child(edge)
 	if core > 0.0:
-		var c := instance(shot_mesh(core), glow(core_col))
+		var c := instance(shot_mesh(core), glow(BULLET_CORE))
 		c.name = "core"
 		n.add_child(c)
+	var h := instance(halo_mesh(), halo_mat(Color(halo, halo_a)))
+	h.scale = Vector3.ONE * r * glow_k
+	h.name = "halo"
+	n.add_child(h)
 	return n
 
 
@@ -1031,15 +1061,15 @@ static var theme := "coast"
 ## Each theme's sky (top, middle, horizon, below), fog, ambient light and sun.
 const THEMES := {
 	"coast": {"sky": [Color(0.24, 0.50, 0.80), Color(0.48, 0.74, 0.92), Color(0.86, 0.92, 0.94), Color(0.62, 0.78, 0.88)],
-		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "sun": Color8(0xff, 0xef, 0xd6)},
+		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "fire": Color8(0xff, 0x24, 0x5e), "sun": Color8(0xff, 0xef, 0xd6)},
 	"dunes": {"sky": [Color(0.36, 0.56, 0.80), Color(0.66, 0.78, 0.88), Color(0.96, 0.88, 0.74), Color(0.86, 0.74, 0.58)],
-		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
+		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "fire": Color8(0x8a, 0x2c, 0xff), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
 	"city": {"sky": [Color(0.30, 0.42, 0.62), Color(0.56, 0.64, 0.76), Color(0.84, 0.80, 0.78), Color(0.58, 0.60, 0.66)],
-		"fog": Color8(0xc8, 0xc8, 0xd0), "ambient": Color8(0xb8, 0xc0, 0xd4), "sun": Color8(0xff, 0xe2, 0xc8), "lift": 0.35},
+		"fog": Color8(0xc8, 0xc8, 0xd0), "ambient": Color8(0xb8, 0xc0, 0xd4), "fire": Color8(0xff, 0x24, 0x5e), "sun": Color8(0xff, 0xe2, 0xc8), "lift": 0.35},
 	"ice": {"sky": [Color(0.40, 0.58, 0.82), Color(0.66, 0.80, 0.92), Color(0.92, 0.95, 0.98), Color(0.74, 0.84, 0.92)],
-		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
+		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "fire": Color8(0xff, 0x3a, 0x1a), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
 	"volcano": {"sky": [Color(0.22, 0.18, 0.26), Color(0.50, 0.32, 0.30), Color(0.86, 0.52, 0.34), Color(0.40, 0.24, 0.20)],
-		"fog": Color8(0x8c, 0x5c, 0x4c), "ambient": Color8(0xc8, 0x9c, 0x88), "sun": Color8(0xff, 0xc8, 0x90), "lift": 0.45},
+		"fog": Color8(0x8c, 0x5c, 0x4c), "ambient": Color8(0xc8, 0x9c, 0x88), "fire": Color8(0xd8, 0x3c, 0xff), "sun": Color8(0xff, 0xc8, 0x90), "lift": 0.45},
 }
 
 

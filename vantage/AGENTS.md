@@ -192,18 +192,12 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
   paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already
   lifted). Tests and tools that call `step` directly are unaffected; `tick` is what the pause test drives.
-- Bullets must read on every world (Guillaume, 2026-11-23: invisible on sand). Every shot is
-  `Models.shot_node`: a body, a dark rim (back faces of a 1.4x copy, `Models.rim`, an inverted hull, so it
-  works from both cameras) and for enemy fire a hot core. Enemy fire is `BULLET_BODY`/`BULLET_RIM`; keep
-  new ground colours clear of it (tested in `readable_fire`). Close-ups over each world's ground:
+- Bullets must read on every world (Guillaume, 2026-11-23: invisible on sand; then "black lined
+  bullets are ugly", so no outlines). Every shot is `Models.shot_node`: a body, a soft camera-facing halo
+  (`HALO_SHADER`, mixed over the ground, not added) and for enemy fire a white-hot core. Enemy fire takes the
+  world's `fire` colour in `Models.THEMES` (violet on the dunes, red-orange on ice, magenta on lava), which
+  must stay clear of that world's ground colours (tested in `readable_fire`). Close-ups over each world:
   `tools/bullet_shots.gd -- /tmp/bullets` (same command as the screenshots).
-- Ramming (Guillaume, 2026-11-23: collisions between the ship and enemies damage the ship): `Game.ram`.
-  Flying into an air foe (`Rules.RAMMABLE`) costs a hit and throws the ship back (`Game.knock`, eased off);
-  darts, swings and drones break up, heavies take `RAM_DMG`. During the blink after a hit the ship passes
-  through. Every mid-boss's hull is a wall (`Game.boss_rammed`, tested against its outlines from above,
-  `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
-  once broken off, and a spinning hull is turned). Ground targets and
-  scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
