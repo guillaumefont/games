@@ -1,6 +1,6 @@
 extends SceneTree
-## The game: rules (hulls, caps, spending, saves), the joystick, broadside fire, the AI's
-## manoeuvre, sinking and being sunk, treasure maps and the port. Runs headless:
+## The game: rules (hulls, caps, spending, saves), the joystick, broadside fire, the green aim
+## stick, defending alone only when disconnected, the AI's manoeuvre, sinking and being sunk, treasure maps and the port. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
 const SAVE := "user://test_save.json"
@@ -98,6 +98,35 @@ func touch(pos: Vector2, pressed: bool, motion := false) -> void:
 	root.push_input(ev, true)
 
 
+## A finger with its own index, sent the way the OS does (Godot also makes up mouse events
+## from the first finger, which the sticks must ignore).
+func finger(i: int, pos: Vector2, pressed: bool, drag := false) -> void:
+	var ev: InputEvent
+	if drag:
+		ev = InputEventScreenDrag.new()
+		ev.index = i
+	else:
+		ev = InputEventScreenTouch.new()
+		ev.index = i
+		ev.pressed = pressed
+	ev.position = pos
+	root.push_input(ev, true)
+	if i == 0:
+		# what Godot's touch emulation adds for the first finger
+		var m: InputEventMouse
+		if drag:
+			m = InputEventMouseMotion.new()
+			m.button_mask = MOUSE_BUTTON_MASK_LEFT
+		else:
+			m = InputEventMouseButton.new()
+			m.button_index = MOUSE_BUTTON_LEFT
+			m.pressed = pressed
+		m.device = InputEvent.DEVICE_ID_EMULATION
+		m.position = pos + Vector2(400, 0)
+		m.global_position = m.position
+		root.push_input(m, true)
+
+
 func clear_sea(g: Game) -> void:
 	for e in g.enemies:
 		e.node.position = Vector3(-200, 0, -200) + Vector3(g.enemies.find(e) * 12, 0, 0)
@@ -155,6 +184,101 @@ func game() -> void:
 	g.P.rl = {}
 	balls = g.s.balls
 	check(g.shoot_batteries(g.P, e, 0.016, g._pay_ball).is_empty() and g.s.balls == balls, "no shot at a ship dead astern")
+
+	# connected, the guns wait for the green stick: nothing fires on its own
+	e.node.position = Vector3(112, 0, -120)
+	e.aggro_cd = 999
+	g.P.rl = {}
+	g.balls.clear()
+	balls = g.s.balls
+	var ehp := e.hp
+	for i in 180:
+		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
+		e.v = 0
+		g.step(1.0 / 60)
+	check(g.s.balls == balls and g.balls.is_empty(), "connected: the ship never fires by itself")
+	check(g.hud._aim.visible and g.can_aim(), "the green aim stick shows in a fight")
+	# aim at the enemy (12 m to +x = right on screen) and let go
+	var ac := g.hud.aim_center()
+	touch(ac, true)
+	await process_frame
+	check(g.hud.aim_active and not g.hud.joy_active, "a thumb on the green stick aims, it doesn't steer")
+	var rng_m: float = g.P.st.range
+	var k := (12.0 - 6.0) / (rng_m - 6.0)
+	touch(ac + Vector2(Hud.AIM_R * (Hud.AIM_DEAD + k * (1 - Hud.AIM_DEAD)), 0), true, true)
+	await process_frame
+	g.step(1.0 / 60)
+	var at := g.aim_point()
+	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "direction and reach give the point where the balls fall")
+	check(g.aim_mark.visible, "the aim shows on the water")
+	touch(ac + Vector2(Hud.AIM_R * (Hud.AIM_DEAD + k * (1 - Hud.AIM_DEAD)), 0), false)
+	await process_frame
+	check(g.s.balls == balls - 1 and g.balls.size() >= 1 and not g.hud.aim_active, "letting go fires the battery that bears")
+	for i in 120:
+		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
+		g.step(1.0 / 60)
+	check(e.hp < ehp, "the aimed broadside hits")
+	# a miss: aiming at empty sea on the other side
+	g.P.rl = {}
+	balls = g.s.balls
+	ehp = e.hp
+	touch(ac, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), true, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), false)
+	await process_frame
+	for i in 120:
+		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
+		g.step(1.0 / 60)
+	check(g.s.balls == balls - 1 and is_equal_approx(e.hp, ehp), "aimed away, the balls miss")
+	# straight astern: the chaloupe has no gun there
+	g.P.rl = {}
+	balls = g.s.balls
+	touch(ac, true)
+	touch(ac + Vector2(0, -Hud.AIM_R), true, true)
+	touch(ac + Vector2(0, -Hud.AIM_R), false)
+	await process_frame
+	check(g.s.balls == balls, "no gun bears astern: nothing fires")
+	# let go in the middle: cancelled
+	touch(ac, true)
+	touch(ac + Vector2(8, 0), true, true)
+	touch(ac + Vector2(8, 0), false)
+	await process_frame
+	check(g.s.balls == balls, "letting go in the middle cancels the shot")
+	# two thumbs: one steers while the other aims
+	finger(0, Vector2(200, 700), true)
+	finger(1, ac, true)
+	finger(0, Vector2(290, 700), false, true)
+	finger(1, ac + Vector2(Hud.AIM_R, 0), false, true)
+	await process_frame
+	check(g.hud.joy_active and g.hud.aim_active, "two fingers: steering and aiming together")
+	check(g.hud.joy_vec.x > 0.9 and g.hud.aim_vec.x > 0.9, "each stick follows its own finger")
+	finger(1, ac + Vector2(Hud.AIM_R, 0), false)
+	await process_frame
+	check(g.hud.joy_active and not g.hud.aim_active and g.s.balls == balls - 1, "lifting the aiming finger fires, the other still steers")
+	finger(0, Vector2(290, 700), false)
+	await process_frame
+	check(not g.hud.joy_active, "and the steering finger lifts")
+
+	# disconnected: the ship defends itself, manoeuvring and firing alone
+	g.P.rl = {}
+	g.balls.clear()
+	balls = g.s.balls
+	g.throttle = 0
+	g._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	check(not g.connected, "leaving the game disconnects")
+	for i in 240:
+		g.step(1.0 / 60)
+	check(g.s.balls < balls, "disconnected: the ship fires on its own")
+	check(absf(g.P.v) > 0.5, "and manoeuvres on its own")
+	check(not g.hud._aim.visible, "no green stick while away")
+	g._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	g.step(1.0 / 60)
+	check(g.connected and g.hud._aim.visible, "back in the game: the guns are yours again")
+	g.P.rl = {}
+	balls = g.s.balls
+	for i in 120:
+		g.step(1.0 / 60)
+	check(g.s.balls == balls, "and they stop firing alone")
 	# the AI looks for a heading that brings its guns to bear and keeps out of ours
 	var r := Rules.ai_choose(e.view(), e.st, g.P.view(), g.P.st, 1.0, g.isles)
 	var rel := Rules.rel_bearing(e.pos().x, e.pos().z, r[0], g.P.pos().x, g.P.pos().z)
@@ -169,16 +293,21 @@ func game() -> void:
 	run(g, 12)
 	check(g.enemies.size() == n, "a new ship comes 15 s later")
 
-	# an attack: the prompt waits 6 s, then the ship defends itself
+	# an attack: the prompt waits 6 s, but a connected player's ship never defends itself
 	clear_sea(g)
 	var a: Game.Boat = g.enemies[1]
 	a.node.position = g.P.pos() + Vector3(14, 0, 0)
+	g.P.v = 0
+	g.throttle = 0
+	g.P.hp = 9999
+	balls = g.s.balls
 	g.start_combat(a, "pending")
 	check(g.hud.prompt_visible(), "being attacked asks: fight back or flee")
 	run(g, 6.2)
-	check(not g.hud.prompt_visible() and g.combat.get("mode", "") == "fight", "no answer: the ship fights back by itself")
+	check(not g.hud.prompt_visible() and g.combat.get("mode", "") == "fight", "no answer: the prompt goes, the fight is on")
 	run(g, 6)
-	check(absf(g.P.v) > 0.5, "and manoeuvres on its own")
+	check(absf(g.P.v) < 0.2 and g.s.balls == balls, "connected: the ship neither manoeuvres nor fires by itself")
+	g.P.hp = g.P.max_hp
 	g.on_flee()
 	check(g.combat.mode == "flee" and g.auto_flee, "flee runs away")
 

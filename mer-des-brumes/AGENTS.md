@@ -10,6 +10,10 @@ Guillaume's decisions so far (keep them unless he changes his mind):
   set when the thumb lifts. Edge-of-screen arrows point to the port, the treasure and the foe (no compass).
 - Broadside combat: guns fire within arcs to the sides (plus bow/stern chasers on some hulls). The tactic is
   to get behind the enemy; the AI (`Rules.ai_choose`) also manoeuvres for this.
+- Manual aim (2026-11-23): a connected player fires only with the green aim stick (bottom right, in a
+  fight): direction and reach pick the point on the water, letting go fires every loaded battery that
+  bears there. The ship defends itself (manoeuvres and fires alone) **only while the player is
+  disconnected** (`Game.connected`, false on app pause / focus loss), never while connected.
 - Upgrades are capped per hull; past the caps you buy a new hull (Sloop: fast; Frégate: better armed, bow
   and stern guns; Galion). A new hull starts without upgrades.
 - Coins only: the diamond currency was dropped ("stupide"); never reintroduce a premium storage currency.
@@ -46,7 +50,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd    # rules, joystick, broadsides, AI, sinking, treasure, port
+godot --headless --path . --script tests/game_test.gd    # rules, joystick, aim stick, broadsides, AI, sinking, treasure, port
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher layers
 ```
@@ -81,6 +85,9 @@ a "Nouvelle version N : relancer" button (`Game.refresh_game()`).
 - Particles shrink instead of fading, so they need no transparency sorting.
 - Don't run GDScript on worker threads, and no looping `AudioStreamWAV` (both crashed star-breaker on Android).
 - UI is built in code: use `set_anchors_and_offsets_preset()`.
+- Two sticks at once: `Hud._on_touch` follows each finger by its touch index and skips the mouse events
+  Godot makes up from touches (`device == InputEvent.DEVICE_ID_EMULATION`); a real mouse is one more finger.
+  Headless tests can't use `Input.parse_input_event`, so they push both events themselves (`finger()`).
 - GDScript can't infer types from Dictionary fields: write `var k: float = d.x`, not `:=`.
 
 ## App icon
