@@ -38,6 +38,29 @@ func _run() -> void:
 	# a slight blue tint (Guillaume, 2026-11-23), never the old periwinkle (#4d5d82: +0.21)
 	if rd.b - rd.r > 0.15 or rd.b - rd.r < 0.03:
 		fail("snow road should be grey with a slight blue tint (%s)" % rd.to_html(false))
+	# sand and rock (Guillaume, 2026-11-23): houses stand out from the ground, palms are
+	# fronds on a curved trunk (not a ball on a stick), all within a phone budget
+	for w in ["sand", "rock"]:
+		var pt := Premium.restyle(w, Themes.get_theme(w))
+		var g: Color = pt["ground"]
+		var house: Color = pt["hut_roof"] if w == "rock" else pt["wall"]
+		var dist := Vector3(house.r - g.r, house.g - g.g, house.b - g.b).length()
+		if dist < 0.15:
+			fail("%s houses blend into the ground (%s on %s)" % [w, house.to_html(false), g.to_html(false)])
+	var st := Premium.restyle("sand", Themes.get_theme("sand"))
+	var palm := Premium.palm(220.0, st, 5)
+	var pv: PackedVector3Array = palm.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var reach := 0.0
+	for v in pv:
+		reach = maxf(reach, Vector2(v.x, v.z).length())
+	print("palm: %d triangles, crown reach %.2f" % [pv.size() / 3, reach])
+	if pv.size() / 3 > 260:
+		fail("palm: %d triangles (budget 260)" % (pv.size() / 3))
+	if reach < 0.6:
+		fail("palm: fronds too short (%.2f)" % reach)
+	var adobe := WorldView._adobe_mesh(st["wall"], st["hut_roof"])
+	if adobe.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() / 3 > 160:
+		fail("adobe house over its triangle budget")
 	# the other worlds' props get gradients: the top of a gradient prop is lighter than its foot
 	var flat := ArrayMesh.new()
 	var tri := []

@@ -1363,6 +1363,28 @@ static func _leafy_mesh(h: float, r: float, col: Color) -> ArrayMesh:
 	return st.commit()
 
 # rock: a stack of tilted stone slabs narrowing to a flat top
+# premium sand: a whitewashed adobe house, flat roof with a raised parapet round a sunken
+# terrace, a little teal dome on one corner, a dark door and a warm window
+static func _adobe_mesh(wall: Color, trim: Color) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_band(st, 0.0, 58.0, 72.0, 70.0, 4, wall, PI / 4)
+	# parapet: outer wall up, a lighter lip, inner face down to the terrace
+	_band(st, 58.0, 66.0, 70.0, 70.0, 4, wall.lightened(0.04), PI / 4)
+	_band(st, 66.0, 66.0, 70.0, 60.0, 4, wall.lightened(0.12), PI / 4)
+	_band(st, 66.0, 61.0, 60.0, 60.0, 4, wall.darkened(0.12), PI / 4)
+	_band(st, 61.0, 61.0, 60.0, 0.0, 4, wall.darkened(0.06), PI / 4)
+	# terracotta band under the parapet
+	_band(st, 52.0, 58.5, 71.0, 71.0, 4, trim, PI / 4)
+	# a small dome on a drum in one corner of the terrace
+	var d := Vector3(-22, 0, -20)
+	_band(st, 61.0, 70.0, 16.0, 16.0, 6, wall.lightened(0.06), 0.0, d)
+	_band(st, 70.0, 78.0, 16.0, 12.0, 6, Color("#3f8a9a"), 0.0, d)
+	_band(st, 78.0, 84.0, 12.0, 0.0, 6, Color("#3f8a9a").lightened(0.12), 0.0, d)
+	_band(st, 0.0, 36.0, 10.0, 10.0, 4, Color("#2f5f6a"), PI / 4, Vector3(-14, 0, 47))
+	_band(st, 30.0, 44.0, 8.0, 8.0, 4, Color("#ffd98a"), PI / 4, Vector3(24, 0, 47))
+	return st.commit()
+
 static func _spire_mesh(h: float, r: float, col: Color) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1630,13 +1652,14 @@ func _premium_kit() -> Dictionary:
 				"mat_bush": Premium.prop_mat(rim, 0.03, 0.5) }
 		"rock":
 			return { "a": G.call(_spire_mesh(260.0, 60.0, th["spire"]), 260.0, 0.65, 1.15, 0.1), "b": G.call(_shrub_mesh(26.0, th["heather"]), 40.0),
-				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
+				"hut": G.call(_shack_mesh(th["wall"], th["hut_roof"], th["hut_roof"].darkened(0.25)), 110.0, 0.8, 1.08),
+				"chimney": Vector3(0, 128, 0) * U,
 				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0, 0.65, 1.15, 0.1),
 				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.03, 0.4), "mat": still,
 				"log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.12, "rocks": 0.11 }
 		_:
-			return { "a": G.call(_cactus_mesh(140.0, th["cactus"]), 160.0), "b": G.call(_palm_mesh(220.0, th["palm"]), 240.0, 0.7, 1.0),
-				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
+			return { "a": G.call(_cactus_mesh(140.0, th["cactus"]), 160.0), "b": G.call(Premium.palm(220.0, th, 5), 240.0, 0.75, 1.05),
+				"hut": G.call(_adobe_mesh(th["wall"], th["hut_roof"]), 80.0, 0.85, 1.05),
 				"rock": G.call(_rock_mesh(th["stone"][0], th["stone"][1]), 34.0, 0.65, 1.15, 0.1),
 				"mat_a": still, "mat_b": Premium.prop_mat(rim, 0.08, 2.4), "mat": still,
 				"log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.06, "rocks": 0.05 }
