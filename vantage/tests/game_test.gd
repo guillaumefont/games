@@ -150,6 +150,7 @@ func stage() -> void:
 		froms[w.get("from", "top")] = true
 	check(froms.has("left") and froms.has("right") and froms.has("back") and froms.has("top"), "from every edge: top, left, right and back")
 	# the final boss: the carrier, chased in third person
+	check(g.vacuum_t > 0.0 or g.picks.is_empty(), "its scrap flies to the ship")
 	run(g, 60.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.carrier != null, "the carrier arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
@@ -198,7 +199,11 @@ func stage() -> void:
 	check(g.core.hp == hp, "the shield stops shots on the core")
 	run(g, 40.0, func() -> bool: return g.phase == "escape")
 	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the carrier goes down")
-	run(g, 5.0, func() -> bool: return g.phase == "clear")
+	run(g, Rules.CRASH_TIME * 0.6)
+	check(g.carrier != null and g.carrier.visible and g.car_fall > 3.0 and g.carrier.rotation.x < -0.05,
+		"it noses over and falls, in sight (%.1f m down)" % g.car_fall)
+	check(not g.cam.is_position_behind(g.carrier.global_position) and g.sound.played.has("crash"), "with the crash heard")
+	run(g, Rules.CRASH_TIME + 2.0, func() -> bool: return g.phase == "clear")
 	check(g.phase == "clear" and g.cam_mode == "chase" and g.carrier == null, "the final boss is down: sector clear, still in the chase view")
 	run(g, 10.0, func() -> bool: return g.phase == "results")
 	check(g.phase == "results" and g.run.cleared, "results: sector cleared")
@@ -264,6 +269,19 @@ func aiming() -> void:
 	await process_frame
 
 
+## Guillaume: one swipe should carry the ship from one flank of the carrier to the other.
+func swipe() -> void:
+	print("the chase swipe")
+	var g := make_game()
+	await process_frame
+	var d := g.pov_drag()
+	var across := g.view_size().x * Rules.POV_SWIPE
+	check(across * d.x >= 2.0 * Rules.POV_REACH.x - 0.01, "a %.0f px swipe crosses the whole carrier (%.1f m)" % [across, across * d.x])
+	check(g.view_size().y * Rules.POV_SWIPE * d.y >= Rules.POV_REACH.y + Rules.POV_DOWN - 0.01, "and one swipe up climbs the tower")
+	g.queue_free()
+	await process_frame
+
+
 ## Guillaume: shots stopped short of the screen edge, and foes left too quickly.
 func lingering() -> void:
 	print("shot range and time on screen")
@@ -287,6 +305,10 @@ func lingering() -> void:
 				seen_t += DT
 		var want := 4.0 if from == "back" else 2.8
 		check(seen_t >= want, "a dart from the %s stays on screen %.1f s (at least %.1f)" % [from, seen_t, want])
+	var before: int = g.run.scrap
+	var c := g.drop(Vector3(5, Rules.PY, g.frame_z - 10), 7.0)
+	g.begin_approach()
+	check(c.dead and g.run.scrap == before + 7, "scrap left on screen is collected when the stage ends")
 	g.queue_free()
 	await process_frame
 
@@ -296,6 +318,7 @@ func _initialize() -> void:
 	rules()
 	await controls()
 	await aiming()
+	await swipe()
 	await lingering()
 	await stage()
 	await death()

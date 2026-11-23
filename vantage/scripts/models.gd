@@ -13,9 +13,9 @@ const AMBER := Color8(0xff, 0xa8, 0x2e)
 const HULL := Color8(0x5c, 0x63, 0x6e)
 const HULL_D := Color8(0x3a, 0x3f, 0x48)
 const DECK := Color8(0x76, 0x7d, 0x86)
-const SEA := Color8(0x2b, 0x7a, 0xa3)
-const SEA_D := Color8(0x1f, 0x5c, 0x86)
-const SAND := Color8(0xe3, 0xcf, 0x98)
+const SEA := Color8(0x23, 0x6c, 0x98)
+const SEA_D := Color8(0x17, 0x4b, 0x78)
+const SAND := Color8(0xdc, 0xc3, 0x86)
 const GRASS := Color8(0x74, 0xa8, 0x4e)
 const FOREST := Color8(0x3f, 0x77, 0x44)
 const ROCK := Color8(0x9a, 0x94, 0x88)
@@ -562,10 +562,11 @@ static func carrier_lights() -> Mesh:
 ## grade softly instead of stepping cell by cell.
 static func ground_col(h: float) -> Color:
 	if h < 0.0:
-		return SEA.lerp(SEA_D, smoothstep(-0.05, -0.45, h)).lerp(Color8(0x4f, 0xa4, 0xb0), smoothstep(-0.08, 0.0, h) * 0.6)
-	var c := SAND.lerp(GRASS, smoothstep(0.04, 0.12, h))
-	c = c.lerp(FOREST, smoothstep(0.28, 0.36, h))
-	return c.lerp(ROCK, smoothstep(0.48, 0.58, h))
+		# deep blue out at sea, turquoise shallows along the coast
+		return SEA.lerp(SEA_D, smoothstep(-0.08, -0.5, h)).lerp(Color8(0x3f, 0xa6, 0xb4), smoothstep(-0.1, 0.0, h) * 0.75)
+	var c := SAND.lerp(GRASS, smoothstep(0.05, 0.09, h))
+	c = c.lerp(FOREST, smoothstep(0.3, 0.34, h))
+	return c.lerp(ROCK, smoothstep(0.5, 0.56, h))
 
 
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float) -> Mesh:
@@ -589,8 +590,8 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		for j in nz + 1:
 			var wx := x0 + i * cx_
 			var wz := z0 - j * cz_
-			var jx := (hash2(wx, wz) - 0.5) * cell * 0.55
-			var jz := (hash2(wz * 1.3, wx * 0.7) - 0.5) * cell * 0.55
+			var jx := (hash2(wx, wz) - 0.5) * cell * 0.3
+			var jz := (hash2(wz * 1.3, wx * 0.7) - 0.5) * cell * 0.3
 			if i == 0 or i == nx:
 				jx = 0.0
 			var h: float = hgt.call(wx + jx, wz + jz)
@@ -613,26 +614,49 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					if a >= 0 and a <= nx and e >= 0 and e <= nz:
 						around += vs[a][e].y
 						k += 1
-				var hollow: float = clampf((around / k - vs[i][j].y) * 0.5, 0.0, 0.22)
+				var hollow: float = clampf((around / k - vs[i][j].y) * 0.8, 0.0, 0.25)
 				c = c.darkened(hollow)
 			cr.append(c)
 		cs.append(cr)
+	# soft normals: mostly the broad shape of the land (from the height field itself, so chunks
+	# meet without a seam), a little of each facet, so it reads as low poly but polished
+	var e := cell * 0.6
+	var ground_h := func(x: float, z: float) -> float:
+		return height.call(hgt.call(x, z))
+	var ns := []
+	for i in nx + 1:
+		var nr := []
+		for j in nz + 1:
+			var v: Vector3 = vs[i][j]
+			var dx: float = ground_h.call(v.x + e, v.z) - ground_h.call(v.x - e, v.z)
+			var dz: float = ground_h.call(v.x, v.z + e) - ground_h.call(v.x, v.z - e)
+			nr.append(Vector3(-dx / (2.0 * e), 1.0, -dz / (2.0 * e)).normalized())
+		ns.append(nr)
+	var gv := PackedVector3Array()
+	var gn := PackedVector3Array()
+	var gc := PackedColorArray()
 	for i in nx:
 		for j in nz:
 			var q := [vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]]
+			var qn := [ns[i][j], ns[i + 1][j], ns[i + 1][j + 1], ns[i][j + 1]]
 			var qc := [cs[i][j], cs[i + 1][j], cs[i + 1][j + 1], cs[i][j + 1]]
 			# split along the shorter diagonal of heights so ridges read as ridges
 			var flip: bool = absf(q[0].y - q[2].y) > absf(q[1].y - q[3].y)
 			var order := [[0, 1, 3], [1, 2, 3]] if flip else [[0, 1, 2], [0, 2, 3]]
-			# each facet takes one colour, from its centre's height: crisp facets, graded coasts
-			var qh := [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
+			# colours blend smoothly corner to corner; normals are 80% land, 20% facet
 			for t: Array in order:
-				var fh: float = (qh[t[0]] + qh[t[1]] + qh[t[2]]) / 3.0
-				var shade: float = (qc[t[0]].v + qc[t[1]].v + qc[t[2]].v) / 3.0 / maxf(ground_col(fh).v, 0.01)
-				var fc := ground_col(fh)
-				if fh >= 0.0:
-					fc = fc.darkened(clampf(1.0 - shade, 0.0, 0.22))
-				b.tri(q[t[0]], q[t[1]], q[t[2]], fc, Vector3.UP)
+				var a: Vector3 = q[t[0]]
+				var bb: Vector3 = q[t[1]]
+				var c: Vector3 = q[t[2]]
+				var fn := (bb - a).cross(c - a).normalized()
+				if fn.y < 0.0:
+					fn = -fn
+					var tmp: int = t[1]
+					t = [t[0], t[2], tmp]
+				for k: int in [t[0], t[2], t[1]]:
+					gv.append(q[k])
+					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
+					gc.append(qc[k])
 			# trees in the woods, the odd farmhouse on the grass
 			var avg: float = (hs[i][j] + hs[i + 1][j] + hs[i + 1][j + 1] + hs[i][j + 1]) * 0.25
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
@@ -642,12 +666,21 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				for n in 2 if r < 0.4 else 1:
 					var tp := cen + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2)
 					var tall := 1.4 + hash2(tp.x, tp.z) * 0.9
-					b.prism(Vector3(tp.x, cy - 0.1, tp.z), ngon(0.75, 5, r * 6), 0, tall, FOREST.darkened(0.1 + r * 0.15), Vector2(0.05, 0.05))
+					var tc := FOREST.darkened(0.05 + r * 0.15)
+					b.prism(Vector3(tp.x, cy - 0.1, tp.z), ngon(0.8, 7, r * 6), 0, tall * 0.6, tc, Vector2(0.45, 0.45))
+					b.prism(Vector3(tp.x, cy - 0.1 + tall * 0.45, tp.z), ngon(0.6, 7, r * 6 + 0.4), 0, tall * 0.6, tc.lightened(0.06), Vector2(0.05, 0.05))
 			elif avg >= 0.12 and avg < 0.28 and r < 0.07:
 				b.box(Vector3(cen.x, cy + 0.35, cen.z), Vector3(1.1, 0.7, 0.8), Color8(0xee, 0xe6, 0xd8))
 				b.prism(Vector3(cen.x, cy + 0.7, cen.z), pts([Vector2(-0.62, -0.48), Vector2(0.62, -0.48), Vector2(0.62, 0.48),
 					Vector2(-0.62, 0.48)]), 0, 0.45, Color8(0xc0, 0x5a, 0x3e), Vector2(0.05, 1.0))
-	return b.commit()
+	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = gv
+	arr[Mesh.ARRAY_NORMAL] = gn
+	arr[Mesh.ARRAY_COLOR] = gc
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
 
 
 static func shot_mesh(r: float, stretch := 1.0) -> Mesh:

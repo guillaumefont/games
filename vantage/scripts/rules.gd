@@ -48,7 +48,8 @@ const DRONE_EVERY := 6.5
 ## where the guns converge and how far the aim assist reaches.
 const POV_REACH := Vector2(11.0, 36.0)
 const POV_DOWN := 2.5
-const POV_DRAG := 0.016
+## The share of the screen's width (and height) one swipe needs to cross the whole reach.
+const POV_SWIPE := 0.7
 const RAIL := 18.0
 const GAP_FAR := 10.0
 const GAP_NEAR := 9.0
@@ -58,6 +59,9 @@ const CARRIER_SCALE := 2.2
 const CARRIER_LIFT := 6.0
 const APPROACH := 2.6
 const AIM_AHEAD := 32.0
+## The carrier going down after its reactor: how long, and how fast it falls (m/s per second).
+const CRASH_TIME := 5.0
+const CRASH_FALL := 1.6
 const AIM_ASSIST := 3.0
 
 # ---------------------------------------------------------------- upgrades

@@ -80,6 +80,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   in the vertical stage and 3D in the chase.
 - `scripts/hud.gd` (`Hud`): HUD, chase reticle and target brackets (drawn in `_draw`), hangar, results.
 
+## Audio
+
+All original and generated: `tools/audio/compose.py` (numpy + ffmpeg, DSP after perigee's) writes the two music
+tracks (`audio/music/sortie.ogg` for the hangar and stage, `carrier.ogg` for both bosses) and every effect in
+`audio/sfx/`. Edit the script and rerun it rather than editing the files. Music loops through `loop=true` in its
+`.import` file. `scripts/sound.gd` (`Sound`, `Game.sound`) crossfades the tracks on the "Music" bus and plays
+effects from a pool on "Sfx", each with its own level and a minimum gap (the cannon fires many times a second).
+
 ## Self-update (Android)
 
 Same scheme as mer-des-brumes and star-breaker: `scenes/boot.tscn` (`scripts/boot.gd`) is the main scene. It
@@ -106,8 +114,14 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
   copy of the mesh, projected along the sun onto `SHADOW_Y` each frame.
 - The look (premium pass): gradient sky shader, filmic tonemap, a cool fill light, rim light on the
-  model material, chamfered top edges on straight `prism`s (automatic), and faceted jittered terrain
-  coloured per facet by height with baked hollow darkening. No random per-facet shade.
+  model material, chamfered top edges on straight `prism`s (automatic). The terrain is low poly but
+  soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
+  height field, so chunks meet seamlessly) and 20% facet, colours blend per vertex in narrow bands,
+  hollows are darkened. No random per-facet shade.
+- After its reactor the carrier noses over, rolls and sinks into the sea for `Rules.CRASH_TIME`
+  (`Game.step_crash`, `car_fall`) before the sector clears; it stays in sight (tested).
+- In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
+  (`Game.pov_drag`), so the ship gets from one flank of the carrier to the other in one move.
 - `Models.ground_chunk` caps terrain height so the ground stays well under the flight altitude.
 - Place HUD controls with anchors and offsets (`Hud.place`), not `position`: the HUD is stretched.
 - In a `SceneTree` script, `await process_frame` after `add_child` before stepping the game, or
