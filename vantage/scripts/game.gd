@@ -45,6 +45,10 @@ const TOP_H := 38.0
 const TOP_BACK := 17.0
 const TOP_FOV := 29.0
 const CHUNK_W := 64.0
+## Ground past each side of CHUNK_W, in coarse cells, and chunks kept ahead: enough that the
+## chase camera never sees the edge of the world before the fog has swallowed it.
+const CHUNK_FLANK := 200.0
+const CHUNKS_AHEAD := 7
 
 var driven := false
 var save_path := Rules.SAVE_PATH
@@ -1393,10 +1397,10 @@ func update_shadows() -> void:
 func update_chunks() -> void:
 	var first := int(floor((-frame_z - 30.0) / CHUNK))
 	var want := {}
-	for k in range(first, first + 5):
+	for k in range(first, first + CHUNKS_AHEAD):
 		want[k] = true
 		if not chunks.has(k):
-			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0), Models.ground_mat())
+			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0, CHUNK_FLANK), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
 	for k in chunks.keys():
