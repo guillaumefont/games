@@ -1,7 +1,7 @@
 class_name Game
 extends Node3D
-## Vantage: the world, the player, foes, shots, the carrier episode and the camera. It is one
-## 3D world: the vertical stage is seen from a high tilted camera, and the carrier episode
+## Vantage: the world, the player, foes, shots, the fortress episode and the camera. It is one
+## 3D world: the vertical stage is seen from a high tilted camera, and the fortress episode
 ## swoops that same camera down behind the ship for a third-person chase (no cut, no scene
 ## change), then back up.
 ## The interface is in hud.gd; numbers and rules in rules.gd; meshes in models.gd.
@@ -32,7 +32,7 @@ class Obj:
 	## Time left on the hit flash; below zero, the pause before it can flash again, so
 	## steady fire flickers instead of holding the foe white.
 	var hit := -1.0
-	## Mount point on the carrier (x, y, z from its stern) for turrets and the reactor.
+	## Mount point on the fortress (x, y, z from its stern) for turrets and the reactor.
 	var anchor := Vector3.INF
 	## Height a drone hovers at.
 	var size_y := 0.0
@@ -93,10 +93,10 @@ var waves: Array = Rules.STAGE
 var sky_mat: ShaderMaterial
 var fill: DirectionalLight3D
 
-# the carrier episode
-var carrier: Node3D
+# the fortress episode
+var fortress: Node3D
 var stern_z := 0.0
-var carrier_done := false
+var fortress_done := false
 var rail_s := 0.0
 var aim := Vector2.ZERO
 var off := Vector2.ZERO
@@ -105,16 +105,22 @@ var approach_from := Vector3.ZERO
 var approach_stern := 0.0
 ## World z of the ship when the chase began (the ship is at rail_z - rail_s).
 var rail_z := 0.0
-## The carrier's current scale and lift (see Rules.CARRIER_SCALE).
-var car_s := 1.0
-var car_lift := 0.0
-## How far the carrier has fallen while going down.
-var car_fall := 0.0
+## The fortress's current scale and lift (see Rules.FORTRESS_SCALE).
+var fort_s := 1.0
+var fort_lift := 0.0
+## How far the fortress has fallen while going down.
+var fort_fall := 0.0
+## Its propellers (spun every frame), how fast they turn, and the wing that breaks off as it
+## goes down (and how that wing moves away, in the fortress's frame).
+var fort_props: Array[Node3D] = []
+var prop_spin := 0.0
+var wing_off: Node3D
+var wing_vel := Vector3.ZERO
 var boss_done := false
-## The carrier's current section (Rules.CARRIER_SECTIONS), its live parts and their full hp.
-var car_sec := 0
-var car_parts: Array[Obj] = []
-var car_max := 1.0
+## The fortress's current section (Rules.FORTRESS_SECTIONS), its live parts and their full hp.
+var fort_sec := 0
+var fort_parts: Array[Obj] = []
+var fort_max := 1.0
 var drone_t := 0.0
 var drone_n := 0
 
@@ -345,7 +351,7 @@ func launch(lv := -1) -> void:
 	stage_t = 0.0
 	wave_i = 0
 	queue.clear()
-	carrier_done = false
+	fortress_done = false
 	boss_done = false
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
@@ -458,9 +464,9 @@ func clear_all() -> void:
 		list.clear()
 	for m: Dictionary in marks:
 		m.live = false   # standing landmarks are targets again next sortie
-	if carrier:
-		carrier.queue_free()
-		carrier = null
+	if fortress:
+		fortress.queue_free()
+		fortress = null
 	boss = null
 	boss_parts.clear()
 	core = null
@@ -488,7 +494,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## Pointer input (touch is emulated as mouse). Dragging moves the ship 1:1 in the vertical
-## stage and the reticle inside the carrier.
+## stage and the reticle inside the fortress.
 func handle(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		touching = event.pressed
@@ -509,7 +515,7 @@ func drag_by(px: Vector2) -> void:
 
 
 ## Metres per pixel of drag in the chase: a swipe across most of the screen (`Rules.POV_SWIPE`)
-## carries the ship from one flank of the carrier to the other, and likewise from the bottom
+## carries the ship from one flank of the fortress to the other, and likewise from the bottom
 ## to the top of the tower.
 func pov_drag() -> Vector2:
 	var vs := view_size()
@@ -583,6 +589,7 @@ func step(dt: float) -> void:
 		update_objs(dt)
 	elif phase == "down":
 		update_objs(dt)
+	spin_props(dt)
 	shake = maxf(0.0, shake - dt * 1.2)
 	blasts.step(dt)
 	update_chunks()
@@ -605,7 +612,7 @@ func step_vert(dt: float) -> void:
 	update_view()
 	run_waves()
 	fire_vert(dt)
-	if carrier and not carrier_done and stern_z - frame_z >= Rules.Z_TOP + 2.0:
+	if fortress and not fortress_done and stern_z - frame_z >= Rules.Z_TOP + 2.0:
 		begin_approach()
 
 
@@ -626,10 +633,10 @@ func run_waves() -> void:
 				break
 			wave_i += 1
 			continue
-		if w.kind == "carrier":
-			if carrier == null and not carrier_done:
-				spawn_carrier()
-			if not carrier_done:
+		if w.kind == "fortress":
+			if fortress == null and not fortress_done:
+				spawn_fortress()
+			if not fortress_done:
 				break
 			wave_i += 1
 			continue
@@ -654,7 +661,7 @@ func air_foes() -> int:
 	return n
 
 
-## A level without the carrier is over: the ship flies off the top, then the results.
+## A level without the fortress is over: the ship flies off the top, then the results.
 func level_clear() -> void:
 	phase = "clear"
 	phase_t = 0.0
@@ -1028,7 +1035,7 @@ func think(f: Obj, dt: float) -> void:
 			f.node.look_at(ppos, Vector3.UP, true)
 			f.node.rotate_object_local(Vector3.FORWARD, f.t * 2.0)
 		"sentry":
-			f.pos = carrier_point(f.anchor)
+			f.pos = fort_point(f.anchor)
 			var dist := ppos.z - f.pos.z
 			f.node.look_at(ppos, Vector3.UP, true)
 			if f.t >= f.fire_t and dist > 6.0 and dist < 45.0:
@@ -1039,13 +1046,13 @@ func think(f: Obj, dt: float) -> void:
 		"panel":
 			if core:
 				var a := f.t * 0.9 + f.idx * TAU / 4.0
-				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6) * car_s / Rules.CARRIER_SCALE
+				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6) * fort_s / Rules.FORTRESS_SCALE
 				f.node.rotation = Vector3(PI / 2, 0, a)
 				if f.t >= f.fire_t and phase == "core":
 					f.fire_t += 2.6
 					orb(f.pos + Vector3(0, 0, 0.6), 10.0)
 		"core":
-			f.pos = carrier_point(f.anchor)
+			f.pos = fort_point(f.anchor)
 			f.node.rotation = Vector3(f.t * 0.7, f.t * 1.1, 0)
 			if phase == "core" and f.t >= f.fire_t:
 				var open := shielded() == false
@@ -1168,12 +1175,12 @@ func boss_shielded(f: Obj) -> bool:
 
 ## The boss bar: the current section's health left (0..1) and its name.
 func boss_bar() -> Array:
-	if pov_mode() and not car_parts.is_empty():
+	if pov_mode() and not fort_parts.is_empty():
 		var hp := 0.0
-		for p in car_parts:
+		for p in fort_parts:
 			hp += maxf(0.0, p.hp)
-		var sec: Dictionary = Rules.CARRIER_SECTIONS[car_sec]
-		return [hp / maxf(car_max, 1.0), "CARRIER · %s  %d/%d" % [sec.name, car_sec + 1, Rules.CARRIER_SECTIONS.size()]]
+		var sec: Dictionary = Rules.FORTRESS_SECTIONS[fort_sec]
+		return [hp / maxf(fort_max, 1.0), "FORTRESS · %s  %d/%d" % [sec.name, fort_sec + 1, Rules.FORTRESS_SECTIONS.size()]]
 	if boss == null:
 		return []
 	var hp := 0.0
@@ -1227,7 +1234,7 @@ func fan(at: Vector3, n: int, spread: float, speed: float) -> void:
 		bullet(Vector3(at.x, Rules.PY, at.z), d.rotated(Vector3.UP, a) * speed)
 
 
-## A shootable energy orb inside the carrier, aimed where the ship is.
+## A shootable energy orb inside the fortress, aimed where the ship is.
 func orb(at: Vector3, speed: float) -> Obj:
 	var o := Obj.new()
 	o.kind = "orb"
@@ -1369,8 +1376,8 @@ func kill(f: Obj) -> void:
 			drop(f.pos, float(scrap) / n)
 	if f in boss_parts:
 		part_down(f)
-	if f in car_parts:
-		car_part_down(f)
+	if f in fort_parts:
+		fort_part_down(f)
 	if f == boss:
 		# the mid-boss: the sector carries on, its clock picks up after the boss's wave
 		boss = null
@@ -1585,31 +1592,51 @@ func let_go(f: Obj) -> void:
 	f.node = null
 
 
-# ---------------------------------------------------------------- the carrier episode
+# ---------------------------------------------------------------- the fortress episode
 
-func spawn_carrier() -> void:
-	carrier = Node3D.new()
-	car_s = 1.0
-	car_lift = 0.0
-	car_fall = 0.0
+func spawn_fortress() -> void:
+	fortress = Node3D.new()
+	fort_s = 1.0
+	fort_lift = Rules.FORTRESS_CRUISE
+	fort_fall = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
-	carrier.position = Vector3(0, 0, stern_z)
-	var hull := Models.instance(Models.carrier(), Models.tinted(world.tint))
-	carrier.add_child(hull)
+	var hull := Models.instance(Models.fortress(), Models.tinted(world.tint))
+	fortress.add_child(hull)
 	cast_shadow_of(hull)
-	for part in [["plating", Models.carrier_plating()], ["tower", Models.carrier_tower()]]:
+	# the wings, each with its engines, spinning propellers and exhaust glow
+	fort_props.clear()
+	prop_spin = Rules.PROP_SPIN
+	wing_off = null
+	for side in [1.0, -1.0]:
+		var wing := Node3D.new()
+		wing.name = "wing_r" if side > 0 else "wing_l"
+		wing.position = Models.WING_ROOT * Vector3(side, 1, 1)
+		var mi := Models.instance(Models.fortress_wing(side), Models.tinted(world.tint))
+		wing.add_child(mi)
+		cast_shadow_of(mi)
+		wing.add_child(Models.instance(Models.fortress_exhausts(side), Models.glow(Color8(0xff, 0xc0, 0x70))))
+		for p in Models.prop_points():
+			var prop := Models.instance(Models.fortress_prop())
+			prop.position = p * Vector3(side, 1, 1)
+			prop.rotation.z = rng.randf() * TAU
+			prop.set_meta("dir", side)
+			wing.add_child(prop)
+			fort_props.append(prop)
+		fortress.add_child(wing)
+	for part in [["plating", Models.fortress_plating()], ["tower", Models.fortress_tower()]]:
 		var mi := Models.instance(part[1], Models.tinted(world.tint))
 		mi.name = part[0]
-		carrier.add_child(mi)
-	carrier.add_child(Models.instance(Models.carrier_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
-	add_child(carrier)
-	say("CARRIER AHEAD", "Get on its tail")
+		fortress.add_child(mi)
+	fortress.add_child(Models.instance(Models.fortress_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
+	add_child(fortress)
+	place_fortress(0.0)
+	say("FORTRESS AHEAD", "Get on its tail")
 	sound.play("warning")
 	sound.music("carrier")
 
 
 ## The swoop behind the ship: the vertical stage freezes, the ship drops in behind the
-## carrier, and the camera comes down to a chase view. Everything stays outside.
+## fortress, and the camera comes down to a chase view. Everything stays outside.
 func begin_approach() -> void:
 	phase = "approach"
 	phase_t = 0.0
@@ -1636,7 +1663,7 @@ func begin_approach() -> void:
 		sound.play("scrap")
 	queue.clear()
 	set_cam("chase", 2.2)
-	say("INTERCEPT", "Bring the carrier down")
+	say("INTERCEPT", "Bring the fortress down")
 	sound.play("swoop")
 
 
@@ -1644,82 +1671,91 @@ func step_approach(dt: float) -> void:
 	frame_z -= Rules.SCROLL * maxf(0.0, 1.0 - phase_t / 1.2) * dt
 	var k := clampf(phase_t / Rules.APPROACH, 0.0, 1.0)
 	var e := k * k * (3.0 - 2.0 * k)
-	# the carrier speeds up to the rail speed while the ship falls in behind it
+	# the fortress speeds up to the rail speed while the ship falls in behind it
 	stern_z = approach_stern - Rules.RAIL * Rules.APPROACH * 0.5 * k * k
 	var tail := Vector3(0, Rules.PY, stern_z + Rules.GAP_FAR)
 	var side := smoothstep(0.0, 1.0, minf(1.0, k * 1.6))
 	ppos = Vector3(lerpf(approach_from.x, tail.x, side), Rules.PY, lerpf(approach_from.z, tail.z, e))
 	pvel = Vector2((tail.x - approach_from.x) * (1.0 - side), 0)
-	car_s = lerpf(1.0, Rules.CARRIER_SCALE, e)
-	car_lift = Rules.CARRIER_LIFT * e
-	place_carrier(0.0)
+	fort_s = lerpf(1.0, Rules.FORTRESS_SCALE, e)
+	fort_lift = lerpf(Rules.FORTRESS_CRUISE, Rules.FORTRESS_LIFT, e)
+	place_fortress(0.0)
 	if k >= 1.0:
 		begin_pov()
 
 
-## Opens the carrier's next section: its turrets, or the reactor and its panels.
-func open_car_section() -> void:
-	car_parts.clear()
-	var sec: Dictionary = Rules.CARRIER_SECTIONS[car_sec]
+## Opens the fortress's next section: its turrets, or the reactor and its panels.
+func open_fort_section() -> void:
+	fort_parts.clear()
+	var sec: Dictionary = Rules.FORTRESS_SECTIONS[fort_sec]
 	if sec.mounts.is_empty():
 		spawn_pov({"kind": "core", "n": 1})
 		phase = "core"
 		phase_t = 0.0
 	else:
 		spawn_pov({"kind": "sentry", "n": sec.mounts.size(), "mounts": sec.mounts})
-	car_max = 0.0
-	for p in car_parts:
-		car_max += p.max_hp
-	say(sec.name, "Section %d of %d" % [car_sec + 1, Rules.CARRIER_SECTIONS.size()], 1.8)
+	fort_max = 0.0
+	for p in fort_parts:
+		fort_max += p.max_hp
+	say(sec.name, "Section %d of %d" % [fort_sec + 1, Rules.FORTRESS_SECTIONS.size()], 1.8)
 
 
-## A carrier part went down: once its section is cleared, that section breaks off.
-func car_part_down(f: Obj) -> void:
-	car_parts.erase(f)
-	if not car_parts.is_empty() or f == core:
+## A fortress part went down: once its section is cleared, that section breaks off.
+func fort_part_down(f: Obj) -> void:
+	fort_parts.erase(f)
+	if not fort_parts.is_empty() or f == core:
 		return
-	var name: String = ["plating", "tower", ""][car_sec]
-	if carrier and name != "" and carrier.has_node(name):
-		carrier.get_node(name).visible = false
+	var name: String = ["plating", "tower", ""][fort_sec]
+	if fortress and name != "" and fortress.has_node(name):
+		fortress.get_node(name).visible = false
 		var pts: Array = []
 		for k in 8:
 			var at := Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 11.0), 0.5) if name == "plating" \
 				else Vector3(rng.randf_range(-4.0, 4.0), rng.randf_range(13.0, 21.0), -2.0)
-			pts.append(carrier_point(at))
+			pts.append(fort_point(at))
 		pop(pts[0], 3.6, Models.AMBER)
 		blasts.chain(pts.slice(1), 3.0, 0.7, fx_carry(), 5.0)
 		shake = 0.7
 		sound.play("crash")
-	car_sec += 1
-	open_car_section()
+	fort_sec += 1
+	open_fort_section()
 
 
-func place_carrier(bob: float) -> void:
-	carrier.position = Vector3(0, Rules.PY + car_lift - Rules.PY * car_s + bob - car_fall, stern_z)
-	carrier.scale = Vector3.ONE * car_s
+## Turns the fortress's propellers (each wing's the other way round); a broken wing's stop.
+func spin_props(dt: float) -> void:
+	if fortress == null:
+		return
+	for p in fort_props:
+		if is_instance_valid(p) and p.get_parent() != wing_off:
+			p.rotation.z += prop_spin * float(p.get_meta("dir")) * dt
 
 
-## A point given on the carrier's model (its stern at z = 0) in the world, with its current
+func place_fortress(bob: float) -> void:
+	fortress.position = Vector3(0, Rules.PY + fort_lift - Rules.PY * fort_s + bob - fort_fall, stern_z)
+	fortress.scale = Vector3.ONE * fort_s
+
+
+## A point given on the fortress's model (its stern at z = 0) in the world, with its current
 ## scale and lift.
-func carrier_point(p: Vector3) -> Vector3:
-	return Vector3(p.x * car_s, Rules.PY + car_lift + (p.y - Rules.PY) * car_s, stern_z + p.z * car_s)
+func fort_point(p: Vector3) -> Vector3:
+	return Vector3(p.x * fort_s, Rules.PY + fort_lift + (p.y - Rules.PY) * fort_s, stern_z + p.z * fort_s)
 
 
 func begin_pov() -> void:
 	phase = "pov"
 	phase_t = 0.0
-	car_sec = 0
+	fort_sec = 0
 	drone_t = 3.0
 	drone_n = 0
-	open_car_section()
+	open_fort_section()
 	rail_s = 0.0
 	rail_z = ppos.z
 	off = Vector2.ZERO
 	hud.show_play()
 
 
-## The chase, on rails: ship and carrier fly forward at `Rules.RAIL`; the drag moves the ship
-## in the plane facing the carrier (that's how you dodge), the guns fire straight ahead with
+## The chase, on rails: ship and fortress fly forward at `Rules.RAIL`; the drag moves the ship
+## in the plane facing the fortress (that's how you dodge), the guns fire straight ahead with
 ## a little aim assist.
 func step_pov(dt: float) -> void:
 	var v := rail_speed()
@@ -1731,25 +1767,25 @@ func step_pov(dt: float) -> void:
 	pvel = (cur - before) / maxf(dt, 0.001)
 	ppos = Vector3(cur.x, cur.y, rail_z - rail_s)
 	frame_z = ppos.z - 6.0
-	if carrier:
+	if fortress:
 		var gap := Rules.GAP_NEAR if phase == "core" else Rules.GAP_FAR
 		var want := ppos.z - gap
 		if phase == "escape":
 			# losing way: it drops back a little, but stays ahead and below the ship
 			want = ppos.z - Rules.GAP_FAR - phase_t * 5.0
 		stern_z = lerpf(stern_z, want, minf(1.0, dt * 0.6)) - v * dt
-		place_carrier(sin(phase_t * 0.7) * 0.3)
+		place_fortress(sin(phase_t * 0.7) * 0.3)
 	aim = cam.unproject_position(ppos + Vector3(0, 0.2, -Rules.AIM_AHEAD)) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
 	if phase == "escape":
 		step_crash(dt)
 		if phase_t > Rules.CRASH_TIME:
-			if carrier:
-				carrier.queue_free()
-				carrier = null
+			if fortress:
+				fortress.queue_free()
+				fortress = null
 			phase = "clear"
 			phase_t = 0.0
 			run.score += 5000
-			say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Carrier destroyed  +5,000", 3.0)
+			say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
 			return
 	drone_t -= dt
 	if drone_t <= 0.0:
@@ -1759,64 +1795,97 @@ func step_pov(dt: float) -> void:
 	fire_pov(dt)
 
 
-## The carrier going down: fires break out along the hull, it noses over and rolls, falls
-## out of the sky trailing explosions, and hits the sea in one last blast.
+## The fortress going down: its engines catch fire and its propellers wind down, the left
+## wing snaps off at the root and tumbles away, and the fortress rolls onto that side, noses
+## over and falls out of the sky trailing smoke and explosions, to hit the sea (water spouts)
+## or the shore (a wall of fire) in one last blast.
 func step_crash(dt: float) -> void:
-	if carrier == null:
+	if fortress == null:
 		return
 	var k := phase_t / Rules.CRASH_TIME
-	carrier.rotation = Vector3(-0.42 * k * k, 0, 0.3 * k + sin(phase_t * 3.0) * 0.02)
-	car_fall += Rules.CRASH_FALL * phase_t * dt
+	var snapped := phase_t > Rules.WING_SNAP
+	var roll := 0.12 * k + (0.85 * smoothstep(Rules.WING_SNAP, Rules.CRASH_TIME, phase_t) if snapped else 0.0)
+	fortress.rotation = Vector3(-0.5 * k * k, 0, roll + sin(phase_t * 3.0) * 0.02)
+	fort_fall += Rules.CRASH_FALL * phase_t * dt
+	prop_spin = maxf(Rules.PROP_SPIN * 0.25, prop_spin - Rules.PROP_SPIN * 0.3 * dt)
 	var carry := fx_carry()
-	# fires on the stern trail smoke as it falls
+	# every engine burns, and the stern trails fire and smoke
 	if fmod(phase_t, 0.08) < dt:
-		for p in [Vector3(-3.2, 9.0, 0.6), Vector3(2.8, 15.0, 0.2), Vector3(0.5, 4.0, 0.8)]:
-			if phase_t > 0.3 * (1 + int(p.y) % 3):
-				blasts.burn(carrier.to_global(p), 0.55 * car_s, carry * 0.95)
+		var i := 0
+		for p in fort_props:
+			if is_instance_valid(p) and phase_t > 0.15 * i:
+				blasts.burn(p.global_position, 0.6 * fort_s, carry * 0.95)
+			i += 1
+		for p in [Vector3(-3.2, 9.0, 0.6), Vector3(2.8, 15.0, 0.2)]:
+			if phase_t > 0.5:
+				blasts.burn(fortress.to_global(p), 0.55 * fort_s, carry * 0.95)
+	# the left wing snaps at the root
+	var wing: Node3D = fortress.get_node_or_null("wing_l")
+	if snapped and wing and wing_off == null:
+		wing_off = wing
+		wing_vel = Vector3(-7.0, 2.0, 6.0)
+		var root := fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1))
+		pop(root, 5.5, Models.AMBER)
+		blasts.chain([fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1) + Vector3(-4, 0, 6)),
+			fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1) + Vector3(-2, 1, -8))], 4.0, 0.25, carry)
+		shake = 1.0
+		sound.play("crash", 2.0)
+	if wing_off:
+		wing_vel.y -= 9.0 * dt
+		wing_off.position += wing_vel * dt
+		wing_off.rotation += Vector3(0.5, 0.3, 1.6) * dt
 	if fmod(phase_t, 0.16) < dt:
-		# most on the stern, where they show, some further along the hull
-		var z := -rng.randf_range(0, 4.0) if rng.randf() < 0.65 else -rng.randf_range(4.0, Rules.CARRIER_LEN * 0.3)
-		var at := carrier.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), z))
+		# most on the tail, where they show, some along the hull and on the wing roots
+		var z := -rng.randf_range(0, 4.0) if rng.randf() < 0.55 else -rng.randf_range(4.0, Rules.FORTRESS_LEN * 0.3)
+		var at := fortress.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), z))
+		if rng.randf() < 0.25:
+			at = fortress.to_global(Models.WING_ROOT * Vector3(1, 1, 1) + Vector3(rng.randf_range(0, 12), 0, rng.randf_range(-8, 8)))
 		pop(at, rng.randf_range(2.6, 4.6), Models.AMBER)
 		sound.play("boom", -4.0)
 		shake = maxf(shake, 0.3)
-	if phase_t > Rules.CRASH_TIME - 1.0 and not carrier.has_meta("splashed"):
-		carrier.set_meta("splashed", true)
-		# it hits the water (spouts) or the shore (a fireball) all along its hull
+	if phase_t > Rules.CRASH_TIME - 1.0 and not fortress.has_meta("impact"):
+		fortress.set_meta("impact", true)
+		# it hits the water (spouts) or the shore (a fireball) all along its hull, the wing apart
 		var drift := Vector3(0, 0, -rail_speed() * 0.6)
+		var hits: Array[Vector3] = []
 		for j in 6:
-			var at := carrier.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0))
+			hits.append(fortress.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0)))
+		if wing_off:
+			hits.append(wing_off.to_global(Vector3(-Models.WING_SPAN * 0.5, 0, 0)))
+		var j := 0
+		for at in hits:
 			at.y = ground_y(at.x, at.z)
 			if at.y < 0.05:
 				blasts.splash(at, 11.0, drift)
 			blasts.later(0.05 + j * 0.07, at + Vector3(0, 1.5, 0), 6.0, Models.AMBER, drift)
+			j += 1
 		shake = 1.0
 		sound.play("crash", 3.0)
 	if phase_t > Rules.CRASH_TIME - 0.3:
-		carrier.visible = false
+		fortress.visible = false
 
 
 func spawn_pov(w: Dictionary) -> void:
 	for i in int(w.n):
 		match w.kind:
 			"drone":
-				# launched from the carrier's hangar, they fall back towards the ship
+				# launched from the fortress's hangar, they fall back towards the ship
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
 				f.x0 = (i - (w.n - 1) * 0.5) * 2.2
-				f.size_y = Rules.PY + car_lift + (i % 3) * 5.0
-				f.pos = carrier_point(Vector3(rng.randf_range(-2, 2), Rules.PY, 1.0))
+				f.size_y = Rules.PY + fort_lift + (i % 3) * 5.0
+				f.pos = fort_point(Vector3(rng.randf_range(-2, 2), Rules.PY, 1.0))
 				f.fire_t = 1.4 + i * 0.45
 			"sentry":
-				# a gun turret on the carrier: on its stern, the lower tower or the upper tower
+				# a gun turret on the fortress: on its stern, the lower tower or the upper tower
 				var f := new_foe("sentry", Models.sentry())
 				var m: Vector2 = w.mounts[i]
-				var fz := 0.9 if m.y < Rules.CARRIER_TOP else (-0.4 if m.y < 17.0 else -2.4)
+				var fz := 0.9 if m.y < Rules.FORTRESS_TOP else (-0.4 if m.y < 17.0 else -2.4)
 				f.anchor = Vector3(m.x, m.y, fz)
 				f.size = 1.4
-				f.pos = carrier_point(f.anchor)
+				f.pos = fort_point(f.anchor)
 				f.fire_t = 0.8 + i * 0.5
-				car_parts.append(f)
+				fort_parts.append(f)
 			"core":
 				var c := new_foe("core", Models.shot_mesh(1.4))
 				c.node.material_override = Models.glow(Color8(0xff, 0x7a, 0x3a))
@@ -1829,17 +1898,17 @@ func spawn_pov(w: Dictionary) -> void:
 				c.node.add_child(ring)
 				c.anchor = Vector3(0, Rules.PY, 1.5)
 				c.size = 1.5
-				c.pos = carrier_point(c.anchor)
+				c.pos = fort_point(c.anchor)
 				c.fire_t = 1.5
 				core = c
-				car_parts.append(c)
+				fort_parts.append(c)
 				for k in 4:
 					var p := new_foe("panel", Models.panel())
 					p.idx = k
 					p.size = 1.5
 					p.fire_t = 1.0 + k * 0.6
 					p.pos = c.pos
-					car_parts.append(p)
+					fort_parts.append(p)
 
 
 func fire_pov(dt: float) -> void:
@@ -1889,7 +1958,7 @@ func begin_escape() -> void:
 			f.dead = true
 			pop(f.pos, 1.0, Models.AMBER)
 	shake = 0.8
-	say("REACTOR DOWN", "The carrier is going down")
+	say("REACTOR DOWN", "The fortress is going down")
 	sound.play("crash")
 
 

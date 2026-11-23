@@ -58,18 +58,18 @@ func _initialize() -> void:
 		await tick()
 	await shot("1-hangar")
 	g.s.open = 2
-	g.launch(2)   # Glass Coast's carrier run
+	g.launch(2)   # Glass Coast's fortress run
 	var marks := {"2-vertical": func() -> bool: return g.phase == "vert" and g.stage_t > 13.0,
 		"3-midboss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
 		"4-midboss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() <= 3,
 		"5-midboss-bridge": func() -> bool: return g.boss != null and g.boss_sec == 2 and g.boss_parts[0].hp < 200.0,
 		"6-swoop": func() -> bool: return g.phase == "approach" and g.phase_t > 1.3,
-		"7-stern-guns": func() -> bool: return g.phase == "pov" and g.car_sec == 0 and g.phase_t > 2.0,
-		"8-tower": func() -> bool: return g.phase == "pov" and g.car_sec == 1 and g.car_parts.size() <= 4,
+		"7-stern-guns": func() -> bool: return g.phase == "pov" and g.fort_sec == 0 and g.phase_t > 2.0,
+		"8-tower": func() -> bool: return g.phase == "pov" and g.fort_sec == 1 and g.fort_parts.size() <= 4,
 		"9-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
-		"9b-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
-		"9b2-carrier-falling": func() -> bool: return g.phase == "escape" and g.phase_t > 2.6,
-		"9b3-carrier-crash": func() -> bool: return g.phase == "escape" and g.phase_t > 4.1,
+		"9b-fortress-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
+		"9b2-fortress-falling": func() -> bool: return g.phase == "escape" and g.phase_t > 2.6,
+		"9b3-fortress-crash": func() -> bool: return g.phase == "escape" and g.phase_t > 4.1,
 		"9c-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
 	for i in 60 * 240:
 		await tick()

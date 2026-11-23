@@ -8,13 +8,13 @@ extends RefCounted
 ## Every world plays its three levels the same way:
 ## - level 1, a patrol: waves only, the level ends once the last wave is dealt with;
 ## - level 2, the battleship: waves, then the Bastion (top-down), which ends the level;
-## - level 3, the carrier run: waves, the Bastion as mid-boss, more waves, then the carrier
+## - level 3, the fortress run: waves, the Bastion as mid-boss, more waves, then the fortress
 ##   chased in third person, which ends the world.
-## Glass Coast's carrier run is the hand-made sector (`Rules.STAGE`); the other levels are
+## Glass Coast's fortress run is the hand-made sector (`Rules.STAGE`); the other levels are
 ## built from their world's mix by `waves()`, the same every time (seeded by the level).
 
 const PER_WORLD := 3
-const KINDS := ["patrol", "battleship", "carrier"]
+const KINDS := ["patrol", "battleship", "fortress"]
 
 ## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
 ## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
@@ -22,7 +22,7 @@ const KINDS := ["patrol", "battleship", "carrier"]
 const WORLDS := [
 	{"name": "Glass Coast", "theme": "coast", "tough": 1.0, "fire": 1.0, "scrap": 1.0, "beat": 2.7,
 		"mix": {"dart": 4, "sweep": 2, "back": 1, "swing": 3, "turret": 2, "heavy": 1},
-		"tint": Color(1, 1, 1), "levels": ["Landfall", "Tide Line", "Carrier Run"]},
+		"tint": Color(1, 1, 1), "levels": ["Landfall", "Tide Line", "Fortress Run"]},
 	{"name": "Ember Dunes", "theme": "dunes", "tough": 1.3, "fire": 1.07, "scrap": 1.4, "beat": 2.5,
 		"mix": {"dart": 2, "sweep": 2, "back": 1, "swing": 2, "turret": 4, "heavy": 2},
 		"tint": Color(1.0, 0.86, 0.66), "levels": ["Dry Wash", "Mesa Gate", "Sandstorm Run"]},
@@ -72,7 +72,7 @@ static func migrate_into(s: Dictionary, d: Dictionary) -> void:
 	if d.has("open"):
 		s.open = clampi(int(d.open), 0, count() - 1)
 	elif int(d.get("clears", 0)) > 0:
-		# a pilot from before the campaign cleared the old sector, Glass Coast's carrier run
+		# a pilot from before the campaign cleared the old sector, Glass Coast's fortress run
 		s.open = PER_WORLD
 	s.sel = clampi(int(d.get("sel", s.open)), 0, s.open)
 	if typeof(d.get("grades")) == TYPE_DICTIONARY:
@@ -103,7 +103,7 @@ static func cleared(s: Dictionary, lv: int, grade: String) -> bool:
 # ---------------------------------------------------------------- the waves of a level
 
 ## The waves of a level, by stage time, in the shape of `Rules.STAGE`. A level that doesn't end
-## with the carrier ends with an "end" wave: the level clears once its foes are dealt with.
+## with the fortress ends with an "end" wave: the level clears once its foes are dealt with.
 static func waves(lv: int) -> Array:
 	var kind := kind_of(lv)
 	if lv == PER_WORLD - 1:
@@ -121,11 +121,11 @@ static func waves(lv: int) -> Array:
 			t = beats(out, rng, w, t, 26.0)
 			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
 			out.append({"t": t + 3.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
-		"carrier":
+		"fortress":
 			t = beats(out, rng, w, t, 17.0)
 			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
 			t = beats(out, rng, w, t + 4.0, t + 4.0 + 17.0)
-			out.append({"t": t + 3.5, "kind": "carrier", "n": 1, "x": 0.0, "gap": 0.0})
+			out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
 	return out
 
 
@@ -180,8 +180,8 @@ static func foes_in(lv: int) -> int:
 	for w: Dictionary in waves(lv):
 		if w.kind == "boss":
 			n += Rules.boss_parts()
-		elif w.kind == "carrier":
-			for sec: Dictionary in Rules.CARRIER_SECTIONS:
+		elif w.kind == "fortress":
+			for sec: Dictionary in Rules.FORTRESS_SECTIONS:
 				n += 5 if sec.mounts.is_empty() else sec.mounts.size()
 		elif w.kind != "end":
 			n += int(w.n)
