@@ -147,6 +147,9 @@ var sun: DirectionalLight3D
 var env: Environment
 var noise := FastNoiseLite.new()
 var chunks := {}
+## Landmarks in the chunks not yet in play (see spawn_marks), and chunks holding a ruin.
+var marks: Array = []
+var ruined := {}
 var hud: Hud
 var boss: Obj
 ## The boss's current section (index in Rules.BOSS_SECTIONS) and its live parts.
@@ -269,6 +272,11 @@ func to_hangar() -> void:
 	phase = "hangar"
 	phase_t = 0.0
 	frame_z = 0.0
+	for k in ruined:
+		if chunks.has(k):
+			chunks[k].queue_free()
+			chunks.erase(k)
+	ruined.clear()
 	ship.visible = true
 	set_cam("top", 0.0)
 	pick_level(int(s.sel))
@@ -445,9 +453,11 @@ func clear_all() -> void:
 	blasts.clear()
 	for list in [foes, shots, bullets, picks]:
 		for o: Obj in list:
-			if o.node:
+			if o.node and not (list == foes and landmark(o)):
 				o.node.queue_free()
 		list.clear()
+	for m: Dictionary in marks:
+		m.live = false   # standing landmarks are targets again next sortie
 	if carrier:
 		carrier.queue_free()
 		carrier = null
@@ -774,7 +784,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and on_screen(f):
+		if not f.dead and f.kind != "orb" and not landmark(f) and on_screen(f):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -891,7 +901,7 @@ func update_objs(dt: float) -> void:
 		for i in range(list.size() - 1, -1, -1):
 			var o: Obj = list[i]
 			if o.dead or gone(o):
-				if o.node:
+				if o.node and not (list == foes and landmark(o) and not o.dead):
 					o.node.queue_free()
 				list.remove_at(i)
 	# place nodes
@@ -918,6 +928,8 @@ func update_objs(dt: float) -> void:
 func gone(o: Obj) -> bool:
 	if pov_mode():
 		return o.pos.z > ppos.z + 4.0 or o.pos.z < ppos.z - 90.0 or o.t > 8.0 and o.kind in ["shot", "missile", "orb"]
+	if o in foes and landmark(o) and phase != "vert":
+		return true
 	var z := o.pos.z - frame_z
 	if o in foes and (o.kind in ["drone", "sentry", "orb", "panel", "core"]):
 		return phase == "vert"
@@ -1238,7 +1250,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or not on_screen(f):
+			if f.dead or f.kind == "orb" or landmark(f) or not on_screen(f):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1328,9 +1340,19 @@ func kill(f: Obj) -> void:
 	f.dead = true
 	var info: Dictionary = Rules.FOES[f.kind]
 	run.score += int(info.score)
-	if f.kind not in ["orb", "boss"]:
+	if f.kind not in ["orb", "boss"] and not landmark(f):
 		run.kills += 1
-	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6}.get(f.kind, 1.3)
+	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
+		"lighthouse": 2.6, "house": 2.0, "boat": 1.5}.get(f.kind, 1.3)
+	if landmark(f):
+		# the landmark falls: a ruin stays on the ground where it stood
+		var k := int(f.anchor.z)
+		if chunks.has(k):
+			var ruin := Models.instance(Models.ruin(f.kind))
+			ruin.position = f.node.position - Vector3(0, Models.MARK_H[f.kind], 0)
+			ruin.rotation.y = f.node.rotation.y
+			chunks[k].add_child(ruin)
+			ruined[k] = true
 	pop(f.pos, big, Models.AMBER, f.ground)
 	if f.kind == "orb":
 		return
@@ -1507,13 +1529,60 @@ func update_chunks() -> void:
 	for k in range(first, first + CHUNKS_AHEAD):
 		want[k] = true
 		if not chunks.has(k):
+			Models.marks.clear()
 			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0, CHUNK_FLANK), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
+			# the landmarks get their own nodes, so they can be shot down
+			for m: Dictionary in Models.marks:
+				var node := Models.instance(Models.landmark(m.kind, m.r))
+				node.position = m.pos + Vector3(0, Models.MARK_H[m.kind], 0)
+				node.rotation.y = m.ang
+				mi.add_child(node)
+				marks.append({"kind": m.kind, "node": node, "chunk": k, "live": false})
 	for k in chunks.keys():
 		if not want.has(k):
 			chunks[k].queue_free()
 			chunks.erase(k)
+			ruined.erase(k)
+	spawn_marks()
+
+
+## Landmarks become targets as they come into view in the vertical stage. A shot-down one
+## leaves a ruin, and its chunk is rebuilt before the next sortie (`ruined`).
+func spawn_marks() -> void:
+	for i in range(marks.size() - 1, -1, -1):
+		var m: Dictionary = marks[i]
+		var node: Node3D = m.node
+		if not is_instance_valid(node) or node.is_queued_for_deletion() or not chunks.has(m.chunk):
+			marks.remove_at(i)
+			continue
+		if phase != "vert" or m.live:
+			continue
+		var z := seen(node.position).z - frame_z
+		if z > view_top - 3.0 and z < view_bot:
+			m.live = true
+			var f := Obj.new()
+			f.kind = m.kind
+			f.ground = true
+			var d: Dictionary = Rules.FOES[m.kind]
+			f.hp = d.hp
+			f.max_hp = d.hp
+			f.r = d.r
+			f.node = node
+			f.pos = node.position
+			f.anchor = Vector3(0, 0, m.chunk)   # its chunk, for the ruin
+			foes.append(f)
+
+
+func landmark(f: Obj) -> bool:
+	return f.kind in Rules.LANDMARKS
+
+
+## A landmark leaves the foes without its node going: the node belongs to the ground chunk.
+func let_go(f: Obj) -> void:
+	f.dead = true
+	f.node = null
 
 
 # ---------------------------------------------------------------- the carrier episode
@@ -1547,7 +1616,9 @@ func begin_approach() -> void:
 	approach_from = ppos
 	approach_stern = stern_z
 	for f in foes:
-		if not f.dead:
+		if landmark(f):
+			let_go(f)
+		elif not f.dead:
 			f.dead = true
 			pop(f.pos, 1.0, Models.AMBER)
 	for b in bullets:
@@ -1795,7 +1866,7 @@ func aim_point() -> Vector3:
 	var at := o + d * Rules.AIM_AHEAD
 	var best_miss := 1e9
 	for f in foes:
-		if f.dead or (f.kind == "core" and shielded()):
+		if f.dead or (f.kind == "core" and shielded()) or landmark(f):
 			continue
 		var t := (f.pos - o).dot(d)
 		if t < 4.0 or t > best:
@@ -1812,7 +1883,9 @@ func begin_escape() -> void:
 	phase_t = 0.0
 	core = null
 	for f in foes:
-		if not f.dead:
+		if landmark(f):
+			let_go(f)
+		elif not f.dead:
 			f.dead = true
 			pop(f.pos, 1.0, Models.AMBER)
 	shake = 0.8

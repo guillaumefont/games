@@ -826,6 +826,71 @@ static func count(kind: String) -> void:
 const PROP_SCALE := 1.5
 
 
+## Landmarks: the prominent scenery the player can shoot down (lighthouses, boats, two-storey
+## houses). `scatter` leaves them out of the chunk's mesh and lists them here instead; the game
+## takes the list after each chunk (`Game.update_chunks`) and gives each its own node.
+static var marks: Array = []
+## Height of a landmark's centre above its base (the game hits it there, as it shows on screen).
+const MARK_H := {"lighthouse": 1.7, "boat": 0.3, "house": 0.85}
+
+
+static func mark(kind: String, pos: Vector3, ang: float, r: float) -> void:
+	count(kind)
+	marks.append({"kind": kind, "pos": pos, "ang": ang, "r": r})
+
+
+static func house_kind(r: float) -> int:
+	return int(r * 53.0) % 3
+
+
+## A landmark's own mesh, centred on its hit point (MARK_H above its base), facing +z.
+static func landmark(kind: String, r: float) -> Mesh:
+	var q := snappedf(r, 1.0 / 32.0)
+	return cached("mark_%s_%s" % [kind, q], func() -> Mesh:
+		var b := Builder.new()
+		b.bottoms = false
+		var at := Vector3(0, -MARK_H[kind], 0)
+		match kind:
+			"lighthouse":
+				lighthouse(b, at, q * TAU)
+			"boat":
+				boat(b, at, 0.0)
+			"house":
+				house(b, at, 0.0, q)
+		return b.commit())
+
+
+## What is left of a landmark once it's shot down, from its base: a scorched stump and rubble.
+static func ruin(kind: String) -> Mesh:
+	return cached("ruin_" + kind, func() -> Mesh:
+		var b := Builder.new()
+		b.bottoms = false
+		place(b, Vector3.ZERO, 0.0)
+		var soot := Color8(0x3a, 0x34, 0x30)
+		match kind:
+			"lighthouse":
+				b.prism(Vector3.ZERO, ngon(0.75, 8), -0.4, 0.42, STONE_WET.darkened(0.2), Vector2(0.8, 0.8))
+				b.prism(Vector3.ZERO, ngon(0.36, 8), 0.1, 0.55, Color8(0xd8, 0xd2, 0xc8).darkened(0.3), Vector2(0.9, 0.9))
+				b.prism(Vector3.ZERO, ngon(0.24, 8), 0.5, 0.58, soot)
+				for k in 4:
+					b.octa(Vector3(cos(k * 1.7) * 0.7, 0.35, sin(k * 1.7) * 0.7), 0.16, Color8(0xc8, 0x3c, 0x34).darkened(0.35))
+			"house":
+				b.prism(Vector3.ZERO, ngon(0.95, 8), -0.3, 0.05, soot, Vector2(0.95, 0.95))
+				b.box(Vector3(-0.3, 0.2, 0.42), Vector3(0.7, 0.36, 0.08), WALLS[0].darkened(0.45))
+				b.box(Vector3(0.5, 0.15, -0.1), Vector3(0.08, 0.3, 0.7), WALLS[0].darkened(0.5))
+				b.box(Vector3(-0.3, 0.35, 0.1), Vector3(0.16, 0.7, 0.16), BRICK.darkened(0.25))
+				for k in 5:
+					b.octa(Vector3(cos(k * 2.3) * 0.5, 0.08, sin(k * 2.3) * 0.4), 0.13, ROOFS[k % 4].darkened(0.4))
+			"boat":
+				b.prism(Vector3.ZERO, ngon(0.8, 10), -0.03, 0.01, FOAM.darkened(0.15))
+				for k in 4:
+					var a := k * 1.6
+					b.xf = Transform3D(Basis(Vector3.UP, a * 2.0).scaled(Vector3.ONE * PROP_SCALE), Vector3(cos(a) * 0.5, 0, sin(a) * 0.4) * PROP_SCALE)
+					b.box(Vector3(0, 0.02, 0), Vector3(0.36, 0.06, 0.1), WOOD.darkened(0.2))
+		b.xf = Transform3D.IDENTITY
+		return b.commit())
+
+
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
 	b.xf = Transform3D(Basis(Vector3.UP, ang).scaled(Vector3.ONE * PROP_SCALE), pos)
 
@@ -843,7 +908,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	if lo < 0.0 and hi >= 0.0:
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
-			lighthouse(b, Vector3(cen.x, -0.4, cen.z), ang)
+			mark("lighthouse", Vector3(cen.x, -0.4, cen.z), ang, r2)
 		elif r < 0.12:
 			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 2.5, r2, true)
 	elif hi < 0.0:
@@ -851,7 +916,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		if avg > -0.14 and r < 0.025:
 			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 16.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
-			boat(b, Vector3(cen.x, -0.4, cen.z), ang)
+			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
 		if r < 0.08:
@@ -881,7 +946,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		var even := posmod(floori(cen.x * 0.5), 2) == 0 and posmod(floori(cen.z * 0.5), 2) == 0
 		var lot := 0.6 if village else 0.06
 		if avg >= 0.11 and r < lot and even:
-			house(b, at, snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3, r2)
+			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
+			if house_kind(r2) == 1:
+				mark("house", at, turn, r2)   # the tall ones can be shot down
+			else:
+				house(b, at, turn, r2)
 		elif r2 < 0.1:
 			broadleaf(b, at + Vector3((r - 0.5) * 0.8, 0, (r2 - 0.05) * 6.0), r)
 		elif r2 < 0.16:
@@ -1039,7 +1108,7 @@ static func house(b: Builder, p: Vector3, ang: float, r: float) -> void:
 	var base := b.xf
 	var wall: Color = WALLS[int(r * 17.0) % 4]
 	var roof: Color = ROOFS[int(r * 29.0) % 4]
-	var kind := int(r * 53.0) % 3
+	var kind := house_kind(r)
 	if kind == 0:
 		var w := 1.25
 		var d := 0.85
