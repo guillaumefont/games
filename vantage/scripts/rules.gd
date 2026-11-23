@@ -46,7 +46,7 @@ const GAP_FAR := 30.0
 const GAP_NEAR := 22.0
 const APPROACH := 2.6
 const AIM_AHEAD := 32.0
-const AIM_ASSIST := 1.6
+const AIM_ASSIST := 2.4
 ## Rail distance where the reactor fight starts.
 const RAIL_STOP := 330.0
 
@@ -147,12 +147,16 @@ const FOES := {
 	"swing": {"hp": 4.0, "r": 0.85, "score": 120, "scrap": 5},
 	"turret": {"hp": 9.0, "r": 0.9, "score": 200, "scrap": 15},
 	"heavy": {"hp": 45.0, "r": 1.6, "score": 800, "scrap": 60},
-	"boss": {"hp": 380.0, "r": 2.6, "score": 6000, "scrap": 300},
+	"boss": {"hp": 1.0, "r": 0.0, "score": 0, "scrap": 0},
+	"cannon": {"hp": 70.0, "r": 1.7, "score": 800, "scrap": 30},
+	"flak": {"hp": 45.0, "r": 1.45, "score": 500, "scrap": 20},
+	"battery": {"hp": 55.0, "r": 1.55, "score": 600, "scrap": 25},
+	"bridge": {"hp": 260.0, "r": 2.7, "score": 6000, "scrap": 300},
 	"drone": {"hp": 4.0, "r": 0.9, "score": 150, "scrap": 10},
 	"sentry": {"hp": 7.0, "r": 0.9, "score": 200, "scrap": 15},
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
-	"panel": {"hp": 14.0, "r": 0.95, "score": 300, "scrap": 20},
-	"core": {"hp": 45.0, "r": 1.5, "score": 3000, "scrap": 200},
+	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
+	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
 }
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play;
@@ -195,11 +199,38 @@ const POV_WAVES := [
 ]
 
 
+## The sector boss, a battleship bigger than the screen, taken apart section by section:
+## each section's parts (kind, position on the ship: x, y, z towards its bow) must all go down
+## before the next section opens. The bridge is shielded until the last section. Nose to +z.
+const BOSS_SECTIONS := [
+	{"name": "BOW GUNS", "parts": [
+		{"kind": "cannon", "at": Vector3(-1.6, 1.4, 6.5)}, {"kind": "cannon", "at": Vector3(1.6, 1.4, 6.5)},
+		{"kind": "flak", "at": Vector3(-3.0, 1.0, 3.0)}, {"kind": "flak", "at": Vector3(3.0, 1.0, 3.0)}]},
+	{"name": "WING BATTERIES", "parts": [
+		{"kind": "battery", "at": Vector3(-5.4, 0.8, 0.2)}, {"kind": "battery", "at": Vector3(5.4, 0.8, 0.2)},
+		{"kind": "battery", "at": Vector3(-7.0, 0.8, -1.8)}, {"kind": "battery", "at": Vector3(7.0, 0.8, -1.8)}]},
+	{"name": "BRIDGE", "parts": [{"kind": "bridge", "at": Vector3(0.0, 1.8, -3.6)}]},
+]
+## How far down the screen (relative z of the boss's centre) the boss sits, and how much
+## closer it pushes after each section is destroyed.
+const BOSS_Z := Z_TOP + 8.0
+const BOSS_PUSH := 2.2
+
+
+static func boss_parts() -> int:
+	var n := 0
+	for sec: Dictionary in BOSS_SECTIONS:
+		n += sec.parts.size()
+	return n
+
+
 ## Count of foes in the stage that can be shot down (for the results' kill rate).
 static func stage_foes() -> int:
 	var n := 0
 	for w: Dictionary in STAGE:
-		if w.kind != "carrier":
+		if w.kind == "boss":
+			n += boss_parts()
+		elif w.kind != "carrier":
 			n += int(w.n)
 	for w: Dictionary in POV_WAVES:
 		n += 5 if w.kind == "core" else int(w.n)

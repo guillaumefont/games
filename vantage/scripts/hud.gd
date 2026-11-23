@@ -302,12 +302,13 @@ func _draw() -> void:
 			if i < game.hp:
 				draw_rect(r.grow(-5), CY if game.hp > 1 else RED, true)
 		# boss / reactor bar
-		var b := game.boss if game.boss else game.core
-		if b and not b.dead:
+		var bar := game.boss_bar()
+		if not bar.is_empty():
 			var w := v.x - 120
-			var frac := clampf(b.hp / b.max_hp, 0, 1)
-			draw_rect(Rect2(60, 120, w, 12), Color(1, 1, 1, 0.18))
-			draw_rect(Rect2(60, 120, w * frac, 12), RED if not (b == game.core and game.shielded()) else CY)
+			var frac := clampf(bar[0], 0, 1)
+			draw_rect(Rect2(60, 132, w, 12), Color(1, 1, 1, 0.18))
+			draw_rect(Rect2(60, 132, w * frac, 12), CY if game.core and game.shielded() else RED)
+			draw_string(FONT, Vector2(60, 124), bar[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(INK, 0.85))
 	if hurt_t > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, v), Color(1, 0.2, 0.25, hurt_t * 0.5))
 

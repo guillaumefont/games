@@ -11,7 +11,8 @@ Godot 4.7, low poly 3D built entirely in code.
   a little aim assist. Shoot the drones it launches, its stern turrets and their energy orbs, then
   break the four shield panels round the reactor in its open hangar, and the reactor. The carrier
   goes down and the camera climbs back up to the vertical view.
-- **Boss:** a Bastion-class battleship with three attack phases.
+- **Boss:** a Bastion-class battleship wider than the screen, taken apart section by section: its bow
+  guns, then its wing batteries (each section breaks off), then the bridge.
 - **Hangar:** scrap buys permanent upgrades (cannon, missiles, hull, magnet) used in both modes.
 
 Desktop: arrows/WASD also fly and aim, Enter launches.

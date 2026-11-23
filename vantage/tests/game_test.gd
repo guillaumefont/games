@@ -58,6 +58,8 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 	for i in int(secs / DT):
 		if immortal:
 			g.hp = maxi(g.hp, 2)
+		if g.phase == "vert" and not g.boss_parts.is_empty():
+			g.prel.x = lerpf(g.prel.x, g.boss_parts[0].pos.x, 0.08)
 		if g.pov_mode():
 			var best: Game.Obj = null
 			for f in g.foes:
@@ -151,6 +153,18 @@ func stage() -> void:
 	check(g.carrier == null, "the carrier doesn't come back")
 	run(g, 60.0, func() -> bool: return g.boss != null)
 	check(g.boss != null, "the boss arrives")
+	check(g.boss_parts.size() == 4 and g.boss_sec == 0, "its bow guns are the first section")
+	var bridge_shielded := true
+	for f in g.foes:
+		if f.kind == "bridge":
+			bridge_shielded = false
+	check(bridge_shielded, "the bridge isn't open yet")
+	run(g, 60.0, func() -> bool: return g.boss_sec == 1)
+	check(g.boss_sec == 1 and not g.boss.node.get_node("bow").visible, "bow guns down: the bow breaks off, the wing batteries open")
+	run(g, 60.0, func() -> bool: return g.boss_sec == 2)
+	check(g.boss_sec == 2 and not g.boss.node.get_node("wings").visible, "batteries down: the wings break off, the bridge opens")
+	var br: Game.Obj = g.boss_parts[0]
+	check(br.kind == "bridge" and not g.boss_shielded(br), "the bridge can be hit now")
 	run(g, 80.0, func() -> bool: return g.phase == "results")
 	check(g.phase == "results" and g.run.cleared, "boss down: sector clear")
 	check(g.s.scrap == g.run.scrap and g.run.scrap > 300 and g.s.clears == 1, "scrap earned goes to the hangar (%d)" % g.run.scrap)

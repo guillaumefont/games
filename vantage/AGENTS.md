@@ -19,6 +19,10 @@ Design so far (first prototype, 2026-11-23):
   narrow (Guillaume, 2026-11-23: targets on a wide ship's sides were hard to hit on a portrait screen),
   so every mount (`Rules.MOUNTS`) is within the ship's reach; the ship climbs high to reach the tower. Orbs inherit the rail
   speed (they fly with the ship's frame) and can be shot down.
+- The sector boss (Guillaume, 2026-11-23: "bigger boss, addressed by sections") is a battleship wider
+  than the screen taken apart in order: bow guns, wing batteries, then the bridge (`Rules.BOSS_SECTIONS`).
+  The hull can't be hurt; each cleared section breaks off its mesh (`bow`, `wings`) and the ship pushes
+  closer. Boss targets and the carrier's reactor have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 
 ## Pull requests

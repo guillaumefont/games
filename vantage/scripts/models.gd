@@ -264,27 +264,86 @@ static func heavy() -> Mesh:
 		return b.commit())
 
 
-## The sector's guardian: a long battleship with a bridge and two broad wings.
-static func boss() -> Mesh:
-	return cached("boss", func() -> Mesh:
+## The sector's guardian, the Bastion: a battleship wider than the screen, nose to +z. The hull
+## stays; the bow plating and the wings are separate meshes that break off when their section
+## is destroyed. Its guns are separate parts (boss_cannon, boss_battery, boss_bridge, turret).
+static func boss_hull() -> Mesh:
+	return cached("boss_hull", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3.ZERO, pts([Vector2(0, 3.4), Vector2(1.5, 2.2), Vector2(1.8, -2.6), Vector2(1.0, -3.3),
-			Vector2(-1.0, -3.3), Vector2(-1.8, -2.6), Vector2(-1.5, 2.2)]), -0.5, 0.5, FOE_D, Vector2(0.88, 0.92))
+		b.prism(Vector3.ZERO, pts([Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
+			Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]),
+			-0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
+		# raised spine, deck stripes, stern engines
+		b.box(Vector3(0, 0.9, -5.5), Vector3(2.4, 0.5, 9.0), HULL_D, Vector2(0.8, 0.95))
+		for k in 4:
+			b.box(Vector3(0, 0.72, 2.6 - k * 1.6), Vector3(3.6 - k * 0.2, 0.04, 0.3), AMBER)
 		for sx in [1.0, -1.0]:
-			var w := [Vector2(1.6, 1.2), Vector2(4.4, -0.4), Vector2(4.4, -1.3), Vector2(1.7, -1.6)]
+			b.prism(Vector3(sx * 2.0, 0, -12.2), ngon(0.9, 8, PI / 8), -0.6, 0.6, HULL, Vector2(0.85, 0.85))
+			b.box(Vector3(sx * 3.3, 0.2, -6.0), Vector3(0.6, 0.9, 6.0), FOE, Vector2(0.7, 0.95))
+		return b.commit())
+
+
+static func boss_bow() -> Mesh:
+	return cached("boss_bow", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3(0, 0, 0), pts([Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0),
+			Vector2(-2.2, 7.0)]), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
+		b.box(Vector3(0, 1.05, 5.0), Vector3(1.0, 0.1, 5.0), AMBER, Vector2(0.4, 0.9))
+		for sx in [1.0, -1.0]:
+			b.prism(Vector3(sx * 1.6, 1.0, 6.5), ngon(1.0, 8, PI / 8), 0.0, 0.2, HULL_D)
+			b.prism(Vector3(sx * 3.0, 0.7, 3.0), ngon(0.9, 8, PI / 8), 0.0, 0.2, HULL_D)
+		return b.commit())
+
+
+static func boss_wings() -> Mesh:
+	return cached("boss_wings", func() -> Mesh:
+		var b := Builder.new()
+		for sx in [1.0, -1.0]:
+			var w := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
 			var o := PackedVector2Array()
 			for p: Vector2 in w:
 				o.append(Vector2(p.x * sx, p.y))
 			if sx < 0:
 				o.reverse()
-			b.prism(Vector3.ZERO, o, -0.18, 0.18, FOE)
-			b.prism(Vector3(3.3 * sx, 0.18, -0.6), ngon(0.45, 6), 0.0, 0.35, HULL_D, Vector2(0.7, 0.7))
-			b.box(Vector3(3.3 * sx, 0.45, 0.0), Vector3(0.16, 0.16, 0.9), AMBER)
-		b.prism(Vector3(0, 0, -0.8), pts([Vector2(-0.8, -0.8), Vector2(0.8, -0.8), Vector2(0.6, 0.9),
-			Vector2(-0.6, 0.9)]), 0.5, 1.4, HULL, Vector2(0.7, 0.75))
-		b.box(Vector3(0, 1.5, -0.55), Vector3(0.9, 0.12, 0.3), AMBER)
-		b.prism(Vector3(0, 0, 1.6), ngon(0.6, 8), 0.5, 0.9, FOE, Vector2(0.7, 0.7))
-		b.box(Vector3(0, 0.75, 2.4), Vector3(0.22, 0.22, 1.2), HULL_D)
+			b.prism(Vector3.ZERO, o, -0.35, 0.35, FOE, Vector2(0.97, 0.97))
+			b.box(Vector3(sx * 12.2, 0.0, -3.1), Vector3(0.7, 1.0, 2.6), HULL_D)
+			b.box(Vector3(sx * 9.5, 0.37, -2.0), Vector3(3.5, 0.05, 0.3), AMBER)
+			for at in [Vector2(5.4, 0.2), Vector2(7.0, -1.8)]:
+				b.prism(Vector3(sx * at.x, 0.35, at.y), ngon(0.9, 8, PI / 8), 0.0, 0.25, HULL_D)
+		return b.commit())
+
+
+## Heavy twin cannon (barrels along +z).
+static func boss_cannon() -> Mesh:
+	return cached("boss_cannon", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, ngon(0.85, 8, PI / 8), 0.0, 0.6, HULL, Vector2(0.8, 0.8))
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * 0.3, 0.4, 1.0), Vector3(0.22, 0.22, 1.6), HULL_D)
+			b.box(Vector3(sx * 0.3, 0.4, 1.85), Vector3(0.28, 0.28, 0.15), AMBER)
+		return b.commit())
+
+
+## Wing battery: a low box with three short barrels.
+static func boss_battery() -> Mesh:
+	return cached("boss_battery", func() -> Mesh:
+		var b := Builder.new()
+		b.box(Vector3(0, 0.3, 0), Vector3(1.5, 0.6, 1.3), FOE_D, Vector2(0.8, 0.8))
+		for k in 3:
+			b.box(Vector3((k - 1) * 0.42, 0.35, 0.95), Vector3(0.16, 0.16, 0.8), HULL)
+		b.box(Vector3(0, 0.62, -0.2), Vector3(0.9, 0.05, 0.4), AMBER)
+		return b.commit())
+
+
+## The bridge tower, the boss's heart.
+static func boss_bridge() -> Mesh:
+	return cached("boss_bridge", func() -> Mesh:
+		var b := Builder.new()
+		b.prism(Vector3.ZERO, pts([Vector2(-1.4, -1.6), Vector2(1.4, -1.6), Vector2(1.1, 1.4), Vector2(-1.1, 1.4)]),
+			-0.8, 1.2, HULL, Vector2(0.75, 0.8))
+		b.box(Vector3(0, 1.0, 1.0), Vector3(1.6, 0.25, 0.1), AMBER)
+		b.prism(Vector3(0, 1.2, -0.2), ngon(0.6, 6), 0.0, 0.8, FOE, Vector2(0.6, 0.6))
+		b.box(Vector3(0, 2.2, -0.3), Vector3(0.12, 1.2, 0.12), STEEL_D)
 		return b.commit())
 
 

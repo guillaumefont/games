@@ -19,7 +19,10 @@ func shot(name: String) -> void:
 func tick() -> void:
 	g.hp = maxi(g.hp, 2)
 	if g.phase == "vert":
-		g.prel.x = lerpf(g.prel.x, sin(g.stage_t * 0.9) * 3.5, 0.05)
+		var tx := sin(g.stage_t * 0.9) * 3.5
+		if not g.boss_parts.is_empty():
+			tx = g.boss_parts[0].pos.x
+		g.prel.x = lerpf(g.prel.x, tx, 0.05)
 	if g.pov_mode():
 		var best: Game.Obj = null
 		for f in g.foes:
@@ -61,6 +64,8 @@ func _initialize() -> void:
 		"7-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
 		"7b-climb-out": func() -> bool: return g.phase == "exit" and g.phase_t > 0.7,
 		"8-boss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
+		"8b-boss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() == 3,
+		"8c-boss-bridge": func() -> bool: return g.boss != null and g.boss_sec == 2 and g.boss_parts[0].hp < 120.0,
 		"9-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
 	for i in 60 * 150:
 		await tick()

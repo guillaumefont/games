@@ -106,6 +106,9 @@ var noise := FastNoiseLite.new()
 var chunks := {}
 var hud: Hud
 var boss: Obj
+## The boss's current section (index in Rules.BOSS_SECTIONS) and its live parts.
+var boss_sec := 0
+var boss_parts: Array[Obj] = []
 var banner := ""
 var banner_t := 0.0
 var sub_banner := ""
@@ -232,6 +235,7 @@ func clear_all() -> void:
 		carrier.queue_free()
 		carrier = null
 	boss = null
+	boss_parts.clear()
 	core = null
 
 
@@ -426,11 +430,17 @@ func spawn_vert(kind: String, x: float, i: int, n: int) -> void:
 			f.pos = Vector3(f.x0, Rules.PY, top - 2.0)
 			f.fire_t = 2.0
 		"boss":
-			var f := new_foe("boss", Models.boss())
+			var f := new_foe("boss", Models.boss_hull())
 			f.rel = true
-			f.pos = Vector3(0, Rules.PY, top - 5.0)
-			f.fire_t = 3.0
+			f.pos = Vector3(0, Rules.PY, top - 12.0)
+			f.x0 = 0.0
 			boss = f
+			boss_sec = 0
+			for part in [["bow", Models.boss_bow()], ["wings", Models.boss_wings()]]:
+				var mi := Models.instance(part[1])
+				mi.name = part[0]
+				f.node.add_child(mi)
+			open_section()
 			say("WARNING", "Bastion-class battleship")
 
 
@@ -619,6 +629,8 @@ func think(f: Obj, dt: float) -> void:
 				pass
 		"boss":
 			think_boss(f, dt)
+		"cannon", "flak", "battery", "bridge":
+			think_part(f, dt)
 		"drone":
 			var dist := ppos.z - f.pos.z
 			var keep := 14.0 + f.idx * 2.5
@@ -648,7 +660,7 @@ func think(f: Obj, dt: float) -> void:
 		"panel":
 			if core:
 				var a := f.t * 0.9 + f.idx * TAU / 4.0
-				f.pos = core.pos + Vector3(cos(a) * 2.7, sin(a) * 2.7, 1.4)
+				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6)
 				f.node.rotation = Vector3(PI / 2, 0, a)
 				if f.t >= f.fire_t and phase == "core":
 					f.fire_t += 2.6
@@ -668,31 +680,113 @@ func think(f: Obj, dt: float) -> void:
 					o.vel = dir * 10.0 - Vector3(0, 0, rail_speed())
 
 
+## The boss's hull: comes down from the top, sways a little, and pushes closer each time a
+## section falls. Its parts ride on it and fire on their own (think_part).
 func think_boss(f: Obj, dt: float) -> void:
-	var frac := f.hp / f.max_hp
-	if f.t < 3.0:
-		f.pos.z += (frame_z + Rules.Z_TOP + 5.5 - f.pos.z) * minf(1.0, dt * 1.5)
+	var want_z := frame_z + Rules.BOSS_Z + Rules.BOSS_PUSH * boss_sec
+	f.pos.z = lerpf(f.pos.z, want_z + (sin(f.t * 0.5) * 0.6 if f.t > 4.0 else 0.0), minf(1.0, dt * (0.7 if f.t < 4.0 else 1.2)))
+	f.pos.x = lerpf(f.pos.x, sin(f.t * 0.35) * 1.4 if f.t > 4.0 else 0.0, minf(1.0, dt))
+	f.node.rotation.z = sin(f.t * 0.35) * -0.04
+
+
+func open_section() -> void:
+	boss_parts.clear()
+	var sec: Dictionary = Rules.BOSS_SECTIONS[boss_sec]
+	for k in sec.parts.size():
+		var p: Dictionary = sec.parts[k]
+		var mesh: Mesh = {"cannon": Models.boss_cannon(), "flak": Models.turret(), "battery": Models.boss_battery(),
+			"bridge": Models.boss_bridge()}[p.kind]
+		var f := new_foe(p.kind, mesh)
+		f.rel = true
+		f.anchor = p.at
+		f.idx = k
+		f.size = 1.35
+		f.pos = boss.pos + p.at
+		f.fire_t = 4.0 + k * 0.45 if boss_sec == 0 else 1.5 + k * 0.4
+		boss_parts.append(f)
+	if boss_sec > 0:
+		say(sec.name, "Section %d of %d" % [boss_sec + 1, Rules.BOSS_SECTIONS.size()], 1.8)
+
+
+## A part of the boss: rides on the hull, turns to the player, fires its pattern.
+func think_part(f: Obj, dt: float) -> void:
+	if boss == null:
 		return
-	f.pos.x = lerpf(f.pos.x, sin((f.t - 3.0) * 0.45) * 4.0, minf(1.0, dt * 2.0))
-	f.pos.z = lerpf(f.pos.z, frame_z + Rules.Z_TOP + 5.5 + sin(f.t * 0.6) * 0.8, minf(1.0, dt * 2.0))
-	if f.t < f.fire_t:
+	f.pos = boss.pos + f.anchor
+	var to_p := ppos - f.pos
+	if f.kind != "bridge":
+		f.node.rotation.y = atan2(to_p.x, to_p.z)
+	if boss.t < 4.0 or f.t < f.fire_t:
 		return
-	if frac > 0.66:
-		f.fire_t = f.t + 1.1
-		for sx in [-3.3, 3.3]:
-			aimed(f.pos + Vector3(sx, 0, 0.6), 10.5)
-		fan(f.pos + Vector3(0, 0, 3.0), 3, 0.35, 12.0)
-	elif frac > 0.33:
-		f.fire_t = f.t + 1.5
-		fan(f.pos + Vector3(0, 0, 3.0), 11, 2.2, 8.5)
-		aimed(f.pos + Vector3(-3.3, 0, 0.6), 11.5)
-		aimed(f.pos + Vector3(3.3, 0, 0.6), 11.5)
+	var muzzle := f.pos + Vector3(to_p.x, 0, to_p.z).normalized() * 1.0
+	match f.kind:
+		"cannon":
+			f.fire_t = f.t + 1.7
+			for k in 3:
+				var d := Vector3(to_p.x, 0, to_p.z).normalized().rotated(Vector3.UP, (k - 1) * 0.07)
+				bullet(Vector3(muzzle.x, Rules.PY, muzzle.z), d * (10.5 + k * 0.8))
+		"flak":
+			f.fire_t = f.t + 1.4
+			fan(muzzle, 5, 0.9, 8.5)
+		"battery":
+			f.fire_t = f.t + 2.0
+			var base := f.t * 0.8 + f.idx
+			for k in 7:
+				var a := base + (k - 3) * 0.22
+				bullet(Vector3(f.pos.x, Rules.PY, f.pos.z), Vector3(sin(a) * 0.6, 0, 1).normalized().rotated(Vector3.UP, sin(base) * 0.5) * 7.5)
+		"bridge":
+			if f.t >= f.fire_t:
+				f.fire_t = f.t + 0.1
+				var a := f.t * 2.4
+				for k in 3:
+					var ang := a + TAU * k / 3.0
+					bullet(Vector3(f.pos.x, Rules.PY, f.pos.z + 1.5), Vector3(sin(ang), 0, cos(ang)) * 7.0)
+				if fmod(f.t, 1.6) < 0.1:
+					aimed(f.pos + Vector3(-2.0, 0, 1.0), 11.0)
+					aimed(f.pos + Vector3(2.0, 0, 1.0), 11.0)
+
+
+## A boss part went down: when its section is cleared, that section breaks off and the next
+## one opens; the bridge going down sinks the whole ship.
+func part_down(f: Obj) -> void:
+	boss_parts.erase(f)
+	if not boss_parts.is_empty():
+		return
+	var name: String = ["bow", "wings", ""][boss_sec]
+	if name != "" and boss.node.has_node(name):
+		boss.node.get_node(name).visible = false
+		for k in 7:
+			var x := rng.randf_range(-2.5, 2.5) if name == "bow" else rng.randf_range(4.0, 11.0) * (1 if k % 2 == 0 else -1)
+			var z := rng.randf_range(2.0, 9.0) if name == "bow" else rng.randf_range(-4.0, 1.5)
+			pop(boss.pos + Vector3(x, 1.0, z), 2.4, Models.AMBER)
+		shake = 0.7
+	boss_sec += 1
+	if boss_sec < Rules.BOSS_SECTIONS.size():
+		open_section()
 	else:
-		f.fire_t = f.t + 0.09
-		var a := f.t * 2.6
-		for k in 2:
-			var ang := a + PI * k
-			bullet(f.pos + Vector3(0, 0, 0.5), Vector3(sin(ang), 0, cos(ang)) * 7.5)
+		var b := boss
+		for k in 10:
+			pop(b.pos + Vector3(rng.randf_range(-4, 4), 1.0, rng.randf_range(-10, 8)), 3.5, Models.AMBER)
+		kill(b)
+
+
+func boss_shielded(f: Obj) -> bool:
+	return f.kind == "bridge" and boss_sec < Rules.BOSS_SECTIONS.size() - 1
+
+
+## The boss bar: the current section's health left (0..1) and its name.
+func boss_bar() -> Array:
+	if core and not core.dead:
+		return [core.hp / core.max_hp, "REACTOR"]
+	if boss == null:
+		return []
+	var hp := 0.0
+	var mx := 0.0
+	for k in Rules.BOSS_SECTIONS[boss_sec].parts.size():
+		mx += Rules.FOES[Rules.BOSS_SECTIONS[boss_sec].parts[k].kind].hp
+	for p in boss_parts:
+		hp += maxf(0.0, p.hp)
+	return [hp / maxf(mx, 1.0), "%s  %d/%d" % [Rules.BOSS_SECTIONS[boss_sec].name, boss_sec + 1, Rules.BOSS_SECTIONS.size()]]
 
 
 func rail_speed() -> float:
@@ -782,7 +876,7 @@ func collide(_dt: float) -> void:
 		if o.dead:
 			continue
 		for f in foes:
-			if f.dead:
+			if f.dead or f.kind == "boss":
 				continue
 			var hit := false
 			if pov:
@@ -808,7 +902,7 @@ func collide(_dt: float) -> void:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
 				hurt()
-		elif f.kind not in ["orb", "panel", "core", "drone", "sentry"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R:
+		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss", "cannon", "flak", "battery", "bridge"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R:
 			damage(f, 6.0)
 			hurt()
 	# pickups
@@ -830,7 +924,7 @@ func seg_dist(a: Vector3, b: Vector3, p: Vector3) -> float:
 
 
 func damage(f: Obj, d: float) -> void:
-	if f.kind == "core" and shielded():
+	if (f.kind == "core" and shielded()) or boss_shielded(f):
 		f.flash = 0.05
 		pop(f.pos + Vector3(0, 0, 1.6), 0.4, Models.CYAN)
 		return
@@ -844,9 +938,9 @@ func kill(f: Obj) -> void:
 	f.dead = true
 	var info: Dictionary = Rules.FOES[f.kind]
 	run.score += int(info.score)
-	if f.kind != "orb":
+	if f.kind not in ["orb", "boss"]:
 		run.kills += 1
-	var big: float = {"heavy": 2.6, "boss": 5.0, "core": 4.0, "panel": 1.6}.get(f.kind, 1.3)
+	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6}.get(f.kind, 1.3)
 	pop(f.pos, big, Models.AMBER)
 	if f.kind == "orb":
 		return
@@ -860,6 +954,8 @@ func kill(f: Obj) -> void:
 		var n := clampi(scrap / 5, 1, 14)
 		for k in n:
 			drop(f.pos, float(scrap) / n)
+	if f in boss_parts:
+		part_down(f)
 	if f == boss:
 		boss = null
 		for o in foes:
@@ -1118,6 +1214,7 @@ func spawn_pov(w: Dictionary) -> void:
 					return b.commit()))
 				c.node.add_child(ring)
 				c.anchor = Vector3(0, Rules.PY, 1.5)
+				c.size = 1.5
 				c.pos = c.anchor + Vector3(0, 0, stern_z)
 				c.fire_t = 1.5
 				core = c
@@ -1125,6 +1222,7 @@ func spawn_pov(w: Dictionary) -> void:
 				for k in 4:
 					var p := new_foe("panel", Models.panel())
 					p.idx = k
+					p.size = 1.5
 					p.fire_t = 1.0 + k * 0.6
 					p.pos = c.pos
 
