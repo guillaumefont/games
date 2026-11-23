@@ -243,16 +243,33 @@ func to_hangar() -> void:
 	phase = "hangar"
 	phase_t = 0.0
 	frame_z = 0.0
-	prel = Vector2(0, 4)
-	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	ship.visible = true
 	set_cam("top", 0.0)
+	prel = Vector2(0, hangar_ship_z())
+	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
 	hud.show_hangar()
 	sound.music("sortie", true)
 	if not driven and not checked_update:
 		checked_update = true
 		check_update()
+
+
+## Where the ship idles in the hangar (z relative to the frame): on the flight plane, centred in
+## the open sky between the version line and the top of the hangar panel, whatever the screen.
+func hangar_ship_z() -> float:
+	var vs := view_size()
+	if vs.y < 1.0:
+		return 4.0
+	var y := (Hud.HANGAR_TOP + hud.hangar_panel_top()) * 0.5
+	var xf: Transform3D = pose("top")[0]
+	var o := cam.project_ray_origin(Vector2(vs.x * 0.5, y))
+	var n := cam.project_ray_normal(Vector2(vs.x * 0.5, y))
+	if absf(n.y) < 0.001:
+		return 4.0
+	# the camera may still be easing in: measure from where it is, relative to its own frame
+	var hit := o + n * ((Rules.PY - o.y) / n.y)
+	return hit.z - (cam.global_position.z - xf.origin.z + frame_z)
 
 
 func launch() -> void:
@@ -461,6 +478,7 @@ func step(dt: float) -> void:
 	match phase:
 		"hangar":
 			frame_z -= 3.0 * dt
+			prel.y = hangar_ship_z()
 			ppos = Vector3(0, Rules.PY + sin(phase_t * 1.4) * 0.15, frame_z + prel.y)
 			bank = sin(phase_t * 0.8) * 0.15
 		"vert":

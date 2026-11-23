@@ -74,6 +74,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
   `prism`, `box`, `octa`), cached by name. The carrier is one mesh, stern (open hangar) at z = 0, the
   hangar centred on the flight altitude `Rules.PY`.
+- `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
+  (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
+  short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
+  above it (`Game.hangar_ship_z`). Test layouts at several phone ratios in a SubViewport (a headless
+  root window can't be resized).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
