@@ -99,6 +99,10 @@ var drone_t := 0.0
 var drone_n := 0
 
 # camera
+## Silhouette shadows: flattened copies of models, cast along the sun onto the ground.
+const SHADOW_Y := 1.45
+var shadows: Array[MeshInstance3D] = []
+var sun_slide := Vector2.ZERO
 var cam: Camera3D
 var cam_mode := "top"
 var cam_from := Transform3D()
@@ -128,30 +132,75 @@ func _ready() -> void:
 	noise.frequency = 0.022
 	noise.fractal_octaves = 3
 	env = Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Models.SKY
+	# a gradient sky with a sun glow, seen whenever the camera tilts up in the chase
+	var sky_mat := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = """
+shader_type sky;
+uniform vec3 top : source_color = vec3(0.24, 0.50, 0.80);
+uniform vec3 mid : source_color = vec3(0.48, 0.74, 0.92);
+uniform vec3 hor : source_color = vec3(0.86, 0.92, 0.94);
+uniform vec3 low : source_color = vec3(0.62, 0.78, 0.88);
+uniform vec3 sun : source_color = vec3(1.0, 0.92, 0.75);
+void sky() {
+	float h = EYEDIR.y;
+	vec3 c = mix(hor, mid, smoothstep(0.0, 0.25, h));
+	c = mix(c, top, smoothstep(0.2, 0.85, h));
+	c = mix(c, low, smoothstep(0.0, -0.15, h));
+	float s = max(dot(EYEDIR, LIGHT0_DIRECTION), 0.0);
+	c += sun * (pow(s, 10.0) * 0.25 + pow(s, 180.0) * 0.8) * smoothstep(-0.1, 0.05, h);
+	COLOR = c;
+}
+"""
+	sky_mat.shader = sh
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+	sky.radiance_size = Sky.RADIANCE_SIZE_32
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color8(0xb8, 0xcc, 0xe0)
-	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.ambient_light_color = Color8(0xb4, 0xcc, 0xe8)
+	env.ambient_light_energy = 0.5
+	# no sky reflections: they wash the flat colours out to cyan
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.0
+	env.tonemap_white = 4.0
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.1
+	env.adjustment_saturation = 1.04
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = Models.SKY
+	env.fog_light_color = Color8(0xc4, 0xde, 0xee)
 	env.fog_density = 1.0
-	env.fog_depth_begin = 70.0
-	env.fog_depth_end = 170.0
+	env.fog_depth_begin = 60.0
+	env.fog_depth_end = 180.0
+	env.fog_depth_curve = 1.6
+	env.fog_sun_scatter = 0.15
 	env.glow_enabled = true
-	env.glow_intensity = 0.7
-	env.glow_bloom = 0.05
-	env.glow_hdr_threshold = 0.75
+	env.glow_intensity = 0.5
+	env.glow_bloom = 0.0
+	env.glow_hdr_threshold = 0.9
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 	sun = DirectionalLight3D.new()
-	sun.rotation = Vector3(deg_to_rad(-58), deg_to_rad(-35), 0)
-	sun.light_energy = 1.15
-	sun.light_color = Color8(0xff, 0xf4, 0xe2)
+	sun.rotation = Vector3(deg_to_rad(-55), deg_to_rad(-35), 0)
+	sun.light_energy = 1.2
+	sun.light_color = Color8(0xff, 0xef, 0xd6)
 	add_child(sun)
+	# no shadow maps (the web renderer washes vertex colours out with them, and they cost
+	# on phones): models drop crisp silhouette shadows instead, see cast_shadow_of()
+	var d := -sun.basis.z
+	sun_slide = Vector2(d.x, d.z) / maxf(-d.y, 0.1)
+	# a cool fill from the opposite side keeps the shaded faces from going flat grey
+	var fill := DirectionalLight3D.new()
+	fill.rotation = Vector3(deg_to_rad(-30), deg_to_rad(150), 0)
+	fill.light_energy = 0.28
+	fill.light_color = Color8(0x9c, 0xc4, 0xff)
+	fill.light_specular = 0.0
+	add_child(fill)
 	cam = Camera3D.new()
 	cam.keep_aspect = Camera3D.KEEP_WIDTH
 	cam.near = 0.1
@@ -162,6 +211,7 @@ func _ready() -> void:
 	add_child(ship)
 	ship_mesh = Models.instance(Models.player())
 	ship.add_child(ship_mesh)
+	cast_shadow_of(ship_mesh)
 	engine_glow = Models.instance(Models.shot_mesh(0.13), Models.glow(Models.CYAN))
 	engine_glow.position = Vector3(0, -0.05, 1.4)
 	engine_glow.scale = Vector3(1.6, 1, 3)
@@ -357,6 +407,7 @@ func step(dt: float) -> void:
 	update_fx(dt)
 	update_chunks()
 	update_ship(dt)
+	update_shadows()
 	update_cam(dt)
 	hud.sync()
 
@@ -416,6 +467,7 @@ func new_foe(kind: String, mesh: Mesh) -> Obj:
 	f.r = d.r
 	f.node = Models.instance(mesh)
 	add_child(f.node)
+	cast_shadow_of(f.node)
 	foes.append(f)
 	return f
 
@@ -1092,13 +1144,41 @@ func update_ship(dt: float) -> void:
 	engine_glow.scale = Vector3(1.6, 1, 2.6 + sin(phase_t * 40.0) * 0.6)
 
 
+## Gives a model a shadow on the ground. The shadow is a child (it goes when the model goes)
+## placed in world space each frame by update_shadows().
+func cast_shadow_of(mi: MeshInstance3D) -> void:
+	var sh := MeshInstance3D.new()
+	sh.mesh = mi.mesh
+	sh.material_override = Models.shadow_mat()
+	sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	sh.top_level = true
+	sh.set_meta("src", mi)
+	mi.add_child(sh)
+	shadows.append(sh)
+
+
+func update_shadows() -> void:
+	# flatten onto y = SHADOW_Y along the sun: x' = x + (y - Y) * slide.x, z' likewise
+	var flat := Transform3D(Basis(Vector3(1, 0, 0), Vector3(sun_slide.x, 0.0005, sun_slide.y), Vector3(0, 0, 1)),
+		Vector3(-SHADOW_Y * sun_slide.x, SHADOW_Y, -SHADOW_Y * sun_slide.y))
+	for i in range(shadows.size() - 1, -1, -1):
+		var sh := shadows[i]
+		if not is_instance_valid(sh) or sh.is_queued_for_deletion():
+			shadows.remove_at(i)
+			continue
+		var src: MeshInstance3D = sh.get_meta("src")
+		if not sh.is_inside_tree():
+			continue
+		sh.global_transform = flat * src.global_transform
+
+
 func update_chunks() -> void:
 	var first := int(floor((-frame_z - 30.0) / CHUNK))
 	var want := {}
 	for k in range(first, first + 5):
 		want[k] = true
 		if not chunks.has(k):
-			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0))
+			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 3.0), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
 	for k in chunks.keys():
@@ -1115,7 +1195,9 @@ func spawn_carrier() -> void:
 	car_lift = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	carrier.position = Vector3(0, 0, stern_z)
-	carrier.add_child(Models.instance(Models.carrier()))
+	var hull := Models.instance(Models.carrier())
+	carrier.add_child(hull)
+	cast_shadow_of(hull)
 	for part in [["plating", Models.carrier_plating()], ["tower", Models.carrier_tower()]]:
 		var mi := Models.instance(part[1])
 		mi.name = part[0]

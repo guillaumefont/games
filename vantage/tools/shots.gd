@@ -1,6 +1,7 @@
 extends SceneTree
 ## Screenshots of the real game for PRs (needs a display):
 ##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots
+## A second argument names the last shot to take (e.g. 2-vertical), for quick look checks.
 ## The game is driven (fixed 1/60 s steps, one per rendered frame) with a simple autopilot
 ## that weaves in the vertical stage and lines up with the nearest foe in the chase.
 
@@ -39,6 +40,7 @@ func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		out = args[0]
+	var last := args[1] if args.size() > 1 else ""
 	DirAccess.make_dir_recursive_absolute(out)
 	var tmp := "user://shots_save.json"
 	var s := Rules.fresh()
@@ -72,6 +74,6 @@ func _initialize() -> void:
 			if not taken.has(k) and marks[k].call():
 				taken[k] = true
 				await shot(k)
-		if taken.size() == marks.size():
+		if taken.size() == marks.size() or taken.has(last):
 			break
 	quit()

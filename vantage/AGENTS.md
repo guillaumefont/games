@@ -73,7 +73,7 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
   `prism`, `box`, `octa`), cached by name. The carrier is one mesh, stern (open hangar) at z = 0, the
   hangar centred on the flight altitude `Rules.PY`.
-- `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`, `exit`,
+- `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
   in the vertical stage and 3D in the chase.
@@ -83,6 +83,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 
 - Android and Web use the Compatibility renderer. Take screenshots with `--rendering-method gl_compatibility`.
 - Vertex colours are sRGB: the shared material sets `vertex_color_is_srgb`.
+- No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
+  `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
+  maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
+  copy of the mesh, projected along the sun onto `SHADOW_Y` each frame.
+- The look (premium pass): gradient sky shader, filmic tonemap, a cool fill light, rim light on the
+  model material, chamfered top edges on straight `prism`s (automatic), and faceted jittered terrain
+  coloured per facet by height with baked hollow darkening. No random per-facet shade.
 - `Models.ground_chunk` caps terrain height so the ground stays well under the flight altitude.
 - Place HUD controls with anchors and offsets (`Hud.place`), not `position`: the HUD is stretched.
 - In a `SceneTree` script, `await process_frame` after `add_child` before stepping the game, or

@@ -31,8 +31,25 @@ static func mat() -> StandardMaterial3D:
 		_mat = StandardMaterial3D.new()
 		_mat.vertex_color_use_as_albedo = true
 		_mat.vertex_color_is_srgb = true
-		_mat.roughness = 0.85
+		_mat.roughness = 0.62
+		_mat.metallic_specular = 0.55
+		# a soft rim catches the silhouette against the ground
+		_mat.rim_enabled = true
+		_mat.rim = 0.35
+		_mat.rim_tint = 0.6
 	return _mat
+
+
+## The terrain material: matte, no rim, so the ground stays calm under the action.
+static func ground_mat() -> StandardMaterial3D:
+	if not _cache.has("ground"):
+		var m := StandardMaterial3D.new()
+		m.vertex_color_use_as_albedo = true
+		m.vertex_color_is_srgb = true
+		m.roughness = 0.95
+		m.metallic_specular = 0.2
+		_cache["ground"] = m
+	return _cache["ground"]
 
 
 ## A glowing unshaded material (shots, lights, engines).
@@ -76,6 +93,23 @@ class Builder:
 		st.add_vertex(b)
 		n += 3
 
+	## A triangle with a colour per corner.
+	func tri_cols(a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color, out: Vector3) -> void:
+		if (b - a).cross(c - a).dot(out) < 0.0:
+			var t := b
+			b = c
+			c = t
+			var u := cb
+			cb = cc
+			cc = u
+		st.set_color(ca)
+		st.add_vertex(a)
+		st.set_color(cc)
+		st.add_vertex(c)
+		st.set_color(cb)
+		st.add_vertex(b)
+		n += 3
+
 	func quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color, out: Vector3) -> void:
 		tri(a, b, c, col, out)
 		tri(a, c, d, col, out)
@@ -83,6 +117,8 @@ class Builder:
 	## A convex outline (x, z) extruded from y0 to y1 around `c`; the top outline is scaled by
 	## `top` (tapers) and shifted by `shift` (x, z). Side colour `side` defaults to `col`
 	## darkened.
+	## Straight extrusions get a small chamfer round the top edge, a lighter band that catches
+	## the sun the way machined plating does.
 	func prism(c: Vector3, outline: PackedVector2Array, y0: float, y1: float, col: Color,
 			top := Vector2.ONE, shift := Vector2.ZERO, side := Color(0, 0, 0, 0)) -> void:
 		var sc := col.darkened(0.18) if side.a == 0.0 else side
@@ -93,19 +129,36 @@ class Builder:
 		for p in outline:
 			mid += p
 		mid /= nb
+		var minr := INF
+		for p in outline:
+			minr = minf(minr, (p - mid).length())
+		var bev := 0.0
+		if top.x > 0.5 and top.y > 0.5 and y1 - y0 > 0.12 and minr > 0.12:
+			bev = minf(minf(0.16, (y1 - y0) * 0.3), minr * 0.22)
+		var yb := y1 - bev
+		var inset := 1.0 - bev / maxf(minr, 0.001) * 0.9
+		var ring: Array[Vector3] = []
 		for p in outline:
 			bot.append(c + Vector3(p.x, y0, p.y))
-			var q := mid + (p - mid) * top + shift
-			tp.append(c + Vector3(q.x, y1, q.y))
+			var f := (yb - y0) / (y1 - y0)
+			var q := mid + (p - mid) * Vector2.ONE.lerp(top, f) + shift * f
+			ring.append(c + Vector3(q.x, yb, q.y))
+			var t := mid + (p - mid) * top * (inset if bev > 0.0 else 1.0) + shift
+			tp.append(c + Vector3(t.x, y1, t.y))
 		var cb := c + Vector3(mid.x, y0, mid.y)
 		var ct := c + Vector3(mid.x + shift.x, y1, mid.y + shift.y)
+		var edge := col.lightened(0.16)
 		for i in nb:
 			var j := (i + 1) % nb
 			tri(ct, tp[i], tp[j], col, Vector3.UP)
 			tri(cb, bot[i], bot[j], sc.darkened(0.2), Vector3.DOWN)
 			var o := ((bot[i] + bot[j]) * 0.5 - cb)
 			o.y = 0.0
-			quad(bot[i], bot[j], tp[j], tp[i], sc, o)
+			if bev > 0.0:
+				quad(bot[i], bot[j], ring[j], ring[i], sc, o)
+				quad(ring[i], ring[j], tp[j], tp[i], edge, o + Vector3.UP * o.length())
+			else:
+				quad(bot[i], bot[j], tp[j], tp[i], sc, o)
 
 	## An axis-aligned box.
 	func box(c: Vector3, s: Vector3, col: Color, top := Vector2.ONE) -> void:
@@ -169,6 +222,19 @@ static func instance(m: Mesh, material: Material = null) -> MeshInstance3D:
 	mi.material_override = material if material else mat()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
+
+
+## Shadows: a soft see-through blue-black, drawn once per pixel so overlapping faces of one
+## model don't stack darker.
+static func shadow_mat() -> StandardMaterial3D:
+	if not _cache.has("shadow"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(0.02, 0.07, 0.18, 0.22)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_cache["shadow"] = m
+	return _cache["shadow"]
 
 
 static func cached(key: String, f: Callable) -> Mesh:
@@ -480,54 +546,94 @@ static func carrier_lights() -> Mesh:
 # ---------------------------------------------------------------- terrain
 ## One chunk of ground, `size.y` long from z0 towards -z, `size.x` wide: a low poly coast of
 ## sea, sand, grass and woods from a seeded noise, so chunks join seamlessly.
+## The colour of the ground at noise height h, blended across bands so coasts and tree lines
+## grade softly instead of stepping cell by cell.
+static func ground_col(h: float) -> Color:
+	if h < 0.0:
+		return SEA.lerp(SEA_D, smoothstep(-0.05, -0.45, h)).lerp(Color8(0x4f, 0xa4, 0xb0), smoothstep(-0.08, 0.0, h) * 0.6)
+	var c := SAND.lerp(GRASS, smoothstep(0.04, 0.12, h))
+	c = c.lerp(FOREST, smoothstep(0.28, 0.36, h))
+	return c.lerp(ROCK, smoothstep(0.48, 0.58, h))
+
+
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float) -> Mesh:
 	var b := Builder.new()
-	var nx := int(size.x / cell)
-	var nz := int(size.y / cell)
+	var nx := roundi(size.x / cell)
+	var nz := roundi(size.y / cell)
+	var cx_ := size.x / nx
+	var cz_ := size.y / nz
 	var x0 := -size.x * 0.5
 	var hgt := func(x: float, z: float) -> float:
-		var n := noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
-		return n
+		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01)
 	var height := func(h: float) -> float:
 		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
+	# one vertex grid, jittered in world space so neighbouring chunks still meet
+	var hs := []
+	var vs := []
+	var cs := []
+	for i in nx + 1:
+		var hr := []
+		var vr := []
+		for j in nz + 1:
+			var wx := x0 + i * cx_
+			var wz := z0 - j * cz_
+			var jx := (hash2(wx, wz) - 0.5) * cell * 0.55
+			var jz := (hash2(wz * 1.3, wx * 0.7) - 0.5) * cell * 0.55
+			if i == 0 or i == nx:
+				jx = 0.0
+			var h: float = hgt.call(wx + jx, wz + jz)
+			hr.append(h)
+			vr.append(Vector3(wx + jx, height.call(h), wz + jz))
+		hs.append(hr)
+		vs.append(vr)
+	# vertex colours, darkened in hollows (cheap baked occlusion)
+	for i in nx + 1:
+		var cr := []
+		for j in nz + 1:
+			var h: float = hs[i][j]
+			var c := ground_col(h)
+			if h >= 0.0:
+				var around := 0.0
+				var k := 0
+				for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+					var a := i + d.x
+					var e := j + d.y
+					if a >= 0 and a <= nx and e >= 0 and e <= nz:
+						around += vs[a][e].y
+						k += 1
+				var hollow: float = clampf((around / k - vs[i][j].y) * 0.5, 0.0, 0.22)
+				c = c.darkened(hollow)
+			cr.append(c)
+		cs.append(cr)
 	for i in nx:
 		for j in nz:
-			var xa := x0 + i * cell
-			var za := z0 - j * cell
-			var c := [Vector2(xa, za), Vector2(xa + cell, za), Vector2(xa + cell, za - cell), Vector2(xa, za - cell)]
-			var hs := []
-			var avg := 0.0
-			for p: Vector2 in c:
-				var h: float = hgt.call(p.x, p.y)
-				hs.append(h)
-				avg += h
-			avg /= 4.0
-			var col: Color
-			if avg < 0.0:
-				col = SEA if avg > -0.25 else SEA_D
-			elif avg < 0.08:
-				col = SAND
-			elif avg < 0.32:
-				col = GRASS
-			elif avg < 0.5:
-				col = FOREST
-			else:
-				col = ROCK
-			col = col.lightened((hash2(xa, za) - 0.5) * (0.035 if avg < 0.0 else 0.08))
-			var v := []
-			for k in 4:
-				v.append(Vector3(c[k].x, height.call(hs[k]), c[k].y))
-			b.quad(v[0], v[1], v[2], v[3], col, Vector3.UP)
-			# a few trees on the woods, houses on the grass
-			var r := hash2(xa * 1.7, za * 0.3)
-			var cx := xa + cell * 0.5
-			var cz := za - cell * 0.5
-			var cy: float = height.call(avg)
-			if avg >= 0.32 and avg < 0.5 and r < 0.55:
-				b.prism(Vector3(cx + (r - 0.3) * 2, cy, cz), ngon(0.7, 5, r * 6), 0, 1.6, FOREST.darkened(0.15), Vector2(0.05, 0.05))
-			elif avg >= 0.1 and avg < 0.3 and r < 0.06:
-				b.box(Vector3(cx, cy + 0.35, cz), Vector3(1.1, 0.7, 0.8), Color8(0xee, 0xe6, 0xd8))
-				b.prism(Vector3(cx, cy + 0.7, cz), pts([Vector2(-0.62, -0.48), Vector2(0.62, -0.48), Vector2(0.62, 0.48),
+			var q := [vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]]
+			var qc := [cs[i][j], cs[i + 1][j], cs[i + 1][j + 1], cs[i][j + 1]]
+			# split along the shorter diagonal of heights so ridges read as ridges
+			var flip: bool = absf(q[0].y - q[2].y) > absf(q[1].y - q[3].y)
+			var order := [[0, 1, 3], [1, 2, 3]] if flip else [[0, 1, 2], [0, 2, 3]]
+			# each facet takes one colour, from its centre's height: crisp facets, graded coasts
+			var qh := [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
+			for t: Array in order:
+				var fh: float = (qh[t[0]] + qh[t[1]] + qh[t[2]]) / 3.0
+				var shade: float = (qc[t[0]].v + qc[t[1]].v + qc[t[2]].v) / 3.0 / maxf(ground_col(fh).v, 0.01)
+				var fc := ground_col(fh)
+				if fh >= 0.0:
+					fc = fc.darkened(clampf(1.0 - shade, 0.0, 0.22))
+				b.tri(q[t[0]], q[t[1]], q[t[2]], fc, Vector3.UP)
+			# trees in the woods, the odd farmhouse on the grass
+			var avg: float = (hs[i][j] + hs[i + 1][j] + hs[i + 1][j + 1] + hs[i][j + 1]) * 0.25
+			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
+			var r := hash2(cen.x * 1.7, cen.z * 0.3)
+			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
+			if avg >= 0.32 and avg < 0.52 and r < 0.8:
+				for n in 2 if r < 0.4 else 1:
+					var tp := cen + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2)
+					var tall := 1.4 + hash2(tp.x, tp.z) * 0.9
+					b.prism(Vector3(tp.x, cy - 0.1, tp.z), ngon(0.75, 5, r * 6), 0, tall, FOREST.darkened(0.1 + r * 0.15), Vector2(0.05, 0.05))
+			elif avg >= 0.12 and avg < 0.28 and r < 0.07:
+				b.box(Vector3(cen.x, cy + 0.35, cen.z), Vector3(1.1, 0.7, 0.8), Color8(0xee, 0xe6, 0xd8))
+				b.prism(Vector3(cen.x, cy + 0.7, cen.z), pts([Vector2(-0.62, -0.48), Vector2(0.62, -0.48), Vector2(0.62, 0.48),
 					Vector2(-0.62, 0.48)]), 0, 0.45, Color8(0xc0, 0x5a, 0x3e), Vector2(0.05, 1.0))
 	return b.commit()
 
