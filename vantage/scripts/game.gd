@@ -29,8 +29,9 @@ class Obj:
 	var dead := false
 	var ground := false
 	var flash := 0.0
-	## Time left on the white hit flash.
-	var hit := 0.0
+	## Time left on the hit flash; below zero, the pause before it can flash again, so
+	## steady fire flickers instead of holding the foe white.
+	var hit := -1.0
 	## Mount point on the carrier (x, y, z from its stern) for turrets and the reactor.
 	var anchor := Vector3.INF
 	## Height a drone hovers at.
@@ -239,6 +240,9 @@ func to_hangar() -> void:
 	set_cam("top", 0.0)
 	update_chunks()
 	hud.show_hangar()
+	if not driven and not checked_update:
+		checked_update = true
+		check_update()
 
 
 func launch() -> void:
@@ -261,6 +265,47 @@ func launch() -> void:
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("SECTOR 1", "Glass Coast")
+
+
+# ---------------------------------------------------------------- updates
+
+## Set after a quiet check of update.json finds a newer build than the one running.
+var new_build := 0
+var checked_update := false
+
+
+## The launch check (scripts/boot.gd) already updated the game if it could; this one runs
+## in the hangar, so a build published while the game was open still gets offered.
+func check_update() -> void:
+	var url: String = ProjectSettings.get_setting("vantage/update_url", "")
+	if url == "":
+		return
+	var http := HTTPRequest.new()
+	http.timeout = 5
+	add_child(http)
+	if http.request(url + "update.json?t=%d" % int(Time.get_unix_time_from_system())) != OK:
+		http.queue_free()
+		return
+	var r: Array = await http.request_completed
+	http.queue_free()
+	if r[0] != HTTPRequest.RESULT_SUCCESS or r[1] != 200:
+		return
+	var d = JSON.parse_string((r[3] as PackedByteArray).get_string_from_utf8())
+	var have := int(ProjectSettings.get_setting("vantage/build", 0))
+	var running := str(ProjectSettings.get_setting("application/config/version", ""))
+	if d is Dictionary and int(d.get("build", 0)) > have and not running.begins_with("b%d" % int(d.get("build", 0))):
+		new_build = int(d.build)
+		hud.refresh_hangar()
+
+
+## Restarts the game so the launch check loads the newest build.
+func refresh_game() -> void:
+	Rules.save_game(s, save_path)
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("location.reload()")
+	else:
+		OS.set_restart_on_exit(true)
+		get_tree().quit()
 
 
 func buy(key: String) -> bool:
@@ -423,6 +468,7 @@ func step_vert(dt: float) -> void:
 	clamp_player()
 	ppos = Vector3(prel.x, Rules.PY, frame_z + prel.y)
 	pvel = (prel - before) / maxf(dt, 0.001)
+	update_view()
 	run_waves()
 	fire_vert(dt)
 	if carrier and not carrier_done and stern_z - frame_z >= Rules.Z_TOP + 2.0:
@@ -449,12 +495,13 @@ func run_waves() -> void:
 			wave_i += 1
 			continue
 		for i in int(w.n):
-			queue.append({"at": stage_t + i * float(w.gap), "kind": w.kind, "x": float(w.x), "i": i, "n": int(w.n)})
+			queue.append({"at": stage_t + i * float(w.gap), "kind": w.kind, "x": float(w.x), "i": i, "n": int(w.n),
+				"from": w.get("from", "top")})
 		wave_i += 1
 	var rest := []
 	for q: Dictionary in queue:
 		if stage_t >= q.at:
-			spawn_vert(q.kind, q.x, q.i, q.n)
+			spawn_vert(q.kind, q.x, q.i, q.n, q.from)
 		else:
 			rest.append(q)
 	queue = rest
@@ -474,8 +521,8 @@ func new_foe(kind: String, mesh: Mesh) -> Obj:
 	return f
 
 
-func spawn_vert(kind: String, x: float, i: int, n: int) -> void:
-	var top := frame_z + Rules.Z_TOP - 1.5
+func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
+	var top := frame_z + minf(view_top, Rules.Z_TOP) - 2.5
 	match kind:
 		"dart":
 			var f := new_foe("dart", Models.dart())
@@ -483,6 +530,19 @@ func spawn_vert(kind: String, x: float, i: int, n: int) -> void:
 			f.idx = i
 			f.pos = Vector3(x * 1.25 + (i % 2) * 0.6 - 0.3, Rules.PY, top)
 			f.fire_t = 0.9 + 0.1 * i
+			match from:
+				"left", "right":
+					# sweep across the upper screen from beyond the side edge
+					var side := -1.0 if from == "left" else 1.0
+					var z := lerpf(view_top, Rules.Z_TOP + 4.0, 0.5) + x
+					f.pos = Vector3(side * (view_hw(z) + 2.0), Rules.PY, frame_z + z)
+					f.vel = Vector3(-side * 9.0, 0, 2.5)
+				"back":
+					# overtake from behind, up a lane at the side, then fire back down
+					var lane := x + (i % 2) * 1.2
+					f.pos = Vector3(lane, Rules.PY, frame_z + maxf(view_bot, Rules.Z_BOT) + 2.0)
+					f.vel = Vector3(0, 0, -14.0)
+					f.fire_t = 1.6 + 0.1 * i
 		"swing":
 			var f := new_foe("swing", Models.swing())
 			f.rel = true
@@ -494,7 +554,8 @@ func spawn_vert(kind: String, x: float, i: int, n: int) -> void:
 			var f := new_foe("turret", Models.turret())
 			f.ground = true
 			var sx := x * 1.25 + (i - (n - 1) * 0.5) * 4.0
-			f.pos = Vector3(clampf(sx, -7.0, 7.0), ground_y(sx, top - 3.0), top - 3.0)
+			var gz := frame_z + minf(view_ground_top, top - frame_z - 3.0) - 2.0
+			f.pos = Vector3(clampf(sx, -7.0, 7.0), ground_y(sx, gz), gz)
 			f.fire_t = 1.5 + 0.4 * i
 		"heavy":
 			var f := new_foe("heavy", Models.heavy())
@@ -591,12 +652,48 @@ func seen(p: Vector3) -> Vector3:
 	return eye + (p - eye) * k
 
 
+## What the vertical camera shows of the flight plane, relative to the scroll frame: the
+## top and bottom edges (z) and the half width at each. A tall phone sees more than the
+## field the player moves in, so foes spawn past these edges, never inside the screen.
+var view_top := Rules.Z_TOP
+var view_bot := Rules.Z_BOT
+var view_hw_top := Rules.HALF_W + 1.0
+var view_hw_bot := Rules.HALF_W + 1.0
+## The top edge on the ground, where ground turrets roll in.
+var view_ground_top := Rules.Z_TOP - 6.0
+
+
+func update_view() -> void:
+	var vs := view_size()
+	if vs.x < 1.0 or vs.y < 1.0:
+		return
+	var at := func(px: Vector2, y: float) -> Vector3:
+		var o := cam.project_ray_origin(px)
+		var n := cam.project_ray_normal(px)
+		if absf(n.y) < 0.001:
+			return o
+		return o + n * ((y - o.y) / n.y)
+	var tl: Vector3 = at.call(Vector2(0, 0), Rules.PY)
+	var bl: Vector3 = at.call(Vector2(0, vs.y), Rules.PY)
+	view_top = tl.z - frame_z
+	view_bot = bl.z - frame_z
+	view_hw_top = absf(tl.x)
+	view_hw_bot = absf(bl.x)
+	view_ground_top = (at.call(Vector2(vs.x * 0.5, 0), 0.0) as Vector3).z - frame_z
+
+
+## The screen's half width on the flight plane at depth z (relative to the frame).
+func view_hw(z: float) -> float:
+	return lerpf(view_hw_top, view_hw_bot, clampf(inverse_lerp(view_top, view_bot, z), 0.0, 1.0))
+
+
 func on_screen(f: Obj) -> bool:
 	if pov_mode():
 		var dz := ppos.z - f.pos.z
 		return dz > 2.0 and dz < 45.0
 	var z := seen(f.pos).z - frame_z
-	return z > Rules.Z_TOP - 0.5 and z < Rules.Z_BOT and absf(f.pos.x) < Rules.HALF_W + 1.0
+	var at := seen(f.pos)
+	return z > view_top + 0.5 and z < view_bot - 0.5 and absf(at.x) < view_hw(z) - 0.3
 
 
 # ---------------------------------------------------------------- foes and objects
@@ -606,7 +703,7 @@ func update_objs(dt: float) -> void:
 	for f in foes:
 		f.t += dt
 		f.flash = maxf(0.0, f.flash - dt)
-		f.hit = maxf(0.0, f.hit - dt)
+		f.hit = maxf(-1.0, f.hit - dt)
 		if f.rel:
 			f.pos.z += dz
 		think(f, dt)
@@ -671,13 +768,19 @@ func gone(o: Obj) -> bool:
 		return phase == "vert"
 	if o.kind == "shot" or o.kind == "missile":
 		return z < Rules.Z_TOP - 4.0 or absf(o.pos.x) > Rules.HALF_W + 4.0 or o.t > 3.0
-	return z > Rules.Z_BOT + 3.0 or z < Rules.Z_TOP - 30.0 or absf(o.pos.x) > Rules.HALF_W + 8.0
+	return z > maxf(Rules.Z_BOT, view_bot) + 3.0 or z < Rules.Z_TOP - 30.0 or absf(o.pos.x) > Rules.HALF_W + 12.0
 
 
 ## Each foe's movement and fire.
 func think(f: Obj, dt: float) -> void:
 	var to_p := ppos - f.pos
 	match f.kind:
+		"dart" when f.vel != Vector3.ZERO:
+			f.pos += f.vel * dt
+			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), 0)
+			if f.t >= f.fire_t and f.fire_t > 0 and on_screen(f):
+				f.fire_t = -1.0
+				aimed(f.pos, 10.0)
 		"dart":
 			f.pos.z += 9.0 * dt
 			if f.t < 1.3:
@@ -996,7 +1099,7 @@ func collide(_dt: float) -> void:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
 				hurt()
-		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss", "cannon", "flak", "battery", "bridge"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R:
+		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss", "cannon", "flak", "battery", "bridge"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R and not (f.vel.z < 0.0 and f.t < 1.0):
 			damage(f, 6.0)
 			hurt()
 	# pickups
@@ -1024,7 +1127,8 @@ func damage(f: Obj, d: float) -> void:
 		return
 	f.hp -= d
 	f.flash = 0.08
-	f.hit = 0.09
+	if f.hit < -0.08:
+		f.hit = 0.05
 	if f.hp <= 0.0:
 		kill(f)
 

@@ -19,6 +19,7 @@ var hangar: Control
 var results: Control
 var hangar_scrap: Label
 var hangar_best: Label
+var update_btn: Button
 var rows := {}
 var res_title: Label
 var res_body: Label
@@ -173,6 +174,10 @@ func build_hangar() -> void:
 	v.add_child(gap)
 	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_CENTER)
 	hangar_best.reparent(v)
+	update_btn = button("", GOLD, 26)
+	update_btn.visible = false
+	update_btn.pressed.connect(func() -> void: game.refresh_game())
+	v.add_child(update_btn)
 	var go := button("LAUNCH", CY, 40)
 	go.custom_minimum_size = Vector2(0, 104)
 	go.pressed.connect(func() -> void: game.launch())
@@ -195,6 +200,8 @@ func refresh_hangar() -> void:
 	var build: String = ProjectSettings.get_setting("application/config/version", "")
 	if build != "":
 		hangar_best.text += "   ·   " + build
+	update_btn.visible = game.new_build > 0
+	update_btn.text = "New version %d · restart" % game.new_build
 
 
 func show_hangar() -> void:

@@ -173,24 +173,26 @@ const FOES := {
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the
 ## carrier, chased in third person, and ends the sector. `x` is where the wave enters, `n` how many
 ## foes, `gap` the seconds between them.
+## Waves enter from off-screen: "from" is the edge (top by default; darts can also sweep in
+## from the left or right, x then shifting their row, or overtake from the back up the lane x).
 const STAGE := [
 	{"t": 1.5, "kind": "dart", "n": 5, "x": -3.0, "gap": 0.35},
-	{"t": 4.0, "kind": "dart", "n": 5, "x": 3.0, "gap": 0.35},
+	{"t": 4.0, "kind": "dart", "n": 5, "x": 0.0, "gap": 0.35, "from": "right"},
 	{"t": 7.0, "kind": "swing", "n": 6, "x": -1.0, "gap": 0.4},
 	{"t": 9.0, "kind": "turret", "n": 2, "x": -3.5, "gap": 0.0},
 	{"t": 10.0, "kind": "turret", "n": 1, "x": 3.8, "gap": 0.0},
-	{"t": 12.5, "kind": "dart", "n": 6, "x": 0.0, "gap": 0.3},
+	{"t": 12.5, "kind": "dart", "n": 6, "x": -5.5, "gap": 0.3, "from": "back"},
 	{"t": 15.0, "kind": "heavy", "n": 1, "x": 0.0, "gap": 0.0},
 	# mid-boss: the clock waits until it's down
 	{"t": 19.0, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0},
 	{"t": 21.5, "kind": "swing", "n": 6, "x": 2.0, "gap": 0.35},
 	{"t": 23.0, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
 	{"t": 25.0, "kind": "heavy", "n": 1, "x": -2.5, "gap": 0.0},
-	{"t": 27.5, "kind": "dart", "n": 8, "x": -4.0, "gap": 0.25},
-	{"t": 29.5, "kind": "dart", "n": 8, "x": 4.0, "gap": 0.25},
+	{"t": 27.5, "kind": "dart", "n": 8, "x": 0.0, "gap": 0.25, "from": "left"},
+	{"t": 29.5, "kind": "dart", "n": 8, "x": 2.0, "gap": 0.25, "from": "right"},
 	{"t": 32.0, "kind": "swing", "n": 6, "x": -2.0, "gap": 0.35},
 	{"t": 33.5, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
-	{"t": 35.5, "kind": "dart", "n": 6, "x": -3.0, "gap": 0.3},
+	{"t": 35.5, "kind": "dart", "n": 6, "x": 4.5, "gap": 0.3, "from": "back"},
 	{"t": 36.0, "kind": "swing", "n": 6, "x": 2.5, "gap": 0.35},
 	# final boss: the carrier chase ends the sector
 	{"t": 40.0, "kind": "carrier", "n": 1, "x": 0.0, "gap": 0.0},
