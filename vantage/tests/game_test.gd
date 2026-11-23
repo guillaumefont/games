@@ -264,11 +264,39 @@ func aiming() -> void:
 	await process_frame
 
 
+## Guillaume: shots stopped short of the screen edge, and foes left too quickly.
+func lingering() -> void:
+	print("shot range and time on screen")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	g.step(DT)
+	var o := g.new_shot(Vector3(0, Rules.PY, g.frame_z + g.view_top + 0.5), Vector3(0, 0, -30), 1.0)
+	check(not g.gone(o), "a shot still flies at the very top of the screen")
+	for from: String in ["back", "left"]:
+		g.spawn_vert("dart", 4.5 if from == "back" else 0.0, 0, 1, from)
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hp = 1e6   # the autofire would bring it down; this is about its flight
+		var seen_t := 0.0
+		for i in int(10.0 / DT):
+			g.hp = 3
+			g.step(DT)
+			if f.dead or not f in g.foes:
+				break
+			if g.on_screen(f):
+				seen_t += DT
+		var want := 4.0 if from == "back" else 2.8
+		check(seen_t >= want, "a dart from the %s stays on screen %.1f s (at least %.1f)" % [from, seen_t, want])
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
 	await controls()
 	await aiming()
+	await lingering()
 	await stage()
 	await death()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
