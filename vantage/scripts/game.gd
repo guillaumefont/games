@@ -114,7 +114,7 @@ var drone_n := 0
 
 # camera
 ## Silhouette shadows: flattened copies of models, cast along the sun onto the ground. They are
-## drawn white on black into a half-size mask (`shadow_view`, seen by `shadow_cam` only), and one
+## drawn white on black into a mask at the game's 720 px width (`shadow_view`, seen by `shadow_cam` only), and one
 ## see-through plane (`shadow_plane`) darkens the ground wherever the softened mask is set. So each
 ## pixel is shaded once: overlapping faces and neighbouring shadows never stack into dark patches,
 ## and the edges fade smoothly instead of stair-stepping.
@@ -1382,7 +1382,7 @@ func make_shadow_view() -> void:
 	shadow_view = SubViewport.new()
 	shadow_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	shadow_view.msaa_3d = Viewport.MSAA_DISABLED
-	shadow_view.size = Vector2i(270, 480)
+	shadow_view.size = Vector2i(720, 1280)
 	add_child(shadow_view)
 	shadow_cam = Camera3D.new()
 	shadow_cam.cull_mask = SHADOW_LAYER
@@ -1405,7 +1405,7 @@ func make_shadow_view() -> void:
 
 ## Keeps the mask camera on the game camera and the shadow plane under it.
 func sync_shadow_view() -> void:
-	var size := Vector2i((get_viewport().get_visible_rect().size * 0.5).max(Vector2.ONE))
+	var size := Vector2i((get_viewport().get_visible_rect().size).max(Vector2.ONE))
 	if shadow_view.size != size:
 		shadow_view.size = size
 	shadow_cam.global_transform = cam.global_transform

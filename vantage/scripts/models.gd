@@ -266,10 +266,10 @@ shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
 uniform sampler2D mask : filter_linear, repeat_disable;
 uniform vec4 tint : source_color;
-uniform float soft = 1.6;
+uniform float soft = 1.0;
 
 void fragment() {
-	// a 13-tap blur of the mask: a soft penumbra a few pixels wide
+	// a 13-tap blur of the mask, only to smooth the stair-steps off the edge
 	vec2 px = soft / vec2(textureSize(mask, 0));
 	float m = texture(mask, SCREEN_UV).r * 0.2;
 	m += (texture(mask, SCREEN_UV + vec2(px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(px.x, 0.0)).r
@@ -282,7 +282,8 @@ void fragment() {
 		discard;
 	}
 	ALBEDO = tint.rgb;
-	ALPHA = tint.a * min(m, 1.0);
+	// one flat tone inside, only a thin anti-aliased rim: thin wings stay as dark as the body
+	ALPHA = tint.a * smoothstep(0.12, 0.5, m);
 }
 """
 
