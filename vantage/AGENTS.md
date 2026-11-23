@@ -90,7 +90,8 @@ tail, an overview, after its first section): `tools/fortress_lineup.gd -- /tmp/f
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
 
-Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`.
+Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
+gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.
 
 Every world (hangar, play, battleship): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/worlds.gd -- /tmp/worlds`
 
@@ -127,6 +128,12 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   `part` (they flash with the hit). Hold positions are offsets from `view_top`, so they work on every screen
   ratio. Static ground foes look for dry land (`Foes.dry_x`, `Game.land`). Flak shells (`Game.shell`) burst into
   rings; a borer under the sand (`Obj.under`) can't be hit.
+- Gun towers (Guillaume, 2026-11-23: "different types of towers", "customize tower for each world, snowy,
+  sandy, on a building"): `scripts/towers.gd` (`Towers`). Four types (`TYPES`: flak `turret`, `rocket`
+  battery, `howitzer`, `pulse` mast), fielded by world (`BY_WORLD`; a level's "turret" waves take them in
+  turn). Each stands on its world's footing (`Towers.base`): sandbagged pad, sandstone block in a drift, a
+  whole building in the city, snowed-over pad (snow on the gun too), basalt crag with magma. The node sits at
+  the gun's height (`Towers.height`) so it's hit where the gun shows; the gun is a `top` part that turns.
 
 ## Code map
 
