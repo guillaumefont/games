@@ -80,6 +80,8 @@ var prel := Vector2(0, 5)
 var pvel := Vector2.ZERO
 var hp := 3
 var inv := 0.0
+## Push from ramming something (world units/s, x and z in the stage, x and y in the chase); eases off.
+var knock := Vector2.ZERO
 var fire_cd := 0.0
 var miss_cd := 0.0
 var bank := 0.0
@@ -360,6 +362,7 @@ func launch(lv := -1) -> void:
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	hp = Rules.max_hp(s)
 	inv = 0.0
+	knock = Vector2.ZERO
 	fire_cd = 0.0
 	miss_cd = 0.5
 	run = {"score": 0, "scrap": 0, "kills": 0, "hits": 0, "cleared": false}
@@ -657,6 +660,8 @@ func step_vert(dt: float) -> void:
 	stage_t += dt
 	frame_z -= Rules.SCROLL * dt
 	var before := prel
+	prel += knock * dt
+	knock = knock.move_toward(Vector2.ZERO, Rules.KNOCK_EASE * dt)
 	clamp_player()
 	ppos = Vector3(prel.x, Rules.PY, frame_z + prel.y)
 	pvel = (prel - before) / maxf(dt, 0.001)
@@ -1351,9 +1356,16 @@ func collide(_dt: float) -> void:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
 				hurt()
-		elif f.kind not in ["orb", "panel", "core", "drone", "sentry", "boss", "cannon", "flak", "battery", "bridge"] and flat_dist(f.pos, ppos) < f.r * 0.7 + Rules.PLAYER_R and not (f.vel.z < 0.0 and f.t < 1.0):
-			damage(f, 6.0)
-			hurt()
+			elif f.kind in Rules.RAMMABLE and f.pos.distance_to(ppos) < f.r * Rules.RAM_R + Rules.PLAYER_R:
+				ram(f)
+		elif f.kind in Rules.RAMMABLE and flat_dist(f.pos, ppos) < f.r * Rules.RAM_R + Rules.PLAYER_R and not (f.vel.z < 0.0 and f.t < 1.0):
+			ram(f)
+	# the Bastion's hull (and its bow and wings until they break off): a wall that hurts
+	if boss and not boss.dead and not pov and inv <= 0.0 and boss_rammed(ppos):
+		var at := Vector3(ppos.x, Rules.PY, ppos.z - Rules.PLAYER_R)
+		pop(at, 1.0, Models.AMBER)
+		knock = Vector2(clampf(ppos.x - boss.pos.x, -1.0, 1.0) * 3.0, Rules.KNOCK)
+		hurt()
 	# pickups
 	for p in picks:
 		if not p.dead and flat_dist(p.pos, ppos) < Rules.PICK_R:
@@ -1361,6 +1373,46 @@ func collide(_dt: float) -> void:
 			run.scrap += int(p.dmg)
 			sound.play("scrap")
 			hud.ping_scrap()
+
+
+## The ship flew into a foe: the ship takes a hit and is thrown back, small foes break up, big
+## ones take RAM_DMG. During the blink after a hit the ship passes through.
+func ram(f: Obj) -> void:
+	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
+		return
+	var away := ppos - f.pos
+	pop(f.pos.lerp(ppos, 0.5), 0.9, Models.AMBER)
+	if f.kind in Rules.RAM_KILLS:
+		kill(f)
+	else:
+		damage(f, Rules.RAM_DMG)
+	if pov_mode():
+		knock = Vector2(away.x, away.y).normalized() * Rules.KNOCK if Vector2(away.x, away.y).length() > 0.05 else Vector2(0, -Rules.KNOCK)
+	else:
+		knock = Vector2(away.x, away.z).normalized() * Rules.KNOCK if Vector2(away.x, away.z).length() > 0.05 else Vector2(0, Rules.KNOCK)
+	hurt()
+
+
+## Whether the ship at p (seen from above) touches the Bastion: its hull, and its bow and wings
+## while they're still on.
+func boss_rammed(p: Vector3) -> bool:
+	if boss == null:
+		return false
+	var q := Vector2(p.x - boss.pos.x, p.z - boss.pos.z)
+	var shapes: Array = [Models.pts(Models.BOSS_HULL)]
+	if boss.node.has_node("bow") and boss.node.get_node("bow").visible:
+		shapes.append(Models.pts(Models.BOSS_BOW))
+	if boss.node.has_node("wings") and boss.node.get_node("wings").visible:
+		shapes.append(Models.boss_wing(1.0))
+		shapes.append(Models.boss_wing(-1.0))
+	for poly: PackedVector2Array in shapes:
+		if Geometry2D.is_point_in_polygon(q, poly):
+			return true
+		for i in poly.size():
+			var c := Geometry2D.get_closest_point_to_segment(q, poly[i], poly[(i + 1) % poly.size()])
+			if c.distance_to(q) < Rules.PLAYER_R:
+				return true
+	return false
 
 
 func flat_dist(a: Vector3, b: Vector3) -> float:
@@ -1813,6 +1865,8 @@ func begin_pov() -> void:
 func step_pov(dt: float) -> void:
 	var v := rail_speed()
 	rail_s += v * dt
+	off += knock * dt
+	knock = knock.move_toward(Vector2.ZERO, Rules.KNOCK_EASE * dt)
 	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
 	off.y = clampf(off.y, -Rules.POV_DOWN, Rules.POV_REACH.y)
 	var before := Vector2(ppos.x, ppos.y)

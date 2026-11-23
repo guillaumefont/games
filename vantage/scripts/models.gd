@@ -432,12 +432,28 @@ static func heavy() -> Mesh:
 ## The sector's guardian, the Bastion: a battleship wider than the screen, nose to +z. The hull
 ## stays; the bow plating and the wings are separate meshes that break off when their section
 ## is destroyed. Its guns are separate parts (boss_cannon, boss_battery, boss_bridge, turret).
+## The Bastion's outlines seen from above (x, z from the hull's centre, bow towards +z): its
+## meshes are built from them and ramming tests the ship against them (Game.boss_rammed).
+const BOSS_HULL := [Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
+	Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]
+const BOSS_BOW := [Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0), Vector2(-2.2, 7.0)]
+const BOSS_WING := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
+
+
+## One of the Bastion's wings (sx = 1 right, -1 left), wound the same way as the others.
+static func boss_wing(sx: float) -> PackedVector2Array:
+	var o := PackedVector2Array()
+	for p: Vector2 in BOSS_WING:
+		o.append(Vector2(p.x * sx, p.y))
+	if sx < 0:
+		o.reverse()
+	return o
+
+
 static func boss_hull() -> Mesh:
 	return cached("boss_hull", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3.ZERO, pts([Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
-			Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]),
-			-0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
+		b.prism(Vector3.ZERO, pts(BOSS_HULL), -0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
 		# raised spine, deck stripes, stern engines
 		b.box(Vector3(0, 0.9, -5.5), Vector3(2.4, 0.5, 9.0), HULL_D, Vector2(0.8, 0.95))
 		for k in 4:
@@ -451,8 +467,7 @@ static func boss_hull() -> Mesh:
 static func boss_bow() -> Mesh:
 	return cached("boss_bow", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3(0, 0, 0), pts([Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0),
-			Vector2(-2.2, 7.0)]), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
+		b.prism(Vector3(0, 0, 0), pts(BOSS_BOW), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
 		b.box(Vector3(0, 1.05, 5.0), Vector3(1.0, 0.1, 5.0), AMBER, Vector2(0.4, 0.9))
 		for sx in [1.0, -1.0]:
 			b.prism(Vector3(sx * 1.6, 1.0, 6.5), ngon(1.0, 8, PI / 8), 0.0, 0.2, HULL_D)
@@ -464,12 +479,7 @@ static func boss_wings() -> Mesh:
 	return cached("boss_wings", func() -> Mesh:
 		var b := Builder.new()
 		for sx in [1.0, -1.0]:
-			var w := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
-			var o := PackedVector2Array()
-			for p: Vector2 in w:
-				o.append(Vector2(p.x * sx, p.y))
-			if sx < 0:
-				o.reverse()
+			var o := boss_wing(sx)
 			b.prism(Vector3.ZERO, o, -0.35, 0.35, FOE, Vector2(0.97, 0.97))
 			b.box(Vector3(sx * 12.2, 0.0, -3.1), Vector3(0.7, 1.0, 2.6), HULL_D)
 			b.box(Vector3(sx * 9.5, 0.37, -2.0), Vector3(3.5, 0.05, 0.3), AMBER)
