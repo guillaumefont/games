@@ -33,3 +33,5 @@ jobs:
         run: ./godot --headless --path . --script tests/update_test.gd
       - name: App icons (project icon, Android launcher layers)
         run: ./godot --headless --path . --script tests/icon_test.gd
+      - name: Explosions (pieces, pool, budget, chains, carry, shake)
+        run: ./godot --headless --path . --script tests/blasts_test.gd
