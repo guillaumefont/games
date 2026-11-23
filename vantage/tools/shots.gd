@@ -26,7 +26,7 @@ func tick() -> void:
 	if g.pov_mode():
 		var best: Game.Obj = null
 		for f in g.foes:
-			if f.kind != "orb" and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
+			if f.kind not in ["orb", "boss"] and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
 				if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 					best = f
 		if best:
@@ -56,18 +56,17 @@ func _initialize() -> void:
 		await tick()
 	await shot("1-hangar")
 	g.launch()
-	var marks := {"2-vertical": func() -> bool: return g.phase == "vert" and g.stage_t > 16.2,
-		"3-swoop": func() -> bool: return g.phase == "approach" and g.phase_t > 1.3,
-		"4-tail": func() -> bool: return g.phase == "pov" and g.phase_t > 0.6,
-		"5-chase": func() -> bool: return g.phase == "pov" and g.rail_s > 150.0,
-		"6-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
-		"7-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
-		"7b-climb-out": func() -> bool: return g.phase == "exit" and g.phase_t > 0.7,
-		"8-boss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
-		"8b-boss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() == 3,
-		"8c-boss-bridge": func() -> bool: return g.boss != null and g.boss_sec == 2 and g.boss_parts[0].hp < 120.0,
-		"9-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
-	for i in 60 * 150:
+	var marks := {"2-vertical": func() -> bool: return g.phase == "vert" and g.stage_t > 13.0,
+		"3-midboss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
+		"4-midboss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() <= 3,
+		"5-midboss-bridge": func() -> bool: return g.boss != null and g.boss_sec == 2 and g.boss_parts[0].hp < 200.0,
+		"6-swoop": func() -> bool: return g.phase == "approach" and g.phase_t > 1.3,
+		"7-stern-guns": func() -> bool: return g.phase == "pov" and g.car_sec == 0 and g.phase_t > 2.0,
+		"8-tower": func() -> bool: return g.phase == "pov" and g.car_sec == 1 and g.car_parts.size() <= 4,
+		"9-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
+		"9b-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
+		"9c-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
+	for i in 60 * 240:
 		await tick()
 		for k: String in marks:
 			if not taken.has(k) and marks[k].call():

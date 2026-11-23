@@ -1,6 +1,6 @@
 extends SceneTree
 ## The game: rules (upgrades, saves, grades), the vertical stage's controls, the swoop into
-## the carrier, the third-person chase (dodging, reactor shield), the climb back out, the boss, death
+## the mid-boss's sections, the carrier chase (final boss: dodging, reactor shield), death
 ## and results. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
@@ -60,10 +60,12 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 			g.hp = maxi(g.hp, 2)
 		if g.phase == "vert" and not g.boss_parts.is_empty():
 			g.prel.x = lerpf(g.prel.x, g.boss_parts[0].pos.x, 0.08)
+		if g.phase == "vert" and not g.boss_parts.is_empty():
+			g.prel.x = lerpf(g.prel.x, g.boss_parts[0].pos.x, 0.08)
 		if g.pov_mode():
 			var best: Game.Obj = null
 			for f in g.foes:
-				if f.kind != "orb" and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
+				if f.kind not in ["orb", "boss"] and not f.dead and not (f.kind == "core" and g.shielded()) and not g.cam.is_position_behind(f.pos):
 					if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 						best = f
 			if best:
@@ -106,17 +108,47 @@ func controls() -> void:
 
 
 func stage() -> void:
-	print("the stage and the carrier episode")
+	print("the stage: mid-boss, carrier chase (final boss)")
 	var g := make_game()
 	await process_frame
 	g.s.up.missile = 2
 	g.launch()
+	# the mid-boss, top-down
+	run(g, 40.0, func() -> bool: return g.boss != null)
+	check(g.boss != null and g.phase == "vert", "the mid-boss arrives in the vertical stage")
+	check(g.boss_parts.size() == 4 and g.boss_sec == 0, "its bow guns are the first section")
+	var bridge_open := false
+	for f in g.foes:
+		if f.kind == "bridge":
+			bridge_open = true
+	check(not bridge_open, "the bridge isn't open yet")
+	var t0 := g.stage_t
+	run(g, 60.0, func() -> bool: return g.boss_sec == 1)
+	check(g.boss_sec == 1 and not g.boss.node.get_node("bow").visible, "bow guns down: the bow breaks off, the wing batteries open")
+	check(g.wave_i < Rules.STAGE.size() and Rules.STAGE[g.wave_i].kind == "boss", "the waves wait for the mid-boss")
+	run(g, 60.0, func() -> bool: return g.boss_sec == 2)
+	check(g.boss_sec == 2 and not g.boss.node.get_node("wings").visible, "batteries down: the wings break off, the bridge opens")
+	var br: Game.Obj = g.boss_parts[0]
+	check(br.kind == "bridge" and not g.boss_shielded(br), "the bridge can be hit now")
+	run(g, 60.0, func() -> bool: return g.boss == null)
+	check(g.boss == null and g.boss_done and g.phase == "vert", "mid-boss down, the sector carries on")
+	check(g.stage_t < Rules.STAGE[g.wave_i].t + 1.0 and g.stage_t > t0 - 5.0, "the waves pick up where they stopped")
+	# the final boss: the carrier, chased in third person
 	run(g, 60.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.carrier != null, "the carrier arrives and the swoop begins")
-	check(g.foes.is_empty() and g.cam_mode == "chase", "the field is cleared, the camera comes down behind the ship")
+	check(g.cam_mode == "chase", "the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
 	check(g.phase == "pov" and g.cam_mode == "chase", "on the carrier's tail, the camera behind the ship")
 	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + Rules.GAP_FAR)) < 0.5, "the ship lined up behind the carrier")
+	check(g.car_sec == 0 and g.car_parts.size() == Rules.CARRIER_SECTIONS[0].mounts.size(), "its stern guns are the first section")
+	for i in 20:
+		g.step(DT)
+	check(g.car_s == Rules.CARRIER_SCALE, "the carrier grew during the swoop")
+	var vs := g.view_size()
+	var left := g.cam.unproject_position(g.carrier_point(Vector3(-Rules.CARRIER_HW, Rules.PY, 0)))
+	var right := g.cam.unproject_position(g.carrier_point(Vector3(Rules.CARRIER_HW, Rules.PY, 0)))
+	var tower := g.cam.unproject_position(g.carrier_point(Vector3(0, Rules.TOWER_TOP, 0)))
+	check(left.x < 0 and right.x > vs.x and tower.y < 0, "the final boss is bigger than the screen")
 	run(g, 1.0)
 	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
 	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > g.ppos.y, "the camera is behind and above it")
@@ -125,7 +157,9 @@ func stage() -> void:
 	run(g, 1.0)
 	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 3.0, "ship and carrier fly forward together, outside")
 	var kills: int = g.run.kills
-	# dragging moves the ship across the view (the way to dodge)
+	g.off = Vector2.ZERO
+	for i in 40:
+		g.step(DT)
 	g.drag_by(Vector2(150, -120))
 	for i in 30:
 		g.step(DT)
@@ -135,38 +169,22 @@ func stage() -> void:
 		g.step(DT)
 	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01 and g.ppos.y <= Rules.PY + Rules.POV_REACH.y + 0.01, "but no further than the play area")
 	var o := g.orb(g.ppos + Vector3(0, 0, -20), 10.0)
-	var rel := o.vel.z + Rules.RAIL
-	check(rel > 9.0, "foes' orbs come at the ship at their own speed, whatever the rail speed")
-	run(g, 40.0, func() -> bool: return g.phase == "core")
+	check(o.vel.z + Rules.RAIL > 9.0, "foes' orbs come at the ship at their own speed, whatever the rail speed")
+	run(g, 60.0, func() -> bool: return g.car_sec == 1)
+	check(g.car_sec == 1 and not g.carrier.get_node("plating").visible, "stern guns down: the plating breaks off, the tower guns open")
+	run(g, 60.0, func() -> bool: return g.phase == "core")
+	check(g.car_sec == 2 and not g.carrier.get_node("tower").visible, "tower guns down: the tower breaks off, the reactor opens")
 	check(g.phase == "core" and g.core != null and g.shielded(), "the reactor, shielded by its panels")
 	check(g.run.kills > kills, "foes shot down in the chase")
 	var hp: float = g.core.hp
 	g.damage(g.core, 10.0)
 	check(g.core.hp == hp, "the shield stops shots on the core")
 	run(g, 40.0, func() -> bool: return g.phase == "escape")
-	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: escape")
-	run(g, 10.0, func() -> bool: return g.phase == "exit")
-	check(g.phase == "exit" and g.cam_mode == "top", "the carrier goes down, the camera climbs back up")
-	run(g, 3.0, func() -> bool: return g.phase == "vert")
-	check(g.phase == "vert" and g.carrier_done and g.carrier == null and g.ship.visible, "back to the vertical stage, carrier destroyed")
-	run(g, 1.0)
-	check(g.carrier == null, "the carrier doesn't come back")
-	run(g, 60.0, func() -> bool: return g.boss != null)
-	check(g.boss != null, "the boss arrives")
-	check(g.boss_parts.size() == 4 and g.boss_sec == 0, "its bow guns are the first section")
-	var bridge_shielded := true
-	for f in g.foes:
-		if f.kind == "bridge":
-			bridge_shielded = false
-	check(bridge_shielded, "the bridge isn't open yet")
-	run(g, 60.0, func() -> bool: return g.boss_sec == 1)
-	check(g.boss_sec == 1 and not g.boss.node.get_node("bow").visible, "bow guns down: the bow breaks off, the wing batteries open")
-	run(g, 60.0, func() -> bool: return g.boss_sec == 2)
-	check(g.boss_sec == 2 and not g.boss.node.get_node("wings").visible, "batteries down: the wings break off, the bridge opens")
-	var br: Game.Obj = g.boss_parts[0]
-	check(br.kind == "bridge" and not g.boss_shielded(br), "the bridge can be hit now")
-	run(g, 80.0, func() -> bool: return g.phase == "results")
-	check(g.phase == "results" and g.run.cleared, "boss down: sector clear")
+	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the carrier goes down")
+	run(g, 5.0, func() -> bool: return g.phase == "clear")
+	check(g.phase == "clear" and g.cam_mode == "chase" and g.carrier == null, "the final boss is down: sector clear, still in the chase view")
+	run(g, 10.0, func() -> bool: return g.phase == "results")
+	check(g.phase == "results" and g.run.cleared, "results: sector cleared")
 	check(g.s.scrap == g.run.scrap and g.run.scrap > 300 and g.s.clears == 1, "scrap earned goes to the hangar (%d)" % g.run.scrap)
 	check(Rules.load_game(SAVE).scrap == g.run.scrap, "and is saved")
 	g.queue_free()

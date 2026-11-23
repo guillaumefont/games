@@ -29,26 +29,36 @@ const CARRIER_TOP := 13.0
 const TOWER_TOP := 21.0
 const HANGAR_HW := 3.0
 const HANGAR_HH := 2.3
-## Turret mounts on the carrier's stern (x, y): either side of the hangar, on the hull above
-## it and up the tower. All within the ship's reach in the chase.
-const MOUNTS := [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0), Vector2(4.0, 9.0),
-	Vector2(-2.0, 10.5), Vector2(2.0, 10.5), Vector2(-3.0, 14.5), Vector2(3.0, 14.5),
-	Vector2(0.0, 17.5), Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]
+## The final boss in sections, like the mid-boss: turrets on the stern round the hangar (on
+## armour plating that breaks off), then turrets up the tower (which breaks off), then the
+## reactor in the hangar behind its four shield panels. Mounts are (x, y) on the carrier's
+## model, all within the ship's reach in the chase.
+const CARRIER_SECTIONS := [
+	{"name": "STERN GUNS", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
+		Vector2(4.0, 9.0), Vector2(-2.0, 10.8), Vector2(2.0, 10.8)]},
+	{"name": "TOWER", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
+		Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
+	{"name": "REACTOR", "mounts": []},
+]
+## Seconds between drone launches from the hangar during the chase.
+const DRONE_EVERY := 6.5
 ## The chase (third person, outside): how far the ship may move from the centre line
 ## (x either side, y up; `POV_DOWN` down; the carrier is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
 ## to the carrier's stern while chasing and while fighting its reactor, the swoop's length,
 ## where the guns converge and how far the aim assist reaches.
-const POV_REACH := Vector2(4.5, 13.0)
+const POV_REACH := Vector2(5.0, 36.0)
 const POV_DOWN := 2.5
 const POV_DRAG := 0.016
 const RAIL := 18.0
-const GAP_FAR := 30.0
-const GAP_NEAR := 22.0
+const GAP_FAR := 10.0
+const GAP_NEAR := 9.0
+## In the chase the carrier grows (during the swoop) to `CARRIER_SCALE` times its size, its
+## hangar `CARRIER_LIFT` above the flight altitude, so up close it overflows the screen.
+const CARRIER_SCALE := 2.2
+const CARRIER_LIFT := 6.0
 const APPROACH := 2.6
 const AIM_AHEAD := 32.0
 const AIM_ASSIST := 2.4
-## Rail distance where the reactor fight starts.
-const RAIL_STOP := 330.0
 
 # ---------------------------------------------------------------- upgrades
 const ORDER := ["cannon", "missile", "hull", "magnet"]
@@ -153,14 +163,15 @@ const FOES := {
 	"battery": {"hp": 55.0, "r": 1.55, "score": 600, "scrap": 25},
 	"bridge": {"hp": 260.0, "r": 2.7, "score": 6000, "scrap": 300},
 	"drone": {"hp": 4.0, "r": 0.9, "score": 150, "scrap": 10},
-	"sentry": {"hp": 7.0, "r": 0.9, "score": 200, "scrap": 15},
+	"sentry": {"hp": 16.0, "r": 1.4, "score": 400, "scrap": 25},
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
 }
 
-## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play;
-## the clock stops during the carrier episode). `x` is where the wave enters, `n` how many
+## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
+## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the
+## carrier, chased in third person, and ends the sector. `x` is where the wave enters, `n` how many
 ## foes, `gap` the seconds between them.
 const STAGE := [
 	{"t": 1.5, "kind": "dart", "n": 5, "x": -3.0, "gap": 0.35},
@@ -170,36 +181,24 @@ const STAGE := [
 	{"t": 10.0, "kind": "turret", "n": 1, "x": 3.8, "gap": 0.0},
 	{"t": 12.5, "kind": "dart", "n": 6, "x": 0.0, "gap": 0.3},
 	{"t": 15.0, "kind": "heavy", "n": 1, "x": 0.0, "gap": 0.0},
-	{"t": 19.5, "kind": "swing", "n": 6, "x": 2.0, "gap": 0.35},
-	{"t": 21.0, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
-	{"t": 23.0, "kind": "dart", "n": 8, "x": -4.0, "gap": 0.25},
-	{"t": 25.0, "kind": "dart", "n": 8, "x": 4.0, "gap": 0.25},
-	{"t": 28.0, "kind": "carrier", "n": 1, "x": 0.0, "gap": 0.0},
-	# after the carrier
-	{"t": 31.5, "kind": "swing", "n": 6, "x": -2.0, "gap": 0.35},
-	{"t": 33.0, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
-	{"t": 35.0, "kind": "heavy", "n": 1, "x": -2.5, "gap": 0.0},
-	{"t": 37.0, "kind": "dart", "n": 8, "x": 3.0, "gap": 0.25},
-	{"t": 40.0, "kind": "dart", "n": 6, "x": -3.0, "gap": 0.3},
-	{"t": 40.5, "kind": "swing", "n": 6, "x": 2.5, "gap": 0.35},
-	{"t": 45.0, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0},
-]
-
-## The chase: foes by rail distance (metres flown behind the carrier).
-const POV_WAVES := [
-	{"s": 15.0, "kind": "drone", "n": 3},
-	{"s": 40.0, "kind": "sentry", "n": 2},
-	{"s": 70.0, "kind": "drone", "n": 4},
-	{"s": 110.0, "kind": "sentry", "n": 3},
-	{"s": 140.0, "kind": "drone", "n": 5},
-	{"s": 190.0, "kind": "sentry", "n": 2},
-	{"s": 210.0, "kind": "drone", "n": 3},
-	{"s": 260.0, "kind": "drone", "n": 4},
-	{"s": 300.0, "kind": "core", "n": 1},
+	# mid-boss: the clock waits until it's down
+	{"t": 19.0, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0},
+	{"t": 21.5, "kind": "swing", "n": 6, "x": 2.0, "gap": 0.35},
+	{"t": 23.0, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
+	{"t": 25.0, "kind": "heavy", "n": 1, "x": -2.5, "gap": 0.0},
+	{"t": 27.5, "kind": "dart", "n": 8, "x": -4.0, "gap": 0.25},
+	{"t": 29.5, "kind": "dart", "n": 8, "x": 4.0, "gap": 0.25},
+	{"t": 32.0, "kind": "swing", "n": 6, "x": -2.0, "gap": 0.35},
+	{"t": 33.5, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
+	{"t": 35.5, "kind": "dart", "n": 6, "x": -3.0, "gap": 0.3},
+	{"t": 36.0, "kind": "swing", "n": 6, "x": 2.5, "gap": 0.35},
+	# final boss: the carrier chase ends the sector
+	{"t": 40.0, "kind": "carrier", "n": 1, "x": 0.0, "gap": 0.0},
 ]
 
 
-## The sector boss, a battleship bigger than the screen, taken apart section by section:
+
+## The mid-boss, a battleship bigger than the screen, taken apart section by section:
 ## each section's parts (kind, position on the ship: x, y, z towards its bow) must all go down
 ## before the next section opens. The bridge is shielded until the last section. Nose to +z.
 const BOSS_SECTIONS := [
@@ -232,8 +231,8 @@ static func stage_foes() -> int:
 			n += boss_parts()
 		elif w.kind != "carrier":
 			n += int(w.n)
-	for w: Dictionary in POV_WAVES:
-		n += 5 if w.kind == "core" else int(w.n)
+	for sec: Dictionary in CARRIER_SECTIONS:
+		n += 5 if sec.mounts.is_empty() else sec.mounts.size()
 	return n
 
 
@@ -241,7 +240,7 @@ static func stage_foes() -> int:
 static func grade(kills: int, total: int, hits: int, cleared: bool) -> String:
 	if not cleared:
 		return "-"
-	var rate := float(kills) / maxf(1.0, float(total))
+	var rate := minf(1.0, float(kills) / maxf(1.0, float(total)))
 	if rate >= 0.9 and hits == 0:
 		return "S"
 	if rate >= 0.75 and hits <= 1:

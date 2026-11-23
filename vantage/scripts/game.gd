@@ -46,12 +46,11 @@ var save_path := Rules.SAVE_PATH
 var rng := RandomNumberGenerator.new()
 var s: Dictionary
 
-## hangar, vert, approach, pov, core, escape, exit, down, clear, results
+## hangar, vert, approach, pov, core, escape, down, clear, results
 var phase := "hangar"
 var phase_t := 0.0
 var stage_t := 0.0
 var wave_i := 0
-var pov_i := 0
 var queue: Array = []
 var frame_z := 0.0
 var foes: Array[Obj] = []
@@ -88,7 +87,16 @@ var approach_from := Vector3.ZERO
 var approach_stern := 0.0
 ## World z of the ship when the chase began (the ship is at rail_z - rail_s).
 var rail_z := 0.0
-var sentry_n := 0
+## The carrier's current scale and lift (see Rules.CARRIER_SCALE).
+var car_s := 1.0
+var car_lift := 0.0
+var boss_done := false
+## The carrier's current section (Rules.CARRIER_SECTIONS), its live parts and their full hp.
+var car_sec := 0
+var car_parts: Array[Obj] = []
+var car_max := 1.0
+var drone_t := 0.0
+var drone_n := 0
 
 # camera
 var cam: Camera3D
@@ -187,9 +195,9 @@ func launch() -> void:
 	phase_t = 0.0
 	stage_t = 0.0
 	wave_i = 0
-	pov_i = 0
 	queue.clear()
 	carrier_done = false
+	boss_done = false
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	hp = Rules.max_hp(s)
@@ -274,7 +282,7 @@ func handle(event: InputEvent) -> void:
 
 
 func drag_by(px: Vector2) -> void:
-	if phase in ["vert", "exit"]:
+	if phase == "vert":
 		prel += px * world_per_px
 		clamp_player()
 	elif phase in ["pov", "core", "escape"]:
@@ -292,7 +300,7 @@ func keys(dt: float) -> void:
 	if Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S):
 		d.y += 1
 	if d != Vector2.ZERO:
-		var px_per_s := 11.0 / world_per_px if phase in ["vert", "exit"] else 11.0 / Rules.POV_DRAG
+		var px_per_s := 11.0 / world_per_px if phase == "vert" else 11.0 / Rules.POV_DRAG
 		drag_by(d.normalized() * px_per_s * dt)
 	if phase == "hangar" and Input.is_key_pressed(KEY_ENTER):
 		launch()
@@ -324,12 +332,16 @@ func step(dt: float) -> void:
 			step_approach(dt)
 		"pov", "core", "escape":
 			step_pov(dt)
-		"exit":
-			step_exit(dt)
 		"down":
 			frame_z -= Rules.SCROLL * dt
 			if phase_t > 2.2:
 				end_run(false)
+		"clear" when cam_mode == "chase":
+			# the final boss went down: fly on over the coast, then the results
+			ppos.z -= Rules.RAIL * dt
+			frame_z = ppos.z - 6.0
+			if phase_t > 3.0:
+				end_run(true)
 		"clear":
 			frame_z -= Rules.SCROLL * dt
 			prel.y = lerpf(prel.y, Rules.Z_TOP - 8.0, minf(1.0, dt * 0.6 * phase_t))
@@ -338,7 +350,7 @@ func step(dt: float) -> void:
 				end_run(true)
 		"results":
 			frame_z -= 2.0 * dt
-	if phase in ["vert", "approach", "pov", "core", "escape", "exit", "clear"]:
+	if phase in ["vert", "approach", "pov", "core", "escape", "clear"]:
 		update_objs(dt)
 	elif phase == "down":
 		update_objs(dt)
@@ -369,6 +381,13 @@ func run_waves() -> void:
 		var w: Dictionary = Rules.STAGE[wave_i]
 		if stage_t < w.t:
 			break
+		if w.kind == "boss":
+			if boss == null and not boss_done:
+				spawn_vert("boss", 0.0, 0, 1)
+			if not boss_done:
+				break
+			wave_i += 1
+			continue
 		if w.kind == "carrier":
 			if carrier == null and not carrier_done:
 				spawn_carrier()
@@ -579,7 +598,7 @@ func gone(o: Obj) -> bool:
 		return o.pos.z > ppos.z + 4.0 or o.pos.z < ppos.z - 90.0 or o.t > 8.0 and o.kind in ["shot", "missile", "orb"]
 	var z := o.pos.z - frame_z
 	if o in foes and (o.kind in ["drone", "sentry", "orb", "panel", "core"]):
-		return phase in ["exit", "vert"]
+		return phase == "vert"
 	if o.kind == "shot" or o.kind == "missile":
 		return z < Rules.Z_TOP - 4.0 or absf(o.pos.x) > Rules.HALF_W + 4.0 or o.t > 3.0
 	return z > Rules.Z_BOT + 3.0 or z < Rules.Z_TOP - 30.0 or absf(o.pos.x) > Rules.HALF_W + 8.0
@@ -633,7 +652,7 @@ func think(f: Obj, dt: float) -> void:
 			think_part(f, dt)
 		"drone":
 			var dist := ppos.z - f.pos.z
-			var keep := 14.0 + f.idx * 2.5
+			var keep := 4.0 + f.idx * 1.2
 			var vz := -rail_speed()
 			if f.t < 9.0:
 				vz += (dist - keep) * 1.6
@@ -649,7 +668,7 @@ func think(f: Obj, dt: float) -> void:
 			f.node.look_at(ppos, Vector3.UP, true)
 			f.node.rotate_object_local(Vector3.FORWARD, f.t * 2.0)
 		"sentry":
-			f.pos = f.anchor + Vector3(0, 0, stern_z)
+			f.pos = carrier_point(f.anchor)
 			var dist := ppos.z - f.pos.z
 			f.node.look_at(ppos, Vector3.UP, true)
 			if f.t >= f.fire_t and dist > 6.0 and dist < 45.0:
@@ -660,13 +679,13 @@ func think(f: Obj, dt: float) -> void:
 		"panel":
 			if core:
 				var a := f.t * 0.9 + f.idx * TAU / 4.0
-				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6)
+				f.pos = core.pos + Vector3(cos(a) * 3.6, sin(a) * 3.6, 1.6) * car_s / Rules.CARRIER_SCALE
 				f.node.rotation = Vector3(PI / 2, 0, a)
 				if f.t >= f.fire_t and phase == "core":
 					f.fire_t += 2.6
 					orb(f.pos + Vector3(0, 0, 0.6), 10.0)
 		"core":
-			f.pos = f.anchor + Vector3(0, 0, stern_z)
+			f.pos = carrier_point(f.anchor)
 			f.node.rotation = Vector3(f.t * 0.7, f.t * 1.1, 0)
 			if phase == "core" and f.t >= f.fire_t:
 				var open := shielded() == false
@@ -776,8 +795,12 @@ func boss_shielded(f: Obj) -> bool:
 
 ## The boss bar: the current section's health left (0..1) and its name.
 func boss_bar() -> Array:
-	if core and not core.dead:
-		return [core.hp / core.max_hp, "REACTOR"]
+	if pov_mode() and not car_parts.is_empty():
+		var hp := 0.0
+		for p in car_parts:
+			hp += maxf(0.0, p.hp)
+		var sec: Dictionary = Rules.CARRIER_SECTIONS[car_sec]
+		return [hp / maxf(car_max, 1.0), "CARRIER · %s  %d/%d" % [sec.name, car_sec + 1, Rules.CARRIER_SECTIONS.size()]]
 	if boss == null:
 		return []
 	var hp := 0.0
@@ -887,7 +910,7 @@ func collide(_dt: float) -> void:
 				o.dead = true
 				damage(f, o.dmg)
 				break
-	if phase not in ["vert", "approach", "pov", "core", "escape", "exit"]:
+	if phase not in ["vert", "approach", "pov", "core", "escape"]:
 		return
 	# foes' fire and bodies vs the player
 	for b in bullets:
@@ -956,17 +979,17 @@ func kill(f: Obj) -> void:
 			drop(f.pos, float(scrap) / n)
 	if f in boss_parts:
 		part_down(f)
+	if f in car_parts:
+		car_part_down(f)
 	if f == boss:
+		# the mid-boss: the sector carries on, its clock picks up after the boss's wave
 		boss = null
-		for o in foes:
-			if not o.dead and o != f:
-				o.dead = true
-				pop(o.pos, 1.2, Models.AMBER)
+		boss_done = true
 		for b in bullets:
 			b.dead = true
-		phase = "clear"
-		phase_t = 0.0
-		say("SECTOR CLEAR", "", 3.0)
+		stage_t = float(Rules.STAGE[wave_i].t) + 0.5
+		run.score += 3000
+		say("BASTION DOWN", "+3,000")
 	if f == core:
 		begin_escape()
 
@@ -988,7 +1011,7 @@ func drop(at: Vector3, value: float) -> void:
 
 
 func hurt() -> void:
-	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape", "exit"]:
+	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
 		return
 	hp -= 1
 	run.hits += 1
@@ -1058,7 +1081,7 @@ func update_fx(dt: float) -> void:
 func update_ship(dt: float) -> void:
 	ship.position = ppos
 	var tb := 0.0
-	if phase == "vert" or phase == "exit":
+	if phase == "vert":
 		tb = clampf(-pvel.x * 0.05, -0.7, 0.7)
 	elif pov_mode():
 		tb = clampf(-pvel.x * 0.09, -0.8, 0.8)
@@ -1088,9 +1111,15 @@ func update_chunks() -> void:
 
 func spawn_carrier() -> void:
 	carrier = Node3D.new()
+	car_s = 1.0
+	car_lift = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	carrier.position = Vector3(0, 0, stern_z)
 	carrier.add_child(Models.instance(Models.carrier()))
+	for part in [["plating", Models.carrier_plating()], ["tower", Models.carrier_tower()]]:
+		var mi := Models.instance(part[1])
+		mi.name = part[0]
+		carrier.add_child(mi)
 	carrier.add_child(Models.instance(Models.carrier_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
 	add_child(carrier)
 	say("CARRIER AHEAD", "Get on its tail")
@@ -1124,18 +1153,66 @@ func step_approach(dt: float) -> void:
 	var side := smoothstep(0.0, 1.0, minf(1.0, k * 1.6))
 	ppos = Vector3(lerpf(approach_from.x, tail.x, side), Rules.PY, lerpf(approach_from.z, tail.z, e))
 	pvel = Vector2((tail.x - approach_from.x) * (1.0 - side), 0)
-	carrier.position.z = stern_z
+	car_s = lerpf(1.0, Rules.CARRIER_SCALE, e)
+	car_lift = Rules.CARRIER_LIFT * e
+	place_carrier(0.0)
 	if k >= 1.0:
 		begin_pov()
+
+
+## Opens the carrier's next section: its turrets, or the reactor and its panels.
+func open_car_section() -> void:
+	car_parts.clear()
+	var sec: Dictionary = Rules.CARRIER_SECTIONS[car_sec]
+	if sec.mounts.is_empty():
+		spawn_pov({"kind": "core", "n": 1})
+		phase = "core"
+		phase_t = 0.0
+	else:
+		spawn_pov({"kind": "sentry", "n": sec.mounts.size(), "mounts": sec.mounts})
+	car_max = 0.0
+	for p in car_parts:
+		car_max += p.max_hp
+	say(sec.name, "Section %d of %d" % [car_sec + 1, Rules.CARRIER_SECTIONS.size()], 1.8)
+
+
+## A carrier part went down: once its section is cleared, that section breaks off.
+func car_part_down(f: Obj) -> void:
+	car_parts.erase(f)
+	if not car_parts.is_empty() or f == core:
+		return
+	var name: String = ["plating", "tower", ""][car_sec]
+	if carrier and name != "" and carrier.has_node(name):
+		carrier.get_node(name).visible = false
+		for k in 8:
+			var at := Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 11.0), 0.5) if name == "plating" \
+				else Vector3(rng.randf_range(-4.0, 4.0), rng.randf_range(13.0, 21.0), -2.0)
+			pop(carrier_point(at), 3.0, Models.AMBER)
+		shake = 0.7
+	car_sec += 1
+	open_car_section()
+
+
+func place_carrier(bob: float) -> void:
+	carrier.position = Vector3(0, Rules.PY + car_lift - Rules.PY * car_s + bob, stern_z)
+	carrier.scale = Vector3.ONE * car_s
+
+
+## A point given on the carrier's model (its stern at z = 0) in the world, with its current
+## scale and lift.
+func carrier_point(p: Vector3) -> Vector3:
+	return Vector3(p.x * car_s, Rules.PY + car_lift + (p.y - Rules.PY) * car_s, stern_z + p.z * car_s)
 
 
 func begin_pov() -> void:
 	phase = "pov"
 	phase_t = 0.0
+	car_sec = 0
+	drone_t = 3.0
+	drone_n = 0
+	open_car_section()
 	rail_s = 0.0
 	rail_z = ppos.z
-	sentry_n = 0
-	pov_i = 0
 	off = Vector2.ZERO
 	hud.show_play()
 
@@ -1146,10 +1223,6 @@ func begin_pov() -> void:
 func step_pov(dt: float) -> void:
 	var v := rail_speed()
 	rail_s += v * dt
-	if phase == "pov" and rail_s >= Rules.RAIL_STOP:
-		phase = "core"
-		phase_t = 0.0
-		say("REACTOR", "Break its shield panels")
 	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
 	off.y = clampf(off.y, -Rules.POV_DOWN, Rules.POV_REACH.y)
 	var before := Vector2(ppos.x, ppos.y)
@@ -1161,8 +1234,7 @@ func step_pov(dt: float) -> void:
 		var gap := Rules.GAP_NEAR if phase == "core" else Rules.GAP_FAR
 		var want := ppos.z - gap
 		stern_z = lerpf(stern_z, want, minf(1.0, dt * 0.6)) - v * dt
-		carrier.position.z = stern_z
-		carrier.position.y = sin(phase_t * 0.7) * 0.3
+		place_carrier(sin(phase_t * 0.7) * 0.3)
 	aim = cam.unproject_position(ppos + Vector3(0, 0.2, -Rules.AIM_AHEAD)) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
 	if phase == "escape":
 		if carrier and fmod(phase_t, 0.12) < dt:
@@ -1174,11 +1246,16 @@ func step_pov(dt: float) -> void:
 			pop(Vector3(0, Rules.PY + 2.0, stern_z - 10.0), 10.0, Models.AMBER)
 			shake = 1.0
 		if phase_t > 2.0:
-			begin_exit()
+			phase = "clear"
+			phase_t = 0.0
+			run.score += 5000
+			say("SECTOR CLEAR", "Carrier destroyed  +5,000", 3.0)
 			return
-	while pov_i < Rules.POV_WAVES.size() and rail_s >= Rules.POV_WAVES[pov_i].s:
-		spawn_pov(Rules.POV_WAVES[pov_i])
-		pov_i += 1
+	drone_t -= dt
+	if drone_t <= 0.0:
+		drone_t = Rules.DRONE_EVERY
+		spawn_pov({"kind": "drone", "n": 3 + drone_n % 2})
+		drone_n += 1
 	fire_pov(dt)
 
 
@@ -1190,19 +1267,19 @@ func spawn_pov(w: Dictionary) -> void:
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
 				f.x0 = (i - (w.n - 1) * 0.5) * 2.2
-				f.size_y = Rules.PY + 1.0 + (i % 3) * 4.0
-				f.pos = Vector3(rng.randf_range(-2, 2), Rules.PY + rng.randf_range(-1, 1), stern_z + 1.0)
+				f.size_y = Rules.PY + car_lift + (i % 3) * 5.0
+				f.pos = carrier_point(Vector3(rng.randf_range(-2, 2), Rules.PY, 1.0))
 				f.fire_t = 1.4 + i * 0.45
 			"sentry":
-				# gun turrets on the carrier's stern, either side of the hangar
+				# a gun turret on the carrier: on its stern, the lower tower or the upper tower
 				var f := new_foe("sentry", Models.sentry())
-				var m: Vector2 = Rules.MOUNTS[(sentry_n * 5 + i * 3) % Rules.MOUNTS.size()]
-				sentry_n += 1
-				# flush with the stern face, the lower tower or the upper tower
+				var m: Vector2 = w.mounts[i]
 				var fz := 0.9 if m.y < Rules.CARRIER_TOP else (-0.4 if m.y < 17.0 else -2.4)
 				f.anchor = Vector3(m.x, m.y, fz)
-				f.pos = f.anchor + Vector3(0, 0, stern_z)
-				f.fire_t = 0.6 + i * 0.4
+				f.size = 1.4
+				f.pos = carrier_point(f.anchor)
+				f.fire_t = 0.8 + i * 0.5
+				car_parts.append(f)
 			"core":
 				var c := new_foe("core", Models.shot_mesh(1.4))
 				c.node.material_override = Models.glow(Color8(0xff, 0x7a, 0x3a))
@@ -1215,16 +1292,17 @@ func spawn_pov(w: Dictionary) -> void:
 				c.node.add_child(ring)
 				c.anchor = Vector3(0, Rules.PY, 1.5)
 				c.size = 1.5
-				c.pos = c.anchor + Vector3(0, 0, stern_z)
+				c.pos = carrier_point(c.anchor)
 				c.fire_t = 1.5
 				core = c
-				say("THE HANGAR OPENS", "Its reactor is exposed")
+				car_parts.append(c)
 				for k in 4:
 					var p := new_foe("panel", Models.panel())
 					p.idx = k
 					p.size = 1.5
 					p.fire_t = 1.0 + k * 0.6
 					p.pos = c.pos
+					car_parts.append(p)
 
 
 func fire_pov(dt: float) -> void:
@@ -1272,38 +1350,6 @@ func begin_escape() -> void:
 			pop(f.pos, 1.0, Models.AMBER)
 	shake = 0.8
 	say("REACTOR DOWN", "The carrier is going down")
-
-
-## Back to the vertical stage: the camera climbs back up over the ship.
-func begin_exit() -> void:
-	phase = "exit"
-	phase_t = 0.0
-	prel = Vector2(clampf(ppos.x, -Rules.HALF_W, Rules.HALF_W), 4.0)
-	frame_z = ppos.z - prel.y
-	for f in foes:
-		f.dead = true
-	if carrier:
-		carrier.queue_free()
-		carrier = null
-	set_cam("top", 1.8)
-	hud.show_play()
-
-
-func step_exit(dt: float) -> void:
-	frame_z -= Rules.SCROLL * smoothstep(0.0, 1.8, phase_t) * dt
-	var before := prel
-	prel.y = lerpf(prel.y, 6.0, minf(1.0, dt * 1.5))
-	clamp_player()
-	ppos = Vector3(prel.x, lerpf(ppos.y, Rules.PY, minf(1.0, dt * 3.0)), frame_z + prel.y)
-	pvel = (prel - before) / maxf(dt, 0.001)
-	fire_vert(dt)
-	if phase_t >= 1.9:
-		phase = "vert"
-		phase_t = 0.0
-		carrier_done = true
-		stage_t = 30.0
-		run.score += 2000
-		say("CARRIER DOWN", "+2,000")
 
 
 # ---------------------------------------------------------------- camera

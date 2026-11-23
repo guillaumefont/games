@@ -7,22 +7,24 @@ upgrades bought with collected currency). Never use Sky Force's name, art, enemi
 and no recreation of any existing game. Star Breaker (`../star-breaker`) is a separate shmup; don't
 merge the two.
 
-Design so far (first prototype, 2026-11-23):
-- One sector (Glass Coast): vertical waves, a carrier episode in the middle, more waves, a boss.
-- The chase episode is the same world as the vertical stage: the camera blends between poses
-  (`Game.pose()`: `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook.
-- Guillaume's call (2026-11-23, after the first version flew into a tunnel in first person): the
-  episode stays **outside** and in **third person**. The ship chases the carrier on rails
-  (`Rules.RAIL`, `GAP_FAR`/`GAP_NEAR`); the drag moves the ship across the view (`Rules.POV_REACH`,
-  `POV_DRAG`), which is how you dodge; guns fire ahead with aim assist (`Game.aim_point`). Turrets and
-  the reactor are mounted on the carrier (`Obj.anchor`, relative to its stern). The carrier is tall and
-  narrow (Guillaume, 2026-11-23: targets on a wide ship's sides were hard to hit on a portrait screen),
-  so every mount (`Rules.MOUNTS`) is within the ship's reach; the ship climbs high to reach the tower. Orbs inherit the rail
-  speed (they fly with the ship's frame) and can be shot down.
-- The sector boss (Guillaume, 2026-11-23: "bigger boss, addressed by sections") is a battleship wider
-  than the screen taken apart in order: bow guns, wing batteries, then the bridge (`Rules.BOSS_SECTIONS`).
-  The hull can't be hurt; each cleared section breaks off its mesh (`bow`, `wings`) and the ship pushes
-  closer. Boss targets and the carrier's reactor have generous hit radii (Guillaume found them too small).
+Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
+- One sector (Glass Coast): vertical waves, the **mid-boss** (top-down), more waves, then the **final boss**
+  fought in the third-person chase, which ends the sector. Guillaume swapped these on purpose: mid-boss
+  top-down, final boss in the chase.
+- Bosses are bigger than the screen and taken apart **section by section**; each cleared section breaks
+  off its mesh. Mid-boss, the Bastion battleship (`Rules.BOSS_SECTIONS`): bow guns, wing batteries,
+  bridge; its hull can't be hurt; it holds the wave clock until it's down. Final boss, the carrier
+  (`Rules.CARRIER_SECTIONS`): stern guns (on the `plating` mesh), tower guns (the `tower` mesh), then the
+  reactor behind four shield panels (phase `core`). Drones launch from its hangar every `DRONE_EVERY` s.
+- The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
+  `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
+  **outside** and in **third person** (Guillaume rejected a first-person tunnel). The carrier grows to
+  `CARRIER_SCALE` during the swoop (`car_s`, `car_lift`; `Game.carrier_point()` maps model points to the
+  world) and flies `GAP_FAR`/`GAP_NEAR` ahead, so it overflows the screen. It is tall and narrow so
+  every target is within the ship's reach (Guillaume found a wide ship's sides hard to hit).
+- In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
+  dodge; guns fire ahead with aim assist (`Game.aim_point`). Orbs inherit the rail speed and can be shot.
+- Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 
 ## Pull requests
@@ -54,7 +56,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, carrier chase, boss, death, results
+godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 ```
 

@@ -416,11 +416,6 @@ static func carrier() -> Mesh:
 			b.box(Vector3(0, top + 0.01, -46.0 - k * 8.5), Vector3(0.5, 0.04, 3.5), Color8(0xe8, 0xe0, 0xc8))
 		for sx in [1.0, -1.0]:
 			b.box(Vector3(sx * (W - 0.5), top + 0.01, zc), Vector3(0.22, 0.04, L - 6), AMBER)
-		# the stepped tower over the stern
-		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), HULL, Vector2(0.92, 0.97))
-		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.85, 0.95))
-		b.box(Vector3(0, Rules.TOWER_TOP + 0.6, -16.0), Vector3(1.0, 1.2, 1.0), HULL_D)
-		b.box(Vector3(0, Rules.TOWER_TOP + 2.2, -16.0), Vector3(0.25, 2.2, 0.25), STEEL_D)
 		# amber frame round the hangar mouth
 		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
 		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
@@ -428,9 +423,42 @@ static func carrier() -> Mesh:
 			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), AMBER)
 			# stern engines low on the hull
 			b.prism(Vector3(sx * 3.4, 0, 0.5), ngon(1.1, 8, PI / 8), 1.0, 2.4, NAVY, Vector2(0.85, 0.85))
-		# stern face panelling above the hangar and up the tower
+		return b.commit())
+
+
+## The carrier's stern armour plating with the gun platforms of its first section (breaks off).
+static func carrier_plating() -> Mesh:
+	return cached("carrier_plating", func() -> Mesh:
+		var b := Builder.new()
+		var W := Rules.CARRIER_HW
+		var top := Rules.CARRIER_TOP
+		var y := Rules.PY
+		var hh := Rules.HANGAR_HH
+		b.box(Vector3(0, (y + hh + 0.6 + top) * 0.5, 0.25), Vector3(W * 2 - 0.6, top - y - hh - 0.6, 0.5), FOE_D, Vector2(0.97, 1.0))
 		for k in 3:
-			b.box(Vector3(0, top - 1.2 - k * 1.4, 0.05), Vector3(W * 2 - 1.0, 0.12, 0.1), HULL_D)
+			b.box(Vector3(0, top - 1.0 - k * 1.3, 0.52), Vector3(W * 2 - 1.4, 0.12, 0.06), AMBER)
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * 4.0, (1.2 + y + hh) * 0.5, 0.3), Vector3(1.6, y + hh - 1.2, 0.6), FOE_D)
+		for m: Vector2 in Rules.CARRIER_SECTIONS[0].mounts:
+			b.box(Vector3(m.x, m.y - 0.8, 0.8), Vector3(1.6, 0.25, 1.2), HULL)
+		return b.commit())
+
+
+## The carrier's stepped tower with the gun platforms of its second section (breaks off).
+static func carrier_tower() -> Mesh:
+	return cached("carrier_tower", func() -> Mesh:
+		var b := Builder.new()
+		var W := Rules.CARRIER_HW
+		var top := Rules.CARRIER_TOP
+		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), HULL, Vector2(0.92, 0.97))
+		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.85, 0.95))
+		b.box(Vector3(0, Rules.TOWER_TOP + 0.6, -16.0), Vector3(1.0, 1.2, 1.0), HULL_D)
+		b.box(Vector3(0, Rules.TOWER_TOP + 2.2, -16.0), Vector3(0.25, 2.2, 0.25), STEEL_D)
+		for k in 4:
+			b.box(Vector3((k - 1.5) * 1.6, 18.2, -2.95), Vector3(1.0, 0.5, 0.1), CYAN)
+		for m: Vector2 in Rules.CARRIER_SECTIONS[1].mounts:
+			var fz := -0.4 if m.y < 17.0 else -2.4
+			b.box(Vector3(m.x, m.y - 0.8, fz - 0.1), Vector3(1.4, 0.25, 1.2), HULL_D)
 		return b.commit())
 
 
@@ -446,8 +474,6 @@ static func carrier_lights() -> Mesh:
 			b.box(Vector3(0, y + hh - 0.3, -1.5 - k * 2.0), Vector3(hw * 1.4, 0.05, 0.25), Color.WHITE)
 		for sx in [1.0, -1.0]:
 			b.prism(Vector3(sx * 3.4, 0, 0.62), ngon(0.75, 8, PI / 8), 1.2, 2.2, Color.WHITE)
-		for k in 4:
-			b.box(Vector3((k - 1.5) * 1.6, 18.8, -2.95), Vector3(1.0, 0.5, 0.1), Color.WHITE)
 		return b.commit())
 
 
