@@ -8,7 +8,7 @@ and no recreation of any existing game. Star Breaker (`../star-breaker`) is a se
 merge the two.
 
 Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
-- One sector (Glass Coast): vertical waves, the **mid-boss** (top-down), more waves, then the **final boss**
+- The original sector, now level 1-3 (see Campaign below): vertical waves, the **mid-boss** (top-down), more waves, then the **final boss**
   fought in the third-person chase, which ends the sector. Guillaume swapped these on purpose: mid-boss
   top-down, final boss in the chase.
 - Bosses are bigger than the screen and taken apart **section by section**; each cleared section breaks
@@ -58,6 +58,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, fortress chase (final boss), death, results, world edges
+godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, full levels
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -74,7 +75,26 @@ fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`.
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
 
+Every world (hangar, play, battleship): `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/worlds.gd -- /tmp/worlds`
+
 Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/icon-512.png`.
+
+## Campaign (Guillaume, 2026-11-23: "a real timeline, with worlds and levels")
+
+- `scripts/campaign.gd` (`Campaign`): five worlds (Glass Coast, Ember Dunes, Iron Sprawl, Frost Shelf,
+  Cinder Reach) of three levels each, played in order: a **patrol** (waves, ends with an `end` wave once
+  the foes are dealt with), a **battleship** level (waves, then the Bastion ends it), a **fortress run**
+  (waves, Bastion mid-boss, waves, fortress chase: the old sector). 1-3 is the hand-made `Rules.STAGE`;
+  every other level's waves come from its world's `mix`, seeded by the level (same every time).
+- Each world has a terrain `theme` (`Models.THEMES`: sky, fog, light, `lift` of the land out of the
+  water; `Models.ground_col` and `Models.theme_prop` per theme; Glass Coast keeps the original props in
+  `ground_chunk`), and multipliers on foe hull (`tough`), bullet speed (`fire`) and `scrap`. Boss hulls
+  take the world's `tint`. `Models.theme` is a static var set by `Game.apply_theme`.
+- Save: `sel` (selected level), `open` (furthest open level), `grades` ("1-1" → best grade).
+  Clearing a level opens and selects the next. Old saves with a clear start in world 2.
+- The hangar's timeline (`Hud.build_campaign`): ‹ world › and the world's three levels; selecting one
+  shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
+- Next steps: per-world bosses and foe models (bosses are the same Bastion and fortress, tinted).
 
 ## Code map
 
@@ -100,6 +120,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   ground. Everything placed with `place()` is drawn `PROP_SCALE` (1.5x) larger so it reads on a phone
   (Guillaume found life size too small); houses keep to one per 4 x 4 lot. `Models.scenery` counts
   what was built (tested).
+- Landmarks (Guillaume, 2026-11-23: prominent scenery can be destroyed): lighthouses, boats and the
+  two-storey houses are not baked into the chunk. `scatter` lists them in `Models.marks`; `Game.update_chunks`
+  gives each its own node (`Models.landmark`, centred `MARK_H` above its base) under the chunk, and
+  `spawn_marks` makes it a ground foe (`Rules.LANDMARKS`, stats in `Rules.FOES`) as it scrolls into view in
+  the vertical stage only. Shot down: explosion, score and scrap (not a kill), a `Models.ruin` left on the
+  chunk, which `to_hangar` rebuilds (`ruined`). Missiles, aim assist and the chase ignore them; leaving
+  play (`let_go`, culling) keeps the node, since the chunk owns it.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
@@ -149,9 +176,10 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
   copy of the mesh, projected along the sun onto `SHADOW_Y` each frame. Those copies are drawn white
-  on layer `SHADOW_LAYER` into a half-size mask (`shadow_view`, `shadow_cam` follows `cam`), and one
+  on layer `SHADOW_LAYER` into a mask at the game's 720 px width (`shadow_view`, `shadow_cam` follows `cam`), and one
   see-through plane under the camera (`shadow_plane`, `Models.SHADOW_SHADER`) darkens the ground from
-  the blurred mask. Don't draw the flattened copies see-through in the main view: their faces overlap
+  the mask, blurred only to anti-alias the rim: Guillaume wants each shadow one uniform tone, so no
+  soft penumbra (thin wings faded with it). Don't draw the flattened copies see-through in the main view: their faces overlap
   and stack into dark patches (Guillaume: "the shadow is not smooth"), and neither the depth pre-pass
   nor the material stencil (a no-op in Compatibility, tested on 4.7) can stop that.
 - The look (premium pass): gradient sky shader, filmic tonemap, a cool fill light, rim light on the

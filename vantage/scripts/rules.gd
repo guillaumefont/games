@@ -86,8 +86,10 @@ const UPGRADES := {
 
 
 static func fresh() -> Dictionary:
-	return {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
+	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
 		"up": {"cannon": 0, "missile": 0, "hull": 0, "magnet": 0}}
+	Campaign.fresh_into(s)
+	return s
 
 
 ## Any saved dictionary (or garbage) back to a valid save.
@@ -101,6 +103,7 @@ static func migrate(d: Variant) -> Dictionary:
 	if typeof(d.get("up")) == TYPE_DICTIONARY:
 		for k: String in ORDER:
 			s.up[k] = clampi(int(d.up.get(k, 0)), 0, UPGRADES[k].max)
+	Campaign.migrate_into(s, d)
 	return s
 
 
@@ -178,7 +181,13 @@ const FOES := {
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
+	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
+	"lighthouse": {"hp": 22.0, "r": 1.3, "score": 500, "scrap": 25},
+	"house": {"hp": 9.0, "r": 1.4, "score": 150, "scrap": 10},
+	"boat": {"hp": 5.0, "r": 1.2, "score": 100, "scrap": 5},
 }
+## Scenery that can be shot down (see FOES).
+const LANDMARKS := ["lighthouse", "house", "boat"]
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the

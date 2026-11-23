@@ -1,0 +1,188 @@
+class_name Campaign
+extends RefCounted
+## The campaign: worlds of three levels each, played in order. Clearing a level opens the next
+## one; the last level of a world opens the next world. Each world has its own terrain theme
+## (`Models.THEMES`), its own mix of foes, and gets tougher (foe hull, bullet speed) and richer
+## (scrap) than the last.
+##
+## Every world plays its three levels the same way:
+## - level 1, a patrol: waves only, the level ends once the last wave is dealt with;
+## - level 2, the battleship: waves, then the Bastion (top-down), which ends the level;
+## - level 3, the fortress run: waves, the Bastion as mid-boss, more waves, then the fortress
+##   chased in third person, which ends the world.
+## Glass Coast's fortress run is the hand-made sector (`Rules.STAGE`); the other levels are
+## built from their world's mix by `waves()`, the same every time (seeded by the level).
+
+const PER_WORLD := 3
+const KINDS := ["patrol", "battleship", "fortress"]
+
+## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
+## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
+## of its three levels.
+const WORLDS := [
+	{"name": "Glass Coast", "theme": "coast", "tough": 1.0, "fire": 1.0, "scrap": 1.0, "beat": 2.7,
+		"mix": {"dart": 4, "sweep": 2, "back": 1, "swing": 3, "turret": 2, "heavy": 1},
+		"tint": Color(1, 1, 1), "levels": ["Landfall", "Tide Line", "Fortress Run"]},
+	{"name": "Ember Dunes", "theme": "dunes", "tough": 1.3, "fire": 1.07, "scrap": 1.4, "beat": 2.5,
+		"mix": {"dart": 2, "sweep": 2, "back": 1, "swing": 2, "turret": 4, "heavy": 2},
+		"tint": Color(1.0, 0.86, 0.66), "levels": ["Dry Wash", "Mesa Gate", "Sandstorm Run"]},
+	{"name": "Iron Sprawl", "theme": "city", "tough": 1.65, "fire": 1.14, "scrap": 1.9, "beat": 2.3,
+		"mix": {"dart": 3, "sweep": 3, "back": 2, "swing": 3, "turret": 4, "heavy": 2},
+		"tint": Color(0.8, 0.86, 1.0), "levels": ["Outskirts", "Canal Line", "Spire Run"]},
+	{"name": "Frost Shelf", "theme": "ice", "tough": 2.0, "fire": 1.2, "scrap": 2.5, "beat": 2.15,
+		"mix": {"dart": 3, "sweep": 4, "back": 3, "swing": 4, "turret": 2, "heavy": 2},
+		"tint": Color(0.82, 0.95, 1.05), "levels": ["Pack Ice", "Glacier Pass", "Whiteout Run"]},
+	{"name": "Cinder Reach", "theme": "volcano", "tough": 2.4, "fire": 1.26, "scrap": 3.2, "beat": 2.0,
+		"mix": {"dart": 3, "sweep": 3, "back": 3, "swing": 3, "turret": 4, "heavy": 3},
+		"tint": Color(1.05, 0.72, 0.62), "levels": ["Ash Fields", "Lava Gate", "Last Run"]},
+]
+
+
+static func count() -> int:
+	return WORLDS.size() * PER_WORLD
+
+
+static func world_of(lv: int) -> Dictionary:
+	return WORLDS[clampi(lv, 0, count() - 1) / PER_WORLD]
+
+
+static func kind_of(lv: int) -> String:
+	return KINDS[lv % PER_WORLD]
+
+
+## "2-3" for the third level of the second world.
+static func code(lv: int) -> String:
+	return "%d-%d" % [lv / PER_WORLD + 1, lv % PER_WORLD + 1]
+
+
+static func level_name(lv: int) -> String:
+	return world_of(lv).levels[lv % PER_WORLD]
+
+
+# ---------------------------------------------------------------- progress (in the save)
+
+## The save's campaign fields: the selected level, the furthest level open, best grades.
+static func fresh_into(s: Dictionary) -> void:
+	s["sel"] = 0
+	s["open"] = 0
+	s["grades"] = {}
+
+
+static func migrate_into(s: Dictionary, d: Dictionary) -> void:
+	if d.has("open"):
+		s.open = clampi(int(d.open), 0, count() - 1)
+	elif int(d.get("clears", 0)) > 0:
+		# a pilot from before the campaign cleared the old sector, Glass Coast's fortress run
+		s.open = PER_WORLD
+	s.sel = clampi(int(d.get("sel", s.open)), 0, s.open)
+	if typeof(d.get("grades")) == TYPE_DICTIONARY:
+		for k: String in d.grades:
+			if str(d.grades[k]) in ["S", "A", "B", "C"]:
+				s.grades[k] = str(d.grades[k])
+
+
+static func is_open(s: Dictionary, lv: int) -> bool:
+	return lv >= 0 and lv <= int(s.open)
+
+
+## A level cleared with a grade: keeps the best grade, opens the next level and selects it.
+## Returns true when that opened a level that wasn't open before.
+static func cleared(s: Dictionary, lv: int, grade: String) -> bool:
+	var k := code(lv)
+	var order := ["S", "A", "B", "C"]
+	if not s.grades.has(k) or order.find(grade) < order.find(s.grades[k]):
+		s.grades[k] = grade
+	var nxt := mini(lv + 1, count() - 1)
+	var opened: bool = nxt > int(s.open)
+	s.open = maxi(int(s.open), nxt)
+	if lv + 1 < count():
+		s.sel = lv + 1
+	return opened
+
+
+# ---------------------------------------------------------------- the waves of a level
+
+## The waves of a level, by stage time, in the shape of `Rules.STAGE`. A level that doesn't end
+## with the fortress ends with an "end" wave: the level clears once its foes are dealt with.
+static func waves(lv: int) -> Array:
+	var kind := kind_of(lv)
+	if lv == PER_WORLD - 1:
+		return Rules.STAGE
+	var w: Dictionary = world_of(lv)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7919 * (lv + 1)
+	var out: Array = []
+	var t := 1.5
+	match kind:
+		"patrol":
+			t = beats(out, rng, w, t, 30.0)
+			out.append({"t": t + 2.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
+		"battleship":
+			t = beats(out, rng, w, t, 26.0)
+			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
+			out.append({"t": t + 3.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
+		"fortress":
+			t = beats(out, rng, w, t, 17.0)
+			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
+			t = beats(out, rng, w, t + 4.0, t + 4.0 + 17.0)
+			out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
+	return out
+
+
+## Fills `out` with waves from the world's mix from time `t` to `until`; returns the time after.
+static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: float, until: float) -> float:
+	var mix: Dictionary = w.mix
+	var total := 0
+	for k: String in mix:
+		total += int(mix[k])
+	var last := ""
+	var heavies := 0
+	while t < until:
+		var pick := ""
+		for tries in 4:
+			var r := rng.randi_range(1, total)
+			for k: String in mix:
+				r -= int(mix[k])
+				if r <= 0:
+					pick = k
+					break
+			# no two of the same in a row, and no more than three heavies a level
+			if pick != last and not (pick == "heavy" and heavies > 2):
+				break
+		if pick == "heavy":
+			heavies += 1
+		last = pick
+		var side := -1.0 if rng.randf() < 0.5 else 1.0
+		var wave := {"t": snappedf(t, 0.5), "gap": 0.0}
+		match pick:
+			"dart":
+				wave.merge({"kind": "dart", "n": rng.randi_range(5, 6), "x": snappedf(rng.randf_range(-4.0, 4.0), 0.5), "gap": 0.32})
+			"sweep":
+				wave.merge({"kind": "dart", "n": rng.randi_range(6, 8), "x": snappedf(rng.randf_range(-1.0, 2.5), 0.5), "gap": 0.27,
+					"from": "left" if side < 0 else "right"})
+			"back":
+				wave.merge({"kind": "dart", "n": 6, "x": side * rng.randf_range(4.5, 5.5), "gap": 0.3, "from": "back"})
+			"swing":
+				wave.merge({"kind": "swing", "n": 6, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5), "gap": 0.37})
+			"turret":
+				var n := rng.randi_range(1, 3)
+				wave.merge({"kind": "turret", "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
+			"heavy":
+				wave.merge({"kind": "heavy", "n": 1, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5)})
+		out.append(wave)
+		t += float(w.beat) * rng.randf_range(0.85, 1.15) + (1.2 if pick == "heavy" else 0.0)
+	return t
+
+
+## Count of foes in a level that can be shot down (for the results' kill rate).
+static func foes_in(lv: int) -> int:
+	var n := 0
+	for w: Dictionary in waves(lv):
+		if w.kind == "boss":
+			n += Rules.boss_parts()
+		elif w.kind == "fortress":
+			for sec: Dictionary in Rules.FORTRESS_SECTIONS:
+				n += 5 if sec.mounts.is_empty() else sec.mounts.size()
+		elif w.kind != "end":
+			n += int(w.n)
+	return n

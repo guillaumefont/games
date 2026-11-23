@@ -29,6 +29,13 @@ var version_btn: Button
 ## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
 var version_note := ""
 var rows := {}
+## The campaign timeline in the hangar: the world's name, its arrows and its three levels.
+var world_l: Label
+var world_tag: Label
+var world_prev: Button
+var world_next: Button
+var level_btns: Array[Button] = []
+var go_btn: Button
 var res_title: Label
 var res_body: Label
 var res_hint: Label
@@ -131,10 +138,9 @@ func build_hangar() -> void:
 	title.text = "VANTAGE"
 	title.reparent(hangar)
 	place(title, Rect2(0, 0, 1, 0), Rect2(0, 110, 0, 110))
-	var tag := label(26, DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	tag.text = "Sector 1 · Glass Coast"
-	tag.reparent(hangar)
-	place(tag, Rect2(0, 0, 1, 0), Rect2(0, 218, 0, 40))
+	world_tag = label(26, DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	world_tag.reparent(hangar)
+	place(world_tag, Rect2(0, 0, 1, 0), Rect2(0, 218, 0, 40))
 	# the running version; a tap checks for a newer one and reloads into it
 	version_btn = Button.new()
 	version_btn.flat = true
@@ -160,6 +166,7 @@ func build_hangar() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 14)
 	panel.add_child(v)
+	build_campaign(v)
 	var head := HBoxContainer.new()
 	v.add_child(head)
 	var h := label(34, INK, HORIZONTAL_ALIGNMENT_LEFT, 800)
@@ -202,10 +209,110 @@ func build_hangar() -> void:
 	update_btn.visible = false
 	update_btn.pressed.connect(func() -> void: game.refresh_game())
 	v.add_child(update_btn)
-	var go := button("LAUNCH", CY, 40)
-	go.custom_minimum_size = Vector2(0, 104)
-	go.pressed.connect(func() -> void: game.launch())
-	v.add_child(go)
+	go_btn = button("LAUNCH", CY, 40)
+	go_btn.custom_minimum_size = Vector2(0, 104)
+	go_btn.pressed.connect(func() -> void: game.launch())
+	v.add_child(go_btn)
+
+
+## The campaign as a timeline: ‹ WORLD › on top, then the world's three levels on a track,
+## cleared ones with their best grade, locked ones greyed out. Tapping one selects it (its
+## world shows behind the menu); LAUNCH plays it.
+func build_campaign(v: VBoxContainer) -> void:
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 12)
+	v.add_child(top)
+	world_prev = button("‹", Color(1, 1, 1, 0.85), 40)
+	world_prev.custom_minimum_size = Vector2(72, 64)
+	world_prev.pressed.connect(func() -> void: step_world(-1))
+	top.add_child(world_prev)
+	world_l = label(30, INK, HORIZONTAL_ALIGNMENT_CENTER, 800)
+	world_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	world_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	world_l.reparent(top)
+	world_next = button("›", Color(1, 1, 1, 0.85), 40)
+	world_next.custom_minimum_size = Vector2(72, 64)
+	world_next.pressed.connect(func() -> void: step_world(1))
+	top.add_child(world_next)
+	# the level nodes on a track
+	var lane := Control.new()
+	lane.custom_minimum_size = Vector2(0, 118)
+	lane.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(lane)
+	var track := ColorRect.new()
+	track.color = Color(1, 1, 1, 0.35)
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lane.add_child(track)
+	place(track, Rect2(0, 0.5, 1, 0), Rect2(40, -2, -80, 4))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 22)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	lane.add_child(row)
+	place(row, Rect2(0, 0, 1, 1), Rect2(0, 0, 0, 0))
+	var line := ColorRect.new()
+	line.color = Color(1, 1, 1, 0.12)
+	line.custom_minimum_size = Vector2(0, 2)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for k in Campaign.PER_WORLD:
+		var b := button("", CY, 22)
+		b.custom_minimum_size = Vector2(150, 118)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(func() -> void:
+			game.pick_level(int(game.level) / Campaign.PER_WORLD * Campaign.PER_WORLD + k)
+			game.sound.play("tap")
+			refresh_hangar())
+		row.add_child(b)
+		level_btns.append(b)
+	v.add_child(line)
+
+
+## Shows the previous or next world (its first open level), if any of it is open.
+func step_world(d: int) -> void:
+	var w := game.level / Campaign.PER_WORLD + d
+	var lv := w * Campaign.PER_WORLD
+	if w < 0 or w >= Campaign.WORLDS.size() or not Campaign.is_open(game.s, lv):
+		return
+	# the furthest open level of that world
+	game.pick_level(mini(lv + Campaign.PER_WORLD - 1, int(game.s.open)))
+	game.sound.play("tap")
+	refresh_hangar()
+
+
+func level_style(col: Color, filled: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col if filled else Color(0.05, 0.08, 0.13, 0.82)
+	sb.border_color = col
+	sb.set_border_width_all(0 if filled else 3)
+	sb.set_corner_radius_all(22)
+	sb.set_content_margin_all(10)
+	return sb
+
+
+func refresh_campaign() -> void:
+	var s := game.s
+	var w := game.level / Campaign.PER_WORLD
+	var open_worlds := int(s.open) / Campaign.PER_WORLD + 1
+	world_tag.text = "Campaign  ·  World %d of %d" % [w + 1, Campaign.WORLDS.size()]
+	world_l.text = "WORLD %d  ·  %s" % [w + 1, Campaign.WORLDS[w].name.to_upper()]
+	world_prev.disabled = w == 0
+	world_next.disabled = w + 1 >= open_worlds
+	for k in Campaign.PER_WORLD:
+		var lv := w * Campaign.PER_WORLD + k
+		var b := level_btns[k]
+		var open := Campaign.is_open(s, lv)
+		var sel := lv == game.level
+		var grade: String = s.grades.get(Campaign.code(lv), "")
+		var kind: String = {"patrol": "Patrol", "battleship": "Battleship", "fortress": "Fortress"}[Campaign.kind_of(lv)]
+		b.disabled = not open
+		b.text = "%s\n%s\n%s" % [Campaign.code(lv), Campaign.level_name(lv) if open else "Locked",
+			("Grade " + grade) if grade != "" else kind]
+		var col := CY if sel else (GOLD if grade != "" else Color(1, 1, 1, 0.8))
+		for st in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(st, level_style(col, sel))
+		var ink := Color8(0x0b, 0x12, 0x1c) if sel else INK
+		for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+			b.add_theme_color_override(c, ink)
+	go_btn.text = "LAUNCH  %s" % Campaign.code(game.level)
 
 
 ## The bottom of the screen hidden by the system (gesture bar, rounded corners), in HUD pixels.
@@ -243,6 +350,7 @@ func hangar_panel_top() -> float:
 func refresh_hangar() -> void:
 	var s := game.s
 	hangar_scrap.text = "◆ " + Rules.fmt(s.scrap)
+	refresh_campaign()
 	for key: String in Rules.ORDER:
 		var r: Dictionary = rows[key]
 		var lv := Rules.level(s, key)
@@ -308,14 +416,20 @@ func show_results() -> void:
 	var r := game.run
 	hangar.visible = false
 	results.visible = true
-	res_title.text = "SECTOR CLEAR" if r.cleared else "SHOT DOWN"
+	var last: bool = int(r.level) % Campaign.PER_WORLD == Campaign.PER_WORLD - 1
+	res_title.text = ("WORLD CLEAR" if last else "LEVEL CLEAR") if r.cleared else "SHOT DOWN"
 	res_title.add_theme_color_override("font_color", CY if r.cleared else RED)
-	var lines := ["Score  %s%s" % [Rules.fmt(r.score), "  (best!)" if r.new_best else ""],
+	var lines := ["%s  ·  %s" % [Campaign.code(r.level), Campaign.level_name(r.level)],
+		"Score  %s%s" % [Rules.fmt(r.score), "  (best!)" if r.new_best else ""],
 		"Scrap  ◆ %s" % Rules.fmt(r.scrap),
-		"Kills  %d / %d" % [r.kills, Rules.stage_foes()],
+		"Kills  %d / %d" % [r.kills, r.total],
 		"Hits taken  %d" % r.hits]
 	if r.cleared:
 		lines.append("Grade  %s" % r.grade)
+	if r.opened >= 0:
+		var nw: bool = int(r.opened) % Campaign.PER_WORLD == 0
+		lines.append(("New world: " + Campaign.world_of(r.opened).name) if nw else
+			("Unlocked  %s  %s" % [Campaign.code(r.opened), Campaign.level_name(r.opened)]))
 	res_body.text = "\n".join(lines)
 
 
