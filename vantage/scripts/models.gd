@@ -250,17 +250,53 @@ static func hit_mat() -> StandardMaterial3D:
 	return _cache["hit"]
 
 
-## Shadows: a soft see-through blue-black, drawn once per pixel so overlapping faces of one
-## model don't stack darker.
+## Shadow casters: plain white, drawn only into the game's shadow mask (see Game.make_shadow_view).
 static func shadow_mat() -> StandardMaterial3D:
 	if not _cache.has("shadow"):
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.albedo_color = Color(0.02, 0.07, 0.18, 0.22)
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
+		m.albedo_color = Color.WHITE
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_cache["shadow"] = m
 	return _cache["shadow"]
+
+
+const SHADOW_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+uniform sampler2D mask : filter_linear, repeat_disable;
+uniform vec4 tint : source_color;
+uniform float soft = 1.6;
+
+void fragment() {
+	// a 13-tap blur of the mask: a soft penumbra a few pixels wide
+	vec2 px = soft / vec2(textureSize(mask, 0));
+	float m = texture(mask, SCREEN_UV).r * 0.2;
+	m += (texture(mask, SCREEN_UV + vec2(px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(px.x, 0.0)).r
+		+ texture(mask, SCREEN_UV + vec2(0.0, px.y)).r + texture(mask, SCREEN_UV - vec2(0.0, px.y)).r) * 0.1;
+	m += (texture(mask, SCREEN_UV + px).r + texture(mask, SCREEN_UV - px).r
+		+ texture(mask, SCREEN_UV + vec2(px.x, -px.y)).r + texture(mask, SCREEN_UV + vec2(-px.x, px.y)).r) * 0.06;
+	m += (texture(mask, SCREEN_UV + vec2(2.0 * px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(2.0 * px.x, 0.0)).r
+		+ texture(mask, SCREEN_UV + vec2(0.0, 2.0 * px.y)).r + texture(mask, SCREEN_UV - vec2(0.0, 2.0 * px.y)).r) * 0.04;
+	if (m < 0.002) {
+		discard;
+	}
+	ALBEDO = tint.rgb;
+	ALPHA = tint.a * min(m, 1.0);
+}
+"""
+
+
+## The ground's shadow plane: a see-through blue-black wherever the blurred mask is set.
+static func shadow_plane_mat(mask: Texture2D) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = SHADOW_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("mask", mask)
+	m.set_shader_parameter("tint", Color(0.02, 0.07, 0.18, 0.34))
+	m.render_priority = -1
+	return m
 
 
 static func cached(key: String, f: Callable) -> Mesh:
@@ -859,8 +895,13 @@ static func count(kind: String) -> void:
 	scenery[kind] = scenery.get(kind, 0) + 1
 
 
+## Scenery is drawn this much larger than life so it reads on a phone screen (Guillaume found
+## it too small at 1).
+const PROP_SCALE := 1.5
+
+
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
-	b.xf = Transform3D(Basis(Vector3.UP, ang), pos)
+	b.xf = Transform3D(Basis(Vector3.UP, ang).scaled(Vector3.ONE * PROP_SCALE), pos)
 
 
 ## What grows or stands on one terrain cell, from the noise heights at its corners `h`;
@@ -910,15 +951,16 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	elif avg < 0.3:
 		# the grass: villages here and there, a farm or a copse elsewhere
 		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
-		var even := (roundi(cen.x * 0.5) + roundi(cen.z * 0.5)) % 2 == 0
-		var lot := 0.32 if village else 0.025
+		# one house per 4 x 4 lot at most, so the scaled-up houses and gardens don't overlap
+		var even := posmod(floori(cen.x * 0.5), 2) == 0 and posmod(floori(cen.z * 0.5), 2) == 0
+		var lot := 0.6 if village else 0.06
 		if avg >= 0.11 and r < lot and even:
 			house(b, at, snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3, r2)
-		elif r < lot + 0.12:
-			broadleaf(b, at + Vector3((r2 - 0.5) * 0.8, 0, (r - 0.5) * 0.6), r2)
-		elif r < lot + 0.2:
-			bush(b, at + Vector3((r2 - 0.5), 0, 0), r2)
-		elif village and r < lot + 0.24:
+		elif r2 < 0.1:
+			broadleaf(b, at + Vector3((r - 0.5) * 0.8, 0, (r2 - 0.05) * 6.0), r)
+		elif r2 < 0.16:
+			bush(b, at + Vector3((r - 0.5), 0, 0), r)
+		elif village and r2 < 0.19:
 			count("hay")
 			place(b, at, ang)
 			for k in 2:
@@ -930,7 +972,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 				conifer(b, at + Vector3((r - 0.4) * 2.2 + n * 1.1, 0, (n - 0.5) * 1.2), r)
 		elif r < 0.86:
 			rocks(b, at, 0.35, r2, false)
-	elif r < 0.3:
+	elif r < 0.2:
 		# bare rock on the heights
 		rocks(b, at, 0.45 + r, r2, false)
 	b.xf = Transform3D.IDENTITY

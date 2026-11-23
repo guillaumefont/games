@@ -94,7 +94,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   driftwood, pebbles, dune grass and parasols on the beaches; rocks with a ring of surf, lighthouses and
   fishing boats along the coast. All of it goes into the chunk's one mesh (no extra draw calls), built
   round its own origin and placed with `Builder.xf`; `Builder.bottoms = false` skips faces under the
-  ground. `Models.scenery` counts what was built (tested).
+  ground. Everything placed with `place()` is drawn `PROP_SCALE` (1.5x) larger so it reads on a phone
+  (Guillaume found life size too small); houses keep to one per 4 x 4 lot. `Models.scenery` counts
+  what was built (tested).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
@@ -143,7 +145,12 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
-  copy of the mesh, projected along the sun onto `SHADOW_Y` each frame.
+  copy of the mesh, projected along the sun onto `SHADOW_Y` each frame. Those copies are drawn white
+  on layer `SHADOW_LAYER` into a half-size mask (`shadow_view`, `shadow_cam` follows `cam`), and one
+  see-through plane under the camera (`shadow_plane`, `Models.SHADOW_SHADER`) darkens the ground from
+  the blurred mask. Don't draw the flattened copies see-through in the main view: their faces overlap
+  and stack into dark patches (Guillaume: "the shadow is not smooth"), and neither the depth pre-pass
+  nor the material stencil (a no-op in Compatibility, tested on 4.7) can stop that.
 - The look (premium pass): gradient sky shader, filmic tonemap, a cool fill light, rim light on the
   model material, chamfered top edges on straight `prism`s (automatic). The terrain is low poly but
   soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
