@@ -339,6 +339,96 @@ func aiming() -> void:
 	await process_frame
 
 
+## Guillaume: flying into enemies damages the ship. Small foes break up, big ones take a knock,
+## the ship blinks (passing through) and is thrown back; ground targets and scenery pass under.
+func ramming() -> void:
+	print("ramming")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	run(g, 0.5)
+	g.foes.clear()
+	g.bullets.clear()
+	var hp := g.hp
+	var d := g.new_foe("dart", Models.dart())
+	d.rel = true
+	d.pos = g.ppos + Vector3(0, 0, -0.5)
+	g.step(DT)
+	check(d.dead and g.hp == hp - 1 and g.inv > 0.0, "flying into a dart: it breaks up and the ship takes a hit")
+	check(g.knock.y > 0.0, "and the ship is thrown back from it")
+	var y0 := g.prel.y
+	for i in 10:
+		g.step(DT)
+	check(g.prel.y > y0 + 0.5 and g.knock.length() < Rules.KNOCK, "the throw moves the ship and eases off")
+	var d2 := g.new_foe("dart", Models.dart())
+	d2.rel = true
+	d2.pos = g.ppos
+	g.step(DT)
+	check(not d2.dead and g.hp == hp - 1, "while it blinks the ship passes through")
+	d2.dead = true
+	g.inv = 0.0
+	var h := g.new_foe("heavy", Models.heavy())
+	h.rel = true
+	h.t = 5.0
+	h.pos = g.ppos
+	var hhp := h.hp
+	g.step(DT)
+	check(not h.dead and is_equal_approx(h.hp, hhp - Rules.RAM_DMG) and g.hp == hp - 2, "a heavy takes a knock, the ship a hit")
+	g.shots.clear()
+	for i in 30:
+		g.collide(DT)
+	check(is_equal_approx(h.hp, hhp - Rules.RAM_DMG), "and only once per hit")
+	h.dead = true
+	g.inv = 0.0
+	g.hp = 5
+	g.bullets.clear()
+	var t := g.new_foe("turret", Models.turret())
+	t.ground = true
+	t.pos = Vector3(g.ppos.x, 0.4, g.ppos.z)
+	g.step(DT)
+	check(g.hp == 5 and not t.dead, "ground turrets pass under the ship")
+	t.dead = true
+	# the Bastion: its hull is a wall that hurts, its wings only until they break off
+	g.spawn_vert("boss", 0.0, 0, 1)
+	var b := g.boss
+	b.pos = Vector3(0, Rules.PY, g.frame_z - 6.0)
+	check(g.boss_rammed(b.pos) and g.boss_rammed(b.pos + Vector3(0, 0, 9.0)), "the Bastion's hull and bow can be rammed")
+	check(g.boss_rammed(b.pos + Vector3(10.0, 0, -3.0)), "and its wings")
+	check(not g.boss_rammed(b.pos + Vector3(0, 0, 11.0)) and not g.boss_rammed(b.pos + Vector3(10.0, 0, 3.0)), "but not past them")
+	g.inv = 0.0
+	g.prel = Vector2(0.0, b.pos.z + 3.0 - g.frame_z - Rules.SCROLL * DT)
+	g.step(DT)
+	check(g.hp == 4 and g.knock.y > 0.0, "ramming the Bastion costs a hit and throws the ship back")
+	b.node.get_node("wings").visible = false
+	check(not g.boss_rammed(b.pos + Vector3(10.0, 0, -3.0)), "its wings stop counting once broken off")
+	g.queue_free()
+	await process_frame
+	# the chase: drones rammed in 3D
+	g = make_game()
+	await process_frame
+	g.launch()
+	g.spawn_fortress()
+	g.begin_approach()
+	g.begin_pov()
+	for f in g.foes:
+		if f.kind == "drone":
+			f.dead = true
+	g.drone_t = 99.0
+	hp = g.hp
+	var dr := g.new_foe("drone", Models.drone())
+	dr.pos = g.ppos + Vector3(0.3, 0.3, 0)
+	dr.t = 20.0
+	g.collide(DT)
+	check(dr.dead and g.hp == hp - 1 and g.knock.length() > 0.0, "in the chase a rammed drone breaks up and the ship takes a hit")
+	g.inv = 0.0
+	var far := g.new_foe("drone", Models.drone())
+	far.pos = g.ppos + Vector3(0, 3.0, 0)
+	g.collide(DT)
+	check(not far.dead and g.hp == hp - 1, "a drone above the ship misses it (3D)")
+	g.queue_free()
+	await process_frame
+
+
 ## Guillaume: one swipe should carry the ship from one flank of the fortress to the other.
 func swipe() -> void:
 	print("the chase swipe")
@@ -615,6 +705,7 @@ func _initialize() -> void:
 	await controls()
 	await slow_pause()
 	await aiming()
+	await ramming()
 	await swipe()
 	await lingering()
 	await scenery()
