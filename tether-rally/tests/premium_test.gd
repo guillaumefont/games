@@ -7,7 +7,8 @@ extends SceneTree
 # - props stay cheap: a pine under 600 triangles, a boulder under 120, a fallen tree under 160
 # - fallen trunks are rare: at most one for every 15 standing trees (Guillaume: "much more trees
 #   than fallen trunks"), and bridges in the snow are grey like its road
-# - the snow road is a neutral grey, not blue (Guillaume: "the road is too blue")
+# - the snow road is grey with a slight blue tint, not the old periwinkle ("too blue", then
+#   "slightly bluish")
 const Themes = preload("res://scripts/themes.gd")
 const Premium = preload("res://scripts/premium.gd")
 const WorldView = preload("res://scripts/world_view.gd")
@@ -34,8 +35,9 @@ func _run() -> void:
 			fail("premium %s is not tuned" % w)
 	var th := Premium.restyle("snow", Themes.get_theme("snow"))
 	var rd: Color = th["road"]
-	if rd.b - rd.r > 0.08:
-		fail("snow road is blue (%s)" % rd.to_html(false))
+	# a slight blue tint (Guillaume, 2026-11-23), never the old periwinkle (#4d5d82: +0.21)
+	if rd.b - rd.r > 0.15 or rd.b - rd.r < 0.03:
+		fail("snow road should be grey with a slight blue tint (%s)" % rd.to_html(false))
 	# the other worlds' props get gradients: the top of a gradient prop is lighter than its foot
 	var flat := ArrayMesh.new()
 	var tri := []
@@ -102,8 +104,8 @@ func _run() -> void:
 			fail("%s: too many fallen trunks (%d for %d trees)" % [w, logs, trees])
 		if w == "snow":
 			var dc: Color = view._deck_col(WorldView.COL_DECK).linear_to_srgb()
-			if absf(dc.r - dc.b) > 0.08 or absf(dc.r - dc.g) > 0.08:
-				fail("snow bridge timber is not grey (%s)" % dc.to_html(false))
+			if dc.b - dc.r > 0.15 or dc.r > dc.b:
+				fail("snow bridge timber does not match the bluish-grey road (%s)" % dc.to_html(false))
 	if bad == 0:
 		print("premium_test: ok")
 	else:
