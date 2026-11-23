@@ -227,10 +227,16 @@ func stage() -> void:
 	check(absf(g.fort_props[0].rotation.z - spin0) > 0.1, "its propellers turn")
 	check(g.fortress.global_position.y > -2.0 and g.fort_point(Vector3(0, Rules.PY, 0)).y > Rules.PY, "it flies, its bay above the ship's altitude")
 	var vs := g.view_size()
+	# Guillaume (2026-11-23): "you don't see much of the spaceship": its stern and tower on screen,
+	# (the tower above shows as the ship climbs to it), its wings and engines reaching out past the screen's edges
 	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, Rules.PY, 0)))
 	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, Rules.PY, 0)))
-	var tower := g.cam.unproject_position(g.fort_point(Vector3(0, Rules.TOWER_TOP, 0)))
-	check(left.x < 0 and right.x > vs.x and tower.y < 0, "the final boss is bigger than the screen")
+	var tower := g.cam.unproject_position(g.fort_point(Vector3(0, Rules.FORTRESS_TOP, 0)))
+	var w: Dictionary = Models.wing_spec(g.fort_id)
+	var tip := g.cam.unproject_position(g.fort_point(w.root + Vector3(w.span, w.rise, w.sweep)))
+	var engine := g.cam.unproject_position(g.fort_point(w.root + Models.prop_points(g.fort_id)[0]))
+	check(left.x > 0 and right.x < vs.x and tower.y > 0, "the fortress's stern fits on the screen (%s, %s, %s)" % [left, right, tower])
+	check(tip.x > vs.x and engine.x > vs.x * 0.5 and engine.x < vs.x, "its wings reach past the screen, an engine in view (%s, %s)" % [tip, engine])
 	run(g, 1.0)
 	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
 	# (above it unless the ship climbs the tower: the camera follows the climb only partly)
