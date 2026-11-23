@@ -86,20 +86,31 @@ func _run() -> void:
 	await process_frame
 	view.set_quality(2)
 	var log_verts := WorldView.ao_vertex_count(Premium.fallen_log(th, 7))
+	var bush_verts := WorldView.ao_vertex_count(WorldView._shrub_mesh(30.0, Color.GREEN))
 	for w in ["forest", "snow"]:
 		view.theme_override = w
 		var tr := TrackData.new(Defs.TRACKS[0], "standard")
 		for step in view.build_steps(tr):
 			step.call()
-		var logs := 0; var trees := 0
+		var logs := 0; var trees := 0; var bushes := 0
 		for n in view.static_root.get_children():
 			if n is MultiMeshInstance3D and not n.is_queued_for_deletion():
 				var mm: MultiMesh = n.multimesh
 				if WorldView.ao_vertex_count(mm.mesh) == log_verts:
 					logs += mm.instance_count
+				elif WorldView.ao_vertex_count(mm.mesh) == bush_verts:
+					bushes += mm.instance_count
 				elif n.material_override is ShaderMaterial and n.material_override.get_shader_parameter("sway") > 0.0:
 					trees += mm.instance_count
-		print("%s: %d trees, %d fallen trunks" % [w, trees, logs])
+		print("%s: %d trees, %d fallen trunks, %d bushes" % [w, trees, logs, bushes])
+		if w == "forest":
+			# premium forest: low bushes break up the open grass, but stay a garnish
+			if bushes < 10 or bushes > trees:
+				fail("forest: %d bushes for %d trees" % [bushes, trees])
+			# roofs stand out from the grass instead of being green boxes
+			var roof: Color = Premium.PALETTE["forest"]["roof"]
+			if roof.g >= roof.r:
+				fail("forest roofs are green, they blend into the grass (%s)" % roof.to_html(false))
 		if logs * 15 > trees:
 			fail("%s: too many fallen trunks (%d for %d trees)" % [w, logs, trees])
 		if w == "snow":

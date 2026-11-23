@@ -981,7 +981,7 @@ func _window_mat(kind: String) -> ShaderMaterial:
 	var lk: Array = WINDOW_LOOK.get(kind, WINDOW_LOOK["rock"])
 	if premium and th.has("rim"):
 		var g: Color = th["road"]
-		lk = [g.darkened(0.2), g.lightened(0.25), g.lightened(0.1)] if kind != "snow" else [Color("#eef0f2"), Color("#c4cad2"), Color("#ffffff")]
+		lk = [g.darkened(0.2), g.lightened(0.2), g.lightened(0.06)] if kind != "snow" else [Color("#eef0f2"), Color("#c4cad2"), Color("#ffffff")]
 	var sh := Shader.new()
 	var ice := kind == "snow"
 	sh.code = """
@@ -991,6 +991,8 @@ uniform vec3 frame_col : source_color;
 uniform vec3 bar_col : source_color;
 uniform vec3 bar2_col : source_color;
 uniform int kind = 0;
+uniform float kind_gap = 0.3;
+uniform float kind_bevel = 0.0;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
 	vec2 q = UV;     // units: along the deck, across the deck
@@ -1012,8 +1014,10 @@ void fragment() {
 	} else if (kind == 1) {
 		// timber boardwalk: planks across the deck with gaps between
 		float f = fract(q.x / 30.0);
-		m = step(0.3, f);
+		m = step(kind_gap, f);
 		c = mix(bar_col, bar2_col, hash(vec2(floor(q.x / 30.0), 3.0)));
+		// premium: rounded plank edges, a little darker, so each board reads as timber
+		c *= 1.0 - kind_bevel * (1.0 - smoothstep(kind_gap, kind_gap + 0.14, f) * smoothstep(1.0, 0.88, f));
 	} else if (kind == 2) {
 		// carved sandstone lattice
 		float u = fract((q.x + q.y) / 34.0);
@@ -1040,6 +1044,9 @@ void fragment() {
 	m.set_shader_parameter("bar_col", lk[1])
 	m.set_shader_parameter("bar2_col", lk[2])
 	m.set_shader_parameter("kind", ["snow", "forest", "sand", "rock"].find(kind))
+	if premium and th.has("rim") and kind == "forest":
+		m.set_shader_parameter("kind_gap", 0.18)   # wider boards, narrow gaps
+		m.set_shader_parameter("kind_bevel", 0.3)
 	return m
 
 # Loose stuff heaped along both lane edges, half on the verge and half spilling onto
@@ -1490,6 +1497,7 @@ func _build_scenery() -> void:
 	var shacks: Array = []
 	var rocks: Array = []
 	var logs: Array = []
+	var bushes: Array = []
 	var basis_for := func(yaw: float, sc: float) -> Basis:
 		return Basis(Vector3.UP, yaw).scaled(Vector3.ONE * sc)
 
@@ -1560,6 +1568,11 @@ func _build_scenery() -> void:
 				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(rs * 1.4, rs, rs * 0.85)), w3(p, ground_h(p) - 4.0)))
 				ao_stamp(p, 60.0 * rs, 0.45)
 				mark.call(p, 40.0 * big, 2)
+			elif kit.has("bush") and quality > 0 and n > -0.3 and hs % 5 == 0:
+				# premium forest: low bushes at the edge of the woods, so open grass isn't bare
+				var bs := (0.8 + float(hs % 11) * 0.05) * big
+				bushes.append(Transform3D(Basis(Vector3.UP, float(hs) * 0.61).scaled(Vector3.ONE * bs), w3(p, ground_h(p) - 3.0)))
+				ao_stamp(p, 45.0 * bs, 0.45)
 		y += step
 	_multi(kit["a"], pines_a, kit.get("mat_a"))
 	_multi(kit["b"], pines_b, kit.get("mat_b"))
@@ -1567,6 +1580,8 @@ func _build_scenery() -> void:
 	_multi(kit["rock"], rocks, kit.get("mat"))
 	if not logs.is_empty():
 		_multi(kit["log"], logs, kit.get("mat"))
+	if not bushes.is_empty():
+		_multi(kit["bush"], bushes, kit.get("mat_bush", kit.get("mat")))
 	if premium and quality >= 2 and kit.has("chimney"):
 		for xf: Transform3D in shacks:
 			dyn_root.add_child(Premium.smoke(xf * (kit["chimney"] as Vector3)))
@@ -1610,7 +1625,9 @@ func _premium_kit() -> Dictionary:
 				"hut": G.call(_shack_mesh(th["wood"], th["roof"], th["shingle"]), 110.0, 0.8, 1.08),
 				"rock": G.call(_rock_mesh(th["stone"][0], th["moss"]), 34.0),
 				"mat_a": Premium.prop_mat(rim, 0.06, 2.0), "mat_b": Premium.prop_mat(rim, 0.06, 2.3), "mat": still,
-				"chimney": Vector3(0, 128, 0) * U, "log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.6, "rocks": 0.04 }
+				"chimney": Vector3(0, 128, 0) * U, "log": base_ao(Premium.fallen_log(th, 7), 20.0, 0.7), "density": 0.6, "rocks": 0.04,
+				"bush": base_ao(G.call(_shrub_mesh(30.0, th["leaf_b"].lightened(0.06)), 40.0, 0.7, 1.12), 30.0, 0.7),
+				"mat_bush": Premium.prop_mat(rim, 0.03, 0.5) }
 		"rock":
 			return { "a": G.call(_spire_mesh(260.0, 60.0, th["spire"]), 260.0, 0.65, 1.15, 0.1), "b": G.call(_shrub_mesh(26.0, th["heather"]), 40.0),
 				"hut": G.call(_hut_mesh(th["wall"], th["hut_roof"]), 70.0, 0.8, 1.08),
@@ -1842,6 +1859,16 @@ func _build_weather() -> void:
 		snowfall.scale_amount_max = 1.3
 		snowfall.lifetime = 6.0
 		snowfall.preprocess = 6.0
+	if premium and kind == "leaves":
+		# leaf-shaped, tumbling as they fall
+		m.albedo_texture = Premium.leaf_tex()
+		q.size = Vector2(0.13, 0.2)
+		snowfall.angle_min = 0.0
+		snowfall.angle_max = 360.0
+		snowfall.angular_velocity_min = -90.0
+		snowfall.angular_velocity_max = 90.0
+		snowfall.scale_amount_min = 0.7
+		snowfall.scale_amount_max = 1.2
 	q.material = m
 	snowfall.mesh = q
 	snowfall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

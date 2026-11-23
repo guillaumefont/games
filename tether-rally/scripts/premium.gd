@@ -32,19 +32,19 @@ const PALETTE := {
 		"bark": Color("#5e4436"), "log_top": Color("#fbfaf6"), "cut": Color("#d9b98a"),
 	},
 	"forest": {
-		"ground": Color("#5a8a3a"), "ground_dots": Color("#4f7d33"),
-		"ambient": Color("#bcd3c0"), "sun": Color("#ffe4bc"),
-		"road": Color("#6e5844"), "patch": Color("#5a4632"), "patch_amt": 0.4, "patch_rough": 0.5,
-		"streak": Color("#86705a"), "edge": Color("#9c8a5e"), "road_rough": 0.95,
-		"verge": Color("#6b9444"), "bank_face": Color("#86643f"),
-		"rail_top": Color("#6fa048"), "column": Color("#6e6a5a"), "cap": Color("#6fa048"),
-		"foot": Color("#5f8f3e"), "hub": Color("#6fa048"),
-		"drift_a": Color("#5f913c"), "drift_b": Color("#8a6640"),
-		"sky": Color("#8ec2e6"), "shade": Color("#263f5e"), "glint": Color("#ffe8c0"),
-		"rim": Color("#d4f0ff"), "leaf": Color("#3a7030"), "leaf_b": Color("#3f7a3a"),
-		"stone": [Color("#6a6e66"), Color("#9a9c8e")], "moss": Color("#79a848"),
-		"wood": Color("#8f5f3e"), "roof": Color("#5e8f3a"), "shingle": Color("#5a3e2c"), "gantry": Color("#4a3a2e"),
-		"bark": Color("#6b4a34"), "log_top": Color("#5f8a3c"), "cut": Color("#d8b480"),
+		"ground": Color("#567c3b"), "ground_dots": Color("#6e8a40"),
+		"ambient": Color("#c2d4c4"), "sun": Color("#ffe2b6"),
+		"road": Color("#735a44"), "patch": Color("#654e3a"), "patch_amt": 0.25, "patch_rough": 0.6,
+		"streak": Color("#86705a"), "edge": Color("#a48f64"), "road_rough": 0.95,
+		"verge": Color("#62893f"), "bank_face": Color("#7e5f40"),
+		"rail_top": Color("#5f8239"), "column": Color("#6e6a5a"), "cap": Color("#5f8239"),
+		"foot": Color("#587f3a"), "hub": Color("#5f8239"),
+		"drift_a": Color("#5a863a"), "drift_b": Color("#7e5f40"),
+		"sky": Color("#8ec2e6"), "shade": Color("#22385a"), "glint": Color("#ffe6bc"),
+		"rim": Color("#d8f0ff"), "leaf": Color("#3d7432"), "leaf_b": Color("#41793a"),
+		"stone": [Color("#6a6e66"), Color("#9a9c8e")], "moss": Color("#6f9a44"),
+		"wood": Color("#8a5d3e"), "roof": Color("#b05a3c"), "shingle": Color("#7a3a2a"), "gantry": Color("#4a3a2e"),
+		"bark": Color("#6b4a34"), "log_top": Color("#5a843a"), "cut": Color("#d8b480"),
 	},
 	"sand": {
 		"ground": Color("#e3b47c"), "ground_dots": Color("#d8a46c"),
@@ -363,6 +363,26 @@ static func soft_dot() -> GradientTexture2D:
 		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.75), Color(1, 1, 1, 0)])
 		_dot.gradient = g
 	return _dot
+
+# a falling leaf: a pointed lens with a soft edge and a faint midrib (white, tinted by the
+# particle colour), so the forest's leaves stop reading as square pixels
+static var _leaf: ImageTexture
+static func leaf_tex() -> ImageTexture:
+	if _leaf == null:
+		var n := 32
+		var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+		for y in n:
+			for x in n:
+				var u := (x + 0.5) / n * 2.0 - 1.0   # across the leaf
+				var v := (y + 0.5) / n * 2.0 - 1.0   # along it
+				# lens: inside two offset circles, tip to tip along v
+				var r := 1.55
+				var d := maxf(Vector2(u + 0.62 * r - 0.07, v).length(), Vector2(u - 0.62 * r + 0.07, v).length()) - r
+				var a := clampf(-d * 9.0, 0.0, 1.0) * clampf((1.0 - absf(v)) * 6.0, 0.0, 1.0)
+				var shade := 1.0 - 0.25 * clampf(1.0 - absf(u) * 14.0, 0.0, 1.0) - 0.12 * absf(u)
+				img.set_pixel(x, y, Color(shade, shade, shade, a))
+		_leaf = ImageTexture.create_from_image(img)
+	return _leaf
 
 # a lazy curl of smoke from a chimney, a dozen soft puffs
 static func smoke(pos: Vector3) -> CPUParticles3D:
