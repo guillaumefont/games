@@ -36,6 +36,8 @@ class Obj:
 	var anchor := Vector3.INF
 	## Height a drone hovers at.
 	var size_y := 0.0
+	## When a dart from behind reached its hold in the upper screen (-1: not yet).
+	var hold := -1.0
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -536,7 +538,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 					var side := -1.0 if from == "left" else 1.0
 					var z := lerpf(view_top, Rules.Z_TOP + 4.0, 0.5) + x
 					f.pos = Vector3(side * (view_hw(z) + 2.0), Rules.PY, frame_z + z)
-					f.vel = Vector3(-side * 9.0, 0, 2.5)
+					f.vel = Vector3(-side * 5.5, 0, 1.2)
 				"back":
 					# overtake from behind, up a lane at the side, then fire back down
 					var lane := x + (i % 2) * 1.2
@@ -767,7 +769,8 @@ func gone(o: Obj) -> bool:
 	if o in foes and (o.kind in ["drone", "sentry", "orb", "panel", "core"]):
 		return phase == "vert"
 	if o.kind == "shot" or o.kind == "missile":
-		return z < Rules.Z_TOP - 4.0 or absf(o.pos.x) > Rules.HALF_W + 4.0 or o.t > 3.0
+		# fly on to the real screen edge (a tall phone shows more than the play field)
+		return z < minf(view_top, Rules.Z_TOP) - 2.0 or absf(o.pos.x) > maxf(view_hw_top, Rules.HALF_W) + 2.0 or o.t > 3.0
 	return z > maxf(Rules.Z_BOT, view_bot) + 3.0 or z < Rules.Z_TOP - 30.0 or absf(o.pos.x) > Rules.HALF_W + 12.0
 
 
@@ -776,13 +779,31 @@ func think(f: Obj, dt: float) -> void:
 	var to_p := ppos - f.pos
 	match f.kind:
 		"dart" when f.vel != Vector3.ZERO:
+			var z := f.pos.z - frame_z
+			if f.vel.z < 0.0 or f.hold >= 0.0:
+				# from behind: overtake up a side lane, brake and hold in the upper screen
+				# (weaving, firing), then climb away off the top
+				var hold_z := lerpf(view_top, view_bot, 0.22) + (f.idx % 3) * 1.6
+				if f.hold < 0.0 and z <= hold_z + 3.5:   # brake early: it overshoots a little
+					f.hold = f.t   # time it reached its hold
+				if f.hold >= 0.0:
+					var held := f.t - f.hold
+					var vz := -0.6 if held < 3.5 else -9.0
+					f.vel.z = lerpf(f.vel.z, vz, minf(1.0, dt * 3.0))
+					f.vel.x = cos(held * 1.8 + f.idx) * 2.2
+					if held > 0.6 and f.t >= f.fire_t and f.fire_t > 0:
+						f.fire_t = f.t + 1.6
+						aimed(f.pos, 9.5)
 			f.pos += f.vel * dt
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), 0)
-			if f.t >= f.fire_t and f.fire_t > 0 and on_screen(f):
-				f.fire_t = -1.0
-				aimed(f.pos, 10.0)
+			if f.vel.z >= 0.0 and f.hold < 0.0:
+				# from a side: a slow sweep across with a gentle dip
+				f.vel.z = 1.2 + sin(f.t * 1.4) * 1.4
+				if f.t >= f.fire_t and f.fire_t > 0 and on_screen(f):
+					f.fire_t = f.t + 2.2
+					aimed(f.pos, 10.0)
 		"dart":
-			f.pos.z += 9.0 * dt
+			f.pos.z += 7.0 * dt
 			if f.t < 1.3:
 				f.pos.x += clampf(ppos.x - f.pos.x, -1.0, 1.0) * 2.2 * dt
 			f.node.rotation = Vector3(0, 0, clampf(-(ppos.x - f.pos.x) * 0.15, -0.5, 0.5) if f.t < 1.3 else 0.0)
