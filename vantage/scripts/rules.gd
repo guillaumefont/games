@@ -186,9 +186,9 @@ const FOES := {
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
 	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
-	"lighthouse": {"hp": 22.0, "r": 1.3, "score": 500, "scrap": 25},
-	"house": {"hp": 9.0, "r": 1.4, "score": 150, "scrap": 10},
-	"boat": {"hp": 5.0, "r": 1.2, "score": 100, "scrap": 5},
+	"lighthouse": {"hp": 22.0, "r": 2.0, "score": 500, "scrap": 25},
+	"house": {"hp": 9.0, "r": 2.2, "score": 150, "scrap": 10},
+	"boat": {"hp": 5.0, "r": 1.9, "score": 100, "scrap": 5},
 }
 ## Scenery that can be shot down (see FOES).
 const LANDMARKS := ["lighthouse", "house", "boat"]
