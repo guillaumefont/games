@@ -166,6 +166,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   flight altitude (`Ctx.cap`). Some blocks are parks (fountain, water tower landmark), plazas (obelisk or
   fountain, kiosks) or a stadium. Each road step, span and block is built by the chunk holding its centre.
   Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
+- The city is at war (Guillaume: "grey, dark and on fire"): an ash and soot palette, a smoky sky, and magenta
+  enemy shots that stand apart from the flames. About 30% of buildings burn (orange windows, roof fires).
+  There are also ruins (`City.ruin`), road craters, burnt-out wrecks, tank traps, dead trees and rubble.
+  `City.fire` lists flames in `City.fires` and caps them so their tallest flicker stays under the ship.
+  `City.fx_mesh` turns the list into one mesh a chunk, which `update_chunks` hangs under the chunk.
+  It has two surfaces animated in their shaders, flickering flame tongues and smoke puffs that rise to
+  `SMOKE_TOP` and loop, with no particles and no per-frame script.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)

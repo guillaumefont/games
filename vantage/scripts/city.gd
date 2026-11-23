@@ -13,6 +13,11 @@ extends RefCounted
 ## - some blocks are parks (paths, a fountain, trees, a water tower landmark), paved plazas
 ##   (chequered paving, an obelisk, kiosks) or, now and then, a stadium;
 ## - comically big cars on the avenues, the streets and the expressway.
+## Then Guillaume said "this is war, the city should be grey, dark and on fire": the palette is
+## ash and soot, a share of the buildings burn (glowing windows, flames and smoke on the roof),
+## some are ruins of broken walls and rubble, shell craters pock the roads, burnt-out wrecks sit
+## among the traffic, tank traps block the odd junction and the parks are scorched. The flames and
+## smoke are listed in `fires` and drawn by `fx_mesh` (animated in its shaders, one node a chunk).
 ## All horizontal sizes are in world metres; heights are scaled by Models.PROP_V like every prop.
 
 const ANGLE := 0.13
@@ -24,20 +29,29 @@ const STR_W := 2.0
 const HWY_Y := 1.9
 const HWY_W := 4.0
 
-const CONCRETE := Color8(0x9a, 0x9c, 0xa2)
-const PAVING := Color8(0xc6, 0xbe, 0xae)
-const PARK := Color8(0x6c, 0x9c, 0x50)
-const WATER := Color8(0x3a, 0x7c, 0xa8)
-const YELLOW := Color8(0xf2, 0xc4, 0x2e)
-const DARK := Color8(0x3a, 0x3e, 0x46)
-const WALLS := [Color8(0xd8, 0xd4, 0xcc), Color8(0xb4, 0xbc, 0xc6), Color8(0xe6, 0xdc, 0xc8), Color8(0x8e, 0x96, 0xa2),
-	Color8(0xc9, 0xb0, 0x92), Color8(0xa4, 0xa8, 0xb0)]
-const GLASS_WALLS := [Color8(0x5a, 0x86, 0xa6), Color8(0x4a, 0x76, 0x8a), Color8(0x6e, 0x8c, 0xa8)]
-const BRICKS := [Color8(0xa8, 0x5a, 0x46), Color8(0xb8, 0x74, 0x56), Color8(0x8e, 0x50, 0x44)]
-const PASTELS := [Color8(0xf4, 0xd8, 0xc4), Color8(0xd4, 0xe8, 0xd8), Color8(0xe8, 0xd4, 0xe8), Color8(0xf6, 0xec, 0xc0),
-	Color8(0xcc, 0xdc, 0xf0), Color8(0xf0, 0xc8, 0xb8)]
-const SHOPS := [Color8(0xe0, 0x3c, 0x3c), Color8(0x2e, 0x7a, 0xd0), Color8(0xf2, 0xc4, 0x2e), Color8(0x3c, 0xa0, 0x5a),
-	Color8(0xe8, 0x7a, 0x2e)]
+const CONCRETE := Color8(0x6e, 0x6e, 0x70)
+const PAVING := Color8(0x7a, 0x76, 0x70)
+const PARK := Color8(0x4e, 0x4c, 0x3a)   # scorched grass
+const WATER := Color8(0x2a, 0x34, 0x38)
+const YELLOW := Color8(0xb8, 0x9a, 0x3a)
+const DARK := Color8(0x2a, 0x2c, 0x30)
+const SOOT := Color8(0x26, 0x24, 0x24)
+const RUBBLE := [Color8(0x6a, 0x66, 0x62), Color8(0x58, 0x54, 0x52), Color8(0x80, 0x7a, 0x72), Color8(0x4a, 0x44, 0x40)]
+## Windows lit by the fire inside.
+const BLAZE := Color8(0xff, 0x8a, 0x2a)
+const WALLS := [Color8(0x8e, 0x8c, 0x88), Color8(0x76, 0x78, 0x7c), Color8(0x9a, 0x94, 0x8a), Color8(0x62, 0x64, 0x6a),
+	Color8(0x84, 0x7a, 0x6e), Color8(0x6c, 0x6c, 0x6e)]
+const GLASS_WALLS := [Color8(0x3c, 0x48, 0x52), Color8(0x34, 0x40, 0x46), Color8(0x46, 0x4e, 0x58)]
+const BRICKS := [Color8(0x6e, 0x48, 0x40), Color8(0x78, 0x58, 0x4a), Color8(0x5c, 0x42, 0x3e)]
+const PASTELS := [Color8(0x8c, 0x82, 0x7a), Color8(0x7e, 0x84, 0x7e), Color8(0x86, 0x7e, 0x84), Color8(0x90, 0x8a, 0x74),
+	Color8(0x7a, 0x80, 0x8a), Color8(0x8a, 0x76, 0x6e)]
+const SHOPS := [Color8(0x8a, 0x3a, 0x34), Color8(0x3a, 0x52, 0x70), Color8(0x8e, 0x7a, 0x3a), Color8(0x40, 0x5e, 0x44),
+	Color8(0x8a, 0x5a, 0x34)]
+
+## The flames and smoke of the chunk last built: {"p": base (world), "s": size, "smoke": bool}.
+static var fires: Array = []
+## The highest point smoke may reach (world), so it never hides the shots at the flight altitude.
+const SMOKE_TOP := 5.3
 
 
 static var _ca := cos(ANGLE)
@@ -75,6 +89,8 @@ class Ctx:
 	## How tall (raw, before PROP_V) the building being built may reach, roof and all, so it stays
 	## under the flight altitude.
 	var cap := 9.0
+	## The building being built is on fire (its windows glow).
+	var burning := false
 	var gv := []
 	var gn := []
 	var gc := []
@@ -145,6 +161,7 @@ class Ctx:
 static func build(b: Models.Builder, z0: float, size: Vector2, hgt: Callable, height: Callable) -> Array:
 	var c := Ctx.new()
 	c.b = b
+	fires.clear()
 	b.bevels = false   # only the buildings' own walls get the bevelled edge
 	c.hgt = hgt
 	c.height = height
@@ -213,10 +230,20 @@ static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
 		if c.raw(mid.x, mid.z) < 0.02:
 			bridge_bits(c, true, u, vm, hw, y)
 		var r := Models.hash2(u * 3.1 + 0.3, vm * 1.7)
+		var dry := c.raw(mid.x, mid.z) >= 0.02
 		if r < 0.13:
 			var side: float = [1.4, 0.55, -0.55, -1.4][int(r * 307.0) % 4]
 			var w := to_world(u + side, vm)
-			Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (0.0 if side > 0.0 else PI), r)
+			if r < 0.045:
+				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 40.0, r * 22.0)
+			else:
+				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (0.0 if side > 0.0 else PI), r)
+		elif r > 0.965 and dry and to_street > 3.0:
+			crater(c, u + (r - 0.98) * 60.0, vm, 1.1, r)
+		elif r > 0.9 and r < 0.94 and to_street > 1.0 and to_street < 3.0 and dry:
+			# tank traps across the mouth of the junction
+			for t in 2:
+				hedgehog(c, u - 0.9 + t * 1.8, vm, y + 0.08, r + t)
 
 
 static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
@@ -254,7 +281,12 @@ static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
 		if r < 0.1:
 			var side := 0.55 if r < 0.05 else -0.55
 			var w := to_world(um, v + side)
-			Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (PI * 0.5 if side > 0.0 else -PI * 0.5), r)
+			if r < 0.035 or (r > 0.05 and r < 0.06):
+				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 50.0, r * 15.0)
+			else:
+				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (PI * 0.5 if side > 0.0 else -PI * 0.5), r)
+		elif r > 0.96 and c.raw(mid.x, mid.z) >= 0.02:
+			crater(c, um, v, 0.9, r)
 
 
 ## Railings along a bridge deck and, every few metres, a pier down into the water.
@@ -370,7 +402,7 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 		building(c, i1 - d * 0.5, (j0 + j1) * 0.5, d, j1 - j0 - 2.0 * d - 0.2, hh * 0.9, sd * 1.9, 2, col)
 		c.pad(i0 + d, i1 - d, j0 + d, j1 - d, 0.19, PARK, 2.0)
 		var g := to_world((i0 + i1) * 0.5, (j0 + j1) * 0.5)
-		tree(c, (i0 + i1) * 0.5, (j0 + j1) * 0.5, c.ground(g.x, g.z), 0.9, sd)
+		dead_tree(c, (i0 + i1) * 0.5, (j0 + j1) * 0.5, c.ground(g.x, g.z), sd)
 		Models.count("courtyard")
 		return
 	var nu := 2 + int(sd * 7.0) % 2
@@ -399,6 +431,9 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 			if r < 0.11:
 				car_park(c, a, bb, cc, d, r)
 				continue
+			if Models.hash2(r * 17.0, k * 0.3 + m) < 0.16:
+				ruin(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, r)
+				continue
 			var style := int(r * 41.0) % 4
 			var h := 0.35 + r * 0.5
 			if style < 2:
@@ -418,6 +453,8 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 	c.at(u, v, base)
 	c.cap = (Rules.PY - 0.65 - base) / Models.PROP_V
 	h = minf(h, c.cap - 0.12)
+	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.3
+	var glow := BLAZE if c.burning else Models.GLASS
 	var b := c.b
 	b.bevels = true
 	var top := h
@@ -433,7 +470,7 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 				var tw := w * f
 				var td := d * f
 				b.box(Vector3(0, y + th * 0.5, 0), Vector3(tw, th, td), col.darkened(t * 0.04))
-				bands(c, tw, td, y + 0.25, y + th - 0.05, 0.22, Models.GLASS)
+				bands(c, tw, td, y + 0.25, y + th - 0.05, 0.22, glow)
 				b.box(Vector3(0, y + th, 0), Vector3(tw + 0.1, 0.04, td + 0.1), col.lightened(0.15))
 				y += th
 				f *= 0.72
@@ -444,7 +481,7 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 			if col.a == 0.0:
 				col = GLASS_WALLS[int(r * 31.0) % GLASS_WALLS.size()]
 			b.box(Vector3(0, (h - 0.3) * 0.5, 0), Vector3(w * 0.9, h + 0.3, d * 0.9), col)
-			bands(c, w * 0.9, d * 0.9, 0.15, h - 0.05, 0.2, col.lightened(0.35))
+			bands(c, w * 0.9, d * 0.9, 0.15, h - 0.05, 0.2, BLAZE if c.burning else col.lightened(0.25))
 			b.bevels = false
 			b.box(Vector3(0, h + 0.05, 0), Vector3(w * 0.7, 0.1, d * 0.7), DARK)
 			roof(c, w * 0.7, d * 0.7, h + 0.1, r)
@@ -475,13 +512,22 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 				var aw: Color = SHOPS[int(q * 71.0) % SHOPS.size()]
 				b.box(Vector3(x, 0.2, d * 0.5 + 0.2), Vector3(sw * 0.86, 0.04, 0.4), aw)   # the awning
 				b.quad(Vector3(x - sw * 0.38, 0.03, d * 0.5 + 0.01), Vector3(x + sw * 0.38, 0.03, d * 0.5 + 0.01),
-					Vector3(x + sw * 0.38, 0.18, d * 0.5 + 0.01), Vector3(x - sw * 0.38, 0.18, d * 0.5 + 0.01), Models.GLASS, Vector3(0, 0, 1))
+					Vector3(x + sw * 0.38, 0.18, d * 0.5 + 0.01), Vector3(x - sw * 0.38, 0.18, d * 0.5 + 0.01), glow, Vector3(0, 0, 1))
 				b.box(Vector3(x, hh + 0.05, d * 0.5 - 0.06), Vector3(sw * 0.6, 0.1, 0.06), aw.lightened(0.3))   # the sign
 				if q < 0.3:
 					b.box(Vector3(x, hh + 0.04, -d * 0.15), Vector3(0.4, 0.08, 0.3), Color8(0xc4, 0xc8, 0xce))   # an AC unit
 				top = maxf(top, hh)
 	b.bevels = false
 	b.xf = Transform3D.IDENTITY
+	if c.burning:
+		# flames on the roof, as big as fits under the ship; soot streaks the roof round them
+		var roof_y := base + top * Models.PROP_V
+		var fs := minf(clampf(minf(w, d) * 0.22, 0.5, 1.3), (Rules.PY - 0.9 - roof_y) / 2.8)
+		if fs > 0.3:
+			var p := to_world(u, v)
+			fire(Vector3(p.x, roof_y, p.z), fs)
+			c.frame()
+			flat(c, u - w * 0.3, u + w * 0.3, v - d * 0.3, v + d * 0.3, roof_y + 0.02, SOOT)
 
 
 ## Window bands round a box w x d, floor every `step` between y0 and y1 (raw heights).
@@ -508,7 +554,7 @@ static func grid(c: Ctx, w: float, d: float, y0: float, y1: float, r: float) -> 
 		for i in cols:
 			var x := -w * 0.5 + (i + 0.5) * w / cols
 			b.quad(Vector3(x - 0.13, y, d * 0.5 + 0.01), Vector3(x + 0.13, y, d * 0.5 + 0.01), Vector3(x + 0.13, y + 0.08, d * 0.5 + 0.01),
-				Vector3(x - 0.13, y + 0.08, d * 0.5 + 0.01), Color8(0x2c, 0x3a, 0x4c) if Models.hash2(x + r, y) > 0.2 else Color8(0xf6, 0xe0, 0x9a),
+				Vector3(x - 0.13, y + 0.08, d * 0.5 + 0.01), Color8(0x22, 0x26, 0x2c) if Models.hash2(x + r, y) > (0.6 if c.burning else 0.08) else BLAZE,
 				Vector3(0, 0, 1))
 		y += 0.22
 
@@ -569,8 +615,8 @@ static func ac_units(c: Ctx, w: float, d: float, y: float, r: float) -> void:
 static func tree(c: Ctx, u: float, v: float, y: float, s: float, r: float) -> void:
 	Models.count("city tree")
 	c.at(u, v, y)
-	var col := Models.LEAF.darkened(fmod(r, 1.0) * 0.2)
-	c.b.prism(Vector3.ZERO, Models.ngon(0.1, 4), -0.1, 0.35, Models.WOOD)
+	var col := Models.LEAF.darkened(0.4 + fmod(r, 1.0) * 0.2).lerp(Color8(0x4a, 0x44, 0x34), 0.35)
+	c.b.prism(Vector3.ZERO, Models.ngon(0.1, 4), -0.1, 0.35, Models.WOOD.darkened(0.4))
 	c.b.prism(Vector3(0, 0.3, 0), Models.ngon(0.55 * s, 7, r), 0, 0.3, col, Vector2(1.05, 1.05))
 	c.b.prism(Vector3(0, 0.6, 0), Models.ngon(0.6 * s, 7, r + 0.3), 0, 0.3, col.lightened(0.07), Vector2(0.35, 0.35))
 
@@ -585,7 +631,11 @@ static func car_park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: floa
 			if Models.hash2(i + r * 13.0, row) < 0.6:
 				var uu := u0 + (i + 0.5) * (u1 - u0) / n
 				var w := to_world(uu, row)
-				Models.car(c.b, Vector3(w.x, c.ground(w.x, w.z) + 0.12, w.z), ANGLE, Models.hash2(uu, row + r))
+				var q := Models.hash2(uu, row + r)
+				if q < 0.3:
+					wreck(c, Vector3(w.x, c.ground(w.x, w.z) + 0.12, w.z), ANGLE + q * 9.0, q * 3.0)
+				else:
+					Models.car(c.b, Vector3(w.x, c.ground(w.x, w.z) + 0.12, w.z), ANGLE, q)
 
 
 # ---------------------------------------------------------------- parks, plazas, stadiums
@@ -608,7 +658,14 @@ static func park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -
 		if absf(tu - cu) < 1.2 or absf(tv - cv) < 1.2:
 			continue
 		var w := to_world(tu, tv)
-		tree(c, tu, tv, c.ground(w.x, w.z), 0.8 + a * 0.5, a)
+		if a < 0.6:
+			dead_tree(c, tu, tv, c.ground(w.x, w.z), a)
+		else:
+			tree(c, tu, tv, c.ground(w.x, w.z), 0.8 + a * 0.5, a)
+	# a shell landed in the park
+	var hu := lerpf(u0 + 2.0, u1 - 2.0, Models.hash2(r * 3.0, 1.0))
+	var hv := lerpf(v0 + 2.0, v1 - 2.0, Models.hash2(2.0, r * 3.0))
+	crater(c, hu, hv, 1.3, r)
 	if r < 0.5:
 		var w := to_world(u0 + 1.6, v0 + 1.6)
 		Models.mark("water tower", Vector3(w.x, c.ground(w.x, w.z), w.z), ANGLE, r)
@@ -639,6 +696,7 @@ static func plaza(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) 
 		c.b.prism(Vector3.ZERO, Models.ngon(0.23, 4, PI * 0.25), 1.5, 1.7, Color8(0xf2, 0xc4, 0x2e), Vector2(0.05, 0.05))
 	else:
 		fountain(c, cu, cv, y)
+	rubble(c, cu + (u1 - u0) * 0.25, cv - (v1 - v0) * 0.2, y + 0.1, 1.4, 7, r)
 	# kiosks with striped awnings, trees in planters at the corners
 	for i in 2:
 		var ku := cu + (i * 2 - 1) * (u1 - u0) * 0.3
@@ -682,20 +740,266 @@ static func stadium(c: Ctx, u0: float, u1: float, v0: float, v1: float) -> void:
 			var ro := ri + 0.17
 			var pts := PackedVector2Array([Vector2(cos(a0) * ax * ri, sin(a0) * az * ri), Vector2(cos(a0) * ax * ro, sin(a0) * az * ro),
 				Vector2(cos(a1) * ax * ro, sin(a1) * az * ro), Vector2(cos(a1) * ax * ri, sin(a1) * az * ri)])
-			var col := Color8(0xd0, 0x3a, 0x3a) if (i / 2) % 2 == 0 else Color8(0xf4, 0xf0, 0xe6)
+			var col := Color8(0x7a, 0x3a, 0x34) if (i / 2) % 2 == 0 else Color8(0x9a, 0x96, 0x8e)
 			if tier == 1:
-				col = Color8(0x2e, 0x5a, 0xa8) if (i / 2) % 2 == 0 else Color8(0xf4, 0xf0, 0xe6)
+				col = Color8(0x3a, 0x4a, 0x62) if (i / 2) % 2 == 0 else Color8(0x9a, 0x96, 0x8e)
 			b.prism(Vector3.ZERO, pts, dip, 0.3 + tier * 0.2, col)
 	var field := PackedVector2Array()
 	for i in 16:
 		var a := TAU * i / 16.0
 		field.append(Vector2(cos(a) * ax * 0.66, sin(a) * az * 0.66))
-	b.prism(Vector3.ZERO, field, dip, 0.14, Color8(0x4c, 0x9a, 0x48))
+	b.prism(Vector3.ZERO, field, dip, 0.14, Color8(0x4e, 0x56, 0x3a))
 	b.box(Vector3(0, 0.145, 0), Vector3(0.08, 0.01, az * 1.1), Models.PAINT)
 	b.prism(Vector3.ZERO, Models.ngon(az * 0.2, 14), 0.14, 0.145, Models.PAINT)
-	b.prism(Vector3.ZERO, Models.ngon(az * 0.2 - 0.08, 14), 0.145, 0.15, Color8(0x4c, 0x9a, 0x48))
+	b.prism(Vector3.ZERO, Models.ngon(az * 0.2 - 0.08, 14), 0.145, 0.15, Color8(0x4e, 0x56, 0x3a))
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
 			var p := Vector3(sx * ax * 0.9, 0, sz * az * 0.9)
 			b.box(p + Vector3(0, 0.6 + dip * 0.5, 0), Vector3(0.2, 1.4 - dip, 0.2), Color8(0xc8, 0xcc, 0xd2))
 			b.box(p + Vector3(0, 1.32, 0), Vector3(0.9, 0.3, 0.3), Color8(0xff, 0xf2, 0xb0))
+
+
+# ---------------------------------------------------------------- war
+
+## A fire at p (world) of size s; smoke rises from it when there is room under the ship.
+static func fire(p: Vector3, s: float, smoke := true) -> void:
+	# the tallest flicker reaches 1.9 s x 1.45 above p: keep it clear of the ship
+	s = minf(s, (Rules.PY - 0.9 - p.y) / 2.8)
+	if s < 0.2:
+		return
+	Models.count("fire")
+	fires.append({"p": p, "s": s, "smoke": smoke and p.y < SMOKE_TOP - 1.2})
+
+
+## A pile of broken concrete round (u, v) (ground at y), `n` chunks over radius `rad` (metres).
+static func rubble(c: Ctx, u: float, v: float, y: float, rad: float, n: int, r: float) -> void:
+	Models.count("rubble")
+	c.frame()
+	for i in n:
+		var a := Models.hash2(r * 7.0 + i, i * 1.9) * TAU
+		var e := sqrt(Models.hash2(i * 3.1, r * 5.0 + i)) * rad
+		var sz := 0.25 + Models.hash2(r + i * 0.7, 2.0 + i) * 0.45
+		var col: Color = RUBBLE[(i + int(r * 13.0)) % RUBBLE.size()]
+		c.b.octa(Vector3(u + cos(a) * e, y + sz * 0.15, v + sin(a) * e), sz, col, Vector3(1.0, 0.6, 0.8))
+
+
+## A shell crater in the road at (u, v): a scorched ring round a dark pit, and thrown-up rubble.
+static func crater(c: Ctx, u: float, v: float, rad: float, r: float) -> void:
+	Models.count("crater")
+	var n := 9
+	var ring := []
+	var pit := []
+	for i in n:
+		var a := TAU * i / n + r
+		var k := 1.0 + (Models.hash2(r * 3.0, i) - 0.5) * 0.35
+		ring.append(Vector2(u + cos(a) * rad * k, v + sin(a) * rad * k))
+		pit.append(Vector2(u + cos(a) * rad * 0.55 * k, v + sin(a) * rad * 0.55 * k))
+	var mid := to_world(u, v)
+	var y := c.road(mid.x, mid.z) + 0.13
+	for i in n:
+		var j := (i + 1) % n
+		c.lay([ring[i], ring[j], pit[j], pit[i]], [y, y, y, y], 0.0, Color8(0x2e, 0x2a, 0x28))
+		c.lay([pit[i], pit[j], Vector2(u, v), Vector2(u, v)], [y, y, y, y], 0.005, Color8(0x16, 0x14, 0x14))
+	for i in 4:
+		var a := TAU * i / 4.0 + r * 3.0
+		c.frame()
+		c.b.octa(Vector3(u + cos(a) * rad * 1.15, y + 0.03, v + sin(a) * rad * 1.15), 0.3, RUBBLE[i % RUBBLE.size()], Vector3(1.0, 0.5, 0.8))
+
+
+## A burnt-out wreck at world p, slewed across the road, sometimes still burning.
+static func wreck(c: Ctx, p: Vector3, ang: float, r: float) -> void:
+	Models.count("wreck")
+	Models.car(c.b, p, ang, r, Color8(0x3a, 0x34, 0x30).lerp(Color8(0x5a, 0x40, 0x30), Models.hash2(r, 3.0)))
+	if r < 0.5:
+		fire(p + Vector3(0, 0.35, 0), 0.6)
+
+
+## Steel tank traps (three crossed beams) at (u, v), ground at y.
+static func hedgehog(c: Ctx, u: float, v: float, y: float, r: float) -> void:
+	Models.count("tank trap")
+	var w := to_world(u, v)
+	for i in 3:
+		var bs := Basis(Vector3.UP, r * 5.0 + i * 2.1) * Basis(Vector3(1, 0, 0), 0.9 + i * 0.4)
+		c.b.xf = Transform3D(bs, Vector3(w.x, y + 0.35, w.z))
+		c.b.box(Vector3.ZERO, Vector3(0.12, 1.0, 0.12), Color8(0x3a, 0x3a, 0x3c))
+
+
+## A bare, burnt tree.
+static func dead_tree(c: Ctx, u: float, v: float, y: float, r: float) -> void:
+	Models.count("dead tree")
+	c.at(u, v, y)
+	var col := Color8(0x2e, 0x28, 0x24)
+	c.b.prism(Vector3.ZERO, Models.ngon(0.1, 4), -0.1, 0.75, col, Vector2(0.4, 0.4))
+	c.b.xf = c.b.xf * Transform3D(Basis(Vector3(0, 0, 1), 0.7).rotated(Vector3.UP, r * 6.0), Vector3(0, 0.35, 0))
+	c.b.prism(Vector3.ZERO, Models.ngon(0.05, 4), 0.0, 0.4, col, Vector2(0.4, 0.4))
+
+
+## A ruined building on a w x d lot at (u, v): broken walls, burnt floors and rubble, still burning.
+static func ruin(c: Ctx, u: float, v: float, w: float, d: float, r: float) -> void:
+	Models.count("ruin")
+	var base := INF
+	for q: Vector2 in [Vector2(u - w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v + d * 0.5),
+			Vector2(u - w * 0.5, v + d * 0.5), Vector2(u, v)]:
+		var p := to_world(q.x, q.y)
+		base = minf(base, c.ground(p.x, p.z))
+	c.at(u, v, base)
+	var b := c.b
+	var col: Color = WALLS[int(r * 37.0) % WALLS.size()].darkened(0.25)
+	var tall := 0.5 + r * 1.2
+	# two corner walls left standing, jagged in steps, and a stub of the floors between them
+	for side in [-1.0, 1.0]:
+		var n := 3
+		for i in n:
+			var hh := tall * (1.0 - i * 0.3) * (0.7 + Models.hash2(r * 9.0 + side, i) * 0.5)
+			var x: float = side * (w * 0.5 - 0.15)
+			var z: float = -d * 0.5 + (i + 0.5) * d / n
+			b.box(Vector3(x, (hh - 0.3) * 0.5, z), Vector3(0.3, hh + 0.3, d / n), col.darkened(i * 0.08))
+			if hh > 0.4:
+				b.quad(Vector3(x - side * 0.16, hh * 0.45, z - d / n * 0.3), Vector3(x - side * 0.16, hh * 0.45, z + d / n * 0.3),
+					Vector3(x - side * 0.16, hh * 0.6, z + d / n * 0.3), Vector3(x - side * 0.16, hh * 0.6, z - d / n * 0.3), SOOT, Vector3(-side, 0, 0))
+	b.box(Vector3(0, 0.1, d * 0.5 - 0.15), Vector3(w * 0.7, 0.5, 0.3), col.darkened(0.1))
+	b.box(Vector3(0, 0.35, 0), Vector3(w * 0.8, 0.06, d * 0.6), SOOT)   # a burnt floor slab
+	b.box(Vector3(w * 0.2, 0.42, -d * 0.1), Vector3(w * 0.35, 0.05, d * 0.4), DARK)
+	var mid := to_world(u, v)
+	rubble(c, u, v, base + 0.1, minf(w, d) * 0.45, 9, r)
+	fire(Vector3(mid.x, base + 0.4, mid.z), 0.9 + minf(w, d) * 0.12)
+
+
+## The fire and smoke of the chunk just built (`fires`), in one mesh: a surface of flickering
+## flame tongues and one of smoke puffs that billow up and drift off. Null when nothing burns.
+static func fx_mesh() -> ArrayMesh:
+	if fires.is_empty():
+		return null
+	var mesh := ArrayMesh.new()
+	var fv := PackedVector3Array()
+	var fc := PackedColorArray()
+	var fu := PackedVector2Array()
+	var fu2 := PackedVector2Array()
+	var sv := PackedVector3Array()
+	var sn := PackedVector3Array()
+	var sc := PackedColorArray()
+	var su := PackedVector2Array()
+	var su2 := PackedVector2Array()
+	for f: Dictionary in fires:
+		var p: Vector3 = f.p
+		var s: float = f.s
+		var sd := Models.hash2(p.x, p.z)
+		# flame tongues: little pyramids, red at the foot, yellow at the tip
+		var nt := 3 + int(sd * 3.0)
+		for i in nt:
+			var a := TAU * i / nt + sd * 5.0
+			var o := Vector3(cos(a), 0, sin(a)) * s * 0.35 * (0.3 + Models.hash2(sd, i))
+			var base := p + o
+			var hh := s * (1.0 + Models.hash2(i, sd) * 0.9)
+			var rad := s * 0.32
+			var tip := base + Vector3(0, hh, 0)
+			for k in 5:
+				var a0 := TAU * k / 5.0
+				var a1 := TAU * (k + 1) / 5.0
+				var q0 := base + Vector3(cos(a0), 0, sin(a0)) * rad
+				var q1 := base + Vector3(cos(a1), 0, sin(a1)) * rad
+				for e: Array in [[q0, Color8(0xff, 0x4a, 0x1a)], [tip, Color8(0xff, 0xe6, 0x7a)], [q1, Color8(0xff, 0x4a, 0x1a)]]:
+					fv.append(e[0])
+					fc.append(e[1])
+					fu.append(Vector2(base.x, base.z))
+					fu2.append(Vector2(base.y, Models.hash2(sd * 3.0, i)))
+		if not f.smoke:
+			continue
+		# smoke: puffs (squashed double cones) spread along the column by their phase
+		var np := 7
+		for i in np:
+			var ph := (i + Models.hash2(sd, i * 2.0) * 0.6) / np
+			var pr := s * 0.7
+			var top := p + Vector3(0, pr * 0.7, 0)
+			var bot := p - Vector3(0, pr * 0.5, 0)
+			var col := Color8(0x58, 0x56, 0x56).lerp(Color8(0x7e, 0x7c, 0x7a), Models.hash2(i, sd * 7.0))
+			for k in 6:
+				var a0 := TAU * k / 6.0 + i
+				var a1 := TAU * (k + 1) / 6.0 + i
+				var q0 := p + Vector3(cos(a0), 0, sin(a0)) * pr
+				var q1 := p + Vector3(cos(a1), 0, sin(a1)) * pr
+				for tri: Array in [[q0, top, q1], [q1, bot, q0]]:
+					var n: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
+					if n.dot((tri[0] + tri[1] + tri[2]) / 3.0 - p) < 0.0:
+						n = -n
+					var order: Array = [tri[0], tri[2], tri[1]] if (tri[1] - tri[0]).cross(tri[2] - tri[0]).dot(n) > 0.0 else tri
+					for q: Vector3 in order:
+						sv.append(q)
+						sn.append(n)
+						sc.append(col)
+						su.append(Vector2(p.x, p.z))
+						su2.append(Vector2(p.y, ph))
+	for e: Array in [[fv, null, fc, fu, fu2, fire_mat()], [sv, sn, sc, su, su2, smoke_mat()]]:
+		if (e[0] as PackedVector3Array).is_empty():
+			continue
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = e[0]
+		if e[1] != null:
+			arr[Mesh.ARRAY_NORMAL] = e[1]
+		arr[Mesh.ARRAY_COLOR] = e[2]
+		arr[Mesh.ARRAY_TEX_UV] = e[3]
+		arr[Mesh.ARRAY_TEX_UV2] = e[4]
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, e[5])
+	return mesh
+
+
+static var _fire_mat: ShaderMaterial
+static var _smoke_mat: ShaderMaterial
+
+
+## Flames: unshaded, each tongue (its foot in UV and UV2.x, its phase in UV2.y) flickering.
+static func fire_mat() -> ShaderMaterial:
+	if _fire_mat == null:
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled;
+void vertex() {
+	vec3 base = vec3(UV.x, UV2.x, UV.y);
+	vec3 o = VERTEX - base;
+	float ph = UV2.y * 6.283;
+	o.y *= 1.0 + 0.3 * sin(TIME * 11.0 + ph) + 0.15 * sin(TIME * 23.0 + ph * 3.0);
+	o.xz *= 1.0 + 0.18 * sin(TIME * 7.0 + ph * 2.0);
+	o.x += o.y * 0.22 * sin(TIME * 5.0 + ph);
+	VERTEX = base + o;
+}
+void fragment() {
+	ALBEDO = pow(COLOR.rgb, vec3(2.2));
+}
+"""
+		_fire_mat = ShaderMaterial.new()
+		_fire_mat.shader = sh
+	return _fire_mat
+
+
+## Smoke: each puff (the column's foot in UV and UV2.x, its phase in UV2.y) rises, swells and
+## drifts downwind, then shrinks away and starts again at the fire; never above SMOKE_TOP.
+static func smoke_mat() -> ShaderMaterial:
+	if _smoke_mat == null:
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode unshaded, shadows_disabled;
+varying float t;
+varying float lit;
+void vertex() {
+	vec3 base = vec3(UV.x, UV2.x, UV.y);
+	t = fract(TIME * 0.07 + UV2.y);
+	float rise = max(%s - base.y - 1.0, 0.5);
+	float s = mix(0.5, 1.7, t) * smoothstep(0.0, 0.1, t) * (1.0 - smoothstep(0.75, 1.0, t));
+	VERTEX = base + (VERTEX - base) * s + vec3(t * 2.2, t * rise, -t * 1.2);
+	// its own soft light from above, so the smoke reads as billows, not holes
+	lit = 0.55 + 0.45 * clamp(NORMAL.y * 0.8 + NORMAL.x * 0.3 + 0.2, 0.0, 1.0);
+}
+void fragment() {
+	vec3 c = pow(COLOR.rgb, vec3(2.2)) * lit;
+	// glowing orange where it leaves the fire, paler as it thins out higher up
+	c = mix(c, vec3(0.9, 0.3, 0.06), (1.0 - smoothstep(0.0, 0.22, t)) * 0.7);
+	ALBEDO = mix(c, c * 1.5 + 0.04, smoothstep(0.4, 1.0, t));
+}
+""" % SMOKE_TOP
+		_smoke_mat = ShaderMaterial.new()
+		_smoke_mat.shader = sh
+	return _smoke_mat
