@@ -91,7 +91,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   driftwood, pebbles, dune grass and parasols on the beaches; rocks with a ring of surf, lighthouses and
   fishing boats along the coast. All of it goes into the chunk's one mesh (no extra draw calls), built
   round its own origin and placed with `Builder.xf`; `Builder.bottoms = false` skips faces under the
-  ground. `Models.scenery` counts what was built (tested).
+  ground. Everything placed with `place()` is drawn `PROP_SCALE` (1.5x) larger so it reads on a phone
+  (Guillaume found life size too small); houses keep to one per 4 x 4 lot. `Models.scenery` counts
+  what was built (tested).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
