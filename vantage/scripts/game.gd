@@ -29,6 +29,8 @@ class Obj:
 	var dead := false
 	var ground := false
 	var flash := 0.0
+	## Time left on the white hit flash.
+	var hit := 0.0
 	## Mount point on the carrier (x, y, z from its stern) for turrets and the reactor.
 	var anchor := Vector3.INF
 	## Height a drone hovers at.
@@ -577,11 +579,23 @@ func pov_mode() -> bool:
 	return phase in ["pov", "core", "escape"]
 
 
+## Where a point looks to be on the flight plane, seen from the vertical stage's camera.
+## Ground turrets and the battleship's guns sit below or above the plane, and the camera
+## looks down at an angle, so shots must meet them where they show on screen, not straight
+## above them.
+func seen(p: Vector3) -> Vector3:
+	if pov_mode() or absf(p.y - Rules.PY) < 0.01:
+		return p
+	var eye := Vector3(0, TOP_H, frame_z + TOP_BACK)
+	var k := (TOP_H - Rules.PY) / maxf(TOP_H - p.y, 1.0)
+	return eye + (p - eye) * k
+
+
 func on_screen(f: Obj) -> bool:
 	if pov_mode():
 		var dz := ppos.z - f.pos.z
 		return dz > 2.0 and dz < 45.0
-	var z := f.pos.z - frame_z
+	var z := seen(f.pos).z - frame_z
 	return z > Rules.Z_TOP - 0.5 and z < Rules.Z_BOT and absf(f.pos.x) < Rules.HALF_W + 1.0
 
 
@@ -592,6 +606,7 @@ func update_objs(dt: float) -> void:
 	for f in foes:
 		f.t += dt
 		f.flash = maxf(0.0, f.flash - dt)
+		f.hit = maxf(0.0, f.hit - dt)
 		if f.rel:
 			f.pos.z += dz
 		think(f, dt)
@@ -632,6 +647,9 @@ func update_objs(dt: float) -> void:
 		f.node.position = f.pos
 		var sc := 1.0 + f.flash * 0.6
 		f.node.scale = Vector3(sc, sc, sc) * f.size
+		var mi := f.node as MeshInstance3D
+		if mi:
+			mi.material_overlay = Models.hit_mat() if f.hit > 0.0 else null
 	for o in shots:
 		o.node.position = o.pos
 		if o.vel.length() > 0.1:
@@ -677,12 +695,13 @@ func think(f: Obj, dt: float) -> void:
 				f.fire_t += 2.2
 				aimed(f.pos, 9.5)
 		"turret":
-			var z := f.pos.z - frame_z
+			var at := seen(f.pos)
+			to_p = ppos - at
+			var z := at.z - frame_z
 			f.node.rotation.y = atan2(to_p.x, to_p.z)
 			if f.t >= f.fire_t and z > Rules.Z_TOP and z < Rules.Z_BOT - 4.0:
 				f.fire_t += 2.4
 				for k in 3:
-					var at := Vector3(f.pos.x, Rules.PY, f.pos.z)
 					var dir := Vector3(to_p.x, 0, to_p.z).normalized().rotated(Vector3.UP, (k - 1) * 0.12)
 					bullet(at, dir * 9.5)
 		"heavy":
@@ -784,12 +803,12 @@ func think_part(f: Obj, dt: float) -> void:
 	if boss == null:
 		return
 	f.pos = boss.pos + f.anchor
-	var to_p := ppos - f.pos
+	var to_p := ppos - seen(f.pos)
 	if f.kind != "bridge":
 		f.node.rotation.y = atan2(to_p.x, to_p.z)
 	if boss.t < 4.0 or f.t < f.fire_t:
 		return
-	var muzzle := f.pos + Vector3(to_p.x, 0, to_p.z).normalized() * 1.0
+	var muzzle := seen(f.pos) + Vector3(to_p.x, 0, to_p.z).normalized() * 1.0
 	match f.kind:
 		"cannon":
 			f.fire_t = f.t + 1.7
@@ -931,14 +950,14 @@ func steer_missile(m: Obj, dt: float) -> void:
 		for f in foes:
 			if f.dead or f.kind == "orb" or not on_screen(f):
 				continue
-			var d := f.pos.distance_squared_to(m.pos)
+			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
 				best = d
 				m.target = f
 	var speed := 26.0 if not pov_mode() else 45.0
 	var want := m.vel.normalized() * speed
 	if m.target:
-		want = (m.target.pos - m.pos).normalized() * speed
+		want = (seen(m.target.pos) - m.pos).normalized() * speed
 	if not pov_mode():
 		want.y = 0
 	m.vel = m.vel.lerp(want, minf(1.0, dt * 5.0))
@@ -957,7 +976,7 @@ func collide(_dt: float) -> void:
 			if pov:
 				hit = seg_dist(o.pos - o.vel * _dt, o.pos, f.pos) < f.r + o.r
 			else:
-				hit = flat_dist(o.pos, f.pos) < f.r + o.r and on_screen(f)
+				hit = flat_dist(o.pos, seen(f.pos)) < f.r + o.r and on_screen(f)
 			if hit:
 				o.dead = true
 				damage(f, o.dmg)
@@ -1005,6 +1024,7 @@ func damage(f: Obj, d: float) -> void:
 		return
 	f.hp -= d
 	f.flash = 0.08
+	f.hit = 0.09
 	if f.hp <= 0.0:
 		kill(f)
 
@@ -1439,8 +1459,8 @@ func begin_escape() -> void:
 func pose(mode: String) -> Array:
 	if mode == "chase":
 		# behind and above the ship, following it partly so it moves on screen
-		var at := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 2.1, ppos.z + 6.8)
-		var look := Vector3(ppos.x * 0.35, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 0.6, ppos.z - 22.0)
+		var at := Vector3(ppos.x * 0.78, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 2.1, ppos.z + 6.8)
+		var look := Vector3(ppos.x * 0.62, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 0.6, ppos.z - 22.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]

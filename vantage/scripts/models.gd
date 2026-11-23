@@ -224,6 +224,18 @@ static func instance(m: Mesh, material: Material = null) -> MeshInstance3D:
 	return mi
 
 
+## The hit flash: drawn over a foe for a moment when a shot lands.
+static func hit_mat() -> StandardMaterial3D:
+	if not _cache.has("hit"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(1.0, 0.96, 0.85, 0.75)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_cache["hit"] = m
+	return _cache["hit"]
+
+
 ## Shadows: a soft see-through blue-black, drawn once per pixel so overlapping faces of one
 ## model don't stack darker.
 static func shadow_mat() -> StandardMaterial3D:

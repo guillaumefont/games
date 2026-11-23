@@ -151,7 +151,8 @@ func stage() -> void:
 	check(left.x < 0 and right.x > vs.x and tower.y < 0, "the final boss is bigger than the screen")
 	run(g, 1.0)
 	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
-	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > g.ppos.y, "the camera is behind and above it")
+	# (above it unless the ship climbs the tower: the camera follows the climb only partly)
+	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > minf(g.ppos.y, Rules.PY + 8.0), "the camera is behind and above it")
 	var gap := g.ppos.z - g.stern_z
 	var z0 := g.ppos.z
 	run(g, 1.0)
@@ -215,10 +216,43 @@ func death() -> void:
 	await process_frame
 
 
+## Guillaume: the carrier's sides were out of reach, ground turrets were hit above where they
+## show, and hits need a flash.
+func aiming() -> void:
+	print("aiming and hits")
+	for sec: Dictionary in Rules.CARRIER_SECTIONS:
+		for m: Vector2 in sec.mounts:
+			var x := m.x * Rules.CARRIER_SCALE
+			check(absf(x) <= Rules.POV_REACH.x, "carrier mount at x %.1f within the chase's reach" % x)
+	var g := make_game()
+	await process_frame
+	g.launch()
+	run(g, 2.0)
+	var t := g.new_foe("turret", Models.turret())
+	t.ground = true
+	t.pos = Vector3(3.0, 0.4, g.frame_z - 6.0)
+	g.step(DT)
+	await process_frame
+	var shown := g.cam.unproject_position(t.pos)
+	var plane := g.cam.unproject_position(g.seen(t.pos))
+	check(shown.distance_to(plane) < 2.0, "a ground turret is hit where it shows on screen (%.1f px)" % shown.distance_to(plane))
+	check(g.cam.unproject_position(Vector3(t.pos.x, Rules.PY, t.pos.z)).distance_to(shown) > 20.0, "(straight above it would miss by a lot)")
+	var hp := t.hp
+	g.damage(t, 1.0)
+	g.step(DT)
+	check(t.hp < hp and (t.node as MeshInstance3D).material_overlay == Models.hit_mat(), "a hit foe flashes")
+	for i in 12:
+		g.step(DT)
+	check(t.dead or (t.node as MeshInstance3D).material_overlay == null, "and the flash fades")
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
 	await controls()
+	await aiming()
 	await stage()
 	await death()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)

@@ -83,6 +83,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 
 - Android and Web use the Compatibility renderer. Take screenshots with `--rendering-method gl_compatibility`.
 - Vertex colours are sRGB: the shared material sets `vertex_color_is_srgb`.
+- The vertical camera looks down at an angle, so anything off the flight plane (ground
+  turrets, the battleship's guns) shows somewhere other than straight above it. Collisions,
+  missiles and muzzles use `Game.seen(pos)`, the point on the flight plane where it shows.
+- Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
+- The chase reach (`POV_REACH.x`) must cover every carrier mount at `CARRIER_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened

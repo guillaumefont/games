@@ -43,10 +43,10 @@ const CARRIER_SECTIONS := [
 ## Seconds between drone launches from the hangar during the chase.
 const DRONE_EVERY := 6.5
 ## The chase (third person, outside): how far the ship may move from the centre line
-## (x either side, y up; `POV_DOWN` down; the carrier is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
+## (x either side, wide enough to fly past the carrier's flanks at its chase scale; y up; `POV_DOWN` down; the carrier is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
 ## to the carrier's stern while chasing and while fighting its reactor, the swoop's length,
 ## where the guns converge and how far the aim assist reaches.
-const POV_REACH := Vector2(5.0, 36.0)
+const POV_REACH := Vector2(11.0, 36.0)
 const POV_DOWN := 2.5
 const POV_DRAG := 0.016
 const RAIL := 18.0
@@ -58,7 +58,7 @@ const CARRIER_SCALE := 2.2
 const CARRIER_LIFT := 6.0
 const APPROACH := 2.6
 const AIM_AHEAD := 32.0
-const AIM_ASSIST := 2.4
+const AIM_ASSIST := 3.0
 
 # ---------------------------------------------------------------- upgrades
 const ORDER := ["cannon", "missile", "hull", "magnet"]
