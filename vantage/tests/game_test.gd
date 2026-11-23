@@ -313,6 +313,39 @@ func lingering() -> void:
 	await process_frame
 
 
+## The hangar on tall and short phones: the panel is whole on screen (its LAUNCH button
+## included, with a bottom margin), below the title, and the ship idles in the sky above it.
+## A tall phone once pushed the panel's bottom off the screen and the ship sat on its top edge.
+## Each screen is a SubViewport as wide as the game's 720 px and as tall as the phone's ratio.
+func hangar_fits() -> void:
+	print("hangar layout")
+	for res: Vector2i in [Vector2i(1080, 2410), Vector2i(720, 1280), Vector2i(1080, 1920), Vector2i(1200, 1600)]:
+		var sv := SubViewport.new()
+		sv.size = Vector2i(720, roundi(720.0 * res.y / res.x))
+		root.add_child(sv)
+		var g: Game = load("res://scenes/main.tscn").instantiate()
+		g.save_path = SAVE
+		g.driven = true
+		sv.add_child(g)
+		await process_frame
+		g.new_build = 99   # the update button makes the panel its tallest
+		g.hud.refresh_hangar()
+		for i in 3:
+			await process_frame
+		g.step(DT)
+		var vp := g.view_size()
+		var p := g.hud.hangar_panel
+		var r := p.get_global_rect()
+		var top := r.position.y   # the global rect is the scaled panel
+		var bottom := r.end.y
+		check(absf(top - g.hud.hangar_panel_top()) < 1.0, "%s: the ship is placed against the panel's real top" % res)
+		check(vp.y == sv.size.y and bottom <= vp.y - 20.0 and top >= Hud.HANGAR_TOP - 1.0,
+			"%s: the hangar panel fits (%.0f to %.0f of %.0f)" % [res, top, bottom, vp.y])
+		var sy := g.cam.unproject_position(g.ppos).y
+		check(sy > Hud.HANGAR_TOP and sy < top - 40.0, "%s: the ship idles above the panel (y %.0f)" % [res, sy])
+		sv.free()
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -322,5 +355,6 @@ func _initialize() -> void:
 	await lingering()
 	await stage()
 	await death()
+	await hangar_fits()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)
