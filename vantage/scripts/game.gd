@@ -2175,8 +2175,8 @@ func begin_escape() -> void:
 func pose(mode: String) -> Array:
 	if mode == "chase":
 		# behind and above the ship, following it partly so it moves on screen
-		var at := Vector3(ppos.x * 0.78, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 2.1, ppos.z + 6.8)
-		var look := Vector3(ppos.x * 0.62, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 0.6, ppos.z - 22.0)
+		var at := Vector3(ppos.x * 0.78, Rules.PY + (ppos.y - Rules.PY) * 0.75 + 4.2, ppos.z + 8.5)
+		var look := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.6 + 2.0, ppos.z - 40.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]
