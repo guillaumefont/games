@@ -85,6 +85,9 @@ var miss_cd := 0.0
 var bank := 0.0
 var touching := false
 var last_touch := Vector2.ZERO
+## Slow-motion pause: 1 while a finger is down, eases to 0 (paused) once it's lifted.
+## `time_speed()` is the eased rate the world runs at.
+var time_k := 1.0
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
@@ -361,6 +364,8 @@ func launch(lv := -1) -> void:
 	miss_cd = 0.5
 	run = {"score": 0, "scrap": 0, "kills": 0, "hits": 0, "cleared": false}
 	ship.visible = true
+	# the launch tap is lifted already: wait, paused, for the finger that flies the ship
+	time_k = 0.0
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
@@ -483,8 +488,54 @@ func say(text: String, sub := "", dur := 2.2) -> void:
 func _process(delta: float) -> void:
 	if driven:
 		return
-	keys(minf(delta, 0.05))
-	step(minf(delta, 0.05))
+	tick(minf(delta, 0.05))
+
+
+## One frame of real time: the keys, then the world at the slow-motion rate. Fully paused, the
+## world isn't stepped at all (only the HUD), so nothing divides by a zero step.
+func tick(dt: float) -> void:
+	keys(dt)
+	slow_down(dt)
+	var k := time_speed()
+	if k <= 0.0001:
+		hud.sync()
+		return
+	step(dt * k)
+
+
+func _notification(what: int) -> void:
+	# switching apps lifts the finger as far as we're concerned: the game pauses
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		touching = false
+
+
+## In flight the world only runs while the player holds a finger (or a direction key) down.
+func pausable() -> bool:
+	return phase in ["vert", "approach", "pov", "core", "escape"]
+
+
+func holding() -> bool:
+	if touching:
+		return true
+	for k in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_A, KEY_D, KEY_W, KEY_S, KEY_SPACE]:
+		if Input.is_key_pressed(k):
+			return true
+	return false
+
+
+## Moves `time_k` towards 1 (held, or out of flight) or 0 (lifted) over real time `dt`.
+func slow_down(dt: float) -> void:
+	var want := 1.0 if holding() or not pausable() else 0.0
+	var rate := 1.0 / Rules.SLOW_STOP if want < time_k else 1.0 / Rules.SLOW_RESUME
+	time_k = move_toward(time_k, want, dt * rate)
+
+
+func time_speed() -> float:
+	return smoothstep(0.0, 1.0, time_k)
+
+
+func paused() -> bool:
+	return pausable() and time_k <= 0.0
 
 
 func _unhandled_input(event: InputEvent) -> void:

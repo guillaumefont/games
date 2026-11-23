@@ -494,6 +494,22 @@ func _draw() -> void:
 			draw_string(FONT, Vector2(60, 124), bar[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(INK, 0.85))
 	if hurt_t > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, v), Color(1, 0.2, 0.25, hurt_t * 0.5))
+	draw_pause(v)
+
+
+## The finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
+func draw_pause(v: Vector2) -> void:
+	if not game.pausable():
+		return
+	var still := 1.0 - game.time_speed()
+	if still <= 0.0:
+		return
+	draw_rect(Rect2(Vector2.ZERO, v), Color(0.02, 0.04, 0.08, 0.35 * still))
+	var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)
+	var c := Color(INK, still * still * pulse)
+	var y := v.y * 0.42
+	draw_string(FONT, Vector2(0, y), "PAUSED", HORIZONTAL_ALIGNMENT_CENTER, v.x, 56, c)
+	draw_string(FONT, Vector2(0, y + 50), "Touch to fly", HORIZONTAL_ALIGNMENT_CENTER, v.x, 28, Color(DIM, c.a))
 
 
 func draw_reticle(p: Vector2, k: float) -> void:

@@ -51,6 +51,10 @@ const POV_DOWN := 2.5
 ## The share of the screen's width (and height) one swipe needs to cross the whole reach.
 const POV_SWIPE := 0.7
 const RAIL := 18.0
+## Lifting the finger slows time to a stop over `SLOW_STOP` s (a pause); touching again brings
+## it back up to full speed over `SLOW_RESUME` s.
+const SLOW_STOP := 0.7
+const SLOW_RESUME := 0.25
 const GAP_FAR := 10.0
 const GAP_NEAR := 9.0
 ## In the chase the fortress grows (during the swoop) to `FORTRESS_SCALE` times its size, its
