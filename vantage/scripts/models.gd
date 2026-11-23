@@ -250,17 +250,53 @@ static func hit_mat() -> StandardMaterial3D:
 	return _cache["hit"]
 
 
-## Shadows: a soft see-through blue-black, drawn once per pixel so overlapping faces of one
-## model don't stack darker.
+## Shadow casters: plain white, drawn only into the game's shadow mask (see Game.make_shadow_view).
 static func shadow_mat() -> StandardMaterial3D:
 	if not _cache.has("shadow"):
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.albedo_color = Color(0.02, 0.07, 0.18, 0.22)
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
+		m.albedo_color = Color.WHITE
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_cache["shadow"] = m
 	return _cache["shadow"]
+
+
+const SHADOW_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+uniform sampler2D mask : filter_linear, repeat_disable;
+uniform vec4 tint : source_color;
+uniform float soft = 1.6;
+
+void fragment() {
+	// a 13-tap blur of the mask: a soft penumbra a few pixels wide
+	vec2 px = soft / vec2(textureSize(mask, 0));
+	float m = texture(mask, SCREEN_UV).r * 0.2;
+	m += (texture(mask, SCREEN_UV + vec2(px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(px.x, 0.0)).r
+		+ texture(mask, SCREEN_UV + vec2(0.0, px.y)).r + texture(mask, SCREEN_UV - vec2(0.0, px.y)).r) * 0.1;
+	m += (texture(mask, SCREEN_UV + px).r + texture(mask, SCREEN_UV - px).r
+		+ texture(mask, SCREEN_UV + vec2(px.x, -px.y)).r + texture(mask, SCREEN_UV + vec2(-px.x, px.y)).r) * 0.06;
+	m += (texture(mask, SCREEN_UV + vec2(2.0 * px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(2.0 * px.x, 0.0)).r
+		+ texture(mask, SCREEN_UV + vec2(0.0, 2.0 * px.y)).r + texture(mask, SCREEN_UV - vec2(0.0, 2.0 * px.y)).r) * 0.04;
+	if (m < 0.002) {
+		discard;
+	}
+	ALBEDO = tint.rgb;
+	ALPHA = tint.a * min(m, 1.0);
+}
+"""
+
+
+## The ground's shadow plane: a see-through blue-black wherever the blurred mask is set.
+static func shadow_plane_mat(mask: Texture2D) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = SHADOW_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("mask", mask)
+	m.set_shader_parameter("tint", Color(0.02, 0.07, 0.18, 0.34))
+	m.render_priority = -1
+	return m
 
 
 static func cached(key: String, f: Callable) -> Mesh:
