@@ -18,10 +18,14 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   breaks off; the last section is the heart (`BOSS_HEARTS`), shielded until then. Each flies its own way
   (`move`, `Game.think_boss`); the hull comes down far enough that the section's deepest gun shows on a
   short screen. Parts stay within |x| <= 7, z -5..8 (tested). The hull can't be hurt; it holds the wave
-  clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss, the flying
-  fortress (Guillaume turned the sea carrier into one, 2026-11-23): a huge armoured aircraft
-  (`Rules.FORTRESS_SECTIONS`): tail guns (on the `plating` mesh), the dorsal gun tower (the `tower` mesh), then
-  the reactor behind four shield panels (phase `core`). Drones launch from its tail bay every `DRONE_EVERY` s.
+  clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss, a flying
+  fortress (Guillaume turned the sea carrier into one, 2026-11-23): a huge armoured aircraft. Five designs
+  (`Rules.FORTRESSES`: Goliath, Zephyr airship, Talon jet, Leviathan, Wyvern), each with its hull section
+  (`hull`: box, round, hex), wings (`Models.WINGS`: propellers, stubs, jets; a jet's "props" are nozzles that
+  don't spin), tail (`fins`), `paint`, `accent` and drone rate (`drones` s). Its sections' gun mounts sit on a
+  `piece` that breaks off (`plating`, `collar`, `tower`, `fin`: `Models.fortress_piece`; z from
+  `Models.mount_z`); the last is the reactor behind four shield panels (phase `core`). The bay, `FORTRESS_HW`
+  and the mount limits (|x| <= 4.6, y 2..19.6) are shared, so every gun stays within the chase's reach.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
   **outside** and in **third person** (Guillaume rejected a first-person tunnel). The fortress grows to
@@ -63,7 +67,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
-godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss
+godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
@@ -77,7 +81,8 @@ Explosions over time, from both cameras: same command with `tools/blast_shots.gd
 Every mid-boss as it arrives and after its first section: same command with `tools/midboss_shots.gd -- /tmp/midbosses`.
 
 The final boss alone, without playing the stage (arrival, swoop, each section, an overview with no fog, the
-fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`.
+fall): same command with `tools/fortress_shots.gd -- /tmp/fortress`. Every fortress side by side (from above, on its
+tail, an overview, after its first section): `tools/fortress_lineup.gd -- /tmp/fortresses`.
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
@@ -104,7 +109,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   Clearing a level opens and selects the next. Old saves with a clear start in world 2.
 - The hangar's timeline (`Hud.build_campaign`): ‹ world › and the world's three levels; selecting one
   shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
-- Next steps: fortress variants (the fortress is the same model, tinted), per-world foe models.
+- Each level also has its own fortress (`fortress_of`, `FORTRESS_ORDER`: three different ones per world,
+  and no two levels with the same pair of bosses); 1-3 keeps the Goliath.
+- Next steps: per-world foe models.
 
 ## Code map
 
@@ -112,10 +119,10 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   stage's waves by time, the fortress's waves by rail distance), pure functions on the save dictionary.
   Save: `user://save.json`.
 - `scripts/models.gd` (`Models`): flat-shaded vertex-coloured meshes built in code (`Models.Builder`:
-  `prism`, `box`, `octa`), cached by name. The fortress's fuselage is one mesh, stern (open bay) at z = 0,
-  the bay centred on the flight altitude `Rules.PY`; each wing (`wing_l`, `wing_r` nodes, built round
-  `Models.WING_ROOT`) carries its engines, exhaust glow and propellers (`Game.fort_props`, spun by
-  `Game.spin_props`). `Models.along_z` extrudes an outline along the hull (fuselage, nacelles, barrels).
+  `prism`, `box`, `octa`), cached by name. A fortress's fuselage is one mesh (`fortress_hull`), stern (open
+  bay, cut from its own section with `Models.clip`) at z = 0, the bay centred on the flight altitude
+  `Rules.PY`; each wing (`wing_l`, `wing_r` nodes, built round its `WINGS` root) carries its engines, exhaust
+  glow and propellers or nozzles (`Game.fort_props`, spun by `Game.spin_props`). `Models.along_z` extrudes an outline along the hull (fuselage, nacelles, barrels).
 - `scripts/hud.gd` (`Hud`): the hangar panel is sized by its content and pinned to the bottom
   (`fit_hangar`: grows upwards, clears the gesture bar via the display safe area, scales down on
   short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
@@ -198,6 +205,15 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   world's `fire` colour in `Models.THEMES` (violet on the dunes, red-orange on ice, magenta on lava), which
   must stay clear of that world's ground colours (tested in `readable_fire`). Close-ups over each world:
   `tools/bullet_shots.gd -- /tmp/bullets` (same command as the screenshots).
+- Ramming (Guillaume, 2026-11-23: collisions between the ship and enemies damage the ship): `Game.ram`.
+  Flying into an air foe (`Rules.RAMMABLE`) costs a hit and throws the ship back (`Game.knock`, eased off);
+  darts, swings and drones break up, heavies take `RAM_DMG`. During the blink after a hit the ship passes
+  through. Every mid-boss's hull is a wall (`Game.boss_rammed`, tested against its outlines from above,
+  `Models.midboss_shapes`, built from the same points as its meshes where it can; a piece stops counting
+  once broken off, and a spinning hull is turned). Ground targets and
+  scenery pass under the ship; the fortress always flies ahead of the ship, so it can't be rammed.
+- The mid-boss and its guns are never culled (`Game.gone`): it spawns far above the top on a tall phone, and
+  a culled gun left its section unbeatable (Guillaume stuck on 2-1, tested).
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every fortress mount at `FORTRESS_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores

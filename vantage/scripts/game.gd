@@ -122,7 +122,7 @@ var prop_spin := 0.0
 var wing_off: Node3D
 var wing_vel := Vector3.ZERO
 var boss_done := false
-## The fortress's current section (Rules.FORTRESS_SECTIONS), its live parts and their full hp.
+## The fortress's current section (in `fort.sections`), its live parts and their full hp.
 var fort_sec := 0
 var fort_parts: Array[Obj] = []
 var fort_max := 1.0
@@ -166,6 +166,9 @@ var boss: Obj
 ## The level's mid-boss (`Rules.MIDBOSSES`: its id and design), its current section (index in
 ## its sections), the section's live parts and their full hp.
 var mid_id := "bastion"
+## The level's fortress (`Rules.FORTRESSES`): its id and design.
+var fort_id := "goliath"
+var fort: Dictionary = Rules.FORTRESSES.goliath
 var mid: Dictionary = Rules.MIDBOSSES.bastion
 var boss_sec := 0
 var boss_parts: Array[Obj] = []
@@ -332,6 +335,8 @@ func pick_level(lv: int) -> void:
 	waves = Campaign.waves(lv)
 	mid_id = Campaign.midboss_of(lv)
 	mid = Rules.MIDBOSSES[mid_id]
+	fort_id = Campaign.fortress_of(lv)
+	fort = Rules.FORTRESSES[fort_id]
 	apply_theme(world.theme)
 
 
@@ -1002,6 +1007,10 @@ func update_objs(dt: float) -> void:
 
 
 func gone(o: Obj) -> bool:
+	# the mid-boss and its guns are never culled: it comes in from far above the top on a tall
+	# screen (Guillaume was stuck on 2-1: the Halo's rim guns were dropped before it arrived)
+	if o == boss or o in boss_parts:
+		return false
 	if pov_mode():
 		return o.pos.z > ppos.z + 4.0 or o.pos.z < ppos.z - 90.0 or o.t > 8.0 and o.kind in ["shot", "missile", "orb"]
 	if o in foes and landmark(o) and phase != "vert":
@@ -1325,8 +1334,8 @@ func boss_bar() -> Array:
 		var hp := 0.0
 		for p in fort_parts:
 			hp += maxf(0.0, p.hp)
-		var sec: Dictionary = Rules.FORTRESS_SECTIONS[fort_sec]
-		return [hp / maxf(fort_max, 1.0), "FORTRESS · %s  %d/%d" % [sec.name, fort_sec + 1, Rules.FORTRESS_SECTIONS.size()]]
+		var sec: Dictionary = fort.sections[fort_sec]
+		return [hp / maxf(fort_max, 1.0), "%s · %s  %d/%d" % [fort.name.to_upper(), sec.name, fort_sec + 1, fort.sections.size()]]
 	if boss == null:
 		return []
 	var hp := 0.0
@@ -1787,41 +1796,47 @@ func let_go(f: Obj) -> void:
 
 func spawn_fortress() -> void:
 	fortress = Node3D.new()
+	fort_sec = 0
+	fort_parts.clear()
 	fort_s = 1.0
 	fort_lift = Rules.FORTRESS_CRUISE
 	fort_fall = 0.0
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
-	var hull := Models.instance(Models.fortress(), Models.tinted(world.tint))
+	var hull := Models.instance(Models.fortress_hull(fort_id), Models.tinted(world.tint))
 	fortress.add_child(hull)
 	cast_shadow_of(hull)
-	# the wings, each with its engines, spinning propellers and exhaust glow
+	# the wings, each with its engines: spinning propellers or jet nozzles, and their glow
 	fort_props.clear()
 	prop_spin = Rules.PROP_SPIN
 	wing_off = null
+	var w := Models.wing_spec(fort_id)
+	var jet: bool = w.jet
 	for side in [1.0, -1.0]:
 		var wing := Node3D.new()
 		wing.name = "wing_r" if side > 0 else "wing_l"
-		wing.position = Models.WING_ROOT * Vector3(side, 1, 1)
-		var mi := Models.instance(Models.fortress_wing(side), Models.tinted(world.tint))
+		wing.position = w.root * Vector3(side, 1, 1)
+		var mi := Models.instance(Models.fortress_wing(fort_id, side), Models.tinted(world.tint))
 		wing.add_child(mi)
 		cast_shadow_of(mi)
-		wing.add_child(Models.instance(Models.fortress_exhausts(side), Models.glow(Color8(0xff, 0xc0, 0x70))))
-		for p in Models.prop_points():
-			var prop := Models.instance(Models.fortress_prop())
+		wing.add_child(Models.instance(Models.fortress_exhausts(fort_id, side),
+			Models.glow(Color8(0xa8, 0xe0, 0xff) if jet else Color8(0xff, 0xc0, 0x70))))
+		for p in Models.prop_points(fort_id):
+			var prop := Models.instance(Models.fortress_nozzle() if jet else Models.fortress_prop())
 			prop.position = p * Vector3(side, 1, 1)
 			prop.rotation.z = rng.randf() * TAU
-			prop.set_meta("dir", side)
+			prop.set_meta("dir", 0.0 if jet else side)
 			wing.add_child(prop)
 			fort_props.append(prop)
 		fortress.add_child(wing)
-	for part in [["plating", Models.fortress_plating()], ["tower", Models.fortress_tower()]]:
-		var mi := Models.instance(part[1], Models.tinted(world.tint))
-		mi.name = part[0]
-		fortress.add_child(mi)
+	for sec: Dictionary in fort.sections:
+		if sec.piece != "":
+			var mi := Models.instance(Models.fortress_piece(fort_id, sec.piece), Models.tinted(world.tint))
+			mi.name = sec.piece
+			fortress.add_child(mi)
 	fortress.add_child(Models.instance(Models.fortress_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
 	add_child(fortress)
 	place_fortress(0.0)
-	say("FORTRESS AHEAD", "Get on its tail")
+	say("FORTRESS AHEAD", fort.title)
 	sound.play("warning")
 	sound.music("carrier")
 
@@ -1878,7 +1893,7 @@ func step_approach(dt: float) -> void:
 ## Opens the fortress's next section: its turrets, or the reactor and its panels.
 func open_fort_section() -> void:
 	fort_parts.clear()
-	var sec: Dictionary = Rules.FORTRESS_SECTIONS[fort_sec]
+	var sec: Dictionary = fort.sections[fort_sec]
 	if sec.mounts.is_empty():
 		spawn_pov({"kind": "core", "n": 1})
 		phase = "core"
@@ -1888,7 +1903,7 @@ func open_fort_section() -> void:
 	fort_max = 0.0
 	for p in fort_parts:
 		fort_max += p.max_hp
-	say(sec.name, "Section %d of %d" % [fort_sec + 1, Rules.FORTRESS_SECTIONS.size()], 1.8)
+	say(sec.name, "Section %d of %d" % [fort_sec + 1, fort.sections.size()], 1.8)
 
 
 ## A fortress part went down: once its section is cleared, that section breaks off.
@@ -1896,14 +1911,15 @@ func fort_part_down(f: Obj) -> void:
 	fort_parts.erase(f)
 	if not fort_parts.is_empty() or f == core:
 		return
-	var name: String = ["plating", "tower", ""][fort_sec]
+	var sec: Dictionary = fort.sections[fort_sec]
+	var name: String = sec.piece
 	if fortress and name != "" and fortress.has_node(name):
 		fortress.get_node(name).visible = false
+		# a ripple of blasts across the piece as it breaks off, round where its guns were
 		var pts: Array = []
 		for k in 8:
-			var at := Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 11.0), 0.5) if name == "plating" \
-				else Vector3(rng.randf_range(-4.0, 4.0), rng.randf_range(13.0, 21.0), -2.0)
-			pts.append(fort_point(at))
+			var m: Vector2 = sec.mounts[k % sec.mounts.size()]
+			pts.append(fort_point(Vector3(m.x + rng.randf_range(-1.5, 1.5), m.y + rng.randf_range(-1.5, 1.5), Models.mount_z(m))))
 		pop(pts[0], 3.6, Models.AMBER)
 		blasts.chain(pts.slice(1), 3.0, 0.7, fx_carry(), 5.0)
 		shake = 0.7
@@ -1982,7 +1998,7 @@ func step_pov(dt: float) -> void:
 			return
 	drone_t -= dt
 	if drone_t <= 0.0:
-		drone_t = Rules.DRONE_EVERY
+		drone_t = float(fort.drones)
 		spawn_pov({"kind": "drone", "n": 3 + drone_n % 2})
 		drone_n += 1
 	fire_pov(dt)
@@ -2017,10 +2033,10 @@ func step_crash(dt: float) -> void:
 	if snapped and wing and wing_off == null:
 		wing_off = wing
 		wing_vel = Vector3(-7.0, 2.0, 6.0)
-		var root := fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1))
+		var root := fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1))
 		pop(root, 5.5, Models.AMBER)
-		blasts.chain([fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1) + Vector3(-4, 0, 6)),
-			fortress.to_global(Models.WING_ROOT * Vector3(-1, 1, 1) + Vector3(-2, 1, -8))], 4.0, 0.25, carry)
+		blasts.chain([fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1) + Vector3(-4, 0, 6)),
+			fortress.to_global(Models.wing_spec(fort_id).root * Vector3(-1, 1, 1) + Vector3(-2, 1, -8))], 4.0, 0.25, carry)
 		shake = 1.0
 		sound.play("crash", 2.0)
 	if wing_off:
@@ -2032,7 +2048,7 @@ func step_crash(dt: float) -> void:
 		var z := -rng.randf_range(0, 4.0) if rng.randf() < 0.55 else -rng.randf_range(4.0, Rules.FORTRESS_LEN * 0.3)
 		var at := fortress.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), z))
 		if rng.randf() < 0.25:
-			at = fortress.to_global(Models.WING_ROOT * Vector3(1, 1, 1) + Vector3(rng.randf_range(0, 12), 0, rng.randf_range(-8, 8)))
+			at = fortress.to_global(Models.wing_spec(fort_id).root * Vector3(1, 1, 1) + Vector3(rng.randf_range(0, 12), 0, rng.randf_range(-8, 8)))
 		pop(at, rng.randf_range(2.6, 4.6), Models.AMBER)
 		sound.play("boom", -4.0)
 		shake = maxf(shake, 0.3)
@@ -2044,7 +2060,7 @@ func step_crash(dt: float) -> void:
 		for j in 6:
 			hits.append(fortress.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0)))
 		if wing_off:
-			hits.append(wing_off.to_global(Vector3(-Models.WING_SPAN * 0.5, 0, 0)))
+			hits.append(wing_off.to_global(Vector3(-float(Models.wing_spec(fort_id).span) * 0.5, 0, 0)))
 		var j := 0
 		for at in hits:
 			at.y = ground_y(at.x, at.z)
@@ -2073,8 +2089,7 @@ func spawn_pov(w: Dictionary) -> void:
 				# a gun turret on the fortress: on its stern, the lower tower or the upper tower
 				var f := new_foe("sentry", Models.sentry())
 				var m: Vector2 = w.mounts[i]
-				var fz := 0.9 if m.y < Rules.FORTRESS_TOP else (-0.4 if m.y < 17.0 else -2.4)
-				f.anchor = Vector3(m.x, m.y, fz)
+				f.anchor = Vector3(m.x, m.y, Models.mount_z(m))
 				f.size = 1.4
 				f.pos = fort_point(f.anchor)
 				f.fire_t = 0.8 + i * 0.5

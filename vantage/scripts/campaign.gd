@@ -20,6 +20,9 @@ const BOSS_HP := [0.75, 0.9, 1.0]
 ## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a
 ## world's three levels have three different ones and each world starts on a new one.
 const MIDBOSS_ORDER := ["mantis", "halo", "bastion", "twin", "hammer"]
+## The fortresses' order (`Rules.FORTRESSES`): level k of world w gets the (w + 2k)th, so a world's
+## three levels end on three different fortresses, and no two levels have the same pair of bosses.
+const FORTRESS_ORDER := ["talon", "wyvern", "zephyr", "leviathan", "goliath"]
 
 ## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
 ## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
@@ -58,6 +61,15 @@ static func midboss_of(lv: int) -> String:
 
 static func midboss(lv: int) -> Dictionary:
 	return Rules.MIDBOSSES[midboss_of(lv)]
+
+
+## The level's fortress id (a key of `Rules.FORTRESSES`).
+static func fortress_of(lv: int) -> String:
+	return FORTRESS_ORDER[(lv / PER_WORLD + 2 * (lv % PER_WORLD)) % FORTRESS_ORDER.size()]
+
+
+static func fortress(lv: int) -> Dictionary:
+	return Rules.FORTRESSES[fortress_of(lv)]
 
 
 ## "2-3" for the third level of the second world.
@@ -181,8 +193,7 @@ static func foes_in(lv: int) -> int:
 		if w.kind == "boss":
 			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
-			for sec: Dictionary in Rules.FORTRESS_SECTIONS:
-				n += 5 if sec.mounts.is_empty() else sec.mounts.size()
+			n += Rules.fortress_parts(fortress_of(lv))
 		elif w.kind != "end":
 			n += int(w.n)
 	return n
