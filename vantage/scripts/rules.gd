@@ -186,12 +186,19 @@ const FOES := {
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
 	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
-	"lighthouse": {"hp": 22.0, "r": 2.0, "score": 500, "scrap": 25},
-	"house": {"hp": 9.0, "r": 2.2, "score": 150, "scrap": 10},
-	"boat": {"hp": 5.0, "r": 1.9, "score": 100, "scrap": 5},
+	"lighthouse": {"hp": 70.0, "r": 2.0, "score": 500, "scrap": 25},
+	"house": {"hp": 30.0, "r": 2.2, "score": 150, "scrap": 10},
+	"boat": {"hp": 18.0, "r": 1.9, "score": 100, "scrap": 5},
+	"pyramid": {"hp": 120.0, "r": 3.0, "score": 1200, "scrap": 40},
+	"duck": {"hp": 20.0, "r": 1.9, "score": 300, "scrap": 10},
+	"water tower": {"hp": 45.0, "r": 1.8, "score": 400, "scrap": 15},
+	"snowman": {"hp": 40.0, "r": 1.8, "score": 400, "scrap": 15},
+	"stone head": {"hp": 80.0, "r": 1.9, "score": 700, "scrap": 25},
 }
 ## Scenery that can be shot down (see FOES).
-const LANDMARKS := ["lighthouse", "house", "boat"]
+## How far inside the top of the screen a landmark must be before shots hurt it.
+const LANDMARK_IN := 4.0
+const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tower", "snowman", "stone head"]
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the
