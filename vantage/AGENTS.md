@@ -56,13 +56,16 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results
+godot --headless --path . --script tests/game_test.gd   # rules, controls, mid-boss sections, carrier chase (final boss), death, results, world edges
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
+godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
 ```
 
 Screenshots (needs a display; one per key moment of a full run):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots`
+
+Explosions over time, from both cameras: same command with `tools/blast_shots.gd -- /tmp/blasts`.
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
@@ -93,6 +96,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
   in the vertical stage and 3D in the chase.
+- `scripts/blasts.gd` (`Blasts`, `Game.blasts`): explosions. `Game.pop(at, size, col, ground)` is the one entry
+  point for a blast; `blasts.chain`/`later` stagger blasts across a boss section, `burn` keeps a fire going,
+  `splash` throws up water. See Gotchas.
 - `scripts/hud.gd` (`Hud`): HUD, chase reticle and target brackets (drawn in `_draw`), hangar, results.
 
 ## Audio
@@ -122,6 +128,13 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
 - The vertical camera looks down at an angle, so anything off the flight plane (ground
   turrets, the battleship's guns) shows somewhere other than straight above it. Collisions,
   missiles and muzzles use `Game.seen(pos)`, the point on the flight plane where it shows.
+- Explosions (Guillaume asked for better ones, 2026-11-23): flash, faceted fireball puffs that cool from
+  yellow to red into lit grey smoke, embers, tumbling chunks (big ones trail smoke), a shockwave ring, a
+  short omni light (at most `Blasts.LIGHTS`), a brief brightness lift for huge ones. Nothing fades with
+  alpha except the additive flash/ring/embers: puffs shrink away (cheap and opaque on phones). Nodes are
+  pooled and past `Blasts.CAP` live pieces a blast is only its flash. Blasts are carried
+  (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
+  or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
 - The chase reach (`POV_REACH.x`) must cover every carrier mount at `CARRIER_SCALE` (tested).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
@@ -137,6 +150,9 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   (`Game.step_crash`, `car_fall`) before the sector clears; it stays in sight (tested).
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
   (`Game.pov_drag`), so the ship gets from one flank of the carrier to the other in one move.
+- The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per
+  side in ever wider cells (`Models.ground_cols`, bare of trees), and `CHUNKS_AHEAD` chunks are kept, so the
+  ground runs past the fog's end from the chase camera in every direction (tested in `world_edges`).
 - `Models.ground_chunk` caps terrain height so the ground stays well under the flight altitude.
 - Place HUD controls with anchors and offsets (`Hud.place`), not `position`: the HUD is stretched.
 - In a `SceneTree` script, `await process_frame` after `add_child` before stepping the game, or
