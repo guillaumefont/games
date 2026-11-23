@@ -1,7 +1,7 @@
 extends SceneTree
 ## The game: rules (upgrades, saves, grades), the vertical stage's controls, the swoop into
 ## the mid-boss's sections, the carrier chase (final boss: dodging, reactor shield), death
-## and results. Runs headless:
+## and results, the scenery. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
 const SAVE := "user://test_save.json"
@@ -346,6 +346,26 @@ func hangar_fits() -> void:
 		sv.free()
 
 
+## Guillaume (2026-11-23): more detailed houses, rocks on the beaches and other scenery.
+func scenery() -> void:
+	print("scenery")
+	var g := make_game()
+	await process_frame
+	Models.scenery.clear()
+	var top := -INF
+	for k in 16:
+		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+		for i in m.get_surface_count():
+			for v: Vector3 in m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
+				top = maxf(top, v.y)
+	for kind: String in ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush"]:
+		check(Models.scenery.get(kind, 0) > 0, "the coast has %s (%d)" % [kind, Models.scenery.get(kind, 0)])
+	check(Models.scenery.get("house", 0) >= 20, "villages, not just the odd farmhouse (%d houses)" % Models.scenery.get("house", 0))
+	check(top < Rules.PY - 2.0, "scenery stays well under the flight altitude (top %.1f)" % top)
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -353,6 +373,7 @@ func _initialize() -> void:
 	await aiming()
 	await swipe()
 	await lingering()
+	await scenery()
 	await stage()
 	await death()
 	await hangar_fits()

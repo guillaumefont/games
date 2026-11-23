@@ -64,6 +64,9 @@ godot --headless --path . --script tests/icon_test.gd   # project icon and Andro
 Screenshots (needs a display; one per key moment of a full run):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots`
 
+Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
+`xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery`
+
 Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/icon-512.png`.
 
 ## Code map
@@ -79,6 +82,13 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   short screens to stay under `HANGAR_TOP` + `SHIP_ROOM`); the hangar ship idles centred in the sky
   above it (`Game.hangar_ship_z`). Test layouts at several phone ratios in a SubViewport (a headless
   root window can't be resized).
+- Scenery (`Models.scatter`, called per terrain cell from `ground_chunk`): villages of three kinds of
+  house (gabled cottage, two-storey with hipped roof, L-shaped farmhouse; windows, doors, chimneys,
+  fences or hedges), round-crowned trees, bushes and hay on the grass; pines in the woods; palms,
+  driftwood, pebbles, dune grass and parasols on the beaches; rocks with a ring of surf, lighthouses and
+  fishing boats along the coast. All of it goes into the chunk's one mesh (no extra draw calls), built
+  round its own origin and placed with `Builder.xf`; `Builder.bottoms = false` skips faces under the
+  ground. `Models.scenery` counts what was built (tested).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
