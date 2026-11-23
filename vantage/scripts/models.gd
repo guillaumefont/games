@@ -266,10 +266,10 @@ shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
 uniform sampler2D mask : filter_linear, repeat_disable;
 uniform vec4 tint : source_color;
-uniform float soft = 1.6;
+uniform float soft = 1.0;
 
 void fragment() {
-	// a 13-tap blur of the mask: a soft penumbra a few pixels wide
+	// a 13-tap blur of the mask, only to smooth the stair-steps off the edge
 	vec2 px = soft / vec2(textureSize(mask, 0));
 	float m = texture(mask, SCREEN_UV).r * 0.2;
 	m += (texture(mask, SCREEN_UV + vec2(px.x, 0.0)).r + texture(mask, SCREEN_UV - vec2(px.x, 0.0)).r
@@ -282,7 +282,8 @@ void fragment() {
 		discard;
 	}
 	ALBEDO = tint.rgb;
-	ALPHA = tint.a * min(m, 1.0);
+	// one flat tone inside, only a thin anti-aliased rim: thin wings stay as dark as the body
+	ALPHA = tint.a * smoothstep(0.12, 0.5, m);
 }
 """
 
@@ -475,7 +476,7 @@ static func boss_bridge() -> Mesh:
 		return b.commit())
 
 
-# ---------------------------------------------------------------- foes inside the carrier
+# ---------------------------------------------------------------- foes inside the fortress
 ## Security drone: a diamond with four fins and an amber eye facing the player (+z).
 static func drone() -> Mesh:
 	return cached("drone", func() -> Mesh:
@@ -509,99 +510,225 @@ static func panel() -> Mesh:
 		return b.commit())
 
 
-# ---------------------------------------------------------------- the carrier
-## The carrier, stern at z = 0, bow at z = -CARRIER_LEN: tall and narrow, a hull with an open
-## hangar at the stern (where the reactor shows in the chase) and a stepped tower above it.
-## From the vertical stage you see its long deck; in the chase, its tall stern.
-static func carrier() -> Mesh:
-	return cached("carrier", func() -> Mesh:
+# ---------------------------------------------------------------- the fortress
+## The flying fortress, stern at z = 0, bow at z = -FORTRESS_LEN: a huge armoured aircraft,
+## its fuselage tall and narrow (so every gun on its tail is in the ship's reach), an open bay
+## in the tail (where the drones launch and the reactor shows in the chase), twin tail fins on a
+## wide tailplane, gun blisters down its flanks and turrets along its spine. The wings and their
+## engines are separate meshes (`fortress_wing`), so one can break off when it goes down.
+const ARMOUR := Color8(0x4e, 0x56, 0x62)
+const GLASS_D := Color8(0x1c, 0x2a, 0x3c)
+
+
+## Extrudes the outline (x, y) along -z, from z = -z0 to z = -z1 round `c`, the far end scaled
+## by `top` and shifted (x, y) by `shift`: fuselages, nacelles and barrels.
+static func along_z(b: Builder, c: Vector3, outline: PackedVector2Array, z0: float, z1: float, col: Color,
+		top := Vector2.ONE, shift := Vector2.ZERO) -> void:
+	if z1 < z0 and top == Vector2.ONE and shift == Vector2.ZERO:
+		var t := z0
+		z0 = z1
+		z1 = t
+	var keep := b.xf
+	b.xf = keep * Transform3D(Basis(Vector3.RIGHT, -PI / 2), c)
+	b.prism(Vector3.ZERO, outline, z0, z1, col, top, shift)
+	b.xf = keep
+
+
+## A gun turret with `n` barrels pointing along `dir` (+z aft, the way the chase sees them).
+static func gun_turret(b: Builder, at: Vector3, r: float, n: int, dir := 1.0) -> void:
+	b.prism(at, ngon(r, 8, PI / 8), -r * 0.35, r * 0.45, HULL_D, Vector2(0.7, 0.7))
+	b.box(at + Vector3(0, r * 0.6, 0), Vector3(r * 1.1, r * 0.35, r * 1.2), ARMOUR, Vector2(0.8, 0.8))
+	for k in n:
+		var x := (k - (n - 1) * 0.5) * r * 0.55
+		along_z(b, at + Vector3(x, r * 0.55, 0), ngon(r * 0.13, 6), 0.0, -r * 2.2 * dir, STEEL_D)
+
+
+static func fortress() -> Mesh:
+	return cached("fortress", func() -> Mesh:
 		var b := Builder.new()
-		var L := Rules.CARRIER_LEN
+		var L := Rules.FORTRESS_LEN
 		var y := Rules.PY
-		var W := Rules.CARRIER_HW
-		var top := Rules.CARRIER_TOP
-		var hw := Rules.HANGAR_HW
-		var hh := Rules.HANGAR_HH
+		var W := Rules.FORTRESS_HW
+		var top := Rules.FORTRESS_TOP
+		var hw := Rules.BAY_HW
+		var hh := Rules.BAY_HH
 		var bot := 0.8
 		var deep := 7.0
-		var zc := -L * 0.5
 		var inner := Color8(0x2c, 0x31, 0x39)
-		# hull behind the hangar, then the stern section round the hangar mouth
-		b.box(Vector3(0, (bot + top) * 0.5, -deep - (L - deep) * 0.5), Vector3(W * 2, top - bot, L - deep), HULL, Vector2(0.94, 0.995))
+		# the fuselage: a tall chamfered section, tapering to a raised nose
+		var sect := pts([Vector2(-W, 2.4), Vector2(-W + 1.5, bot), Vector2(W - 1.5, bot), Vector2(W, 2.4),
+			Vector2(W, top - 1.5), Vector2(W - 1.3, top), Vector2(-W + 1.3, top), Vector2(-W, top - 1.5)])
+		along_z(b, Vector3.ZERO, sect, deep, L - 34.0, HULL)
+		along_z(b, Vector3(0, 0, -(L - 34.0)), sect, 0.0, 34.0, HULL, Vector2(0.42, 0.5), Vector2(0, 2.6))
+		# the glazed nose: a band of dark windows wrapping the cockpit, a gun chin below
+		for k in 5:
+			b.box(Vector3(0, top - 1.6 - k * 0.05, -(L - 30.0) - k * 3.2), Vector3(W * 2.04 - k * 0.9, 1.0, 2.4), GLASS_D)
+		gun_turret(b, Vector3(0, bot + 1.6, -(L - 26.0)), 1.6, 3, -1.0)
+		# the tail round the bay mouth (a ring of armour a little bigger than the fuselage)
 		b.box(Vector3(0, (bot + y - hh) * 0.5, -deep * 0.5), Vector3(W * 2, y - hh - bot, deep), HULL_D)
 		b.box(Vector3(0, (y + hh + top) * 0.5, -deep * 0.5), Vector3(W * 2, top - y - hh, deep), HULL, Vector2(0.94, 1.0))
 		for sx in [1.0, -1.0]:
 			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, -deep * 0.5), Vector3(W - hw, hh * 2, deep), HULL)
 		b.box(Vector3(0, y, -deep + 0.1), Vector3(hw * 2, hh * 2, 0.2), inner)
 		b.box(Vector3(0, y - hh + 0.05, -deep * 0.5), Vector3(hw * 2, 0.1, deep), inner.lightened(0.1))
-		# keel and armour belts along the sides
-		b.box(Vector3(0, bot - 0.5, zc), Vector3(W * 1.2, 1.0, L * 0.92), HULL_D, Vector2(1.4, 1.0))
-		for sx in [1.0, -1.0]:
-			for k in 6:
-				b.box(Vector3(sx * (W + 0.4), 7.5, -12.0 - k * 30.0), Vector3(0.8, 6.0, 14.0), HULL_D, Vector2(0.6, 0.95))
-		# deck: runway stripes and amber edges
-		for k in 16:
-			b.box(Vector3(0, top + 0.01, -46.0 - k * 8.5), Vector3(0.5, 0.04, 3.5), Color8(0xe8, 0xe0, 0xc8))
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (W - 0.5), top + 0.01, zc), Vector3(0.22, 0.04, L - 6), AMBER)
-		# amber frame round the hangar mouth
+		# amber frame round the bay mouth
 		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
 		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
 		for sx in [1.0, -1.0]:
 			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), AMBER)
-			# stern engines low on the hull
-			b.prism(Vector3(sx * 3.4, 0, 0.5), ngon(1.1, 8, PI / 8), 1.0, 2.4, NAVY, Vector2(0.85, 0.85))
+		# the tailplane, wide and swept, with a tall fin at each end
+		for sx in [1.0, -1.0]:
+			var keep := b.xf
+			b.xf = Transform3D(Basis.from_scale(Vector3(sx, 1, 1)), Vector3.ZERO) * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3(W, 8.6, -9.0))
+			b.prism(Vector3.ZERO, pts([Vector2(0, -8.0), Vector2(-0.45, -4.0), Vector2(-0.35, 6.0), Vector2(0, 8.0),
+				Vector2(0.3, 6.0), Vector2(0.4, -4.0)]), 0.0, 10.5, ARMOUR, Vector2(0.7, 0.62), Vector2(-0.6, 4.0))
+			b.xf = keep
+			var fx: float = sx * (W + 10.2)
+			var fin := pts([Vector2(-0.5, -6.5), Vector2(0.5, -6.5), Vector2(0.5, 5.0), Vector2(0, 7.0), Vector2(-0.5, 5.0)])
+			b.prism(Vector3(fx, 0, -5.0), fin, 3.2, 20.5, HULL, Vector2(0.8, 0.6), Vector2(0, 3.0))
+			b.box(Vector3(fx, 19.2, -1.6), Vector3(1.2, 0.3, 3.0), AMBER)
+			b.octa(Vector3(fx, 8.6, -2.6), 1.2, HULL_D, Vector3(1.0, 0.9, 2.2))
+		# a ventral gondola bristling with guns, keel plates, armour belts down the flanks
+		b.box(Vector3(0, bot - 0.3, -L * 0.5), Vector3(W * 1.1, 0.6, L * 0.8), HULL_D, Vector2(0.75, 1.0))
+		for sx in [1.0, -1.0]:
+			for k in 4:
+				b.box(Vector3(sx * (W + 0.3), 6.2, -14.0 - k * 26.0), Vector3(0.6, 6.0, 16.0), ARMOUR, Vector2(0.6, 0.95))
+				# gun blisters between the belts, high and low
+				var bz := -27.0 - k * 26.0
+				b.octa(Vector3(sx * (W + 0.2), 10.8, bz), 1.1, HULL_D, Vector3(0.9, 0.9, 1.2))
+				along_z(b, Vector3(sx * (W + 0.7), 10.8, bz), ngon(0.14, 6), -0.4, -2.6, STEEL_D)
+				b.octa(Vector3(sx * (W + 0.2), 2.6, bz + 8.0), 0.9, HULL_D, Vector3(0.9, 0.9, 1.2))
+		# the spine: plating seams and a row of twin turrets on top
+		for k in 6:
+			b.box(Vector3(0, top + 0.02, -36.0 - k * 12.0), Vector3(W * 1.6, 0.06, 0.25), HULL_D)
+		for k in 3:
+			gun_turret(b, Vector3(0, top + 0.3, -48.0 - k * 20.0), 1.5, 2)
+		for sx in [1.0, -1.0]:
+			b.box(Vector3(sx * (W - 0.9), top + 0.02, -L * 0.55), Vector3(0.22, 0.05, L - 20.0), AMBER)
 		return b.commit())
 
 
-## The carrier's stern armour plating with the gun platforms of its first section (breaks off).
-static func carrier_plating() -> Mesh:
-	return cached("carrier_plating", func() -> Mesh:
+## Where the wings meet the fuselage (x of the right root, y, z of the root's mid chord), their
+## span, and the engines' places along the span.
+const WING_ROOT := Vector3(4.6, 9.4, -46.0)
+const WING_SPAN := 54.0
+const WING_ENGINES := [11.0, 23.0, 36.0]
+
+
+## A point on the right wing at `along` (0 at the root, 1 at the tip): the wing's local frame
+## (x out, y up, z aft) at its mid chord, and its chord there.
+static func wing_at(along: float) -> Array:
+	return [Vector3(along * WING_SPAN, along * 2.6, along * 17.0), lerpf(34.0, 11.0, along)]
+
+
+## One wing (`side` 1 right, -1 left), built round its root: a long tapered wing with a slight
+## dihedral, two engine nacelles hanging under it (the propellers are `fortress_prop`s) and gun
+## blisters on its top.
+static func fortress_wing(side: float) -> Mesh:
+	return cached("fortress_wing%d" % side, func() -> Mesh:
 		var b := Builder.new()
-		var W := Rules.CARRIER_HW
-		var top := Rules.CARRIER_TOP
+		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
+		var keep := b.xf
+		b.xf = keep * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3.ZERO)
+		b.prism(Vector3.ZERO, pts([Vector2(0, -17.0), Vector2(-1.0, -11.0), Vector2(-0.75, 10.0), Vector2(0, 17.0),
+			Vector2(0.7, 10.0), Vector2(0.9, -11.0)]), 0.0, WING_SPAN, ARMOUR, Vector2(0.45, 11.0 / 34.0), Vector2(-2.6, 17.0))
+		b.xf = keep
+		var tip: Vector3 = wing_at(1.0)[0]
+		b.box(tip + Vector3(0.2, 0, -1.0), Vector3(0.4, 0.5, 6.0), AMBER)
+		for e: float in WING_ENGINES:
+			var w: Array = wing_at(e / WING_SPAN)
+			var at: Vector3 = w[0] + Vector3(0, -1.5, 0)
+			var ch: float = w[1]
+			# a nacelle under the wing from ahead of the leading edge to the propeller at the back
+			along_z(b, at + Vector3(0, 0, ch * 0.5 + 1.5), ngon(1.5, 8, PI / 8), 0.0, ch + 4.0, HULL_D)
+			along_z(b, at + Vector3(0, 0, -ch * 0.5 - 2.5), ngon(1.5, 8, PI / 8), 0.0, 3.0, HULL_D, Vector2(0.45, 0.45))
+			along_z(b, at + Vector3(0, 0, ch * 0.5 + 3.4), ngon(0.55, 8, PI / 8), 0.0, 1.9, STEEL_D)
+			b.box(at + Vector3(0, 1.0, 0), Vector3(0.8, 1.2, ch * 0.7), HULL_D)
+			b.box(at + Vector3(0, -1.45, ch * 0.2), Vector3(0.5, 0.2, ch * 0.4), AMBER)
+		for f in [0.3, 0.6, 0.86]:
+			var w: Array = wing_at(f)
+			gun_turret(b, w[0] + Vector3(0, 0.55, -2.0), 1.0, 2)
+		return b.commit())
+
+
+## Where a wing's engines' propellers spin, in the wing's frame (right wing; x flips on the left).
+static func prop_points() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for e: float in WING_ENGINES:
+		var w: Array = wing_at(e / WING_SPAN)
+		out.append(w[0] + Vector3(0, -1.5, float(w[1]) * 0.5 + 3.5))
+	return out
+
+
+## A four-bladed pusher propeller facing aft (spun round z).
+static func fortress_prop() -> Mesh:
+	return cached("fortress_prop", func() -> Mesh:
+		var b := Builder.new()
+		along_z(b, Vector3(0, 0, 0.3), ngon(0.6, 8), 0.0, 0.8, NAVY, Vector2(0.4, 0.4))
+		for k in 4:
+			var keep := b.xf
+			b.xf = Transform3D(Basis(Vector3.BACK, TAU * k / 4.0 + 0.3), Vector3.ZERO)
+			b.box(Vector3(0, 1.9, 0), Vector3(0.6, 3.4, 0.14), NAVY, Vector2(0.6, 1.0))
+			b.xf = keep
+		return b.commit())
+
+
+## The fortress's tail armour plating with the gun platforms of its first section (breaks off).
+static func fortress_plating() -> Mesh:
+	return cached("fortress_plating", func() -> Mesh:
+		var b := Builder.new()
+		var W := Rules.FORTRESS_HW
+		var top := Rules.FORTRESS_TOP
 		var y := Rules.PY
-		var hh := Rules.HANGAR_HH
+		var hh := Rules.BAY_HH
 		b.box(Vector3(0, (y + hh + 0.6 + top) * 0.5, 0.25), Vector3(W * 2 - 0.6, top - y - hh - 0.6, 0.5), FOE_D, Vector2(0.97, 1.0))
 		for k in 3:
 			b.box(Vector3(0, top - 1.0 - k * 1.3, 0.52), Vector3(W * 2 - 1.4, 0.12, 0.06), AMBER)
 		for sx in [1.0, -1.0]:
 			b.box(Vector3(sx * 4.0, (1.2 + y + hh) * 0.5, 0.3), Vector3(1.6, y + hh - 1.2, 0.6), FOE_D)
-		for m: Vector2 in Rules.CARRIER_SECTIONS[0].mounts:
+		for m: Vector2 in Rules.FORTRESS_SECTIONS[0].mounts:
 			b.box(Vector3(m.x, m.y - 0.8, 0.8), Vector3(1.6, 0.25, 1.2), HULL)
 		return b.commit())
 
 
-## The carrier's stepped tower with the gun platforms of its second section (breaks off).
-static func carrier_tower() -> Mesh:
-	return cached("carrier_tower", func() -> Mesh:
+## The fortress's dorsal gun tower, an armoured casemate stepped up from its spine, with the gun
+## platforms of its second section and a big twin gun on top (breaks off).
+static func fortress_tower() -> Mesh:
+	return cached("fortress_tower", func() -> Mesh:
 		var b := Builder.new()
-		var W := Rules.CARRIER_HW
-		var top := Rules.CARRIER_TOP
-		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), HULL, Vector2(0.92, 0.97))
-		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.85, 0.95))
-		b.box(Vector3(0, Rules.TOWER_TOP + 0.6, -16.0), Vector3(1.0, 1.2, 1.0), HULL_D)
-		b.box(Vector3(0, Rules.TOWER_TOP + 2.2, -16.0), Vector3(0.25, 2.2, 0.25), STEEL_D)
+		var W := Rules.FORTRESS_HW
+		var top := Rules.FORTRESS_TOP
+		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), ARMOUR, Vector2(0.88, 0.97))
+		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.8, 0.95))
+		gun_turret(b, Vector3(0, Rules.TOWER_TOP + 0.4, -16.0), 1.9, 2)
+		b.box(Vector3(0, Rules.TOWER_TOP + 0.3, -22.0), Vector3(0.25, 4.0, 0.25), STEEL_D)
 		for k in 4:
 			b.box(Vector3((k - 1.5) * 1.6, 18.2, -2.95), Vector3(1.0, 0.5, 0.1), CYAN)
-		for m: Vector2 in Rules.CARRIER_SECTIONS[1].mounts:
+		for m: Vector2 in Rules.FORTRESS_SECTIONS[1].mounts:
 			var fz := -0.4 if m.y < 17.0 else -2.4
 			b.box(Vector3(m.x, m.y - 0.8, fz - 0.1), Vector3(1.4, 0.25, 1.2), HULL_D)
 		return b.commit())
 
 
-## The carrier's lights (engines, hangar strips, tower windows), a separate mesh with a glow
-## material.
-static func carrier_lights() -> Mesh:
-	return cached("carrier_lights", func() -> Mesh:
+## The fortress's lights (bay strips), a separate mesh with a glow material.
+static func fortress_lights() -> Mesh:
+	return cached("fortress_lights", func() -> Mesh:
 		var b := Builder.new()
 		var y := Rules.PY
-		var hw := Rules.HANGAR_HW
-		var hh := Rules.HANGAR_HH
+		var hw := Rules.BAY_HW
+		var hh := Rules.BAY_HH
 		for k in 3:
 			b.box(Vector3(0, y + hh - 0.3, -1.5 - k * 2.0), Vector3(hw * 1.4, 0.05, 0.25), Color.WHITE)
-		for sx in [1.0, -1.0]:
-			b.prism(Vector3(sx * 3.4, 0, 0.62), ngon(0.75, 8, PI / 8), 1.2, 2.2, Color.WHITE)
+		return b.commit())
+
+
+## The engines' exhaust glow round the back of a wing's nacelles (`side` 1 right, -1 left).
+static func fortress_exhausts(side: float) -> Mesh:
+	return cached("fortress_exhausts%d" % side, func() -> Mesh:
+		var b := Builder.new()
+		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
+		for p in prop_points():
+			along_z(b, p + Vector3(0, 0, -1.9), ngon(1.15, 8, PI / 8), 0.0, 0.2, Color.WHITE)
 		return b.commit())
 
 
@@ -826,6 +953,71 @@ static func count(kind: String) -> void:
 const PROP_SCALE := 1.5
 
 
+## Landmarks: the prominent scenery the player can shoot down (lighthouses, boats, two-storey
+## houses). `scatter` leaves them out of the chunk's mesh and lists them here instead; the game
+## takes the list after each chunk (`Game.update_chunks`) and gives each its own node.
+static var marks: Array = []
+## Height of a landmark's centre above its base (the game hits it there, as it shows on screen).
+const MARK_H := {"lighthouse": 1.7, "boat": 0.3, "house": 0.85}
+
+
+static func mark(kind: String, pos: Vector3, ang: float, r: float) -> void:
+	count(kind)
+	marks.append({"kind": kind, "pos": pos, "ang": ang, "r": r})
+
+
+static func house_kind(r: float) -> int:
+	return int(r * 53.0) % 3
+
+
+## A landmark's own mesh, centred on its hit point (MARK_H above its base), facing +z.
+static func landmark(kind: String, r: float) -> Mesh:
+	var q := snappedf(r, 1.0 / 32.0)
+	return cached("mark_%s_%s" % [kind, q], func() -> Mesh:
+		var b := Builder.new()
+		b.bottoms = false
+		var at := Vector3(0, -MARK_H[kind], 0)
+		match kind:
+			"lighthouse":
+				lighthouse(b, at, q * TAU)
+			"boat":
+				boat(b, at, 0.0)
+			"house":
+				house(b, at, 0.0, q)
+		return b.commit())
+
+
+## What is left of a landmark once it's shot down, from its base: a scorched stump and rubble.
+static func ruin(kind: String) -> Mesh:
+	return cached("ruin_" + kind, func() -> Mesh:
+		var b := Builder.new()
+		b.bottoms = false
+		place(b, Vector3.ZERO, 0.0)
+		var soot := Color8(0x3a, 0x34, 0x30)
+		match kind:
+			"lighthouse":
+				b.prism(Vector3.ZERO, ngon(0.75, 8), -0.4, 0.42, STONE_WET.darkened(0.2), Vector2(0.8, 0.8))
+				b.prism(Vector3.ZERO, ngon(0.36, 8), 0.1, 0.55, Color8(0xd8, 0xd2, 0xc8).darkened(0.3), Vector2(0.9, 0.9))
+				b.prism(Vector3.ZERO, ngon(0.24, 8), 0.5, 0.58, soot)
+				for k in 4:
+					b.octa(Vector3(cos(k * 1.7) * 0.7, 0.35, sin(k * 1.7) * 0.7), 0.16, Color8(0xc8, 0x3c, 0x34).darkened(0.35))
+			"house":
+				b.prism(Vector3.ZERO, ngon(0.95, 8), -0.3, 0.05, soot, Vector2(0.95, 0.95))
+				b.box(Vector3(-0.3, 0.2, 0.42), Vector3(0.7, 0.36, 0.08), WALLS[0].darkened(0.45))
+				b.box(Vector3(0.5, 0.15, -0.1), Vector3(0.08, 0.3, 0.7), WALLS[0].darkened(0.5))
+				b.box(Vector3(-0.3, 0.35, 0.1), Vector3(0.16, 0.7, 0.16), BRICK.darkened(0.25))
+				for k in 5:
+					b.octa(Vector3(cos(k * 2.3) * 0.5, 0.08, sin(k * 2.3) * 0.4), 0.13, ROOFS[k % 4].darkened(0.4))
+			"boat":
+				b.prism(Vector3.ZERO, ngon(0.8, 10), -0.03, 0.01, FOAM.darkened(0.15))
+				for k in 4:
+					var a := k * 1.6
+					b.xf = Transform3D(Basis(Vector3.UP, a * 2.0).scaled(Vector3.ONE * PROP_SCALE), Vector3(cos(a) * 0.5, 0, sin(a) * 0.4) * PROP_SCALE)
+					b.box(Vector3(0, 0.02, 0), Vector3(0.36, 0.06, 0.1), WOOD.darkened(0.2))
+		b.xf = Transform3D.IDENTITY
+		return b.commit())
+
+
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
 	b.xf = Transform3D(Basis(Vector3.UP, ang).scaled(Vector3.ONE * PROP_SCALE), pos)
 
@@ -843,7 +1035,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	if lo < 0.0 and hi >= 0.0:
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
-			lighthouse(b, Vector3(cen.x, -0.4, cen.z), ang)
+			mark("lighthouse", Vector3(cen.x, -0.4, cen.z), ang, r2)
 		elif r < 0.12:
 			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 2.5, r2, true)
 	elif hi < 0.0:
@@ -851,7 +1043,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		if avg > -0.14 and r < 0.025:
 			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 16.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
-			boat(b, Vector3(cen.x, -0.4, cen.z), ang)
+			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
 		if r < 0.08:
@@ -881,7 +1073,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		var even := posmod(floori(cen.x * 0.5), 2) == 0 and posmod(floori(cen.z * 0.5), 2) == 0
 		var lot := 0.6 if village else 0.06
 		if avg >= 0.11 and r < lot and even:
-			house(b, at, snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3, r2)
+			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
+			if house_kind(r2) == 1:
+				mark("house", at, turn, r2)   # the tall ones can be shot down
+			else:
+				house(b, at, turn, r2)
 		elif r2 < 0.1:
 			broadleaf(b, at + Vector3((r - 0.5) * 0.8, 0, (r2 - 0.05) * 6.0), r)
 		elif r2 < 0.16:
@@ -1039,7 +1235,7 @@ static func house(b: Builder, p: Vector3, ang: float, r: float) -> void:
 	var base := b.xf
 	var wall: Color = WALLS[int(r * 17.0) % 4]
 	var roof: Color = ROOFS[int(r * 29.0) % 4]
-	var kind := int(r * 53.0) % 3
+	var kind := house_kind(r)
 	if kind == 0:
 		var w := 1.25
 		var d := 0.85

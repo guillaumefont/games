@@ -1,7 +1,7 @@
 class_name Hud
 extends Control
 ## The interface: the in-flight HUD (hull, score, scrap, banners, boss bar), the reticle and
-## target brackets of the carrier chase, the hangar (upgrades, launch) and the results.
+## target brackets of the fortress chase, the hangar (upgrades, launch) and the results.
 
 const FONT := preload("res://fonts/Inter-Variable.ttf")
 const INK := Color8(0xf2, 0xf6, 0xfa)
@@ -302,7 +302,7 @@ func refresh_campaign() -> void:
 		var open := Campaign.is_open(s, lv)
 		var sel := lv == game.level
 		var grade: String = s.grades.get(Campaign.code(lv), "")
-		var kind: String = {"patrol": "Patrol", "battleship": "Battleship", "carrier": "Carrier"}[Campaign.kind_of(lv)]
+		var kind: String = {"patrol": "Patrol", "battleship": "Battleship", "fortress": "Fortress"}[Campaign.kind_of(lv)]
 		b.disabled = not open
 		b.text = "%s\n%s\n%s" % [Campaign.code(lv), Campaign.level_name(lv) if open else "Locked",
 			("Grade " + grade) if grade != "" else kind]

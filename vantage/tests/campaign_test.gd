@@ -38,28 +38,28 @@ func data() -> void:
 		var ws := Campaign.waves(lv)
 		var sorted := true
 		var bosses := 0
-		var carriers := 0
+		var fortresses := 0
 		for k in ws.size():
 			if k > 0 and ws[k].t < ws[k - 1].t:
 				sorted = false
 			if ws[k].kind == "boss":
 				bosses += 1
-			if ws[k].kind == "carrier":
-				carriers += 1
+			if ws[k].kind == "fortress":
+				fortresses += 1
 		var kind := Campaign.kind_of(lv)
 		var last: String = ws[-1].kind
 		var shape := false
 		match kind:
 			"patrol":
-				shape = bosses == 0 and carriers == 0 and last == "end"
+				shape = bosses == 0 and fortresses == 0 and last == "end"
 			"battleship":
-				shape = bosses == 1 and carriers == 0 and last == "end" and ws[-2].kind == "boss"
-			"carrier":
-				shape = bosses == 1 and carriers == 1 and last == "carrier"
+				shape = bosses == 1 and fortresses == 0 and last == "end" and ws[-2].kind == "boss"
+			"fortress":
+				shape = bosses == 1 and fortresses == 1 and last == "fortress"
 		check(sorted and shape and ws.size() > 8 and Campaign.foes_in(lv) > 30,
 			"%s %s (%s): %d waves, in order, ends right" % [Campaign.code(lv), Campaign.level_name(lv), kind, ws.size()])
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
-	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's carrier run is the hand-made sector")
+	check(Campaign.waves(Campaign.PER_WORLD - 1) == Rules.STAGE, "Glass Coast's fortress run is the hand-made sector")
 
 
 func progress() -> void:
@@ -165,7 +165,7 @@ func levels() -> void:
 	g.launch(0)
 	run(g, 120.0, func() -> bool: return g.phase == "results")
 	check(g.phase == "results" and g.run.cleared, "1-1, a patrol, ends once its waves are done")
-	check(g.boss == null and g.carrier == null, "without a boss")
+	check(g.boss == null and g.fortress == null, "without a boss")
 	check(g.s.open == 1 and g.s.sel == 1 and g.run.opened == 1 and g.s.grades.has("1-1"), "it opens 1-2 and keeps the grade")
 	check(g.hud.res_body.text.contains("Unlocked"), "the results say what opened")
 	g.to_hangar()

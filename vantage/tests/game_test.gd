@@ -1,6 +1,6 @@
 extends SceneTree
 ## The game: rules (upgrades, saves, grades), the vertical stage's controls, the swoop into
-## the mid-boss's sections, the carrier chase (final boss: dodging, reactor shield), death
+## the mid-boss's sections, the fortress chase (final boss: dodging, reactor shield), death
 ## and results, the scenery. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
@@ -175,12 +175,12 @@ func controls() -> void:
 
 
 func stage() -> void:
-	print("the stage: mid-boss, carrier chase (final boss)")
+	print("the stage: mid-boss, fortress chase (final boss)")
 	var g := make_game()
 	await process_frame
 	g.s.up.missile = 2
 	g.s.open = 2
-	g.launch(2)   # Glass Coast's carrier run: the hand-made sector
+	g.launch(2)   # Glass Coast's fortress run: the hand-made sector
 	# the mid-boss, top-down
 	run(g, 40.0, func() -> bool: return g.boss != null)
 	check(g.boss != null and g.phase == "vert", "the mid-boss arrives in the vertical stage")
@@ -206,22 +206,28 @@ func stage() -> void:
 	for w: Dictionary in Rules.STAGE:
 		froms[w.get("from", "top")] = true
 	check(froms.has("left") and froms.has("right") and froms.has("back") and froms.has("top"), "from every edge: top, left, right and back")
-	# the final boss: the carrier, chased in third person
+	# the final boss: the fortress, chased in third person
 	check(g.vacuum_t > 0.0 or g.picks.is_empty(), "its scrap flies to the ship")
 	run(g, 60.0, func() -> bool: return g.phase == "approach")
-	check(g.phase == "approach" and g.carrier != null, "the carrier arrives and the swoop begins")
+	check(g.phase == "approach" and g.fortress != null, "the fortress arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
-	check(g.phase == "pov" and g.cam_mode == "chase", "on the carrier's tail, the camera behind the ship")
-	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + Rules.GAP_FAR)) < 0.5, "the ship lined up behind the carrier")
-	check(g.car_sec == 0 and g.car_parts.size() == Rules.CARRIER_SECTIONS[0].mounts.size(), "its stern guns are the first section")
+	check(g.phase == "pov" and g.cam_mode == "chase", "on the fortress's tail, the camera behind the ship")
+	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + Rules.GAP_FAR)) < 0.5, "the ship lined up behind the fortress")
+	check(g.fort_sec == 0 and g.fort_parts.size() == Rules.FORTRESS_SECTIONS[0].mounts.size(), "its tail guns are the first section")
 	for i in 20:
 		g.step(DT)
-	check(g.car_s == Rules.CARRIER_SCALE, "the carrier grew during the swoop")
+	check(g.fort_s == Rules.FORTRESS_SCALE, "the fortress grew during the swoop")
+	# a flying fortress: two wings with propellers that turn
+	check(g.fortress.has_node("wing_l") and g.fortress.has_node("wing_r") and g.fort_props.size() == 2 * Models.WING_ENGINES.size(), "a flying fortress: two wings with their engines")
+	var spin0: float = g.fort_props[0].rotation.z
+	g.step(DT)
+	check(absf(g.fort_props[0].rotation.z - spin0) > 0.1, "its propellers turn")
+	check(g.fortress.global_position.y > -2.0 and g.fort_point(Vector3(0, Rules.PY, 0)).y > Rules.PY, "it flies, its bay above the ship's altitude")
 	var vs := g.view_size()
-	var left := g.cam.unproject_position(g.carrier_point(Vector3(-Rules.CARRIER_HW, Rules.PY, 0)))
-	var right := g.cam.unproject_position(g.carrier_point(Vector3(Rules.CARRIER_HW, Rules.PY, 0)))
-	var tower := g.cam.unproject_position(g.carrier_point(Vector3(0, Rules.TOWER_TOP, 0)))
+	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, Rules.PY, 0)))
+	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, Rules.PY, 0)))
+	var tower := g.cam.unproject_position(g.fort_point(Vector3(0, Rules.TOWER_TOP, 0)))
 	check(left.x < 0 and right.x > vs.x and tower.y < 0, "the final boss is bigger than the screen")
 	run(g, 1.0)
 	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
@@ -230,7 +236,7 @@ func stage() -> void:
 	var gap := g.ppos.z - g.stern_z
 	var z0 := g.ppos.z
 	run(g, 1.0)
-	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 3.0, "ship and carrier fly forward together, outside")
+	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 3.0, "ship and fortress fly forward together, outside")
 	var kills: int = g.run.kills
 	g.off = Vector2.ZERO
 	for i in 40:
@@ -245,23 +251,28 @@ func stage() -> void:
 	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01 and g.ppos.y <= Rules.PY + Rules.POV_REACH.y + 0.01, "but no further than the play area")
 	var o := g.orb(g.ppos + Vector3(0, 0, -20), 10.0)
 	check(o.vel.z + Rules.RAIL > 9.0, "foes' orbs come at the ship at their own speed, whatever the rail speed")
-	run(g, 60.0, func() -> bool: return g.car_sec == 1)
-	check(g.car_sec == 1 and not g.carrier.get_node("plating").visible, "stern guns down: the plating breaks off, the tower guns open")
+	run(g, 60.0, func() -> bool: return g.fort_sec == 1)
+	check(g.fort_sec == 1 and not g.fortress.get_node("plating").visible, "tail guns down: the plating breaks off, the tower guns open")
 	run(g, 60.0, func() -> bool: return g.phase == "core")
-	check(g.car_sec == 2 and not g.carrier.get_node("tower").visible, "tower guns down: the tower breaks off, the reactor opens")
+	check(g.fort_sec == 2 and not g.fortress.get_node("tower").visible, "tower guns down: the tower breaks off, the reactor opens")
 	check(g.phase == "core" and g.core != null and g.shielded(), "the reactor, shielded by its panels")
 	check(g.run.kills > kills, "foes shot down in the chase")
 	var hp: float = g.core.hp
 	g.damage(g.core, 10.0)
 	check(g.core.hp == hp, "the shield stops shots on the core")
 	run(g, 40.0, func() -> bool: return g.phase == "escape")
-	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the carrier goes down")
+	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: the fortress goes down")
+	var wing: Node3D = g.fortress.get_node("wing_l")
+	var wing_at := wing.global_position
 	run(g, Rules.CRASH_TIME * 0.6)
-	check(g.carrier != null and g.carrier.visible and g.car_fall > 3.0 and g.carrier.rotation.x < -0.05,
-		"it noses over and falls, in sight (%.1f m down)" % g.car_fall)
-	check(not g.cam.is_position_behind(g.carrier.global_position) and g.sound.played.has("crash"), "with the crash heard")
+	check(g.wing_off == wing and wing.global_position.distance_to(wing_at) > 15.0 and g.fortress.rotation.z > 0.15,
+		"its left wing snaps off and tumbles away, and it rolls onto that side")
+	check(g.prop_spin < Rules.PROP_SPIN, "its propellers wind down")
+	check(g.fortress != null and g.fortress.visible and g.fort_fall > 3.0 and g.fortress.rotation.x < -0.05,
+		"it noses over and falls, in sight (%.1f m down)" % g.fort_fall)
+	check(not g.cam.is_position_behind(g.fortress.global_position) and g.sound.played.has("crash"), "with the crash heard")
 	run(g, Rules.CRASH_TIME + 2.0, func() -> bool: return g.phase == "clear")
-	check(g.phase == "clear" and g.cam_mode == "chase" and g.carrier == null, "the final boss is down: sector clear, still in the chase view")
+	check(g.phase == "clear" and g.cam_mode == "chase" and g.fortress == null, "the final boss is down: sector clear, still in the chase view")
 	run(g, 10.0, func() -> bool: return g.phase == "results")
 	check(g.phase == "results" and g.run.cleared, "results: sector cleared")
 	check(g.s.scrap == g.run.scrap and g.run.scrap > 300 and g.s.clears == 1, "scrap earned goes to the hangar (%d)" % g.run.scrap)
@@ -294,14 +305,14 @@ func death() -> void:
 	await process_frame
 
 
-## Guillaume: the carrier's sides were out of reach, ground turrets were hit above where they
+## Guillaume: the fortress's sides were out of reach, ground turrets were hit above where they
 ## show, and hits need a flash.
 func aiming() -> void:
 	print("aiming and hits")
-	for sec: Dictionary in Rules.CARRIER_SECTIONS:
+	for sec: Dictionary in Rules.FORTRESS_SECTIONS:
 		for m: Vector2 in sec.mounts:
-			var x := m.x * Rules.CARRIER_SCALE
-			check(absf(x) <= Rules.POV_REACH.x, "carrier mount at x %.1f within the chase's reach" % x)
+			var x := m.x * Rules.FORTRESS_SCALE
+			check(absf(x) <= Rules.POV_REACH.x, "fortress mount at x %.1f within the chase's reach" % x)
 	var g := make_game()
 	await process_frame
 	g.launch()
@@ -326,14 +337,14 @@ func aiming() -> void:
 	await process_frame
 
 
-## Guillaume: one swipe should carry the ship from one flank of the carrier to the other.
+## Guillaume: one swipe should carry the ship from one flank of the fortress to the other.
 func swipe() -> void:
 	print("the chase swipe")
 	var g := make_game()
 	await process_frame
 	var d := g.pov_drag()
 	var across := g.view_size().x * Rules.POV_SWIPE
-	check(across * d.x >= 2.0 * Rules.POV_REACH.x - 0.01, "a %.0f px swipe crosses the whole carrier (%.1f m)" % [across, across * d.x])
+	check(across * d.x >= 2.0 * Rules.POV_REACH.x - 0.01, "a %.0f px swipe crosses the whole fortress (%.1f m)" % [across, across * d.x])
 	check(g.view_size().y * Rules.POV_SWIPE * d.y >= Rules.POV_REACH.y + Rules.POV_DOWN - 0.01, "and one swipe up climbs the tower")
 	g.queue_free()
 	await process_frame
@@ -400,7 +411,7 @@ func world_edges() -> void:
 	var g := make_game()
 	await process_frame
 	g.launch()
-	g.spawn_carrier()
+	g.spawn_fortress()
 	g.begin_approach()
 	g.begin_pov()
 	var fog := 0.0
@@ -480,6 +491,62 @@ func scenery() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-23): prominent scenery, the lighthouse for one, can be destroyed.
+func landmarks() -> void:
+	print("landmarks")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	var found: Game.Obj = null
+	for i in int(60.0 / DT):
+		g.hp = 3
+		g.step(DT)
+		for f in g.foes:
+			if g.landmark(f) and not f.dead and g.on_screen(f):
+				found = f
+		if found:
+			break
+	check(found != null, "a landmark comes into play in the vertical stage")
+	if found == null:
+		g.queue_free()
+		return
+	check(found.ground and found.node.get_parent() in g.chunks.values(), "it is part of the ground (%s)" % found.kind)
+	var kills: int = g.run.kills
+	var score: int = g.run.score
+	var picks := g.picks.size()
+	var parent := found.node.get_parent()
+	var children := parent.get_child_count()
+	g.damage(found, 1.0)
+	check(not found.dead and found.hit > 0.0, "a hit landmark flashes")
+	g.damage(found, 999.0)
+	check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
+	check(g.picks.size() > picks, "it drops scrap")
+	check(parent.get_child_count() == children + 1 and g.ruined.size() == 1, "a ruin is left where it stood")
+	# the chase lets standing landmarks go without blowing them up
+	g.step(DT)
+	var standing := 0
+	for m: Dictionary in g.marks:
+		if is_instance_valid(m.node):
+			standing += 1
+	g.spawn_fortress()
+	g.begin_approach()
+	g.step(DT)
+	var after := 0
+	for f in g.foes:
+		if g.landmark(f):
+			after += 1
+	check(after == 0, "no landmark is a target in the chase")
+	var still := 0
+	for m: Dictionary in g.marks:
+		if is_instance_valid(m.node):
+			still += 1
+	check(still >= standing - 1, "landmarks still stand in the chase (%d of %d)" % [still, standing])
+	g.to_hangar()
+	check(g.ruined.is_empty(), "back in the hangar, ruined ground is rebuilt for the next sortie")
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage game test")
 	rules()
@@ -490,6 +557,7 @@ func _initialize() -> void:
 	await swipe()
 	await lingering()
 	await scenery()
+	await landmarks()
 	await stage()
 	await death()
 	await world_edges()

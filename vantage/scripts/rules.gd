@@ -18,33 +18,33 @@ const SCROLL := 8.0
 const PLAYER_R := 0.42
 const PICK_R := 1.0
 
-# ---------------------------------------------------------------- the carrier (POV episode)
-## The carrier: `CARRIER_LEN` long, its hangar (the opening at the stern where the reactor
+# ---------------------------------------------------------------- the fortress (POV episode)
+## The fortress: `FORTRESS_LEN` long, its bay (the opening in its tail where the reactor
 ## shows) centred on the flight altitude.
-const CARRIER_LEN := 180.0
-## The carrier is tall and narrow (it fits a portrait screen in the chase): half width, the
+const FORTRESS_LEN := 120.0
+## The fortress is tall and narrow (it fits a portrait screen in the chase): half width, the
 ## height of its hull and of its tower, and its hangar (half width, half height).
-const CARRIER_HW := 5.0
-const CARRIER_TOP := 13.0
+const FORTRESS_HW := 5.0
+const FORTRESS_TOP := 13.0
 const TOWER_TOP := 21.0
-const HANGAR_HW := 3.0
-const HANGAR_HH := 2.3
+const BAY_HW := 3.0
+const BAY_HH := 2.3
 ## The final boss in sections, like the mid-boss: turrets on the stern round the hangar (on
 ## armour plating that breaks off), then turrets up the tower (which breaks off), then the
-## reactor in the hangar behind its four shield panels. Mounts are (x, y) on the carrier's
+## reactor in the hangar behind its four shield panels. Mounts are (x, y) on the fortress's
 ## model, all within the ship's reach in the chase.
-const CARRIER_SECTIONS := [
-	{"name": "STERN GUNS", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
+const FORTRESS_SECTIONS := [
+	{"name": "TAIL GUNS", "mounts": [Vector2(-4.0, 3.2), Vector2(4.0, 3.2), Vector2(-4.0, 9.0),
 		Vector2(4.0, 9.0), Vector2(-2.0, 10.8), Vector2(2.0, 10.8)]},
-	{"name": "TOWER", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
+	{"name": "GUN TOWER", "mounts": [Vector2(-3.0, 14.5), Vector2(3.0, 14.5), Vector2(0.0, 16.0),
 		Vector2(-1.8, 19.5), Vector2(1.8, 19.5)]},
 	{"name": "REACTOR", "mounts": []},
 ]
 ## Seconds between drone launches from the hangar during the chase.
 const DRONE_EVERY := 6.5
 ## The chase (third person, outside): how far the ship may move from the centre line
-## (x either side, wide enough to fly past the carrier's flanks at its chase scale; y up; `POV_DOWN` down; the carrier is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
-## to the carrier's stern while chasing and while fighting its reactor, the swoop's length,
+## (x either side, wide enough to fly past the fortress's flanks at its chase scale; y up; `POV_DOWN` down; the fortress is tall, so the ship climbs high), metres per pixel of drag, the on-rails speed, the distance
+## to the fortress's stern while chasing and while fighting its reactor, the swoop's length,
 ## where the guns converge and how far the aim assist reaches.
 const POV_REACH := Vector2(11.0, 36.0)
 const POV_DOWN := 2.5
@@ -57,15 +57,22 @@ const SLOW_STOP := 0.7
 const SLOW_RESUME := 0.25
 const GAP_FAR := 10.0
 const GAP_NEAR := 9.0
-## In the chase the carrier grows (during the swoop) to `CARRIER_SCALE` times its size, its
-## hangar `CARRIER_LIFT` above the flight altitude, so up close it overflows the screen.
-const CARRIER_SCALE := 2.2
-const CARRIER_LIFT := 6.0
+## In the chase the fortress grows (during the swoop) to `FORTRESS_SCALE` times its size, its
+## hangar `FORTRESS_LIFT` above the flight altitude, so up close it overflows the screen.
+const FORTRESS_SCALE := 2.2
+const FORTRESS_LIFT := 6.0
+## Before the swoop, seen from above, it cruises this far above where it sits in the chase's
+## frame, so it flies clear of the land (its bay above the flight altitude).
+const FORTRESS_CRUISE := 3.0
+## Its propellers' spin (radians a second).
+const PROP_SPIN := 16.0
 const APPROACH := 2.6
 const AIM_AHEAD := 32.0
-## The carrier going down after its reactor: how long, and how fast it falls (m/s per second).
+## The fortress going down after its reactor: how long, how fast it falls (m/s per second), and
+## when its left wing snaps off.
 const CRASH_TIME := 5.0
-const CRASH_FALL := 1.6
+const CRASH_FALL := 2.2
+const WING_SNAP := 1.2
 const AIM_ASSIST := 3.0
 
 # ---------------------------------------------------------------- upgrades
@@ -178,11 +185,17 @@ const FOES := {
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
 	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
 	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
+	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
+	"lighthouse": {"hp": 22.0, "r": 1.3, "score": 500, "scrap": 25},
+	"house": {"hp": 9.0, "r": 1.4, "score": 150, "scrap": 10},
+	"boat": {"hp": 5.0, "r": 1.2, "score": 100, "scrap": 5},
 }
+## Scenery that can be shot down (see FOES).
+const LANDMARKS := ["lighthouse", "house", "boat"]
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the
-## carrier, chased in third person, and ends the sector. `x` is where the wave enters, `n` how many
+## fortress, chased in third person, and ends the sector. `x` is where the wave enters, `n` how many
 ## foes, `gap` the seconds between them.
 ## Waves enter from off-screen: "from" is the edge (top by default; darts can also sweep in
 ## from the left or right, x then shifting their row, or overtake from the back up the lane x).
@@ -205,8 +218,8 @@ const STAGE := [
 	{"t": 33.5, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
 	{"t": 35.5, "kind": "dart", "n": 6, "x": 4.5, "gap": 0.3, "from": "back"},
 	{"t": 36.0, "kind": "swing", "n": 6, "x": 2.5, "gap": 0.35},
-	# final boss: the carrier chase ends the sector
-	{"t": 40.0, "kind": "carrier", "n": 1, "x": 0.0, "gap": 0.0},
+	# final boss: the fortress chase ends the sector
+	{"t": 40.0, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0},
 ]
 
 
@@ -242,9 +255,9 @@ static func stage_foes() -> int:
 	for w: Dictionary in STAGE:
 		if w.kind == "boss":
 			n += boss_parts()
-		elif w.kind != "carrier":
+		elif w.kind != "fortress":
 			n += int(w.n)
-	for sec: Dictionary in CARRIER_SECTIONS:
+	for sec: Dictionary in FORTRESS_SECTIONS:
 		n += 5 if sec.mounts.is_empty() else sec.mounts.size()
 	return n
 
