@@ -1331,7 +1331,7 @@ func collide(_dt: float) -> void:
 			if pov:
 				hit = seg_dist(o.pos - o.vel * _dt, o.pos, f.pos) < f.r + o.r
 			else:
-				hit = flat_dist(o.pos, seen(f.pos)) < f.r + o.r and on_screen(f)
+				hit = flat_dist(o.pos, seen(f.pos)) < f.r + o.r and on_screen(f) and (not landmark(f) or well_in_view(f))
 			if hit:
 				o.dead = true
 				damage(f, o.dmg)
@@ -1396,7 +1396,8 @@ func kill(f: Obj) -> void:
 	if f.kind not in ["orb", "boss"] and not landmark(f):
 		run.kills += 1
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6,
-		"lighthouse": 2.6, "house": 2.0, "boat": 1.5}.get(f.kind, 1.3)
+		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
+		"duck": 1.8}.get(f.kind, 1.3)
 	if landmark(f):
 		# the landmark falls: a ruin stays on the ground where it stood
 		var k := int(f.anchor.z)
@@ -1626,6 +1627,12 @@ func spawn_marks() -> void:
 			f.pos = node.position
 			f.anchor = Vector3(0, 0, m.chunk)   # its chunk, for the ruin
 			foes.append(f)
+
+
+## A landmark takes hits only once it is well inside the screen, so it is seen before it falls
+## (Guillaume found some shot down before they showed).
+func well_in_view(f: Obj) -> bool:
+	return seen(f.pos).z - frame_z > view_top + Rules.LANDMARK_IN
 
 
 func landmark(f: Obj) -> bool:

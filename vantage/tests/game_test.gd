@@ -508,13 +508,15 @@ func hangar_fits() -> void:
 
 
 ## Guillaume (2026-11-23): more detailed houses, rocks on the beaches and other scenery, drawn
-## big, then comically big; the tallest still stays under the flight altitude, in every world.
+## big, then comically big, with fun landmarks in every world (a stepped pyramid in the dunes, a
+## giant rubber duck, a snowman, a stone head); the tallest still stays under the flight altitude.
 func scenery() -> void:
 	print("scenery")
 	var g := make_game()
 	await process_frame
-	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush"],
-		"dunes": ["mesa", "cactus", "adobe"], "city": ["tower"], "ice": ["pine"], "volcano": ["spire"]}
+	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush", "duck"],
+		"dunes": ["mesa", "cactus", "adobe", "pyramid"], "city": ["tower", "duck", "water tower"], "ice": ["pine", "snowman"],
+		"volcano": ["spire", "stone head"]}
 	var before := Models.theme
 	for theme: String in want:
 		Models.theme = theme
@@ -559,6 +561,17 @@ func landmarks() -> void:
 		g.queue_free()
 		return
 	check(found.ground and found.node.get_parent() in g.chunks.values(), "it is part of the ground (%s)" % found.kind)
+	# Guillaume: landmarks fell before they even showed; they take hits only well inside the screen
+	var keep := found.pos
+	for i in 5:
+		found.pos.z += g.frame_z + g.view_top + 1.0 - g.seen(found.pos).z
+	var hp0 := found.hp
+	var probe := g.new_shot(g.seen(found.pos), Vector3.ZERO, 1.0)
+	g.collide(DT)
+	check(not probe.dead and found.hp == hp0, "a landmark at the top edge isn't hurt yet")
+	probe.dead = true
+	found.pos = keep
+	check(found.hp >= 18.0, "landmarks are sturdy (%s: %.0f hp)" % [found.kind, found.hp])
 	var kills: int = g.run.kills
 	var score: int = g.run.score
 	var picks := g.picks.size()

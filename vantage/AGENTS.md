@@ -129,6 +129,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   the vertical stage only. Shot down: explosion, score and scrap (not a kill), a `Models.ruin` left on the
   chunk, which `to_hangar` rebuilds (`ruined`). Missiles, aim assist and the chase ignore them; leaving
   play (`let_go`, culling) keeps the node, since the chunk owns it.
+- Fun landmarks per world (Guillaume asked for "funny features like Aztec pyramids"): a stepped pyramid in the
+  dunes, giant rubber ducks in the sea and the city's canals, water towers in city parks, giant snowmen on the
+  ice, carved stone heads in the cinders. All destroyable. Landmarks are sturdy (Guillaume saw some fall before
+  they showed): hp in `Rules.FOES`, and shots only hurt them `Rules.LANDMARK_IN` inside the top of the screen
+  (`Game.well_in_view`; tested).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)

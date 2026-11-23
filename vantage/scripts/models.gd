@@ -974,6 +974,8 @@ const PALM := Color8(0x66, 0xa4, 0x40)
 const FOAM := Color8(0xdc, 0xf2, 0xf2)
 const STONE := Color8(0xc4, 0xba, 0xa6)
 const STONE_WET := Color8(0x96, 0x90, 0x86)
+const PYRAMID := Color8(0xc9, 0xa8, 0x6c)
+const DUCK := Color8(0xff, 0xd2, 0x2e)
 
 
 ## How many of each kind of scenery the chunks built so far hold (tests read it).
@@ -996,7 +998,8 @@ const PROP_V := 1.8
 ## takes the list after each chunk (`Game.update_chunks`) and gives each its own node.
 static var marks: Array = []
 ## Height of a landmark's centre above its base before PROP_V (see mark_h).
-const MARK_H := {"lighthouse": 1.15, "boat": 0.2, "house": 0.57}
+const MARK_H := {"lighthouse": 1.15, "boat": 0.2, "house": 0.57, "pyramid": 0.7, "duck": 0.4,
+	"water tower": 1.1, "snowman": 1.0, "stone head": 0.85}
 
 
 ## Height of a landmark's centre above its base (the game hits it there, as it shows on screen).
@@ -1027,6 +1030,17 @@ static func landmark(kind: String, r: float) -> Mesh:
 				boat(b, at, 0.0)
 			"house":
 				house(b, at, 0.0, q)
+			"pyramid":
+				pyramid(b, at)
+			"duck":
+				duck(b, at)
+			"water tower":
+				water_tower(b, at)
+			"snowman":
+				snowman(b, at, q)
+			"stone head":
+				stone_head(b, at)
+		b.xf = Transform3D.IDENTITY
 		return b.commit())
 
 
@@ -1051,6 +1065,19 @@ static func ruin(kind: String) -> Mesh:
 				b.box(Vector3(-0.3, 0.35, 0.1), Vector3(0.16, 0.7, 0.16), BRICK.darkened(0.25))
 				for k in 5:
 					b.octa(Vector3(cos(k * 2.3) * 0.5, 0.08, sin(k * 2.3) * 0.4), 0.13, ROOFS[k % 4].darkened(0.4))
+			"pyramid", "water tower", "snowman", "stone head":
+				# a scorched heap in the landmark's own colours
+				var c: Color = {"pyramid": PYRAMID, "water tower": Color8(0xc8, 0x3c, 0x34), "snowman": Color8(0xf2, 0xf6, 0xfa),
+					"stone head": Color8(0x5a, 0x56, 0x58)}[kind]
+				var w := 1.1 if kind == "pyramid" else 0.6
+				b.prism(Vector3.ZERO, ngon(w * 1.1, 8), -0.3, 0.05, soot, Vector2(0.95, 0.95))
+				b.prism(Vector3.ZERO, ngon(w * 0.8, 7), -0.2, 0.3 if kind == "pyramid" else 0.2, c.darkened(0.3), Vector2(0.6, 0.6))
+				for k in 6:
+					b.octa(Vector3(cos(k * 2.1) * w * 0.9, 0.08, sin(k * 2.1) * w * 0.8), 0.14, c.darkened(0.2 + (k % 2) * 0.2))
+			"duck":
+				b.prism(Vector3.ZERO, ngon(0.7, 10), -0.03, 0.01, FOAM.darkened(0.15))
+				for k in 3:
+					b.octa(Vector3(cos(k * 2.0) * 0.4, 0.03, sin(k * 2.0) * 0.35), 0.14, DUCK.darkened(0.2))
 			"boat":
 				b.prism(Vector3.ZERO, ngon(0.8, 10), -0.03, 0.01, FOAM.darkened(0.15))
 				for k in 4:
@@ -1087,6 +1114,8 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 33.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
 			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
+		elif avg < -0.22 and r < 0.0045:
+			mark("duck", Vector3(cen.x, -0.4, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
 		if r < 0.035:
@@ -1352,7 +1381,9 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 	var at := Vector3(cen.x, cy, cen.z)
 	match theme:
 		"dunes":
-			if avg >= 0.8 and r < 0.1:
+			if avg >= 0.15 and avg < 0.6 and r < 0.0025:
+				mark("pyramid", at, snappedf(r2 * TAU, PI * 0.5), r2)
+			elif avg >= 0.8 and r < 0.1:
 				count("mesa")
 				place(b, at, r2 * 6.0)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.9 + r * 3.0, 6), 0, 0.9 + r2 * 0.9, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
@@ -1372,8 +1403,13 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 			# streets between blocks, two towers to a block, a park where the land is green
 			var gx := posmod(int(floor(cen.x / 2.0)), 4)
 			var gz := posmod(int(floor(cen.z / 2.0)), 5)
+			if avg < -0.05 and r < 0.012:
+				mark("duck", Vector3(cen.x, -0.4, cen.z), r2 * TAU, r2)   # a giant rubber duck in the canal
+				return
 			if avg < 0.02 or gx == 0 or gz == 0 or (avg >= 0.3 and avg < 0.43):
-				if avg >= 0.3 and avg < 0.43 and r < 0.12:
+				if avg >= 0.3 and avg < 0.43 and r >= 0.12 and r < 0.14:
+					mark("water tower", at, r2 * TAU, r2)
+				elif avg >= 0.3 and avg < 0.43 and r < 0.12:
 					count("park tree")
 					place(b, at, r * 6.0)
 					b.prism(Vector3(0, -0.1, 0), ngon(0.6, 7), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
@@ -1393,7 +1429,9 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 			if tall > 1.2:
 				b.box(Vector3(0.3, tall + 0.15, -0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
 		"ice":
-			if avg >= 0.28 and avg < 0.5 and r < 0.25:
+			if avg >= 0.05 and avg < 0.28 and r < 0.004:
+				mark("snowman", at, r2 * TAU, r2)
+			elif avg >= 0.28 and avg < 0.5 and r < 0.25:
 				count("pine")
 				place(b, at, r * 6.0)
 				var tall := 1.3 + r2 * 0.6
@@ -1409,7 +1447,9 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				place(b, Vector3(cen.x, -0.42, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
-			if avg >= 0.62 and r < 0.1:
+			if avg >= 0.15 and avg < 0.6 and r < 0.004:
+				mark("stone head", at, r2 * TAU, r2)
+			elif avg >= 0.62 and r < 0.1:
 				count("spire")
 				place(b, at, r2 * 6.0)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
@@ -1418,6 +1458,90 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				place(b, Vector3(cen.x, -0.45, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.5 + r2 * 0.4, 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
 	b.xf = Transform3D.IDENTITY
+
+
+## A stepped temple pyramid: four tiers, a stair up the front, a small shrine on top.
+static func pyramid(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	var y := -0.3
+	for k in 4:
+		var w := 2.3 - k * 0.48
+		var h := 0.34 if k > 0 else 0.6
+		b.box(Vector3(0, y + h * 0.5, 0), Vector3(w, h, w), PYRAMID.darkened(k * 0.04))
+		b.box(Vector3(0, y + h - 0.02, 0), Vector3(w + 0.06, 0.05, w + 0.06), PYRAMID.lightened(0.12))
+		y += h
+	# the stair: a ramp of steps up the +z face
+	for k in 8:
+		var sy := 0.0 + k * 0.155
+		var sz := 1.15 - k * 0.115
+		b.box(Vector3(0, sy + 0.04, sz), Vector3(0.42, 0.1, 0.13), PYRAMID.lightened(0.06))
+	# the shrine
+	b.box(Vector3(0, y + 0.2, 0), Vector3(0.62, 0.4, 0.55), Color8(0xe4, 0xd2, 0xa8))
+	b.box(Vector3(0, y + 0.45, 0), Vector3(0.72, 0.1, 0.65), Color8(0xa8, 0x4a, 0x36))
+	b.box(Vector3(0, y + 0.13, 0.28), Vector3(0.2, 0.26, 0.03), Color8(0x3a, 0x2a, 0x22))
+	b.box(Vector3(0, y + 0.55, 0), Vector3(0.4, 0.12, 0.35), Color8(0x3c, 0x8a, 0x7a))
+
+
+## A giant rubber duck, bobbing at the water line.
+static func duck(b: Builder, p: Vector3) -> void:
+	place(b, p, PI)   # built beak to -z; turned to face the camera
+	b.prism(Vector3.ZERO, ngon(0.85, 12), -0.03, 0.02, FOAM)
+	b.prism(Vector3(0, 0, 0.1), ngon(0.6, 9), -0.1, 0.42, DUCK, Vector2(0.85, 0.85))
+	b.prism(Vector3(0, 0.3, 0.15), ngon(0.62, 9), 0, 0.2, DUCK.lightened(0.05), Vector2(0.75, 0.75))
+	b.prism(Vector3(0, 0.0, 0.62), ngon(0.18, 6), 0.32, 0.55, DUCK, Vector2(0.5, 0.5), Vector2(0, 0.15))
+	b.prism(Vector3(0, 0, -0.32), ngon(0.32, 8), 0.45, 0.9, DUCK, Vector2(1.05, 1.05))
+	b.prism(Vector3(0, 0, -0.32), ngon(0.34, 8, 0.2), 0.9, 1.08, DUCK.lightened(0.06), Vector2(0.5, 0.5))
+	b.prism(Vector3(0, 0, -0.68), pts([Vector2(-0.14, 0.12), Vector2(0.14, 0.12), Vector2(0.0, -0.18)]), 0.62, 0.72, Color8(0xff, 0x7a, 0x1e))
+	for sx in [-0.17, 0.17]:
+		b.box(Vector3(sx, 0.86, -0.6), Vector3(0.08, 0.1, 0.06), Color8(0x22, 0x22, 0x28))
+
+
+## A city water tower: four legs, a red tank with a cone roof.
+static func water_tower(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	for k in 4:
+		var a := Vector3(cos(k * PI * 0.5 + PI * 0.25), 0, sin(k * PI * 0.5 + PI * 0.25)) * 0.42
+		b.box(a + Vector3(0, 0.55, 0), Vector3(0.08, 1.3, 0.08), Color8(0x5a, 0x60, 0x6a))
+	b.box(Vector3(0, 0.6, 0), Vector3(0.75, 0.05, 0.05), Color8(0x5a, 0x60, 0x6a))
+	b.prism(Vector3.ZERO, ngon(0.6, 12), 1.15, 1.7, Color8(0xc8, 0x3c, 0x34))
+	b.prism(Vector3.ZERO, ngon(0.62, 12), 1.38, 1.46, Color8(0xf4, 0xf0, 0xe6))
+	b.prism(Vector3.ZERO, ngon(0.64, 12), 1.7, 1.98, Color8(0x8a, 0x2c, 0x28), Vector2(0.08, 0.08))
+
+
+## A giant snowman: three snowballs, coal eyes, a carrot nose, a red scarf and a top hat.
+static func snowman(b: Builder, p: Vector3, r: float) -> void:
+	place(b, p, 0.0)
+	var snow := Color8(0xf6, 0xfa, 0xfd)
+	for ball in [[0.0, 0.62, 0.5], [0.62, 0.5, 0.42], [1.08, 0.38, 0.36]]:
+		var y: float = ball[0]
+		var rr: float = ball[1]
+		b.prism(Vector3.ZERO, ngon(rr, 10), y, y + ball[2], snow, Vector2(0.62, 0.62))
+		b.prism(Vector3.ZERO, ngon(rr * 0.62, 10, 0.3), y - 0.02, y + 0.05, snow.darkened(0.04))
+	b.prism(Vector3(0, 0, 0), ngon(0.37, 10), 1.02, 1.14, Color8(0xd8, 0x34, 0x3a) if r < 0.5 else Color8(0x2e, 0x7a, 0xd0))
+	b.box(Vector3(0.2, 0.98, 0.25), Vector3(0.1, 0.28, 0.06), Color8(0xd8, 0x34, 0x3a) if r < 0.5 else Color8(0x2e, 0x7a, 0xd0))
+	b.octa(Vector3(0, 1.28, 0.36), 0.08, Color8(0xff, 0x8a, 0x22), Vector3(1, 1, 3.0))
+	for sx in [-0.11, 0.11]:
+		b.octa(Vector3(sx, 1.36, 0.3), 0.045, Color8(0x22, 0x22, 0x28))
+	for k in 3:
+		b.octa(Vector3(0, 0.75 + k * 0.14, 0.45 - k * 0.02), 0.04, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.34, 10), 1.42, 1.46, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.22, 10), 1.46, 1.8, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.225, 10), 1.5, 1.56, Color8(0xd8, 0x34, 0x3a))
+
+
+## A huge carved stone head, half sunk in the cinders, staring down the valley.
+static func stone_head(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	var st := Color8(0x5a, 0x56, 0x58)
+	b.box(Vector3(0, 0.55, 0), Vector3(0.8, 1.3, 0.7), st)
+	b.box(Vector3(0, 1.26, -0.03), Vector3(0.84, 0.14, 0.74), st.darkened(0.15))   # brow of the cap
+	b.box(Vector3(0, 0.98, 0.37), Vector3(0.7, 0.1, 0.08), st.darkened(0.2))        # heavy brow
+	for sx in [-0.18, 0.18]:
+		b.box(Vector3(sx, 0.86, 0.36), Vector3(0.16, 0.1, 0.03), Color8(0xff, 0x7a, 0x2a))   # glowing eyes
+	b.prism(Vector3(0, 0, 0.4), pts([Vector2(-0.1, -0.05), Vector2(0.1, -0.05), Vector2(0.13, 0.12), Vector2(-0.13, 0.12)]), 0.5, 0.92, st.lightened(0.06), Vector2(0.6, 0.6))
+	b.box(Vector3(0, 0.36, 0.37), Vector3(0.44, 0.08, 0.06), st.darkened(0.35))      # mouth
+	for sx in [-0.43, 0.43]:
+		b.box(Vector3(sx, 0.75, 0), Vector3(0.08, 0.5, 0.2), st.darkened(0.08))     # ears
 
 
 ## The vertex-coloured material tinted (a world's colours on its bosses).
