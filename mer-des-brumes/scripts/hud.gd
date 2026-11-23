@@ -1,7 +1,7 @@
 class_name Hud
 extends CanvasLayer
 ## The interface: glass HUD (hull, coins, coffre, maps, balls), speed gauge, the joystick
-## that appears under the thumb, edge arrows, enemy labels, toasts, the attack prompt and the
+## that appears under the thumb, the green aim stick in a fight, edge arrows, enemy labels, toasts, the attack prompt and the
 ## parchment port with its 3D shipyard preview. Built in code.
 
 const INK := Color8(0x2e, 0x1f, 0x15)
@@ -13,6 +13,12 @@ const GOLD := Color8(0xe0, 0xb4, 0x5a)
 const FOAM := Color8(0xf3, 0xf6, 0xf3)
 const GLASS := Color(22 / 255.0, 34 / 255.0, 38 / 255.0, 0.42)
 const JOY_R := 90.0
+const AIM_R := 80.0
+## Below this reach the green stick does nothing (let go there to cancel a shot).
+const AIM_DEAD := 0.2
+const AIM_GREEN := Color8(0x5f, 0xd0, 0x6a)
+const NO_ID := -99
+const MOUSE_ID := -10
 
 var game: Game
 var root: Control
@@ -20,6 +26,14 @@ var joy_active := false
 var joy_origin := Vector2.ZERO
 var joy_vec := Vector2.ZERO
 var joy_mag := 0.0
+## The green aim stick: direction and reach (0..1); releasing it fires.
+var aim_active := false
+var aim_vec := Vector2.ZERO
+var aim_mag := 0.0
+var aim_shown := false
+var _joy_id := NO_ID
+var _aim_id := NO_ID
+var _aim: Aim
 
 var f_body: Font
 var f_bold: Font
@@ -203,6 +217,28 @@ class Joy:
 		draw_circle(knob, 36, Color(0.95, 0.97, 0.95, 0.75))
 
 
+## The green aim stick, bottom right while fighting: drag toward where the balls should land.
+class Aim:
+	extends Control
+	var knob := Vector2.ZERO
+	var held := false
+
+	func _draw() -> void:
+		var g := Hud.AIM_GREEN
+		draw_circle(Vector2.ZERO, Hud.AIM_R, Color(g.darkened(0.55), 0.38))
+		draw_arc(Vector2.ZERO, Hud.AIM_R, 0, TAU, 48, Color(g, 0.9), 4, true)
+		draw_arc(Vector2.ZERO, Hud.AIM_R * Hud.AIM_DEAD, 0, TAU, 24, Color(g, 0.45), 2, true)
+		var kc := knob
+		draw_circle(kc, 34, Color(g, 0.95 if held else 0.8))
+		# a little crosshair on the knob
+		var w := Color(0.06, 0.16, 0.08, 0.85)
+		draw_arc(kc, 13, 0, TAU, 24, w, 3, true)
+		draw_line(kc + Vector2(-21, 0), kc + Vector2(-7, 0), w, 3, true)
+		draw_line(kc + Vector2(7, 0), kc + Vector2(21, 0), w, 3, true)
+		draw_line(kc + Vector2(0, -21), kc + Vector2(0, -7), w, 3, true)
+		draw_line(kc + Vector2(0, 7), kc + Vector2(0, 21), w, 3, true)
+
+
 # ---------------------------------------------------------------- set-up
 
 func _ready() -> void:
@@ -282,25 +318,73 @@ func _build_touch() -> void:
 	_joy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_joy.visible = false
 	root.add_child(_joy)
+	_aim = Aim.new()
+	_aim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_aim.visible = false
+	root.add_child(_aim)
 
 
+## Each finger is followed by its index, so one thumb can steer while the other aims. A real
+## mouse counts as one more finger; the mouse events Godot makes up from touches are skipped.
 func _on_touch(ev: InputEvent) -> void:
-	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
-		if ev.pressed and not joy_active:
+	if ev is InputEventMouse and ev.device == InputEvent.DEVICE_ID_EMULATION:
+		return
+	if ev is InputEventScreenTouch:
+		_press(ev.index, ev.position, ev.pressed)
+	elif ev is InputEventScreenDrag:
+		_drag(ev.index, ev.position)
+	elif ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+		_press(MOUSE_ID, ev.position, ev.pressed)
+	elif ev is InputEventMouseMotion:
+		_drag(MOUSE_ID, ev.position)
+
+
+func aim_center() -> Vector2:
+	var sz := root.size
+	return Vector2(sz.x - 130, sz.y - 250)
+
+
+func _press(id: int, pos: Vector2, pressed: bool) -> void:
+	if pressed:
+		if aim_shown and _aim_id == NO_ID and pos.distance_to(aim_center()) < AIM_R * 1.3:
+			_aim_id = id
+			aim_active = true
+			aim_vec = Vector2.ZERO
+			aim_mag = 0
+			_aim.held = true
+			_aim.knob = Vector2.ZERO
+			_aim.queue_redraw()
+			_drag(id, pos)
+		elif _joy_id == NO_ID:
+			_joy_id = id
 			joy_active = true
-			joy_origin = ev.position
+			joy_origin = pos
 			joy_vec = Vector2.ZERO
 			joy_mag = 0
-			_joy.position = ev.position
+			_joy.position = pos
 			_joy.knob = Vector2.ZERO
 			_joy.visible = true
 			_joy.queue_redraw()
-			if _hint:
-				_hint.visible = false
-		elif not ev.pressed:
-			_joy_end()
-	elif ev is InputEventMouseMotion and joy_active:
-		var d: Vector2 = ev.position - joy_origin
+		if _hint:
+			_hint.visible = false
+	elif id == _aim_id:
+		_aim_end(true)
+	elif id == _joy_id:
+		_joy_end()
+
+
+func _drag(id: int, pos: Vector2) -> void:
+	if id == _aim_id:
+		var d := pos - aim_center()
+		var l := d.length()
+		if l > AIM_R:
+			d = d / l * AIM_R
+		aim_vec = d / AIM_R
+		aim_mag = minf(1.0, l / AIM_R)
+		_aim.knob = d
+		_aim.queue_redraw()
+	elif id == _joy_id:
+		var d := pos - joy_origin
 		var l := d.length()
 		if l > JOY_R:
 			d = d / l * JOY_R
@@ -311,9 +395,30 @@ func _on_touch(ev: InputEvent) -> void:
 
 
 func _joy_end() -> void:
+	_joy_id = NO_ID
 	joy_active = false
 	joy_mag = 0
 	_joy.visible = false
+
+
+## Letting go of the green stick fires where it points, unless it is back in the middle.
+func _aim_end(fire: bool) -> void:
+	var shoot := fire and aim_active and aim_mag > AIM_DEAD
+	if shoot:
+		game.fire_aimed()
+	_aim_id = NO_ID
+	aim_active = false
+	aim_mag = 0
+	aim_vec = Vector2.ZERO
+	_aim.held = false
+	_aim.knob = Vector2.ZERO
+	_aim.queue_redraw()
+
+
+## Drops both sticks without firing (the player left the game).
+func cancel_sticks() -> void:
+	_joy_end()
+	_aim_end(false)
 
 
 func _label(text: String, size: int, font: Font = null, col := FOAM) -> Label:
@@ -396,7 +501,7 @@ func _build_hud() -> void:
 	_actions.add_theme_constant_override("v_separation", 12)
 	_actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_actions)
-	_hint = _label("Posez le pouce et glissez : la direction donne le cap, la distance donne la vitesse. Les canons tirent sur les côtés : placez-vous derrière l'ennemi.", 21, f_body, Color(FOAM, 0.92))
+	_hint = _label("Posez le pouce et glissez : la direction donne le cap, la distance donne la vitesse. En combat, visez avec le joystick vert et lâchez pour tirer.", 21, f_body, Color(FOAM, 0.92))
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
@@ -552,6 +657,13 @@ func update(dt: float) -> void:
 	var foe: Game.Boat = game.combat.e if game.combat and game.combat.e.state != "sink" else null
 	_edge("foe", foe.pos() if foe else Vector3.ZERO, foe.name if foe else "", open)
 	_update_labels(open)
+	aim_shown = game.can_aim()
+	if not aim_shown and aim_active:
+		_aim_end(false)
+	_aim.visible = aim_shown
+	if aim_shown and _hint:
+		_hint.visible = false
+	_aim.position = aim_center()
 	if open and _tab == "bateau":
 		_spin_preview(dt)
 
@@ -817,7 +929,7 @@ func _exit_tree() -> void:
 func open_port() -> void:
 	_pv_idx = maxi(0, Rules.yard_list(game.s).find(game.s.ship))
 	_confirm_reset = false
-	_joy_end()
+	cancel_sticks()
 	_port.visible = true
 	_actions.visible = false
 	refresh_port()

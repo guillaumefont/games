@@ -7,7 +7,7 @@ extends Node3D
 ## The interface is in hud.gd; numbers and rules in rules.gd; meshes in models.gd.
 ## Tests set `driven = true` and call step() themselves.
 
-## Anything that moves: foes, shots, bullets, pickups, effects.
+## Anything that moves: foes, shots, bullets, pickups. Explosions live in `blasts`.
 class Obj:
 	var kind := ""
 	var node: Node3D
@@ -45,6 +45,10 @@ const TOP_H := 38.0
 const TOP_BACK := 17.0
 const TOP_FOV := 29.0
 const CHUNK_W := 64.0
+## Ground past each side of CHUNK_W, in coarse cells, and chunks kept ahead: enough that the
+## chase camera never sees the edge of the world before the fog has swallowed it.
+const CHUNK_FLANK := 200.0
+const CHUNKS_AHEAD := 7
 
 var driven := false
 var save_path := Rules.SAVE_PATH
@@ -64,7 +68,8 @@ var bullets: Array[Obj] = []
 var picks: Array[Obj] = []
 ## While above zero, every coin on screen flies to the ship (after the mid-boss).
 var vacuum_t := 0.0
-var fx: Array[Obj] = []
+## Explosions, debris, smoke and their light (blasts.gd).
+var blasts: Blasts
 
 # the player
 var ship: Node3D
@@ -127,7 +132,9 @@ var cam_from := Transform3D()
 var cam_from_fov := 29.0
 var cam_k := 1.0
 var cam_dur := 1.0
+## Screen shake (0 to 1 and a little over): it eases off by itself, strong blasts set it high.
 var shake := 0.0
+var shake_t := 0.0
 var world_per_px := 0.02
 
 var sun: DirectionalLight3D
@@ -238,6 +245,9 @@ void sky() {
 	ship.add_child(engine_glow)
 	sound = Sound.new()
 	add_child(sound)
+	blasts = Blasts.new()
+	blasts.cam = cam
+	add_child(blasts)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
@@ -253,16 +263,33 @@ func to_hangar() -> void:
 	phase = "hangar"
 	phase_t = 0.0
 	frame_z = 0.0
-	prel = Vector2(0, 4)
-	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	ship.visible = true
 	set_cam("top", 0.0)
+	prel = Vector2(0, hangar_ship_z())
+	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
 	hud.show_hangar()
 	sound.music("sortie", true)
 	if not driven and not checked_update:
 		checked_update = true
 		check_update()
+
+
+## Where the ship idles in the hangar (z relative to the frame): on the flight plane, centred in
+## the open sky between the version line and the top of the hangar panel, whatever the screen.
+func hangar_ship_z() -> float:
+	var vs := view_size()
+	if vs.y < 1.0:
+		return 4.0
+	var y := (Hud.HANGAR_TOP + hud.hangar_panel_top()) * 0.5
+	var xf: Transform3D = pose("top")[0]
+	var o := cam.project_ray_origin(Vector2(vs.x * 0.5, y))
+	var n := cam.project_ray_normal(Vector2(vs.x * 0.5, y))
+	if absf(n.y) < 0.001:
+		return 4.0
+	# the camera may still be easing in: measure from where it is, relative to its own frame
+	var hit := o + n * ((Rules.PY - o.y) / n.y)
+	return hit.z - (cam.global_position.z - xf.origin.z + frame_z)
 
 
 func launch() -> void:
@@ -372,7 +399,8 @@ func end_run(cleared: bool) -> void:
 
 
 func clear_all() -> void:
-	for list in [foes, shots, bullets, picks, fx]:
+	blasts.clear()
+	for list in [foes, shots, bullets, picks]:
 		for o: Obj in list:
 			if o.node:
 				o.node.queue_free()
@@ -471,6 +499,7 @@ func step(dt: float) -> void:
 	match phase:
 		"hangar":
 			frame_z -= 3.0 * dt
+			prel.y = hangar_ship_z()
 			ppos = Vector3(0, Rules.PY + sin(phase_t * 1.4) * 0.15, frame_z + prel.y)
 			bank = sin(phase_t * 0.8) * 0.15
 		"vert":
@@ -501,7 +530,8 @@ func step(dt: float) -> void:
 		update_objs(dt)
 	elif phase == "down":
 		update_objs(dt)
-	update_fx(dt)
+	shake = maxf(0.0, shake - dt * 1.2)
+	blasts.step(dt)
 	update_chunks()
 	update_ship(dt)
 	update_shadows()
@@ -1023,10 +1053,17 @@ func part_down(f: Obj) -> void:
 	var name: String = ["bow", "wings", ""][boss_sec]
 	if name != "" and boss.node.has_node(name):
 		boss.node.get_node(name).visible = false
+		# a ripple of blasts across the section as it breaks off, then a big one
+		var pts: Array = []
 		for k in 7:
 			var x := rng.randf_range(-2.5, 2.5) if name == "bow" else rng.randf_range(4.0, 11.0) * (1 if k % 2 == 0 else -1)
 			var z := rng.randf_range(2.0, 9.0) if name == "bow" else rng.randf_range(-4.0, 1.5)
-			pop(boss.pos + Vector3(x, 1.0, z), 2.4, Models.AMBER)
+			pts.append(boss.pos + Vector3(x, 1.0, z))
+		pop(pts[0], 3.0, Models.AMBER)
+		blasts.chain(pts.slice(1), 2.4, 0.6, fx_carry(), 0.0 if name == "wings" else 4.0)
+		if name == "wings":
+			blasts.later(0.7, boss.pos + Vector3(8.0, 1.0, -1.0), 3.6, Models.AMBER, fx_carry())
+			blasts.later(0.8, boss.pos + Vector3(-8.0, 1.0, -1.0), 3.6, Models.AMBER, fx_carry())
 		shake = 0.7
 		sound.play("crash")
 	boss_sec += 1
@@ -1034,8 +1071,11 @@ func part_down(f: Obj) -> void:
 		open_section()
 	else:
 		var b := boss
+		# the bridge: the whole hull goes up from stern to bow, then one huge blast
+		var pts: Array = []
 		for k in 10:
-			pop(b.pos + Vector3(rng.randf_range(-4, 4), 1.0, rng.randf_range(-10, 8)), 3.5, Models.AMBER)
+			pts.append(b.pos + Vector3(rng.randf_range(-4, 4), 1.0, lerpf(8.0, -10.0, k / 9.0) + rng.randf_range(-1, 1)))
+		blasts.chain(pts, 3.5, 1.0, fx_carry(), 7.0)
 		sound.play("crash")
 		sound.music("sortie")
 		kill(b)
@@ -1222,7 +1262,7 @@ func kill(f: Obj) -> void:
 	if f.kind not in ["orb", "boss"]:
 		run.kills += 1
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6}.get(f.kind, 1.3)
-	pop(f.pos, big, Models.AMBER)
+	pop(f.pos, big, Models.AMBER, f.ground)
 	if f.kind == "orb":
 		return
 	sound.play("boom" if big >= 2.0 else "pop")
@@ -1294,51 +1334,20 @@ func hurt() -> void:
 
 # ---------------------------------------------------------------- effects
 
-func pop(at: Vector3, size: float, col: Color) -> void:
-	var o := Obj.new()
-	o.kind = "flash"
-	o.pos = at
-	o.size = size
-	o.life = 0.45 + size * 0.06
-	o.node = Models.instance(Models.shot_mesh(0.5), Models.glow(col.lightened(0.3), 0.9))
-	add_child(o.node)
-	o.node.position = at
-	fx.append(o)
-	for k in int(clampf(size * 3.0, 3, 14)):
-		var d := Obj.new()
-		d.kind = "debris"
-		d.pos = at
-		d.vel = Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.6, 1), rng.randf_range(-1, 1)).normalized() * rng.randf_range(3, 7) * sqrt(size)
-		d.life = rng.randf_range(0.4, 0.8)
-		d.size = rng.randf_range(0.12, 0.28) * sqrt(size)
-		d.node = Models.instance(Models.cached("debris", func() -> Mesh:
-			var b := Models.Builder.new()
-			b.box(Vector3.ZERO, Vector3.ONE, Color.WHITE)
-			return b.commit()), Models.glow(col if k % 2 == 0 else Color8(0x40, 0x3a, 0x3a)))
-		add_child(d.node)
-		fx.append(d)
+## An explosion (see Blasts.explode); a ground target's stays put while the frame scrolls on,
+## anything in the air is carried along with it.
+func pop(at: Vector3, size: float, col: Color, ground := false) -> void:
+	blasts.explode(at, size, col, fx_carry(ground))
 
 
-func update_fx(dt: float) -> void:
-	shake = maxf(0.0, shake - dt * 1.2)
-	for i in range(fx.size() - 1, -1, -1):
-		var o := fx[i]
-		o.t += dt
-		var k := o.t / o.life
-		if k >= 1.0:
-			o.node.queue_free()
-			fx.remove_at(i)
-			continue
-		if o.kind == "flash":
-			var sc := o.size * (0.3 + 1.2 * sqrt(k))
-			o.node.scale = Vector3(sc, sc, sc)
-			o.node.transparency = k
-		else:
-			o.vel *= 1.0 - dt * 2.0
-			o.pos += o.vel * dt
-			o.node.position = o.pos
-			o.node.scale = Vector3.ONE * o.size * (1.0 - k)
-			o.node.rotation += Vector3(dt * 7, dt * 5, 0)
+## The speed an explosion drifts at so it stays with what blew up: the rail speed in the chase,
+## most of the scroll in the vertical stage (it trails back a little), nothing on the ground.
+func fx_carry(ground := false) -> Vector3:
+	if pov_mode():
+		return Vector3(0, 0, -rail_speed())
+	if ground or phase not in ["vert", "down", "clear"]:
+		return Vector3.ZERO
+	return Vector3(0, 0, -Rules.SCROLL * 0.8)
 
 
 func update_ship(dt: float) -> void:
@@ -1426,10 +1435,10 @@ func update_shadows() -> void:
 func update_chunks() -> void:
 	var first := int(floor((-frame_z - 30.0) / CHUNK))
 	var want := {}
-	for k in range(first, first + 5):
+	for k in range(first, first + CHUNKS_AHEAD):
 		want[k] = true
 		if not chunks.has(k):
-			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0), Models.ground_mat())
+			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0, CHUNK_FLANK), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
 	for k in chunks.keys():
@@ -1532,10 +1541,13 @@ func car_part_down(f: Obj) -> void:
 	var name: String = ["plating", "tower", ""][car_sec]
 	if carrier and name != "" and carrier.has_node(name):
 		carrier.get_node(name).visible = false
+		var pts: Array = []
 		for k in 8:
 			var at := Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 11.0), 0.5) if name == "plating" \
 				else Vector3(rng.randf_range(-4.0, 4.0), rng.randf_range(13.0, 21.0), -2.0)
-			pop(carrier_point(at), 3.0, Models.AMBER)
+			pts.append(carrier_point(at))
+		pop(pts[0], 3.6, Models.AMBER)
+		blasts.chain(pts.slice(1), 3.0, 0.7, fx_carry(), 5.0)
 		shake = 0.7
 		sound.play("crash")
 	car_sec += 1
@@ -1615,15 +1627,29 @@ func step_crash(dt: float) -> void:
 	var k := phase_t / Rules.CRASH_TIME
 	carrier.rotation = Vector3(-0.42 * k * k, 0, 0.3 * k + sin(phase_t * 3.0) * 0.02)
 	car_fall += Rules.CRASH_FALL * phase_t * dt
+	var carry := fx_carry()
+	# fires on the stern trail smoke as it falls
+	if fmod(phase_t, 0.08) < dt:
+		for p in [Vector3(-3.2, 9.0, 0.6), Vector3(2.8, 15.0, 0.2), Vector3(0.5, 4.0, 0.8)]:
+			if phase_t > 0.3 * (1 + int(p.y) % 3):
+				blasts.burn(carrier.to_global(p), 0.55 * car_s, carry * 0.95)
 	if fmod(phase_t, 0.16) < dt:
-		var at := carrier.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), -rng.randf_range(0, Rules.CARRIER_LEN * 0.4)))
-		pop(at, 4.0, Models.AMBER)
+		# most on the stern, where they show, some further along the hull
+		var z := -rng.randf_range(0, 4.0) if rng.randf() < 0.65 else -rng.randf_range(4.0, Rules.CARRIER_LEN * 0.3)
+		var at := carrier.to_global(Vector3(rng.randf_range(-4.5, 4.5), rng.randf_range(2.0, 20.0), z))
+		pop(at, rng.randf_range(2.6, 4.6), Models.AMBER)
 		sound.play("boom", -4.0)
 		shake = maxf(shake, 0.3)
 	if phase_t > Rules.CRASH_TIME - 1.0 and not carrier.has_meta("splashed"):
 		carrier.set_meta("splashed", true)
+		# it hits the water (spouts) or the shore (a fireball) all along its hull
+		var drift := Vector3(0, 0, -rail_speed() * 0.6)
 		for j in 6:
-			pop(Vector3(rng.randf_range(-14, 14), 0.5, stern_z - rng.randf_range(0, 50)), 9.0, Models.AMBER)
+			var at := carrier.to_global(Vector3(rng.randf_range(-6, 6), 0.0, -j * 7.0))
+			at.y = ground_y(at.x, at.z)
+			if at.y < 0.05:
+				blasts.splash(at, 11.0, drift)
+			blasts.later(0.05 + j * 0.07, at + Vector3(0, 1.5, 0), 6.0, Models.AMBER, drift)
 		shake = 1.0
 		sound.play("crash", 3.0)
 	if phase_t > Rules.CRASH_TIME - 0.3:
@@ -1763,8 +1789,15 @@ func update_cam(dt: float) -> void:
 		var k := smoothstep(0.0, 1.0, cam_k)
 		xf = cam_from.interpolate_with(xf, k)
 		fov = lerpf(cam_from_fov, fov, k)
+	shake_t += dt
 	if shake > 0.0:
-		xf.origin += Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), 0) * shake * 0.4
+		# smooth, not per-frame noise; small kills barely nudge it, big blasts rock it
+		var a := pow(minf(shake, 1.2), 1.5) * (0.5 if cam_mode == "chase" else 1.0)
+		var t := shake_t
+		var n := Vector2(sin(t * 31.0) + 0.6 * sin(t * 17.3 + 1.7), sin(t * 27.1 + 0.5) + 0.6 * sin(t * 13.7 + 2.9)) / 1.6
+		xf.origin += (xf.basis.x * n.x + xf.basis.y * n.y) * a * 0.9
+		xf.basis = xf.basis.rotated(xf.basis.z, sin(t * 23.0 + 0.3) * a * 0.03)
 	cam.global_transform = xf
+	env.adjustment_brightness = 1.0 + blasts.bright * 0.15
 	cam.fov = fov
 	ship.visible = phase not in ["down", "results"]

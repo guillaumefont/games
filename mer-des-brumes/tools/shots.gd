@@ -12,6 +12,20 @@ func shot(name: String) -> void:
 	print("shot ", name)
 
 
+func _mouse(pos: Vector2, pressed: bool, motion := false) -> void:
+	var ev: InputEvent
+	if motion:
+		ev = InputEventMouseMotion.new()
+		ev.button_mask = MOUSE_BUTTON_MASK_LEFT
+	else:
+		ev = InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+	ev.position = pos
+	ev.global_position = pos
+	root.push_input(ev, true)
+
+
 func frames(n: int) -> void:
 	for i in n:
 		await process_frame
@@ -47,6 +61,15 @@ func _initialize() -> void:
 	g.on_fight()
 	await frames(150)
 	await shot("3-fight")
+	# aiming: the green stick held toward the enemy
+	var ac := g.hud.aim_center()
+	_mouse(ac, true)
+	for i in 20:
+		var d := e.xz() - g.P.xz()
+		_mouse(ac + d.normalized() * Hud.AIM_R * clampf(0.2 + 0.8 * (d.length() - 6) / 18.0, 0.3, 1.0), true, true)
+		await process_frame
+	await shot("3-aim")
+	_mouse(ac, false)
 	g.end_combat()
 	g.P.node.position = Rules.DOCK
 	g.camera.position = g.P.node.position + g.cam_off

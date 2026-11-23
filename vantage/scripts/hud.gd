@@ -9,6 +9,10 @@ const DIM := Color(0.86, 0.92, 1.0, 0.7)
 const GOLD := Color8(0xff, 0xd2, 0x4a)
 const CY := Color8(0x5f, 0xe2, 0xff)
 const RED := Color8(0xff, 0x4d, 0x6d)
+## Below the title, tag line and version; the hangar panel and the ship stay under it.
+const HANGAR_TOP := 330.0
+## Open sky kept between that and the hangar panel for the idling ship.
+const SHIP_ROOM := 140.0
 
 var game: Game
 var score_l: Label
@@ -16,6 +20,7 @@ var scrap_l: Label
 var banner_l: Label
 var sub_l: Label
 var hangar: Control
+var hangar_panel: PanelContainer
 var results: Control
 var hangar_scrap: Label
 var hangar_best: Label
@@ -48,6 +53,9 @@ func _ready() -> void:
 	place(sub_l, Rect2(0, 0.3, 1, 0), Rect2(0, 32, 0, 40))
 	build_hangar()
 	build_results()
+	get_viewport().size_changed.connect(fit_hangar)
+	hangar_panel.resized.connect(fit_hangar)
+	fit_hangar()
 
 
 ## Anchors (x, y, width, height as fractions of the parent) and offsets (x, y, extra width,
@@ -143,8 +151,11 @@ func build_hangar() -> void:
 	panel.anchor_top = 1.0
 	panel.offset_left = 24
 	panel.offset_right = -24
-	panel.offset_top = -700
+	# sized by its content and pinned to the bottom: it grows upwards, never off the screen
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	panel.offset_top = -30
 	panel.offset_bottom = -30
+	hangar_panel = panel
 	hangar.add_child(panel)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 14)
@@ -195,6 +206,38 @@ func build_hangar() -> void:
 	go.custom_minimum_size = Vector2(0, 104)
 	go.pressed.connect(func() -> void: game.launch())
 	v.add_child(go)
+
+
+## The bottom of the screen hidden by the system (gesture bar, rounded corners), in HUD pixels.
+func bottom_inset() -> float:
+	if not OS.has_feature("mobile"):
+		return 0.0
+	var win := Vector2(DisplayServer.window_get_size())
+	var safe := Rect2(DisplayServer.get_display_safe_area())
+	if win.x <= 0.0 or safe.size.y <= 0.0:
+		return 0.0
+	return maxf(0.0, (win.y - safe.end.y) * get_viewport().get_visible_rect().size.x / win.x)
+
+
+## Keeps the hangar panel whole: lifted clear of the gesture bar and, on a short screen, scaled
+## down from its bottom edge so it stays below the title, the version and the ship.
+func fit_hangar() -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var p := hangar_panel
+	var h := p.get_combined_minimum_size().y
+	var margin := 30.0 + bottom_inset()
+	p.offset_bottom = -margin
+	p.offset_top = -margin - h
+	var room := vp.y - margin - HANGAR_TOP - SHIP_ROOM
+	var k := clampf(room / maxf(h, 1.0), 0.5, 1.0)
+	p.pivot_offset = Vector2((vp.x - 48.0) * 0.5, h)
+	p.scale = Vector2(k, k)
+
+
+## Where the hangar panel starts on screen (its top edge, scaled), in HUD pixels.
+func hangar_panel_top() -> float:
+	var p := hangar_panel
+	return p.position.y + p.pivot_offset.y * (1.0 - p.scale.y)
 
 
 func refresh_hangar() -> void:
