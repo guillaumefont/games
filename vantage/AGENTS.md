@@ -170,9 +170,10 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
   copy of the mesh, projected along the sun onto `SHADOW_Y` each frame. Those copies are drawn white
-  on layer `SHADOW_LAYER` into a half-size mask (`shadow_view`, `shadow_cam` follows `cam`), and one
+  on layer `SHADOW_LAYER` into a mask at the game's 720 px width (`shadow_view`, `shadow_cam` follows `cam`), and one
   see-through plane under the camera (`shadow_plane`, `Models.SHADOW_SHADER`) darkens the ground from
-  the blurred mask. Don't draw the flattened copies see-through in the main view: their faces overlap
+  the mask, blurred only to anti-alias the rim: Guillaume wants each shadow one uniform tone, so no
+  soft penumbra (thin wings faded with it). Don't draw the flattened copies see-through in the main view: their faces overlap
   and stack into dark patches (Guillaume: "the shadow is not smooth"), and neither the depth pre-pass
   nor the material stencil (a no-op in Compatibility, tested on 4.7) can stop that.
 - The look (premium pass): gradient sky shader, filmic tonemap, a cool fill light, rim light on the
