@@ -113,9 +113,17 @@ var drone_t := 0.0
 var drone_n := 0
 
 # camera
-## Silhouette shadows: flattened copies of models, cast along the sun onto the ground.
+## Silhouette shadows: flattened copies of models, cast along the sun onto the ground. They are
+## drawn white on black into a half-size mask (`shadow_view`, seen by `shadow_cam` only), and one
+## see-through plane (`shadow_plane`) darkens the ground wherever the softened mask is set. So each
+## pixel is shaded once: overlapping faces and neighbouring shadows never stack into dark patches,
+## and the edges fade smoothly instead of stair-stepping.
 const SHADOW_Y := 1.45
+const SHADOW_LAYER := 1 << 19
 var shadows: Array[MeshInstance3D] = []
+var shadow_view: SubViewport
+var shadow_cam: Camera3D
+var shadow_plane: MeshInstance3D
 var sun_slide := Vector2.ZERO
 var cam: Camera3D
 var sound: Sound
@@ -208,7 +216,7 @@ void sky() {
 	sun.light_color = Color8(0xff, 0xef, 0xd6)
 	add_child(sun)
 	# no shadow maps (the web renderer washes vertex colours out with them, and they cost
-	# on phones): models drop crisp silhouette shadows instead, see cast_shadow_of()
+	# on phones): models drop soft silhouette shadows instead, see cast_shadow_of()
 	var d := -sun.basis.z
 	sun_slide = Vector2(d.x, d.z) / maxf(-d.y, 0.1)
 	# a cool fill from the opposite side keeps the shaded faces from going flat grey
@@ -224,6 +232,8 @@ void sky() {
 	cam.far = 400.0
 	add_child(cam)
 	cam.make_current()
+	cam.cull_mask &= ~SHADOW_LAYER
+	make_shadow_view()
 	ship = Node3D.new()
 	add_child(ship)
 	ship_mesh = Models.instance(Models.player())
@@ -526,6 +536,7 @@ func step(dt: float) -> void:
 	update_ship(dt)
 	update_shadows()
 	update_cam(dt)
+	sync_shadow_view()
 	hud.sync()
 
 
@@ -1360,10 +1371,50 @@ func cast_shadow_of(mi: MeshInstance3D) -> void:
 	sh.mesh = mi.mesh
 	sh.material_override = Models.shadow_mat()
 	sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	sh.layers = SHADOW_LAYER
 	sh.top_level = true
 	sh.set_meta("src", mi)
 	mi.add_child(sh)
 	shadows.append(sh)
+
+
+func make_shadow_view() -> void:
+	shadow_view = SubViewport.new()
+	shadow_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	shadow_view.msaa_3d = Viewport.MSAA_DISABLED
+	shadow_view.size = Vector2i(270, 480)
+	add_child(shadow_view)
+	shadow_cam = Camera3D.new()
+	shadow_cam.cull_mask = SHADOW_LAYER
+	var black := Environment.new()
+	black.background_mode = Environment.BG_COLOR
+	black.background_color = Color.BLACK
+	black.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	shadow_cam.environment = black
+	shadow_view.add_child(shadow_cam)
+	shadow_cam.make_current()
+	shadow_plane = MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(cam.far, cam.far) * 2.2
+	shadow_plane.mesh = plane
+	shadow_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	shadow_plane.material_override = Models.shadow_plane_mat(shadow_view.get_texture())
+	shadow_plane.extra_cull_margin = 10.0
+	add_child(shadow_plane)
+
+
+## Keeps the mask camera on the game camera and the shadow plane under it.
+func sync_shadow_view() -> void:
+	var size := Vector2i((get_viewport().get_visible_rect().size * 0.5).max(Vector2.ONE))
+	if shadow_view.size != size:
+		shadow_view.size = size
+	shadow_cam.global_transform = cam.global_transform
+	shadow_cam.keep_aspect = cam.keep_aspect
+	shadow_cam.fov = cam.fov
+	shadow_cam.near = cam.near
+	shadow_cam.far = cam.far
+	var c := cam.global_position
+	shadow_plane.global_position = Vector3(c.x, SHADOW_Y, c.z)
 
 
 func update_shadows() -> void:
