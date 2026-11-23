@@ -20,8 +20,9 @@ const PLAYER_R := 0.42
 ## units/s (easing off at KNOCK_EASE/s). Small foes break up; others take RAM_DMG. Foes are
 ## touched within RAM_R of their radius. Ground targets, scenery and the fortress (always ahead
 ## of the ship) can't be rammed; the Bastion's hull is a wall (Game.boss_rammed).
-const RAMMABLE := ["dart", "swing", "heavy", "drone"]
-const RAM_KILLS := ["dart", "swing", "drone"]
+const RAMMABLE := ["dart", "swing", "heavy", "drone", "gull", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
+	"ember", "wyrm"]
+const RAM_KILLS := ["dart", "swing", "drone", "gull", "rotor", "scarab", "seeker", "lancer", "wyrm"]
 const RAM_DMG := 12.0
 const RAM_R := 0.7
 const KNOCK := 9.0
@@ -239,6 +240,22 @@ const FOES := {
 	"swing": {"hp": 4.0, "r": 0.85, "score": 120, "scrap": 5},
 	"turret": {"hp": 9.0, "r": 0.9, "score": 200, "scrap": 15},
 	"heavy": {"hp": 45.0, "r": 1.6, "score": 800, "scrap": 60},
+	# the campaign's own foes, one new kind a level (`Foes.INTRO`)
+	"gull": {"hp": 3.0, "r": 0.95, "score": 120, "scrap": 6},
+	"rotor": {"hp": 7.0, "r": 1.0, "score": 220, "scrap": 10},
+	"pillbox": {"hp": 14.0, "r": 1.15, "score": 300, "scrap": 15},
+	"scarab": {"hp": 7.0, "r": 1.0, "score": 250, "scrap": 12},
+	"tank": {"hp": 18.0, "r": 1.3, "score": 400, "scrap": 20},
+	"borer": {"hp": 16.0, "r": 1.1, "score": 450, "scrap": 20},
+	"seeker": {"hp": 2.0, "r": 0.75, "score": 80, "scrap": 4},
+	"aa": {"hp": 15.0, "r": 1.15, "score": 350, "scrap": 15},
+	"gunship": {"hp": 30.0, "r": 1.6, "score": 900, "scrap": 45},
+	"lancer": {"hp": 6.0, "r": 0.95, "score": 250, "scrap": 12},
+	"hover": {"hp": 14.0, "r": 1.3, "score": 350, "scrap": 18},
+	"prism": {"hp": 16.0, "r": 1.15, "score": 500, "scrap": 22},
+	"ember": {"hp": 8.0, "r": 1.0, "score": 250, "scrap": 12},
+	"mortar": {"hp": 18.0, "r": 1.3, "score": 450, "scrap": 20},
+	"wyrm": {"hp": 4.0, "r": 0.8, "score": 120, "scrap": 6},
 	"boss": {"hp": 1.0, "r": 0.0, "score": 0, "scrap": 0},
 	"cannon": {"hp": 70.0, "r": 1.7, "score": 800, "scrap": 30},
 	"flak": {"hp": 45.0, "r": 1.45, "score": 500, "scrap": 20},
@@ -276,6 +293,8 @@ const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tow
 const STAGE := [
 	{"t": 1.5, "kind": "dart", "n": 5, "x": -3.0, "gap": 0.35},
 	{"t": 4.0, "kind": "dart", "n": 5, "x": 0.0, "gap": 0.35, "from": "right"},
+	# the level's new foe (`Foes.INTRO`): beach pillboxes
+	{"t": 5.5, "kind": "pillbox", "n": 2, "x": 2.0, "gap": 0.0},
 	{"t": 7.0, "kind": "swing", "n": 6, "x": -1.0, "gap": 0.4},
 	{"t": 9.0, "kind": "turret", "n": 2, "x": -3.5, "gap": 0.0},
 	{"t": 10.0, "kind": "turret", "n": 1, "x": 3.8, "gap": 0.0},
@@ -285,6 +304,7 @@ const STAGE := [
 	{"t": 19.0, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0},
 	{"t": 21.5, "kind": "swing", "n": 6, "x": 2.0, "gap": 0.35},
 	{"t": 23.0, "kind": "turret", "n": 3, "x": 0.0, "gap": 0.0},
+	{"t": 24.0, "kind": "pillbox", "n": 1, "x": -3.5, "gap": 0.0},
 	{"t": 25.0, "kind": "heavy", "n": 1, "x": -2.5, "gap": 0.0},
 	{"t": 27.5, "kind": "dart", "n": 8, "x": 0.0, "gap": 0.25, "from": "left"},
 	{"t": 29.5, "kind": "dart", "n": 8, "x": 2.0, "gap": 0.25, "from": "right"},

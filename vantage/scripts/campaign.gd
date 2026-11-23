@@ -132,22 +132,42 @@ static func waves(lv: int) -> Array:
 	var w: Dictionary = world_of(lv)
 	var span: Array = LENGTHS[lv % PER_WORLD]
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 7919 * (lv + 1)
+	rng.seed = hash("vantage level %d" % lv)
 	var out: Array = []
-	var t := beats(out, rng, w, 1.5, float(span[0]))
+	var mix := mix_of(lv)
+	# the level's new kind opens it, so it is met (and announced) straight away
+	var t := beats(out, rng, w, {debut(lv): 1}, 1.5, 1.6)
+	t = beats(out, rng, w, mix, t, float(span[0]), debut(lv))
 	out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-	t = beats(out, rng, w, t + 4.0, t + 4.0 + float(span[1]))
+	t = beats(out, rng, w, mix, t + 4.0, t + 4.0 + float(span[1]))
 	out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
 	return out
 
 
-## Fills `out` with waves from the world's mix from time `t` to `until`; returns the time after.
-static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: float, until: float) -> float:
-	var mix: Dictionary = w.mix
+## The kind of foe level lv brings in (`Foes.INTRO`).
+static func debut(lv: int) -> String:
+	return Foes.INTRO[clampi(lv, 0, Foes.INTRO.size() - 1)]
+
+
+## The waves a level draws from (weights): its world's first foes (`mix`), and every kind met so
+## far (Guillaume: "staggered types"): the level's new one the most, then its world's earlier ones,
+## then those of earlier worlds, a little each.
+static func mix_of(lv: int) -> Dictionary:
+	var mix: Dictionary = world_of(lv).mix.duplicate()
+	var w := lv / PER_WORLD
+	for k in range(lv + 1):
+		var kind: String = Foes.INTRO[k]
+		mix[kind] = 5 if k == lv else (4 if k / PER_WORLD == w else 2)
+	return mix
+
+
+## Fills `out` with waves from `mix` from time `t` to `until`; returns the time after. `last` is
+## the kind of the wave before (never two of a kind in a row).
+static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, mix: Dictionary, t: float, until: float,
+		last := "") -> float:
 	var total := 0
 	for k: String in mix:
 		total += int(mix[k])
-	var last := ""
 	var heavies := 0
 	while t < until:
 		var pick := ""
@@ -159,7 +179,7 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: floa
 					pick = k
 					break
 			# no two of the same in a row, and no more than three heavies a level
-			if pick != last and not (pick == "heavy" and heavies > 2):
+			if (pick != last or mix.size() == 1) and not (pick == "heavy" and heavies > 2):
 				break
 		if pick == "heavy":
 			heavies += 1
@@ -181,8 +201,10 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: floa
 				wave.merge({"kind": "turret", "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
 			"heavy":
 				wave.merge({"kind": "heavy", "n": 1, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5)})
+			_:
+				wave.merge(new_wave(pick, rng, side))
 		out.append(wave)
-		t += float(w.beat) * rng.randf_range(0.85, 1.15) + (1.2 if pick == "heavy" else 0.0)
+		t += float(w.beat) * rng.randf_range(0.85, 1.15) + (1.2 if pick in ["heavy", "gunship", "prism"] else 0.0)
 	return t
 
 
@@ -197,3 +219,35 @@ static func foes_in(lv: int) -> int:
 		elif w.kind != "end":
 			n += int(w.n)
 	return n
+
+
+## A wave of one of the campaign's own foes (`Foes`): how many, where, how far apart.
+static func new_wave(kind: String, rng: RandomNumberGenerator, side: float) -> Dictionary:
+	var x := snappedf(rng.randf_range(-3.0, 3.0), 0.5)
+	match kind:
+		"gull":
+			return {"kind": kind, "n": 4, "x": x, "gap": 0.45}
+		"rotor":
+			return {"kind": kind, "n": rng.randi_range(2, 3), "x": 0.0, "gap": 0.5}
+		"pillbox", "aa", "mortar":
+			var n := rng.randi_range(1, 2)
+			return {"kind": kind, "n": n, "x": side * rng.randf_range(1.5, 3.5) if n == 1 else snappedf(side * 1.0, 0.5), "gap": 0.0}
+		"scarab", "lancer":
+			return {"kind": kind, "n": rng.randi_range(2, 3), "x": snappedf(x * 0.5, 0.5), "gap": 0.6}
+		"tank":
+			return {"kind": kind, "n": 2, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
+		"borer":
+			return {"kind": kind, "n": rng.randi_range(1, 2), "x": x * 0.6, "gap": 0.0}
+		"seeker":
+			return {"kind": kind, "n": rng.randi_range(5, 6), "x": x, "gap": 0.28}
+		"gunship":
+			return {"kind": kind, "n": 1, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
+		"hover":
+			return {"kind": kind, "n": 2, "x": -side * 1.5, "gap": 0.0}
+		"prism":
+			return {"kind": kind, "n": rng.randi_range(1, 2), "x": x * 0.5, "gap": 1.0}
+		"ember":
+			return {"kind": kind, "n": rng.randi_range(3, 4), "x": x * 0.5, "gap": 0.5}
+		"wyrm":
+			return {"kind": kind, "n": 7, "x": snappedf(x * 0.5, 0.5), "gap": 0.2}
+	return {"kind": kind, "n": 1, "x": x, "gap": 0.0}

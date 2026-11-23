@@ -78,7 +78,7 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 		g.step(DT)
 		if g.phase == "vert":
 			for f in g.foes:
-				if f.kind in ["dart", "swing", "heavy", "turret"] and f.t <= DT * 1.5:
+				if (f.kind in ["dart", "swing", "heavy", "turret"] or f.kind in Foes.INTRO) and f.t <= DT * 1.5:
 					entries += 1
 					if g.on_screen(f):
 						popped_in += 1
