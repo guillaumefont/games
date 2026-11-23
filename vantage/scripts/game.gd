@@ -1402,7 +1402,7 @@ func kill(f: Obj) -> void:
 		var k := int(f.anchor.z)
 		if chunks.has(k):
 			var ruin := Models.instance(Models.ruin(f.kind))
-			ruin.position = f.node.position - Vector3(0, Models.MARK_H[f.kind], 0)
+			ruin.position = f.node.position - Vector3(0, Models.mark_h(f.kind), 0)
 			ruin.rotation.y = f.node.rotation.y
 			chunks[k].add_child(ruin)
 			ruined[k] = true
@@ -1589,7 +1589,7 @@ func update_chunks() -> void:
 			# the landmarks get their own nodes, so they can be shot down
 			for m: Dictionary in Models.marks:
 				var node := Models.instance(Models.landmark(m.kind, m.r))
-				node.position = m.pos + Vector3(0, Models.MARK_H[m.kind], 0)
+				node.position = m.pos + Vector3(0, Models.mark_h(m.kind), 0)
 				node.rotation.y = m.ang
 				mi.add_child(node)
 				marks.append({"kind": m.kind, "node": node, "chunk": k, "live": false})

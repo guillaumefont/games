@@ -1,6 +1,7 @@
 extends SceneTree
 ## Look checks of the terrain's scenery, with no HUD or foes (needs a display):
-##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery
+##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]
+## (theme: coast, dunes, city, ice or volcano; coast by default)
 ## For each stretch of coast: the vertical stage's view, then a low view like the chase's.
 
 var out := "/tmp/scenery"
@@ -17,6 +18,8 @@ func _initialize() -> void:
 	root.add_child(g)
 	await process_frame
 	g.hud.visible = false
+	if args.size() > 1:
+		g.apply_theme(args[1])
 	for z: float in [-60.0, -180.0, -330.0, -470.0, -620.0]:
 		g.frame_z = z
 		g.step(1.0 / 60.0)

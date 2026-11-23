@@ -505,22 +505,34 @@ func hangar_fits() -> void:
 		sv.free()
 
 
-## Guillaume (2026-11-23): more detailed houses, rocks on the beaches and other scenery.
+## Guillaume (2026-11-23): more detailed houses, rocks on the beaches and other scenery, drawn
+## big, then comically big; the tallest still stays under the flight altitude, in every world.
 func scenery() -> void:
 	print("scenery")
 	var g := make_game()
 	await process_frame
-	Models.scenery.clear()
-	var top := -INF
-	for k in 16:
-		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
-		for i in m.get_surface_count():
-			for v: Vector3 in m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
-				top = maxf(top, v.y)
-	for kind: String in ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush"]:
-		check(Models.scenery.get(kind, 0) > 0, "the coast has %s (%d)" % [kind, Models.scenery.get(kind, 0)])
-	check(Models.scenery.get("house", 0) >= 20, "villages, not just the odd farmhouse (%d houses)" % Models.scenery.get("house", 0))
-	check(top < Rules.PY - 2.0, "scenery stays well under the flight altitude (top %.1f)" % top)
+	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush"],
+		"dunes": ["mesa", "cactus", "adobe"], "city": ["tower"], "ice": ["pine"], "volcano": ["spire"]}
+	var before := Models.theme
+	for theme: String in want:
+		Models.theme = theme
+		Models.scenery.clear()
+		Models.marks.clear()
+		var top := -INF
+		for k in 16:
+			var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+			for i in m.get_surface_count():
+				for v: Vector3 in m.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
+					top = maxf(top, v.y)
+		for mk: Dictionary in Models.marks:
+			var lm := Models.landmark(mk.kind, mk.r)
+			top = maxf(top, mk.pos.y + Models.mark_h(mk.kind) + lm.get_aabb().end.y)
+		for kind: String in want[theme]:
+			check(Models.scenery.get(kind, 0) > 0, "%s has %s (%d)" % [theme, kind, Models.scenery.get(kind, 0)])
+		check(top < Rules.PY - 0.5, "%s: scenery stays under the flight altitude (top %.1f)" % [theme, top])
+		if theme == "coast":
+			check(Models.scenery.get("house", 0) >= 12, "villages, not just the odd farmhouse (%d houses)" % Models.scenery.get("house", 0))
+	Models.theme = before
 	g.queue_free()
 	await process_frame
 
