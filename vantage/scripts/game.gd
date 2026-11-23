@@ -1,8 +1,9 @@
 class_name Game
 extends Node3D
 ## Vantage: the world, the player, foes, shots, the carrier episode and the camera. It is one
-## 3D world: the vertical stage is seen from a high tilted camera, and the POV episode moves
-## that same camera down behind the ship and into its cockpit (no cut, no scene change).
+## 3D world: the vertical stage is seen from a high tilted camera, and the carrier episode
+## swoops that same camera down behind the ship for a third-person chase (no cut, no scene
+## change), then back up.
 ## The interface is in hud.gd; numbers and rules in rules.gd; meshes in models.gd.
 ## Tests set `driven = true` and call step() themselves.
 
@@ -28,6 +29,8 @@ class Obj:
 	var dead := false
 	var ground := false
 	var flash := 0.0
+	## Mount point on the carrier (x, y, z from its stern) for turrets and the reactor.
+	var anchor := Vector3.INF
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -80,6 +83,9 @@ var aim := Vector2.ZERO
 var off := Vector2.ZERO
 var core: Obj
 var approach_from := Vector3.ZERO
+var approach_stern := 0.0
+## World z of the ship when the chase began (the ship is at rail_z - rail_s).
+var rail_z := 0.0
 
 # camera
 var cam: Camera3D
@@ -265,8 +271,7 @@ func drag_by(px: Vector2) -> void:
 		prel += px * world_per_px
 		clamp_player()
 	elif phase in ["pov", "core", "escape"]:
-		aim += px * 1.25
-		clamp_aim()
+		off += Vector2(px.x, -px.y) * Rules.POV_DRAG
 
 
 func keys(dt: float) -> void:
@@ -280,7 +285,7 @@ func keys(dt: float) -> void:
 	if Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S):
 		d.y += 1
 	if d != Vector2.ZERO:
-		var px_per_s := 11.0 / world_per_px if phase in ["vert", "exit"] else 700.0
+		var px_per_s := 11.0 / world_per_px if phase in ["vert", "exit"] else 11.0 / Rules.POV_DRAG
 		drag_by(d.normalized() * px_per_s * dt)
 	if phase == "hangar" and Input.is_key_pressed(KEY_ENTER):
 		launch()
@@ -295,12 +300,6 @@ func view_size() -> Vector2:
 func clamp_player() -> void:
 	prel.x = clampf(prel.x, -Rules.HALF_W, Rules.HALF_W)
 	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, Rules.Z_BOT - 1.0)
-
-
-func clamp_aim() -> void:
-	var v := view_size()
-	aim.x = clampf(aim.x, v.x * 0.06, v.x * 0.94)
-	aim.y = clampf(aim.y, v.y * 0.12, v.y * 0.8)
 
 
 func step(dt: float) -> void:
@@ -623,21 +622,22 @@ func think(f: Obj, dt: float) -> void:
 			var vz := -rail_speed()
 			if f.t < 9.0:
 				vz += (dist - keep) * 1.6
-				f.pos.x = lerpf(f.pos.x, f.x0 + sin(f.t * 1.6 + f.idx) * 1.4, minf(1.0, dt * 2.0))
-				f.pos.y = lerpf(f.pos.y, Rules.PY + cos(f.t * 1.3 + f.idx * 2.0) * 1.3, minf(1.0, dt * 2.0))
+				f.pos.x = lerpf(f.pos.x, f.x0 + sin(f.t * 1.6 + f.idx) * 1.8, minf(1.0, dt * 2.0))
+				f.pos.y = lerpf(f.pos.y, Rules.PY + 0.5 + cos(f.t * 1.3 + f.idx * 2.0) * 1.6, minf(1.0, dt * 2.0))
 				if f.t >= f.fire_t and dist < 40.0:
 					f.fire_t += 1.9
 					orb(f.pos + Vector3(0, 0, 0.6), 12.0)
 			else:
 				vz = -rail_speed() - 30.0
 			f.pos.z += vz * dt
-			f.pos.x = clampf(f.pos.x, -Rules.TUNNEL_HW + 1.0, Rules.TUNNEL_HW - 1.0)
+			f.pos.x = clampf(f.pos.x, -Rules.POV_REACH.x - 1.0, Rules.POV_REACH.x + 1.0)
 			f.node.look_at(ppos, Vector3.UP, true)
 			f.node.rotate_object_local(Vector3.FORWARD, f.t * 2.0)
 		"sentry":
+			f.pos = f.anchor + Vector3(0, 0, stern_z)
 			var dist := ppos.z - f.pos.z
 			f.node.look_at(ppos, Vector3.UP, true)
-			if f.t >= f.fire_t and dist > 6.0 and dist < 38.0:
+			if f.t >= f.fire_t and dist > 6.0 and dist < 45.0:
 				f.fire_t += 1.6
 				orb(f.pos + to_p.normalized() * 1.0, 11.0)
 		"orb":
@@ -651,6 +651,7 @@ func think(f: Obj, dt: float) -> void:
 					f.fire_t += 2.6
 					orb(f.pos + Vector3(0, 0, 0.6), 10.0)
 		"core":
+			f.pos = f.anchor + Vector3(0, 0, stern_z)
 			f.node.rotation = Vector3(f.t * 0.7, f.t * 1.1, 0)
 			if phase == "core" and f.t >= f.fire_t:
 				var open := shielded() == false
@@ -661,7 +662,7 @@ func think(f: Obj, dt: float) -> void:
 					var at := f.pos + Vector3(cos(a), sin(a), 0) * 1.6
 					var dir := (ppos + Vector3(cos(a), sin(a), 0) * 2.2 - at).normalized()
 					var o := orb(at, 0.0)
-					o.vel = dir * 10.0
+					o.vel = dir * 10.0 - Vector3(0, 0, rail_speed())
 
 
 func think_boss(f: Obj, dt: float) -> void:
@@ -692,12 +693,7 @@ func think_boss(f: Obj, dt: float) -> void:
 
 
 func rail_speed() -> float:
-	match phase:
-		"pov":
-			return Rules.RAIL
-		"escape":
-			return Rules.ESCAPE * clampf((phase_t - 1.2) / 0.8, 0.0, 1.0)
-	return 0.0
+	return Rules.RAIL if pov_mode() else 0.0
 
 
 func shielded() -> bool:
@@ -746,8 +742,8 @@ func orb(at: Vector3, speed: float) -> Obj:
 	o.max_hp = 1.0
 	o.r = Rules.FOES.orb.r
 	o.pos = at
-	var lead := ppos + Vector3(0, 0, -rail_speed() * 0.6)
-	o.vel = (lead - at).normalized() * speed - Vector3(0, 0, rail_speed() * 0.0)
+	# fired from things that fly with the ship: aimed in that moving frame
+	o.vel = (ppos - at).normalized() * speed - Vector3(0, 0, rail_speed())
 	o.node = Models.instance(Models.shot_mesh(0.35), Models.glow(Color8(0xff, 0x4d, 0x8d)))
 	var dot := Models.instance(Models.shot_mesh(0.18), Models.glow(Color8(0xff, 0xf0, 0xf4)))
 	o.node.add_child(dot)
@@ -966,9 +962,10 @@ func update_ship(dt: float) -> void:
 	if phase == "vert" or phase == "exit":
 		tb = clampf(-pvel.x * 0.05, -0.7, 0.7)
 	elif pov_mode():
-		tb = clampf((off.x - ship.position.x) * 0.0, -0.6, 0.6)
+		tb = clampf(-pvel.x * 0.09, -0.8, 0.8)
 	bank = lerpf(bank, tb, minf(1.0, dt * 8.0))
-	ship.rotation = Vector3(0, 0, bank)
+	var pitch := clampf(pvel.y * 0.05, -0.3, 0.3) if pov_mode() else 0.0
+	ship.rotation = Vector3(pitch, 0, bank)
 	ship_mesh.visible = inv <= 0.0 or fmod(inv, 0.16) > 0.08
 	engine_glow.scale = Vector3(1.6, 1, 2.6 + sin(phase_t * 40.0) * 0.6)
 
@@ -997,15 +994,16 @@ func spawn_carrier() -> void:
 	carrier.add_child(Models.instance(Models.carrier()))
 	carrier.add_child(Models.instance(Models.carrier_lights(), Models.glow(Color8(0xc8, 0xf4, 0xff))))
 	add_child(carrier)
-	say("CARRIER AHEAD", "Fly into its hangar")
+	say("CARRIER AHEAD", "Get on its tail")
 
 
-## The swoop into the carrier: the vertical stage freezes, the ship lines up with the hangar
-## mouth, and the camera comes down behind it.
+## The swoop behind the ship: the vertical stage freezes, the ship drops in behind the
+## carrier, and the camera comes down to a chase view. Everything stays outside.
 func begin_approach() -> void:
 	phase = "approach"
 	phase_t = 0.0
 	approach_from = ppos
+	approach_stern = stern_z
 	for f in foes:
 		if not f.dead:
 			f.dead = true
@@ -1014,16 +1012,20 @@ func begin_approach() -> void:
 		b.dead = true
 	queue.clear()
 	set_cam("chase", 2.2)
-	say("BREACH", "Into the carrier")
+	say("INTERCEPT", "Bring the carrier down")
 
 
 func step_approach(dt: float) -> void:
 	frame_z -= Rules.SCROLL * maxf(0.0, 1.0 - phase_t / 1.2) * dt
-	var k := clampf(phase_t / 2.6, 0.0, 1.0)
-	var mouth := Vector3(0, Rules.PY, stern_z + 4.0)
+	var k := clampf(phase_t / Rules.APPROACH, 0.0, 1.0)
+	var e := k * k * (3.0 - 2.0 * k)
+	# the carrier speeds up to the rail speed while the ship falls in behind it
+	stern_z = approach_stern - Rules.RAIL * Rules.APPROACH * 0.5 * k * k
+	var tail := Vector3(0, Rules.PY, stern_z + Rules.GAP_FAR)
 	var side := smoothstep(0.0, 1.0, minf(1.0, k * 1.6))
-	ppos = Vector3(lerpf(approach_from.x, mouth.x, side), Rules.PY, lerpf(approach_from.z, mouth.z, k * k * (3.0 - 2.0 * k)))
-	pvel = Vector2((mouth.x - approach_from.x) * (1.0 - side), 0)
+	ppos = Vector3(lerpf(approach_from.x, tail.x, side), Rules.PY, lerpf(approach_from.z, tail.z, e))
+	pvel = Vector2((tail.x - approach_from.x) * (1.0 - side), 0)
+	carrier.position.z = stern_z
 	if k >= 1.0:
 		begin_pov()
 
@@ -1031,57 +1033,71 @@ func step_approach(dt: float) -> void:
 func begin_pov() -> void:
 	phase = "pov"
 	phase_t = 0.0
-	rail_s = -4.0
+	rail_s = 0.0
+	rail_z = ppos.z
 	pov_i = 0
 	off = Vector2.ZERO
-	aim = view_size() * Vector2(0.5, 0.45)
-	set_cam("cockpit", 0.9)
 	hud.show_play()
 
 
+## The chase, on rails: ship and carrier fly forward at `Rules.RAIL`; the drag moves the ship
+## in the plane facing the carrier (that's how you dodge), the guns fire straight ahead with
+## a little aim assist.
 func step_pov(dt: float) -> void:
-	rail_s += rail_speed() * dt
+	var v := rail_speed()
+	rail_s += v * dt
 	if phase == "pov" and rail_s >= Rules.RAIL_STOP:
-		rail_s = Rules.RAIL_STOP
 		phase = "core"
 		phase_t = 0.0
 		say("REACTOR", "Break its shield panels")
-	# aim moves the ship within the tunnel (that's how you dodge)
-	var v := view_size()
-	var n := (aim - v * Vector2(0.5, 0.45)) / (v * Vector2(0.44, 0.33))
-	var want := Vector2(clampf(n.x, -1, 1) * Rules.POV_REACH.x, clampf(-n.y, -1, 1) * Rules.POV_REACH.y)
-	var before := off
-	off = off.lerp(want, minf(1.0, dt * 3.0))
-	pvel = (off - before) / maxf(dt, 0.001)
-	ppos = Vector3(off.x, Rules.PY + off.y, stern_z - rail_s)
+	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
+	off.y = clampf(off.y, -Rules.POV_REACH.y * 0.8, Rules.POV_REACH.y)
+	var before := Vector2(ppos.x, ppos.y)
+	var cur := before.lerp(Vector2(off.x, Rules.PY + off.y), minf(1.0, dt * 10.0))
+	pvel = (cur - before) / maxf(dt, 0.001)
+	ppos = Vector3(cur.x, cur.y, rail_z - rail_s)
 	frame_z = ppos.z - 6.0
+	if carrier:
+		var gap := Rules.GAP_NEAR if phase == "core" else Rules.GAP_FAR
+		var want := ppos.z - gap
+		stern_z = lerpf(stern_z, want, minf(1.0, dt * 0.6)) - v * dt
+		carrier.position.z = stern_z
+		carrier.position.y = sin(phase_t * 0.7) * 0.3
+	aim = cam.unproject_position(ppos + Vector3(0, 0.2, -Rules.AIM_AHEAD)) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
 	if phase == "escape":
-		if phase_t < 1.2 and fmod(phase_t, 0.15) < dt:
-			pop(Vector3(rng.randf_range(-3, 3), Rules.PY + rng.randf_range(-2, 2), stern_z - Rules.CORE_AT + rng.randf_range(-3, 6)), 2.5, Models.AMBER)
+		if carrier and fmod(phase_t, 0.12) < dt:
+			pop(Vector3(rng.randf_range(-9, 9), Rules.PY + rng.randf_range(0, 5), stern_z - rng.randf_range(0, 60)), 4.0, Models.AMBER)
 			shake = 0.35
-		if ppos.z < stern_z - Rules.CARRIER_LEN - 3.0:
+		if carrier and phase_t > 1.3:
+			carrier.queue_free()
+			carrier = null
+			pop(Vector3(0, Rules.PY + 2.0, stern_z - 10.0), 10.0, Models.AMBER)
+			shake = 1.0
+		if phase_t > 2.0:
 			begin_exit()
 			return
 	while pov_i < Rules.POV_WAVES.size() and rail_s >= Rules.POV_WAVES[pov_i].s:
 		spawn_pov(Rules.POV_WAVES[pov_i])
 		pov_i += 1
-	if phase != "escape":
-		fire_pov(dt)
+	fire_pov(dt)
 
 
 func spawn_pov(w: Dictionary) -> void:
 	for i in int(w.n):
 		match w.kind:
 			"drone":
+				# launched from the carrier's hangar, they fall back towards the ship
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
-				f.x0 = (i - (w.n - 1) * 0.5) * 1.6
-				f.pos = Vector3(f.x0, Rules.PY + rng.randf_range(-1.2, 1.2), ppos.z - 55.0 - i * 3.0)
-				f.fire_t = 1.2 + i * 0.45
+				f.x0 = (i - (w.n - 1) * 0.5) * 2.6
+				f.pos = Vector3(rng.randf_range(-2, 2), Rules.PY + rng.randf_range(-1, 1), stern_z + 1.0)
+				f.fire_t = 1.4 + i * 0.45
 			"sentry":
+				# gun turrets on the carrier's stern, either side of the hangar
 				var f := new_foe("sentry", Models.sentry())
 				var sx := -1.0 if i % 2 == 0 else 1.0
-				f.pos = Vector3(sx * (Rules.TUNNEL_HW - 0.7), Rules.PY + rng.randf_range(-1.6, 1.6), ppos.z - 42.0 - i * 6.0)
+				f.anchor = Vector3(sx * rng.randf_range(5.5, 8.5), Rules.PY + rng.randf_range(-1.5, 3.5), 0.8)
+				f.pos = f.anchor + Vector3(0, 0, stern_z)
 				f.fire_t = 0.6 + i * 0.4
 			"core":
 				var c := new_foe("core", Models.shot_mesh(1.4))
@@ -1093,9 +1109,11 @@ func spawn_pov(w: Dictionary) -> void:
 						b.box(Vector3(cos(a), sin(a), 0) * 1.9, Vector3(0.5, 0.5, 0.3), Models.FOE_D)
 					return b.commit()))
 				c.node.add_child(ring)
-				c.pos = Vector3(0, Rules.PY, stern_z - Rules.CORE_AT)
+				c.anchor = Vector3(0, Rules.PY, 1.5)
+				c.pos = c.anchor + Vector3(0, 0, stern_z)
 				c.fire_t = 1.5
 				core = c
+				say("THE HANGAR OPENS", "Its reactor is exposed")
 				for k in 4:
 					var p := new_foe("panel", Models.panel())
 					p.idx = k
@@ -1110,25 +1128,32 @@ func fire_pov(dt: float) -> void:
 		fire_cd += gun.period
 		var target := aim_point()
 		for sh: Array in gun.shots:
-			var from := ppos + Vector3(float(sh[0]) * 1.6, -0.45, -2.2)
+			var from := ppos + Vector3(float(sh[0]), 0, -1.4)
 			var dir := (target - from).normalized().rotated(Vector3.UP, -deg_to_rad(sh[1]) * 0.35)
-			var o := new_shot(from, dir * 75.0, gun.dmg)
-			o.node.scale = Vector3(0.5, 0.5, 9.0)
+			var o := new_shot(from, dir * 80.0 - Vector3(0, 0, rail_speed()), gun.dmg)
+			o.node.scale = Vector3(0.8, 0.8, 6.0)
 	fire_missiles(dt)
 
 
-## The world point under the reticle, 40 m ahead (or on the foe it covers).
+## Where the guns converge: straight ahead of the ship, or the foe closest to that line
+## (aim assist).
 func aim_point() -> Vector3:
-	var o := cam.project_ray_origin(aim)
-	var d := cam.project_ray_normal(aim)
-	var dist := 40.0
+	var o := ppos
+	var d := Vector3.FORWARD
+	var best := Rules.AIM_AHEAD * 1.5
+	var at := o + d * Rules.AIM_AHEAD
+	var best_miss := 1e9
 	for f in foes:
-		if f.dead:
+		if f.dead or (f.kind == "core" and shielded()):
 			continue
 		var t := (f.pos - o).dot(d)
-		if t > 2.0 and t < dist and (o + d * t).distance_to(f.pos) < f.r + 0.4:
-			dist = t
-	return o + d * dist
+		if t < 4.0 or t > best:
+			continue
+		var miss := (o + d * t).distance_to(f.pos) - f.r
+		if miss < Rules.AIM_ASSIST and miss < best_miss:
+			best_miss = miss
+			at = f.pos
+	return at
 
 
 func begin_escape() -> void:
@@ -1140,18 +1165,20 @@ func begin_escape() -> void:
 			f.dead = true
 			pop(f.pos, 1.0, Models.AMBER)
 	shake = 0.8
-	say("REACTOR DOWN", "Get out!")
+	say("REACTOR DOWN", "The carrier is going down")
 
 
-## Out through the bow: the camera climbs back up to the vertical view while the carrier
-## goes up in flames behind the ship.
+## Back to the vertical stage: the camera climbs back up over the ship.
 func begin_exit() -> void:
 	phase = "exit"
 	phase_t = 0.0
-	prel = Vector2(clampf(off.x, -Rules.HALF_W, Rules.HALF_W), 4.0)
+	prel = Vector2(clampf(ppos.x, -Rules.HALF_W, Rules.HALF_W), 4.0)
 	frame_z = ppos.z - prel.y
 	for f in foes:
 		f.dead = true
+	if carrier:
+		carrier.queue_free()
+		carrier = null
 	set_cam("top", 1.8)
 	hud.show_play()
 
@@ -1163,14 +1190,6 @@ func step_exit(dt: float) -> void:
 	clamp_player()
 	ppos = Vector3(prel.x, lerpf(ppos.y, Rules.PY, minf(1.0, dt * 3.0)), frame_z + prel.y)
 	pvel = (prel - before) / maxf(dt, 0.001)
-	if carrier and phase_t < 1.6 and fmod(phase_t, 0.12) < dt:
-		var z := stern_z - rng.randf_range(0.0, Rules.CARRIER_LEN)
-		pop(Vector3(rng.randf_range(-8, 8), Rules.PY + 3.0, z), 4.0, Models.AMBER)
-	if carrier and phase_t > 1.4:
-		carrier.queue_free()
-		carrier = null
-		pop(Vector3(0, Rules.PY, frame_z + Rules.Z_BOT + 4.0), 8.0, Models.AMBER)
-		shake = 0.9
 	fire_vert(dt)
 	if phase_t >= 1.9:
 		phase = "vert"
@@ -1184,15 +1203,13 @@ func step_exit(dt: float) -> void:
 # ---------------------------------------------------------------- camera
 
 func pose(mode: String) -> Array:
-	match mode:
-		"chase":
-			var xf := Transform3D(Basis(), ppos + Vector3(0, 2.3, 7.5))
-			return [xf.looking_at(ppos + Vector3(0, 0.4, -12), Vector3.UP), 58.0]
-		"cockpit":
-			var at := ppos + Vector3(0, 0.3, -0.2)
-			var xf := Transform3D(Basis(), at).looking_at(at + Vector3(off.x * 0.06, off.y * 0.04, -20), Vector3.UP)
-			xf.basis = xf.basis.rotated(xf.basis.z, -pvel.x * 0.02)
-			return [xf, 64.0]
+	if mode == "chase":
+		# behind and above the ship, following it partly so it moves on screen
+		var at := Vector3(ppos.x * 0.55, Rules.PY + (ppos.y - Rules.PY) * 0.5 + 2.1, ppos.z + 6.8)
+		var look := Vector3(ppos.x * 0.35, Rules.PY + (ppos.y - Rules.PY) * 0.3 + 0.2, ppos.z - 22.0)
+		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
+		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
+		return [xf, 62.0]
 	var top := Transform3D(Basis(), Vector3(0, TOP_H, frame_z + TOP_BACK))
 	return [top.looking_at(Vector3(0, 0, frame_z - 1.0), Vector3.UP), TOP_FOV]
 
@@ -1222,19 +1239,7 @@ func update_cam(dt: float) -> void:
 		xf = cam_from.interpolate_with(xf, k)
 		fov = lerpf(cam_from_fov, fov, k)
 	if shake > 0.0:
-		xf.origin += Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), 0) * shake * (0.15 if cam_mode == "cockpit" else 0.4)
+		xf.origin += Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), 0) * shake * 0.4
 	cam.global_transform = xf
 	cam.fov = fov
-	# the ship disappears once the camera is in the cockpit
-	ship.visible = phase not in ["down", "results"] and not (cam_mode == "cockpit" and cam_k > 0.8)
-	if phase == "down":
-		ship.visible = false
-
-
-## How far the camera is into the cockpit (0 = outside, 1 = in), for the HUD's canopy.
-func cockpit_k() -> float:
-	if cam_mode == "cockpit":
-		return smoothstep(0.5, 1.0, cam_k)
-	if phase == "exit":
-		return 1.0 - smoothstep(0.0, 0.3, cam_k)
-	return 0.0
+	ship.visible = phase not in ["down", "results"]

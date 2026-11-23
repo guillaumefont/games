@@ -1,6 +1,6 @@
 extends SceneTree
 ## The game: rules (upgrades, saves, grades), the vertical stage's controls, the swoop into
-## the carrier, the cockpit episode (aim, reactor shield), the climb back out, the boss, death
+## the carrier, the third-person chase (dodging, reactor shield), the climb back out, the boss, death
 ## and results. Runs headless:
 ##   godot --headless --path . --script tests/game_test.gd
 
@@ -53,7 +53,7 @@ func make_game() -> Game:
 	return g
 
 
-## Steps the game; inside the carrier the autopilot aims at the nearest foe it can hurt.
+## Steps the game; in the chase the autopilot lines up with the nearest foe it can hurt.
 func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 	for i in int(secs / DT):
 		if immortal:
@@ -65,7 +65,7 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 					if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 						best = f
 			if best:
-				g.aim = g.cam.unproject_position(best.pos)
+				g.off = Vector2(best.pos.x, best.pos.y - Rules.PY)
 		g.step(DT)
 		if until.is_valid() and until.call():
 			return
@@ -113,27 +113,38 @@ func stage() -> void:
 	check(g.phase == "approach" and g.carrier != null, "the carrier arrives and the swoop begins")
 	check(g.foes.is_empty() and g.cam_mode == "chase", "the field is cleared, the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
-	check(g.phase == "pov" and g.cam_mode == "cockpit", "into the hangar mouth, into the cockpit")
-	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + 4.0)) < 0.5, "the ship lined up with the mouth")
+	check(g.phase == "pov" and g.cam_mode == "chase", "on the carrier's tail, the camera behind the ship")
+	check(absf(g.ppos.x) < 0.01 and absf(g.ppos.z - (g.stern_z + Rules.GAP_FAR)) < 0.5, "the ship lined up behind the carrier")
 	run(g, 1.0)
-	check(not g.ship.visible and g.cockpit_k() > 0.9, "the ship's model is hidden, the canopy is up")
+	check(g.ship.visible and not g.cam.is_position_behind(g.ppos), "third person: the ship stays in view")
+	check(g.ppos.z < g.cam.global_position.z and g.cam.global_position.y > g.ppos.y, "the camera is behind and above it")
+	var gap := g.ppos.z - g.stern_z
+	var z0 := g.ppos.z
+	run(g, 1.0)
+	check(g.ppos.z < z0 - 15.0 and absf(g.ppos.z - g.stern_z - gap) < 3.0, "ship and carrier fly forward together, outside")
 	var kills: int = g.run.kills
-	# aiming leans the ship inside the tunnel (the way to dodge)
-	g.aim = g.view_size() * Vector2(0.94, 0.12)
-	for i in 90:
+	# dragging moves the ship across the view (the way to dodge)
+	g.drag_by(Vector2(150, -120))
+	for i in 30:
 		g.step(DT)
-	check(g.off.x > 2.0 and g.off.y > 1.2, "aiming top right moves the ship there (%.1f, %.1f)" % [g.off.x, g.off.y])
-	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01, "but no further than the tunnel allows")
+	check(g.ppos.x > 2.0 and g.ppos.y > Rules.PY + 1.5, "dragging up right moves the ship there (%.1f, %.1f)" % [g.ppos.x, g.ppos.y - Rules.PY])
+	g.drag_by(Vector2(99999, -99999))
+	for i in 30:
+		g.step(DT)
+	check(absf(g.ppos.x) <= Rules.POV_REACH.x + 0.01 and g.ppos.y <= Rules.PY + Rules.POV_REACH.y + 0.01, "but no further than the play area")
+	var o := g.orb(g.ppos + Vector3(0, 0, -20), 10.0)
+	var rel := o.vel.z + Rules.RAIL
+	check(rel > 9.0, "foes' orbs come at the ship at their own speed, whatever the rail speed")
 	run(g, 40.0, func() -> bool: return g.phase == "core")
 	check(g.phase == "core" and g.core != null and g.shielded(), "the reactor, shielded by its panels")
-	check(g.run.kills > kills, "foes shot down in the tunnel")
+	check(g.run.kills > kills, "foes shot down in the chase")
 	var hp: float = g.core.hp
 	g.damage(g.core, 10.0)
 	check(g.core.hp == hp, "the shield stops shots on the core")
 	run(g, 40.0, func() -> bool: return g.phase == "escape")
 	check(g.phase == "escape" and not g.shielded(), "panels and reactor down: escape")
 	run(g, 10.0, func() -> bool: return g.phase == "exit")
-	check(g.phase == "exit" and g.cam_mode == "top", "out through the bow, the camera climbs back up")
+	check(g.phase == "exit" and g.cam_mode == "top", "the carrier goes down, the camera climbs back up")
 	run(g, 3.0, func() -> bool: return g.phase == "vert")
 	check(g.phase == "vert" and g.carrier_done and g.carrier == null and g.ship.visible, "back to the vertical stage, carrier destroyed")
 	run(g, 1.0)

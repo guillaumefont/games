@@ -1,16 +1,16 @@
 # Vantage
 
-An original vertical shoot 'em up for phones (portrait) that dives into first-person episodes.
+An original vertical shoot 'em up for phones (portrait) that swoops into third-person chase episodes.
 Godot 4.7, low poly 3D built entirely in code.
 
 - **Vertical stage:** drag anywhere to fly (1:1), the guns fire on their own. Shoot down fighters,
   ground flak and gunships, and collect the scrap they drop.
-- **Carrier episode:** halfway through the sector a carrier crosses the field. You fly into its
-  hangar mouth and the camera comes down behind the ship and into the cockpit: no cut, it's the
-  same 3D world. Inside, an on-rails run: drag to aim (the ship leans where you aim, which is how
-  you dodge), shoot drones, wall sentries and their energy orbs, then break the reactor's four
-  shield panels and the reactor itself. Escape through the bow and the camera climbs back up to the
-  vertical view while the carrier burns behind you.
+- **Carrier chase:** halfway through the sector a carrier crosses the field. The camera swoops down
+  behind the ship (no cut, it's the same 3D world) and you chase the carrier low over the coast, in
+  third person, on rails. Drag to move the ship across the view and dodge; the guns fire ahead with
+  a little aim assist. Shoot the drones it launches, its stern turrets and their energy orbs, then
+  break the four shield panels round the reactor in its open hangar, and the reactor. The carrier
+  goes down and the camera climbs back up to the vertical view.
 - **Boss:** a Bastion-class battleship with three attack phases.
 - **Hangar:** scrap buys permanent upgrades (cannon, missiles, hull, magnet) used in both modes.
 

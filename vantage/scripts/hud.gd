@@ -1,7 +1,7 @@
 class_name Hud
 extends Control
-## The interface: the in-flight HUD (hull, score, scrap, banners, boss bar), the cockpit's
-## canopy and reticle in the carrier, the hangar (upgrades, launch) and the results.
+## The interface: the in-flight HUD (hull, score, scrap, banners, boss bar), the reticle and
+## target brackets of the carrier chase, the hangar (upgrades, launch) and the results.
 
 const FONT := preload("res://fonts/Inter-Variable.ttf")
 const INK := Color8(0xf2, 0xf6, 0xfa)
@@ -287,12 +287,12 @@ func _draw() -> void:
 	if game == null:
 		return
 	var v := size
-	var ck := game.cockpit_k()
-	if ck > 0.0:
-		draw_cockpit(v, ck)
-	if game.pov_mode() and ck > 0.5:
+	if game.pov_mode():
+		var k := smoothstep(0.0, 0.6, game.phase_t) if game.phase == "pov" else 1.0
+		if game.phase == "escape":
+			k = 1.0 - smoothstep(0.0, 0.8, game.phase_t)
 		draw_locks()
-		draw_reticle(game.aim, ck)
+		draw_reticle(game.aim, k)
 	if game.phase not in ["hangar", "results"]:
 		# hull pips
 		var mx := Rules.max_hp(game.s)
@@ -312,45 +312,6 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, v), Color(1, 0.2, 0.25, hurt_t * 0.5))
 
 
-## The canopy frame and dashboard, faded in as the camera enters the cockpit.
-func draw_cockpit(v: Vector2, k: float) -> void:
-	var frame := Color(0.07, 0.09, 0.12, 0.96 * k)
-	var edge := Color(0.55, 0.7, 0.85, 0.5 * k)
-	var sway := game.pvel * Vector2(-4, 4)
-	sway = sway.clamp(Vector2(-30, -20), Vector2(30, 20))
-	# canopy struts from the dashboard's corners up to the top
-	var dash_y := v.y * 0.84 + sway.y
-	var l := PackedVector2Array([Vector2(0, dash_y), Vector2(0, 0), Vector2(v.x * 0.07, 0),
-		Vector2(v.x * 0.2 + sway.x, dash_y)])
-	var r := PackedVector2Array([Vector2(v.x, dash_y), Vector2(v.x * 0.8 + sway.x, dash_y),
-		Vector2(v.x * 0.93, 0), Vector2(v.x, 0)])
-	draw_colored_polygon(l, frame)
-	draw_colored_polygon(r, frame)
-	draw_line(Vector2(v.x * 0.07, 0), Vector2(v.x * 0.2 + sway.x, dash_y), edge, 3)
-	draw_line(Vector2(v.x * 0.93, 0), Vector2(v.x * 0.8 + sway.x, dash_y), edge, 3)
-	draw_rect(Rect2(0, 0, v.x, v.y * 0.035), frame)
-	# dashboard
-	var dash := PackedVector2Array([Vector2(0, v.y), Vector2(0, dash_y), Vector2(v.x * 0.3 + sway.x, dash_y - 26),
-		Vector2(v.x * 0.7 + sway.x, dash_y - 26), Vector2(v.x, dash_y), Vector2(v.x, v.y)])
-	draw_colored_polygon(dash, frame)
-	draw_polyline(PackedVector2Array([Vector2(0, dash_y), Vector2(v.x * 0.3 + sway.x, dash_y - 26),
-		Vector2(v.x * 0.7 + sway.x, dash_y - 26), Vector2(v.x, dash_y)]), edge, 3)
-	# two small screens: hull and scrap
-	var sy := dash_y + 20
-	var a := k
-	var scr := Color(0.1, 0.35, 0.45, 0.8 * a)
-	draw_rect(Rect2(v.x * 0.14, sy, v.x * 0.26, 70), scr)
-	draw_rect(Rect2(v.x * 0.6, sy, v.x * 0.26, 70), scr)
-	draw_string(FONT, Vector2(v.x * 0.14 + 14, sy + 30), "HULL", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(CY, a))
-	for i in Rules.max_hp(game.s):
-		var c := CY if i < game.hp else Color(1, 1, 1, 0.15)
-		draw_rect(Rect2(v.x * 0.14 + 14 + i * 26, sy + 42, 18, 14), Color(c, a))
-	draw_string(FONT, Vector2(v.x * 0.6 + 14, sy + 30), "RAIL", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(CY, a))
-	var prog := clampf(game.rail_s / Rules.CORE_AT, 0, 1)
-	draw_rect(Rect2(v.x * 0.6 + 14, sy + 44, v.x * 0.26 - 28, 10), Color(1, 1, 1, 0.15 * a))
-	draw_rect(Rect2(v.x * 0.6 + 14, sy + 44, (v.x * 0.26 - 28) * prog, 10), Color(GOLD, a))
-
-
 func draw_reticle(p: Vector2, k: float) -> void:
 	var c := Color(CY, 0.95 * k)
 	draw_arc(p, 34, 0, TAU, 40, c, 3, true)
@@ -359,7 +320,7 @@ func draw_reticle(p: Vector2, k: float) -> void:
 	draw_circle(p, 4, c)
 
 
-## Brackets on the foes ahead, so they read inside the dark tunnel.
+## Brackets on the foes ahead, so they read against the ground.
 func draw_locks() -> void:
 	for f: Game.Obj in game.foes:
 		if f.dead or f.kind == "orb":

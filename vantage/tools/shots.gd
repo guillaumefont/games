@@ -2,7 +2,7 @@ extends SceneTree
 ## Screenshots of the real game for PRs (needs a display):
 ##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/shots.gd -- /tmp/shots
 ## The game is driven (fixed 1/60 s steps, one per rendered frame) with a simple autopilot
-## that weaves in the vertical stage and aims at the nearest foe inside the carrier.
+## that weaves in the vertical stage and lines up with the nearest foe in the chase.
 
 var out := "/tmp/shots"
 var g: Game
@@ -27,7 +27,7 @@ func tick() -> void:
 				if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 					best = f
 		if best:
-			g.aim = g.aim.lerp(g.cam.unproject_position(best.pos), 0.15)
+			g.off = g.off.lerp(Vector2(best.pos.x, best.pos.y - Rules.PY), 0.06)
 	g.step(1.0 / 60.0)
 	await process_frame
 
@@ -55,10 +55,11 @@ func _initialize() -> void:
 	g.launch()
 	var marks := {"2-vertical": func() -> bool: return g.phase == "vert" and g.stage_t > 16.2,
 		"3-swoop": func() -> bool: return g.phase == "approach" and g.phase_t > 1.3,
-		"4-mouth": func() -> bool: return g.phase == "pov" and g.phase_t > 0.45,
-		"5-cockpit": func() -> bool: return g.phase == "pov" and g.rail_s > 42.0,
+		"4-tail": func() -> bool: return g.phase == "pov" and g.phase_t > 0.6,
+		"5-chase": func() -> bool: return g.phase == "pov" and g.rail_s > 150.0,
 		"6-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
-		"7-climb-out": func() -> bool: return g.phase == "exit" and g.phase_t > 0.7,
+		"7-carrier-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
+		"7b-climb-out": func() -> bool: return g.phase == "exit" and g.phase_t > 0.7,
 		"8-boss": func() -> bool: return g.boss != null and g.boss.t > 6.0,
 		"9-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
 	for i in 60 * 150:

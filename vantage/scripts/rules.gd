@@ -19,17 +19,25 @@ const PLAYER_R := 0.42
 const PICK_R := 1.0
 
 # ---------------------------------------------------------------- the carrier (POV episode)
-## The carrier's interior: a tunnel at flight altitude, `CARRIER_LEN` long.
+## The carrier: `CARRIER_LEN` long, its hangar (the opening at the stern where the reactor
+## shows) centred on the flight altitude.
 const CARRIER_LEN := 180.0
 const TUNNEL_HW := 4.0
 const TUNNEL_HH := 3.0
-## How far the ship may stray from the tunnel's centre line while aiming (x, y).
-const POV_REACH := Vector2(2.5, 1.7)
-## On-rails speed inside, and where the ship stops in front of the reactor.
-const RAIL := 10.0
-const RAIL_STOP := 140.0
-const CORE_AT := 160.0
-const ESCAPE := 34.0
+## The chase (third person, outside): how far the ship may move from the centre line
+## (x, y up; down is 80 % of it), metres per pixel of drag, the on-rails speed, the distance
+## to the carrier's stern while chasing and while fighting its reactor, the swoop's length,
+## where the guns converge and how far the aim assist reaches.
+const POV_REACH := Vector2(6.0, 3.0)
+const POV_DRAG := 0.016
+const RAIL := 18.0
+const GAP_FAR := 30.0
+const GAP_NEAR := 22.0
+const APPROACH := 2.6
+const AIM_AHEAD := 32.0
+const AIM_ASSIST := 1.6
+## Rail distance where the reactor fight starts.
+const RAIL_STOP := 330.0
 
 # ---------------------------------------------------------------- upgrades
 const ORDER := ["cannon", "missile", "hull", "magnet"]
@@ -97,7 +105,7 @@ static func magnet_radius(s: Dictionary) -> float:
 
 
 ## The main gun at a cannon level: shots as [x offset, angle in degrees], damage per shot and
-## the time between volleys. Used by both the vertical stage and the cockpit.
+## the time between volleys. Used by both the vertical stage and the chase.
 static func cannon(lv: int) -> Dictionary:
 	var shots: Array = [[-0.22, 0.0], [0.22, 0.0]]
 	if lv >= 1:
@@ -162,17 +170,17 @@ const STAGE := [
 	{"t": 45.0, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0},
 ]
 
-## The carrier's interior: foes by rail distance (metres into the tunnel).
+## The chase: foes by rail distance (metres flown behind the carrier).
 const POV_WAVES := [
-	{"s": 8.0, "kind": "drone", "n": 3},
-	{"s": 24.0, "kind": "sentry", "n": 2},
-	{"s": 38.0, "kind": "drone", "n": 4},
-	{"s": 56.0, "kind": "sentry", "n": 3},
-	{"s": 72.0, "kind": "drone", "n": 5},
-	{"s": 92.0, "kind": "sentry", "n": 2},
-	{"s": 100.0, "kind": "drone", "n": 3},
-	{"s": 108.0, "kind": "core", "n": 1},
-	{"s": 118.0, "kind": "drone", "n": 4},
+	{"s": 15.0, "kind": "drone", "n": 3},
+	{"s": 40.0, "kind": "sentry", "n": 2},
+	{"s": 70.0, "kind": "drone", "n": 4},
+	{"s": 110.0, "kind": "sentry", "n": 3},
+	{"s": 140.0, "kind": "drone", "n": 5},
+	{"s": 190.0, "kind": "sentry", "n": 2},
+	{"s": 210.0, "kind": "drone", "n": 3},
+	{"s": 260.0, "kind": "drone", "n": 4},
+	{"s": 300.0, "kind": "core", "n": 1},
 ]
 
 

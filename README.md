@@ -36,7 +36,7 @@ change touches that game's folder (or its workflows):
 - `tether-rally-sim.yml`, `star-breaker-test.yml`, `aurite-front-sim.yml`, `perigee-test.yml`, `mer-des-brumes-test.yml`, `vantage-test.yml` run the headless tests.
   Perigee is a Godot game too since 2026-11-16; its builds also publish the original web prototype under `prototype/`.
   Mer des Brumes (pirate naval battles, 2026-11-18) does the same with its web prototype.
-  Vantage (vertical shmup with cockpit episodes, 2026-11-23) has no self-update yet.
+  Vantage (vertical shmup with third-person chase episodes, 2026-11-23) has no self-update yet.
 - `ci-gate.yml` (check **CI gate**) waits for the workflows a PR triggers and passes only if all of them pass.
   It is the one required check on `main`.
 - `pages.yml` deploys the whole `gh-pages` branch, plus the site's root pages from `.github/pages/`
