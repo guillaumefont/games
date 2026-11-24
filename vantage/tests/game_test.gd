@@ -75,7 +75,7 @@ func run(g: Game, secs: float, until := Callable(), immortal := true) -> void:
 						best = f
 			if best:
 				# line the dipped guns up with it
-				g.off = Vector2(best.pos.x, best.pos.y + (g.ppos.z - best.pos.z) * Rules.AIM_DIP - g.chase_y)
+				g.off = g.line_up(best)
 		g.step(DT)
 		if g.phase == "vert":
 			for f in g.foes:
@@ -141,6 +141,34 @@ func slow_pause() -> void:
 	for i in int(Rules.SLOW_STOP / DT) + 2:
 		g.tick(DT)
 	check(g.paused() and g.phase == "approach", "the swoop into the chase pauses too")
+	g.queue_free()
+	await process_frame
+
+
+## Paused, a "Main menu" button quits the run back to the hangar after a confirming second tap.
+func pause_menu() -> void:
+	print("pause menu")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	g.touching = true
+	for i in 30:
+		g.tick(DT)
+	check(not g.hud.quit_btn.visible, "no main menu button while flying")
+	g.run.scrap = 7
+	var scrap0: int = g.s.scrap
+	g.touching = false
+	for i in int(Rules.SLOW_STOP / DT) + 2:
+		g.tick(DT)
+	check(g.paused() and g.hud.quit_btn.visible, "paused, the main menu button shows")
+	g.hud.quit_tap()
+	check(g.phase == "vert" and g.hud.quit_armed, "one tap only arms it")
+	g.hud.quit_tap()
+	check(g.phase == "hangar" and g.hud.hangar.visible, "a second tap quits to the hangar")
+	check(g.s.scrap == scrap0 + 7, "the scrap picked up is kept (%d)" % g.s.scrap)
+	check(int(g.s.runs) == 0, "a quit run isn't counted")
+	g.tick(DT)
+	check(not g.hud.quit_btn.visible and g.time_k == 1.0, "the hangar shows no pause menu")
 	g.queue_free()
 	await process_frame
 
@@ -355,21 +383,24 @@ func death() -> void:
 func aiming() -> void:
 	print("aiming and hits")
 	for id: String in Rules.FORTRESSES:
-		# every gun within the chase's reach from its section's station: across, and between the
-		# lowest and highest the ship's dipped guns reach at that distance (with the aim assist)
+		# every gun within the chase's reach from its section's lane (over the top, along a flank,
+		# beneath, between hulls): across, and between the lowest and highest the ship's dipped
+		# guns reach at that distance (the small aim assist and the gun's own size included)
 		var reach := true
 		var secs: Array = Rules.FORTRESSES[id].sections
 		for i in secs.size():
-			var st := Rules.station(id, i)
+			var l := Capital.lane(id, i)
+			var r: Vector4 = l.reach
 			for g: Array in secs[i].guns:
 				var at := Rules.gun_at(id, i, g)
-				var dist := -at.z - st.x
-				var dip := dist * Rules.AIM_DIP
-				var lo := st.y - Rules.POV_DOWN - dip - Rules.AIM_ASSIST
-				var hi := st.y + Rules.POV_REACH.y - dip + Rules.AIM_ASSIST
-				var ok := absf(at.x) <= Rules.GUN_X and at.y >= lo and at.y <= hi and dist > 8.0 and dist < 45.0
+				var slack: float = Rules.AIM_ASSIST + float(Rules.FOES[g[0]].r)
+				var dist: float = -at.z - float(l.along)
+				var dip: float = dist * float(l.dip)
+				var dx: float = at.x - float(l.x)
+				var ok: bool = dx >= r.x - slack and dx <= r.y + slack \
+					and at.y >= float(l.y) + r.z - dip - slack and at.y <= float(l.y) + r.w - dip + slack and dist > 8.0 and dist <= 45.0
 				if not ok:
-					print("    out of reach: ", id, " ", g, " dist ", dist, " y ", at.y, " in ", lo, "..", hi)
+					print("    out of reach: ", id, " ", g, " dist ", dist, " at ", at, " lane ", l.x, ", ", l.y)
 				reach = reach and ok
 		check(reach, "every gun of the %s within the chase's reach" % Rules.FORTRESSES[id].name)
 	var g := make_game()
@@ -766,6 +797,7 @@ func _initialize() -> void:
 	await shadows()
 	await controls()
 	await slow_pause()
+	await pause_menu()
 	await aiming()
 	await ramming()
 	await swipe()

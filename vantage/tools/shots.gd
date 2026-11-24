@@ -31,7 +31,7 @@ func tick() -> void:
 				if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 					best = f
 		if best:
-			g.off = g.off.lerp(Vector2(best.pos.x, best.pos.y - Rules.PY), 0.06)
+			g.off = g.off.lerp(g.line_up(best), 0.06)
 	g.step(1.0 / 60.0)
 	await process_frame
 

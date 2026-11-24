@@ -41,3 +41,5 @@ jobs:
         run: ./godot --headless --path . --script tests/blasts_test.gd
       - name: The look (baked occlusion, contact shadows, liquids, vignette)
         run: ./godot --headless --path . --script tests/look_test.gd
+      - name: Final bosses (one a level, lanes over, beside, beneath and between, glides, fire, a fight from beneath)
+        run: ./godot --headless --path . --script tests/bosses_test.gd

@@ -140,8 +140,22 @@ var wreck_d := 0.0
 var along := 0.0
 var fly := 0.0
 var chase_y := Rules.PY
-var adv_from := Vector2.ZERO
+var adv_from := Vector3.ZERO
 var adv_t := 0.0
+## The lane the ship flies to fight the current section (`Capital.lane`: over the top, along a
+## flank, beneath, between hulls), the one it left, the glide between them (`Capital.glide`,
+## points across) and how long that takes; `line_x` is where across the line runs now, `aim_dip`
+## how far the guns dip (negative: up, when the guns are above), and `fort_deck` how high the
+## deck flies (`Rules.deck_of`).
+var lane: Dictionary = {}
+var lane_from: Dictionary = {}
+var glide_pts := PackedVector2Array([Vector2.ZERO])
+var adv_dur := Rules.ADVANCE
+var line_x := 0.0
+var aim_dip := Rules.AIM_DIP
+var fort_deck := Rules.CHASE_DECK
+var esc_from := 0.0
+var esc_to := 0.0
 ## Every gun on the ship (foes riding its segments).
 var fort_guns: Array[Obj] = []
 var boss_done := false
@@ -342,6 +356,7 @@ func to_hangar() -> void:
 	phase = "hangar"
 	phase_t = 0.0
 	frame_z = 0.0
+	time_k = 1.0   # quit from the pause screen: the hangar runs at full speed at once
 	for k in ruined:
 		if chunks.has(k):
 			chunks[k].queue_free()
@@ -422,6 +437,15 @@ func launch(lv := -1) -> void:
 	debuted = false
 	fortress_done = false
 	chase_y = Rules.PY
+	# build the level's fortress now, not in the middle of the stage
+	fort_deck = Rules.deck_of(fort_id)
+	for i in Capital.real_sections(fort_id):
+		Capital.segment(fort_id, i)
+		Capital.piece(fort_id, i)
+	line_x = 0.0
+	lane = {}
+	lane_from = {}
+	aim_dip = Rules.AIM_DIP
 	boss_done = false
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
@@ -512,6 +536,14 @@ func reset_progress() -> void:
 	Rules.save_game(s, save_path)
 	pick_level(0)
 	sound.play("tap")
+
+
+## Quits the run from the pause screen, straight back to the hangar. Like being shot down, the
+## scrap picked up so far is kept; nothing else counts (no clear, no score, no run).
+func quit_run() -> void:
+	s.scrap += run.get("scrap", 0)
+	Rules.save_game(s, save_path)
+	to_hangar()
 
 
 func end_run(cleared: bool) -> void:
@@ -1177,7 +1209,8 @@ func think(f: Obj, dt: float) -> void:
 			else:
 				vz = -rail_speed() - 30.0
 			f.pos.z += vz * dt
-			f.pos.x = clampf(f.pos.x, -Rules.POV_REACH.x - 1.0, Rules.POV_REACH.x + 1.0)
+			var rr: Vector4 = lane_now().reach if not lane.is_empty() else Vector4(-Rules.POV_REACH.x, Rules.POV_REACH.x, 0, 0)
+			f.pos.x = clampf(f.pos.x, line_x + rr.x - 1.0, line_x + rr.y + 1.0)
 			f.node.look_at(ppos, Vector3.UP, true)
 			f.node.rotate_object_local(Vector3.FORWARD, f.t * 2.0)
 		"nozzle", "twin", "quad", "pod", "mast", "dish", "pylon", "hatch":
@@ -1518,6 +1551,9 @@ func collide(_dt: float) -> void:
 			continue
 		for f in foes:
 			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or f.sec != fort_sec)):
+				continue
+			# the bosses' fire can't be shot down (Guillaume: too easy); only rockets can
+			if f.kind == "orb" and f.homing <= 0.0:
 				continue
 			var hit := false
 			if pov:
@@ -1914,6 +1950,9 @@ func spawn_fortress() -> void:
 	wreck_d = 0.0
 	fort_s = Rules.TOP_SCALE
 	deck_y = Rules.TOP_DECK
+	fort_deck = Rules.deck_of(fort_id)
+	lane = Capital.lane(fort_id, 0)
+	lane_from = lane
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	var mat := Models.tinted(world.tint)
 	for i in Capital.real_sections(fort_id):
@@ -1970,6 +2009,9 @@ func spawn_gun(i: int, g: Array) -> Obj:
 	f.sec = i
 	f.anchor = Rules.gun_at(fort_id, i, g)
 	f.node.material_override = Models.tinted(world.tint)
+	if Capital.mount(fort_id, i, g).how == "hang":
+		# slung under the hull, upside down
+		f.node.rotation.z = PI
 	f.idx = fort_guns.size()
 	f.fire_t = 1.2 + (f.idx % 4) * 0.45
 	var gm := Capital.gun_glow(kind)
@@ -2024,11 +2066,12 @@ func step_approach(dt: float) -> void:
 	# the fortress grows to its true size and climbs while it speeds up to the rail speed, and
 	# the ship climbs in behind its stern, level with its engines
 	fort_s = lerpf(Rules.TOP_SCALE, 1.0, e)
-	deck_y = lerpf(Rules.TOP_DECK, Rules.CHASE_DECK, e)
+	deck_y = lerpf(Rules.TOP_DECK, fort_deck, e)
 	stern_z = approach_stern - Rules.RAIL * Rules.APPROACH * 0.5 * k * k
-	var st := Rules.station(fort_id, 0)
-	var tail := Vector3(0, deck_y + st.y, stern_z - st.x * fort_s)
-	chase_y = Rules.CHASE_DECK + st.y
+	var l := Capital.lane(fort_id, 0)
+	var tail := Vector3(l.x, deck_y + l.y, stern_z - l.along * fort_s)
+	chase_y = fort_deck + l.y
+	line_x = l.x
 	var side := smoothstep(0.0, 1.0, minf(1.0, k * 1.6))
 	ppos = Vector3(lerpf(approach_from.x, tail.x, side), lerpf(approach_from.y, tail.y, e), lerpf(approach_from.z, tail.z, e))
 	pvel = Vector2((tail.x - approach_from.x) * (1.0 - side), 0)
@@ -2041,14 +2084,18 @@ func step_approach(dt: float) -> void:
 ## reactor and its panels. The ship glides on to the section's station meanwhile.
 func open_fort_section() -> void:
 	fort_parts.clear()
-	adv_from = Vector2(along, fly)
+	adv_from = Vector3(line_x, fly, along)
 	adv_t = 0.0
+	lane_from = lane_now()
+	lane = Capital.lane(fort_id, fort_sec)
+	glide_pts = Capital.glide(fort_id, adv_from, Vector3(lane.x, lane.y, lane.along))
+	adv_dur = Capital.glide_time(glide_pts)
 	var sec: Dictionary = fort.sections[fort_sec]
 	if sec.kind == "core":
 		spawn_pov({"kind": "core", "n": 1})
 		phase = "core"
 		phase_t = 0.0
-		adv_t = Rules.ADVANCE
+		adv_t = adv_dur
 	else:
 		for f in fort_guns:
 			if f.sec == fort_sec and not f.dead:
@@ -2107,16 +2154,17 @@ func begin_pov() -> void:
 	fort_sec = 0
 	drone_t = 4.0
 	drone_n = 0
-	var st := Rules.station(fort_id, 0)
-	along = st.x
-	fly = st.y
+	lane = Capital.lane(fort_id, 0)
+	along = lane.along
+	fly = lane.y
+	line_x = lane.x
 	fort_s = 1.0
-	deck_y = Rules.CHASE_DECK
+	deck_y = fort_deck
 	rail_s = 0.0
 	rail_z = ppos.z
-	off = Vector2.ZERO
+	off = Vector2(ppos.x - line_x, 0.0)
 	open_fort_section()
-	adv_t = Rules.ADVANCE
+	adv_t = adv_dur
 	hud.show_play()
 
 
@@ -2128,23 +2176,32 @@ func step_pov(dt: float) -> void:
 	var v := rail_speed()
 	rail_s += v * dt
 	var line_z := rail_z - rail_s
+	var k := clampf(adv_t / adv_dur, 0.0, 1.0)
 	if phase == "escape":
-		# climbing away from the blast, so the wreck drifts back beneath the ship
-		chase_y = Rules.CHASE_DECK + fly + Rules.CLIMB * smoothstep(0.0, 2.5, phase_t)
+		# climbing away from the blast, so the wreck drifts back beneath the ship (out from under
+		# the hull first, if it was beneath it)
+		var out := esc_from != esc_to
+		line_x = lerpf(esc_from, esc_to, smoothstep(0.0, 1.4, phase_t))
+		chase_y = fort_deck + fly + Rules.CLIMB * smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t)
 	else:
 		adv_t += dt
-		var k := clampf(adv_t / Rules.ADVANCE, 0.0, 1.0)
-		var st := Rules.station(fort_id, fort_sec)
-		along = lerpf(adv_from.x, st.x, smoothstep(0.0, 1.0, k))
-		# up first, so the ship clears the stern's edge before it runs on over the deck
-		fly = lerpf(adv_from.y, st.y, smoothstep(0.0, 1.0, minf(1.0, k * 2.4)))
-		chase_y = Rules.CHASE_DECK + fly
+		k = clampf(adv_t / adv_dur, 0.0, 1.0)
+		# along the hull and across to the next lane at the same pace, the way round that stays
+		# clear of the hull
+		var e := smoothstep(0.0, 1.0, k)
+		along = lerpf(adv_from.z, lane.along, e)
+		var p := Capital.path_at(glide_pts, e)
+		line_x = p.x
+		fly = p.y
+		chase_y = fort_deck + fly
+	aim_dip = lane_now().dip
 	off += knock * dt
 	knock = knock.move_toward(Vector2.ZERO, Rules.KNOCK_EASE * dt)
-	off.x = clampf(off.x, -Rules.POV_REACH.x, Rules.POV_REACH.x)
-	off.y = clampf(off.y, -Rules.POV_DOWN, Rules.POV_REACH.y)
+	var r := reach_now(k)
+	off.x = clampf(off.x, r.x, r.y)
+	off.y = clampf(off.y, r.z, r.w)
 	var before := Vector2(ppos.x, ppos.y)
-	var cur := before.lerp(Vector2(off.x, chase_y + off.y), minf(1.0, dt * 10.0))
+	var cur := before.lerp(Vector2(line_x + off.x, chase_y + off.y), minf(1.0, dt * 10.0))
 	pvel = (cur - before) / maxf(dt, 0.001)
 	ppos = Vector3(cur.x, cur.y, line_z)
 	frame_z = ppos.z - 6.0
@@ -2153,7 +2210,7 @@ func step_pov(dt: float) -> void:
 			step_breakup(dt)
 		else:
 			stern_z = line_z + along
-			deck_y = Rules.CHASE_DECK + sin(phase_t * 0.5) * 0.25
+			deck_y = fort_deck + sin(phase_t * 0.5) * 0.25
 		place_fortress()
 		burn_cleared()
 	aim = cam.unproject_position(ppos + aim_dir() * Rules.AIM_AHEAD) if not cam.is_position_behind(ppos + Vector3(0, 0, -30)) else view_size() * 0.5
@@ -2176,14 +2233,39 @@ func step_pov(dt: float) -> void:
 	fire_pov(dt)
 
 
+## The lane as it is now: the camera's offsets, the guns' dip and the reach blend from the lane
+## left to the next over the glide.
+func lane_now() -> Dictionary:
+	if lane.is_empty():
+		return Capital.lane(fort_id, 0)
+	if lane_from.is_empty() or adv_t >= adv_dur:
+		return lane
+	var e := smoothstep(0.0, 1.0, clampf(adv_t / adv_dur, 0.0, 1.0))
+	return {"x": line_x, "y": fly, "along": along, "route": lane.route,
+		"reach": (lane_from.reach as Vector4).lerp(lane.reach, e), "dip": lerpf(lane_from.dip, lane.dip, e),
+		"cam": (lane_from.cam as Vector4).lerp(lane.cam, e)}
+
+
+## How far the drag may take the ship from its line now (x min, x max, y min, y max): the lane's
+## reach, drawn in close during a glide so the ship keeps clear of the hull on the way round.
+func reach_now(k: float) -> Vector4:
+	var r: Vector4 = lane_now().reach
+	if k < 1.0 and phase != "escape":
+		r *= 1.0 - 0.75 * sin(PI * k)
+	return r
+
+
+## Where to put the ship (its drag offset) to line its dipped guns up with a foe.
+func line_up(f: Obj) -> Vector2:
+	return Vector2(f.pos.x - line_x, f.pos.y + (ppos.z - f.pos.z) * aim_dip - chase_y)
+
+
 ## Cleared sections burn: now and then a fire on the deck of one in view.
 func burn_cleared() -> void:
 	if burning.is_empty() or fmod(phase_t, 0.12) >= get_process_delta_time() + 0.017:
 		return
 	var i: int = burning[rng.randi() % burning.size()]
-	var r := Capital.seg_range(fort_id, i)
-	var d := rng.randf_range(r.x + 4.0, r.y - 4.0)
-	var at := seg_body(i).to_global(Vector3(rng.randf_range(-0.7, 0.7) * Capital.hw(fort_id, d), 0.4, -d))
+	var at := seg_body(i).to_global(Capital.deck_point(fort_id, i, rng.randf(), rng.randf()))
 	if at.z < ppos.z - 2.0 and at.z > ppos.z - 120.0:
 		blasts.burn(at, rng.randf_range(1.4, 2.6), fx_carry() + Vector3(0, 0, wreck_v))
 
@@ -2259,11 +2341,13 @@ func spawn_pov(w: Dictionary) -> void:
 				# launched from the deck ahead (or a hangar hatch), they climb to the ship's height
 				var f := new_foe("drone", Models.drone())
 				f.idx = i
-				f.x0 = (i - (w.n - 1) * 0.5) * 2.6 + rng.randf_range(-1.5, 1.5)
+				f.x0 = line_x + (i - (w.n - 1) * 0.5) * 2.6 + rng.randf_range(-1.5, 1.5)
 				f.size_y = chase_y + (i % 3) * 2.5 - 1.5
 				var from: Vector3 = w.get("from", Vector3.INF)
 				if from == Vector3.INF:
-					from = fort_point(Vector3(rng.randf_range(-6, 6), 0.5, -(along + 34.0)))
+					# up off the hull ahead (or down from it, beneath)
+					var dy := 5.0 if lane_now().route == "under" else -6.5
+					from = Vector3(line_x + rng.randf_range(-6, 6), chase_y + dy, stern_z - (along + 34.0) * fort_s)
 				f.pos = from
 				f.fire_t = 1.6 + i * 0.45
 			"core":
@@ -2327,7 +2411,7 @@ func think_gun(f: Obj, dt: float) -> void:
 		bub.queue_free()
 		if pov_mode():
 			pop(f.pos, 1.2, Models.CYAN)
-	var active := phase == "pov" and f.sec == fort_sec and adv_t > Rules.ADVANCE * 0.7
+	var active := phase == "pov" and f.sec == fort_sec and adv_t > adv_dur * 0.7
 	if not active or f.t < f.fire_t:
 		return
 	var dist := ppos.z - f.pos.z
@@ -2340,34 +2424,35 @@ func think_gun(f: Obj, dt: float) -> void:
 	match f.kind:
 		"nozzle":
 			# a ring of fire that opens as it comes
-			f.fire_t = f.t + 3.2
-			for k in 8:
-				var a := TAU * k / 8.0 + f.t
+			f.fire_t = f.t + 2.4
+			for k in 10:
+				var a := TAU * k / 10.0 + f.t
 				shoot(muzzle, (dir + (right * cos(a) + up * sin(a)) * 0.22).normalized(), 9.0)
 		"twin":
 			# bursts of three aimed pairs
 			f.hold += 1.0
-			f.fire_t = f.t + (0.22 if int(f.hold) % 3 else 2.2)
+			f.fire_t = f.t + (0.2 if int(f.hold) % 4 else 1.5)
 			for sx in [-0.5, 0.5]:
 				shoot(muzzle + right * sx, dir, 12.0)
 		"quad":
 			# a wide fan across, then one lifted
 			f.hold += 1.0
-			f.fire_t = f.t + 2.4
+			f.fire_t = f.t + 1.8
 			var lift := 0.12 if int(f.hold) % 2 else -0.04
-			for k in 7:
-				shoot(muzzle, (dir + right * (k - 3) * 0.13 + up * lift).normalized(), 9.5)
+			for k in 9:
+				shoot(muzzle, (dir + right * (k - 4) * 0.12 + up * lift).normalized(), 10.0)
 		"pod":
 			# two rockets that climb out and home in for a while (they can be shot)
-			f.fire_t = f.t + 3.4
+			f.fire_t = f.t + 2.6
 			for sx in [-1.0, 1.0]:
 				var o := shoot(muzzle + right * sx * 0.8 + Vector3.UP, (up * 1.2 + right * sx * 0.6 + dir * 0.4).normalized(), 7.0)
 				o.homing = 2.6
+				o.hp = 3.0
 				o.node.scale = Vector3.ONE * 1.35
 		"mast":
 			# a quick stream straight at the ship, then a breather
 			f.hold += 1.0
-			f.fire_t = f.t + (0.09 if int(f.hold) % 6 else 2.6)
+			f.fire_t = f.t + (0.08 if int(f.hold) % 8 else 1.8)
 			shoot(f.pos + dir * 0.8, dir, 15.0)
 		"dish":
 			# a turning spiral of two arms, three seconds on, a second and a half off
@@ -2377,8 +2462,9 @@ func think_gun(f: Obj, dt: float) -> void:
 					var a := f.t * 2.4 + PI * k
 					shoot(muzzle, (dir + (right * cos(a) + up * sin(a)) * 0.3).normalized(), 8.5)
 		"pylon":
-			f.fire_t = f.t + 3.0
-			shoot(muzzle, dir, 10.0)
+			f.fire_t = f.t + 2.0
+			for k in 3:
+				shoot(muzzle, (dir + right * (k - 1) * 0.1).normalized(), 11.0)
 		"hatch":
 			# a pair of drones up out of the hangar
 			f.fire_t = f.t + 5.5
@@ -2388,13 +2474,13 @@ func think_gun(f: Obj, dt: float) -> void:
 ## An orb fired along `dir` at `speed` (in the frame that flies with the ship).
 func shoot(at: Vector3, dir: Vector3, speed: float) -> Obj:
 	var o := orb(at, 0.0)
-	o.vel = dir * speed * float(world.fire) - Vector3(0, 0, rail_speed())
+	o.vel = dir * speed * Rules.BOSS_FIRE * float(world.fire) - Vector3(0, 0, rail_speed())
 	return o
 
 
 ## Where the guns aim from the ship: ahead and a little down, at the deck's guns.
 func aim_dir() -> Vector3:
-	return Vector3(0, -Rules.AIM_DIP, -1).normalized()
+	return Vector3(0, -aim_dip, -1).normalized()
 
 
 func fire_pov(dt: float) -> void:
@@ -2460,6 +2546,12 @@ func begin_escape() -> void:
 	seg_spin.resize(segs.size())
 	seg_vel.fill(Vector3.ZERO)
 	seg_spin.fill(Vector3.ZERO)
+	# beneath the hull, the ship first slips out to the side before it climbs away
+	esc_from = line_x
+	esc_to = line_x
+	if lane_now().route == "under":
+		var sx := signf(line_x) if absf(line_x) > 1.0 else 1.0
+		esc_to = sx * (Capital.extent(fort_id, maxf(along, 0.0)) + 14.0)
 	if fortress and fortress.has_node("lights"):
 		fortress.get_node("lights").visible = false
 	# the reactor goes up, then a chain of blasts runs aft along the spine
@@ -2484,9 +2576,14 @@ func pose(mode: String) -> Array:
 		# over the fortress's deck the line (`chase_y`) is high above the ground; the camera looks
 		# a little down at the guns on the deck. As the fortress breaks up it pulls up and back to
 		# watch the pieces drift away beneath.
+		# The lane sets its offsets (`Capital.lane`: beside a flank the camera stands out a little
+		# and looks in at the hull; beneath, it drops below the ship and looks up).
 		var rise := smoothstep(0.0, 2.5, phase_t) if phase == "escape" else (1.0 if phase == "clear" else 0.0)
-		var at := Vector3(ppos.x * 0.78, chase_y + (ppos.y - chase_y) * 0.75 + 4.2 + rise * 9.0, ppos.z + 8.5 + rise * 18.0)
-		var look := Vector3(ppos.x * 0.55, chase_y + (ppos.y - chase_y) * 0.6 - 0.5 - rise * 16.0, ppos.z - 40.0 + rise * 6.0)
+		var c: Vector4 = lane_now().cam if fortress or phase == "escape" else Vector4(4.2, -0.5, 0, 0)
+		c = c.lerp(Vector4(4.2, -0.5, 0, 0), rise)
+		var ox := ppos.x - line_x
+		var at := Vector3(line_x + ox * 0.78 + c.z, chase_y + (ppos.y - chase_y) * 0.75 + c.x + rise * 9.0, ppos.z + 8.5 + rise * 18.0)
+		var look := Vector3(line_x + ox * 0.55 + c.w, chase_y + (ppos.y - chase_y) * 0.6 + c.y - rise * 16.0, ppos.z - 40.0 + rise * 6.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]
