@@ -40,14 +40,38 @@ static func mat() -> StandardMaterial3D:
 	return _mat
 
 
-## The terrain material: matte, no rim, so the ground stays calm under the action.
-static func ground_mat() -> StandardMaterial3D:
+## The terrain material: matte, no rim, so the ground stays calm under the action. Where a vertex
+## is flagged as bare rock (alpha below 1: steep faces, see `ground_chunk`), it shows strata,
+## bands that follow the height, so canyon walls and cliffs read as layered rock.
+static func ground_mat() -> Material:
 	if not _cache.has("ground"):
-		var m := StandardMaterial3D.new()
-		m.vertex_color_use_as_albedo = true
-		m.vertex_color_is_srgb = true
-		m.roughness = 0.95
-		m.metallic_specular = 0.2
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode diffuse_burley, specular_schlick_ggx;
+varying vec3 wp;
+void vertex() {
+	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	vec3 c = COLOR.rgb;
+	float rock = 1.0 - COLOR.a;
+	if (rock > 0.01) {
+		float y = wp.y + 0.35 * sin(wp.x * 0.23 + wp.z * 0.17) + 0.15 * sin(wp.z * 0.61);
+		float band = fract(y * 0.62);
+		float k = mix(0.78, 1.1, smoothstep(0.1, 0.2, band)) * mix(1.0, 0.86, smoothstep(0.62, 0.7, band) * (1.0 - smoothstep(0.82, 0.9, band)));
+		// thicker beds of warmer and cooler rock
+		float bed = smoothstep(0.4, 0.5, fract(y * 0.23 + 0.3)) * (1.0 - smoothstep(0.75, 0.85, fract(y * 0.23 + 0.3)));
+		vec3 kc = vec3(k) * mix(vec3(1.0), vec3(1.07, 0.93, 0.82), bed);
+		c *= mix(vec3(1.0), kc, rock);
+	}
+	ALBEDO = c;
+	ROUGHNESS = 0.95;
+	SPECULAR = 0.2;
+}
+"""
+		var m := ShaderMaterial.new()
+		m.shader = sh
 		_cache["ground"] = m
 	return _cache["ground"]
 
@@ -136,6 +160,15 @@ static func shot_node(r: float, body: Color, halo: Color, core := 0.0, glow_k :=
 static func hash2(x: float, y: float) -> float:
 	var s := sin(x * 12.9898 + y * 78.233) * 43758.5453
 	return s - floor(s)
+
+
+## An irregular outline: n points round a circle of radius r, each pushed in or out.
+static func blob(r: float, n: int, seed: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		var a := TAU * i / n + seed
+		out.append(Vector2(cos(a), sin(a)) * r * (0.72 + 0.5 * hash2(seed * 9.1 + i, i * 1.3)))
+	return out
 
 
 ## Collects coloured triangles from many parts into one flat-shaded mesh.
@@ -1033,6 +1066,17 @@ static func lift() -> float:
 	return float(THEMES[theme].get("lift", 0.0))
 
 
+## The water's height under the terrain cell being dressed (a lowered sea sits far below -0.4).
+static var sea_y := -0.4
+
+
+## Bare rock on steep faces, by world, a little darker deeper down (the ground shader adds strata).
+static func rock_col(y: float) -> Color:
+	var c: Color = {"coast": Color8(0xd8, 0xcc, 0xb0), "dunes": Color8(0xc4, 0x66, 0x3e), "ice": Color8(0xa4, 0xd2, 0xea),
+		"volcano": Color8(0x3e, 0x34, 0x36), "city": Color8(0x6a, 0x66, 0x62)}.get(theme, ROCK)
+	return c.darkened(clampf(-y * 0.025, 0.0, 0.25))
+
+
 static func ground_col(h: float) -> Color:
 	match theme:
 		"dunes":
@@ -1049,12 +1093,13 @@ static func ground_col(h: float) -> Color:
 			if h < 0.0:   # cold sea, pale where the shelf meets it
 				return Color8(0x1c, 0x3e, 0x60).lerp(Color8(0x6e, 0xae, 0xcc), smoothstep(-0.12, 0.0, h) * 0.8)
 			var c := Color8(0xd6, 0xea, 0xf4).lerp(Color8(0xf6, 0xfa, 0xfd), smoothstep(0.08, 0.14, h))
-			return c.lerp(Color8(0x8e, 0x9a, 0xa8), smoothstep(0.7, 0.76, h))
+			return c.lerp(Color8(0xb4, 0xce, 0xe2), smoothstep(0.7, 0.76, h))   # glacier ice on the heights
 		"volcano":
 			if h < 0.0:   # lava, a dark crust at its edge
 				return Color8(0xf0, 0x6a, 0x1e).lerp(Color8(0x50, 0x26, 0x1e), smoothstep(-0.1, 0.0, h))
+			# basalt, ash, then dark rusty rock on the heights (never as bright as the lava)
 			var c := Color8(0x4a, 0x42, 0x42).lerp(Color8(0x74, 0x6c, 0x68), smoothstep(0.35, 0.5, h))
-			return c.lerp(Color8(0x8a, 0x44, 0x34), smoothstep(0.72, 0.78, h))
+			return c.lerp(Color8(0x5e, 0x44, 0x3e), smoothstep(0.72, 0.78, h))
 	if h < 0.0:
 		# deep blue out at sea, turquoise shallows along the coast
 		return SEA.lerp(SEA_D, smoothstep(-0.08, -0.5, h)).lerp(Color8(0x3f, 0xa6, 0xb4), smoothstep(-0.1, 0.0, h) * 0.75)
@@ -1095,13 +1140,20 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + lift()
 	var height := func(h: float) -> float:
 		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
+	# the city keeps its flat ground (its roads are laid on it); elsewhere the land has its set
+	# pieces (Relief): canyons, cliffs, craters...
+	var shaped := theme != "city"
+	Relief.fx.clear()
+	Relief.liquid = PackedVector3Array()
+	Relief.liquid_flow = PackedVector2Array()
 	# one vertex grid, jittered in world space so neighbouring chunks still meet
 	var hs := []
 	var vs := []
-	var cs := []
+	var wet := []
 	for i in nx + 1:
 		var hr := []
 		var vr := []
+		var wr := []
 		for j in nz + 1:
 			var wx := xs[i]
 			var wz := z0 - j * cz_
@@ -1110,43 +1162,65 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			if i == 0 or i == nx:
 				jx = 0.0
 			var h: float = hgt.call(wx + jx, wz + jz)
-			hr.append(h)
-			vr.append(Vector3(wx + jx, height.call(h), wz + jz))
+			if shaped:
+				var r := Relief.at(wx + jx, wz + jz, h)
+				hr.append(r.y)
+				vr.append(Vector3(wx + jx, r.x, wz + jz))
+				wr.append(Vector2(r.z, r.w))
+			else:
+				hr.append(h)
+				vr.append(Vector3(wx + jx, height.call(h), wz + jz))
+				wr.append(Vector2.ZERO)
 		hs.append(hr)
 		vs.append(vr)
-	# vertex colours, darkened in hollows (cheap baked occlusion)
-	for i in nx + 1:
-		var cr := []
-		for j in nz + 1:
-			var h: float = hs[i][j]
-			var c := ground_col(h)
-			if h >= 0.0:
-				var around := 0.0
-				var k := 0
-				for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-					var a := i + d.x
-					var e := j + d.y
-					if a >= 0 and a <= nx and e >= 0 and e <= nz:
-						around += vs[a][e].y
-						k += 1
-				var hollow: float = clampf((around / k - vs[i][j].y) * 0.8, 0.0, 0.25)
-				c = c.darkened(hollow)
-			cr.append(c)
-		cs.append(cr)
+		wet.append(wr)
 	# soft normals: mostly the broad shape of the land (from the height field itself, so chunks
 	# meet without a seam), a little of each facet, so it reads as low poly but polished
 	var e := cell * 0.6
 	var ground_h := func(x: float, z: float) -> float:
+		if shaped:
+			return Relief.at(x, z, hgt.call(x, z)).x
 		return height.call(hgt.call(x, z))
 	var ns := []
 	for i in nx + 1:
 		var nr := []
 		for j in nz + 1:
 			var v: Vector3 = vs[i][j]
+			if (wet[i][j] as Vector2).x > 0.0 or (v.y <= -0.4 and hs[i][j] < 0.0):
+				nr.append(Vector3.UP)   # water lies flat, even where a lowered sea slopes away
+				continue
 			var dx: float = ground_h.call(v.x + e, v.z) - ground_h.call(v.x - e, v.z)
 			var dz: float = ground_h.call(v.x, v.z + e) - ground_h.call(v.x, v.z - e)
 			nr.append(Vector3(-dx / (2.0 * e), 1.0, -dz / (2.0 * e)).normalized())
 		ns.append(nr)
+	# vertex colours, darkened in hollows (cheap baked occlusion) and in the depths; steep faces
+	# are bare rock, flagged in alpha for the ground shader's strata
+	var cs := []
+	for i in nx + 1:
+		var cr := []
+		for j in nz + 1:
+			var h: float = hs[i][j]
+			var c := ground_col(h)
+			var y: float = vs[i][j].y
+			if h >= 0.0:
+				var around := 0.0
+				var k := 0
+				for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+					var a := i + d.x
+					var ee := j + d.y
+					if a >= 0 and a <= nx and ee >= 0 and ee <= nz:
+						around += vs[a][ee].y
+						k += 1
+				var hollow: float = clampf((around / k - y) * 0.8, 0.0, 0.25)
+				c = c.darkened(hollow)
+				var steep := smoothstep(0.16, 0.42, 1.0 - (ns[i][j] as Vector3).y)
+				if steep > 0.0:
+					c = c.lerp(rock_col(y), steep)
+					c.a = 1.0 - steep
+				if y < -0.6:
+					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
+			cr.append(c)
+		cs.append(cr)
 	var gv := PackedVector3Array()
 	var gn := PackedVector3Array()
 	var gc := PackedColorArray()
@@ -1172,12 +1246,30 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					gv.append(q[k])
 					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
 					gc.append(qc[k])
+			# rivers, lakes and lava: a moving surface over the ground (Relief.fx_mesh)
+			var wq := [wet[i][j], wet[i + 1][j], wet[i + 1][j + 1], wet[i][j + 1]]
+			var nwet := 0
+			for w: Vector2 in wq:
+				if w.x > 0.0:
+					nwet += 1
+			if nwet > 0:
+				for t: Array in order:
+					if (wq[t[0]] as Vector2).x > 0.0 and (wq[t[1]] as Vector2).x > 0.0 and (wq[t[2]] as Vector2).x > 0.0:
+						for k: int in [t[0], t[2], t[1]]:
+							Relief.liquid.append(q[k] + Vector3(0, 0.04, 0))
+							var fl: float = (wq[k] as Vector2).y
+							Relief.liquid_flow.append(Vector2(0, 1) if fl == 1.0 else (Vector2(1, 0) if fl == 2.0 else Vector2.ZERO))
 			# scenery: woods, villages, beaches, rocks and boats
 			var hs4: Array[float] = [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
 			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
+			var top: float = maxf(maxf(q[0].y, q[1].y), maxf(q[2].y, q[3].y))
 			# the wide cells out on the flanks are far off in the fog: bare ground is enough
 			if xs[i + 1] - xs[i] > cell * 3.5:
 				continue
+			# nothing stands on a cliff, in a river or on a lowered shore (only the sea's own props)
+			if top - cy > 0.9 or (nwet > 0 and nwet < 4) or (nwet == 4 and theme != "volcano"):
+				continue
+			sea_y = cy
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
 			if theme != "coast":
 				# the other worlds' land (Glass Coast's scenery is scatter's)
@@ -1185,6 +1277,11 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				theme_prop(b, (hs4[0] + hs4[1] + hs4[2] + hs4[3]) * 0.25, cen, cy, hash2(cen.x * 1.7, cen.z * 0.3))
 				continue
 			scatter(b, hs4, cen, cy)
+	if shaped:
+		Relief.fx = Relief.events(z0, z0 - size.y, noise)
+		for ev: Dictionary in Relief.fx:
+			if ev.t == "rock":
+				meteorite(b, ev.at)
 	if theme == "city":
 		var roads := City.build(b, z0, size, hgt, height)
 		gv.append_array(PackedVector3Array(roads[0]))
@@ -1345,17 +1442,17 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	if lo < 0.0 and hi >= 0.0:
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
-			mark("lighthouse", Vector3(cen.x, -0.4, cen.z), ang, r2)
+			mark("lighthouse", Vector3(cen.x, sea_y, cen.z), ang, r2)
 		elif r < 0.05:
-			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 6.0, r2, true)
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.32 + r * 6.0, r2, true)
 	elif hi < 0.0:
 		# at sea: stacks in the shallows, fishing boats further out
 		if avg > -0.14 and r < 0.012:
-			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 33.0, r2, true)
+			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.4 + r * 33.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
-			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
+			mark("boat", Vector3(cen.x, sea_y, cen.z), ang, r2)
 		elif avg < -0.22 and r < 0.0045:
-			mark("duck", Vector3(cen.x, -0.4, cen.z), ang, r2)
+			mark("duck", Vector3(cen.x, sea_y, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
 		if r < 0.035:
@@ -1623,10 +1720,11 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 		"dunes":
 			if avg >= 0.15 and avg < 0.6 and r < 0.0025:
 				mark("pyramid", at, snappedf(r2 * TAU, PI * 0.5), r2)
-			elif avg >= 0.8 and r < 0.1:
-				count("mesa")
+			elif avg >= 0.8 and r < 0.035:
+				# boulders on the red rock (the land itself has the mesas now, see Relief)
+				count("boulder")
 				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.9 + r * 3.0, 6), 0, 0.9 + r2 * 0.9, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
+				b.prism(Vector3(0, -0.1, 0), blob(0.35 + r * 2.0, 7, r2), 0, 0.3 + r2 * 0.3, Color8(0xb0, 0x5c, 0x3c), Vector2(0.6, 0.6))
 			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
 				count("cactus")
 				place(b, at, r2 * TAU)
@@ -1642,7 +1740,7 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 		"city":
 			# the city itself is City.build's; the canals get the odd giant rubber duck
 			if avg < -0.05 and r < 0.012 and not City.on_road(cen.x, cen.z, 1.5):
-				mark("duck", Vector3(cen.x, -0.4, cen.z), r2 * TAU, r2)
+				mark("duck", Vector3(cen.x, sea_y, cen.z), r2 * TAU, r2)
 		"ice":
 			if avg >= 0.05 and avg < 0.28 and r < 0.004:
 				mark("snowman", at, r2 * TAU, r2)
@@ -1659,7 +1757,7 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
 			elif avg < -0.05 and r < 0.025:
 				count("floe")
-				place(b, Vector3(cen.x, -0.42, cen.z), r * 6.0)
+				place(b, Vector3(cen.x, sea_y - 0.02, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
 			if avg >= 0.15 and avg < 0.6 and r < 0.004:
@@ -1669,9 +1767,26 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				place(b, at, r2 * 6.0)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
 			elif avg < -0.05 and r < 0.02:
+				# a raft of cooled crust drifting on the lava
 				count("lava rock")
-				place(b, Vector3(cen.x, -0.45, cen.z), r * 6.0)
-				b.prism(Vector3.ZERO, ngon(0.5 + r2 * 0.4, 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
+				place(b, Vector3(cen.x, sea_y - 0.05, cen.z), r * 6.0)
+				var raft := blob(0.5 + r2 * 0.5, 9, r2)
+				b.prism(Vector3.ZERO, raft, 0, 0.16, Color8(0x2a, 0x20, 0x20), Vector2(0.8, 0.8))
+				b.prism(Vector3(0.08, 0, -0.05), blob(0.22 + r2 * 0.2, 6, r), 0.1, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.6, 0.6))
+	b.xf = Transform3D.IDENTITY
+
+
+## The meteorite at the bottom of a desert crater: a dark faceted lump, glowing cracks, debris.
+static func meteorite(b: Builder, p: Vector3) -> void:
+	count("meteorite")
+	place(b, p, 0.4)
+	b.octa(Vector3(0, 0.55, 0), 0.9, Color8(0x3a, 0x30, 0x2e), Vector3(1.0, 0.75, 0.85))
+	b.octa(Vector3(0.5, 0.35, 0.3), 0.55, Color8(0x2e, 0x26, 0x26), Vector3(1.0, 0.8, 1.0))
+	b.box(Vector3(0, 0.6, 0.62), Vector3(0.7, 0.06, 0.06), Color8(0xff, 0x7a, 0x22))
+	b.box(Vector3(0.62, 0.5, 0.0), Vector3(0.06, 0.06, 0.6), Color8(0xff, 0x9a, 0x30))
+	for k in 6:
+		var a := k * 1.1
+		b.octa(Vector3(cos(a), 0, sin(a)) * (1.3 + 0.2 * (k % 3)), 0.18 + 0.04 * k, Color8(0x4a, 0x3a, 0x34))
 	b.xf = Transform3D.IDENTITY
 
 

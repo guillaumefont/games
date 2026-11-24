@@ -39,3 +39,5 @@ jobs:
         run: ./godot --headless --path . --script tests/icon_test.gd
       - name: Explosions (pieces, pool, budget, chains, carry, shake)
         run: ./godot --headless --path . --script tests/blasts_test.gd
+      - name: The land's set pieces (course, seams, depth, moving parts, ground foes' footing)
+        run: ./godot --headless --path . --script tests/relief_test.gd

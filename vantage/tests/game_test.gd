@@ -661,7 +661,7 @@ func scenery() -> void:
 	var g := make_game()
 	await process_frame
 	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush", "duck"],
-		"dunes": ["mesa", "cactus", "adobe", "pyramid"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "helipad", "fire", "ruin", "crater", "wreck", "rubble"], "ice": ["pine", "snowman"],
+		"dunes": ["boulder", "cactus", "adobe", "pyramid", "meteorite"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "helipad", "fire", "ruin", "crater", "wreck", "rubble"], "ice": ["pine", "snowman"],
 		"volcano": ["spire", "stone head"]}
 	var before := Models.theme
 	for theme: String in want:
