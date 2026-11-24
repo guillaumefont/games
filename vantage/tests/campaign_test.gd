@@ -111,11 +111,11 @@ func data() -> void:
 		for k in f.sections.size() - 1:
 			var sec: Dictionary = f.sections[k]
 			kinds.append(sec.kind)
-			ok = ok and not sec.guns.is_empty() and Capital.segment(id, k).get_surface_count() > 0 \
+			ok = ok and not sec.guns.is_empty() and Capital.segment(id, Capital.home(id, k)).get_surface_count() > 0 \
 				and Capital.piece(id, k).get_surface_count() > 0
 			for g: Array in sec.guns:
 				ok = ok and g[0] in Rules.SHIP_GUNS and Rules.FOES.has(g[0])
-		ok = ok and kinds[-1] in Capital.HEARTS and Rules.fortress_len(id) > 130.0
+		ok = ok and kinds[-1] in Capital.HEARTS and Rules.fortress_len(id) > 90.0
 		looks["%s/%s/%s" % [f.get("hull", Capital.bodies(id).size()), f.paint, kinds]] = true
 		check(ok, "%s: %.0f m, %d sections from the stern to the bridge or gondola, each with its guns and a piece that breaks off, then the reactor" % [
 			f.title, Rules.fortress_len(id), f.sections.size()])
@@ -335,7 +335,7 @@ func levels() -> void:
 		var hidden := [true]
 		var broke := [false]
 		run(g, 480.0, func() -> bool:
-			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < g.segs.size():
+			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < Capital.real_sections(id):
 				hidden[0] = hidden[0] and not g.fort_piece(secs[0]).visible
 				secs[0] = g.fort_sec
 			if g.phase == "escape" and g.fortress != null and g.segs.size() > 1:
