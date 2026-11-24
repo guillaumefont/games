@@ -26,6 +26,10 @@ var hangar_scrap: Label
 var hangar_best: Label
 var update_btn: Button
 var version_btn: Button
+## Wipes the progress; the first tap arms it, a second within `RESET_ARM` s confirms.
+var reset_btn: Button
+var reset_armed := false
+const RESET_ARM := 4.0
 ## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
 var version_note := ""
 var rows := {}
@@ -203,8 +207,20 @@ func build_hangar() -> void:
 	var gap := Control.new()
 	gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(gap)
-	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	hangar_best.reparent(v)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 12)
+	v.add_child(foot)
+	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_LEFT)
+	hangar_best.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hangar_best.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hangar_best.reparent(foot)
+	reset_btn = Button.new()
+	reset_btn.flat = true
+	reset_btn.focus_mode = Control.FOCUS_NONE
+	reset_btn.custom_minimum_size = Vector2(0, 48)
+	reset_btn.add_theme_font_size_override("font_size", 22)
+	reset_btn.pressed.connect(reset_tap)
+	foot.add_child(reset_btn)
 	update_btn = button("", GOLD, 26)
 	update_btn.visible = false
 	update_btn.pressed.connect(func() -> void: game.refresh_game())
@@ -213,6 +229,29 @@ func build_hangar() -> void:
 	go_btn.custom_minimum_size = Vector2(0, 104)
 	go_btn.pressed.connect(func() -> void: game.launch())
 	v.add_child(go_btn)
+
+
+## Reset progress, with a confirmation: the first tap turns the button red ("tap again"), a
+## second tap within RESET_ARM seconds wipes the save; otherwise it calms down again.
+func reset_tap() -> void:
+	if not reset_armed:
+		reset_armed = true
+		game.sound.play("tap")
+		refresh_reset()
+		get_tree().create_timer(RESET_ARM).timeout.connect(func() -> void:
+			if reset_armed:
+				reset_armed = false
+				refresh_reset())
+		return
+	reset_armed = false
+	game.reset_progress()
+	refresh_hangar()
+
+
+func refresh_reset() -> void:
+	reset_btn.text = "Tap again to wipe all" if reset_armed else "Reset progress"
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		reset_btn.add_theme_color_override(c, RED if reset_armed else DIM)
 
 
 ## The campaign as a timeline: ‹ WORLD › on top, then the world's three levels on a track,
@@ -361,6 +400,7 @@ func refresh_hangar() -> void:
 		b.text = "MAX" if c < 0 else "◆ " + Rules.fmt(c)
 		b.disabled = not Rules.can_buy(s, key)
 	hangar_best.text = "Best score  %s   ·   Sorties  %d" % [Rules.fmt(s.best), s.runs]
+	refresh_reset()
 	var build: String = ProjectSettings.get_setting("application/config/version", "")
 	if build == "":
 		build = "dev"
