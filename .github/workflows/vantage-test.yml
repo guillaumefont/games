@@ -45,3 +45,5 @@ jobs:
         run: ./godot --headless --path . --script tests/bosses_test.gd
       - name: The land's set pieces (course, seams, depth, moving parts, ground foes' footing)
         run: ./godot --headless --path . --script tests/relief_test.gd
+      - name: Battery (frame rate cap by moment, 3D resolution cap)
+        run: ./godot --headless --path . --script tests/power_test.gd
