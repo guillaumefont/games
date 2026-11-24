@@ -23,10 +23,12 @@ const NAMES := {
 	"lancer": "Lancer interceptor", "hover": "Floe hovercraft", "prism": "Rime crystal",
 	"ember": "Magma drone", "mortar": "Cinder walker", "wyrm": "Ash wyrm",
 }
-## Formations a flight can fly in (`slot`): an arrowhead, abreast, or a diagonal echelon.
-const FORMS := ["v", "line", "echelon"]
-## Room between two foes of a formation (m).
-const FORM_GAP := 3.2
+## Collateral targets, not threats (Guillaume, 2026-11-24: "Hydro planes should be a collateral
+## damage, not an enemy. It should stroll by (alone) waiting to be shot"): they never fire and the
+## ship flies through them unharmed (not in `Rules.RAMMABLE`).
+const HARMLESS := ["gull"]
+## How fast a seaplane strolls across the screen (m/s).
+const GULL_SPEED := 2.4
 
 ## On the ground (ramming passes under them; they stay with the land).
 const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
@@ -522,26 +524,7 @@ static func clear(g: Game, x: float, z: float, me: Game.Obj) -> bool:
 
 
 ## Spawns foe i of n of a wave of `kind` entering at x (from `from`), past the screen's edge.
-## Foe i's place in a formation of n (x across, z along the flight: negative is further back,
-## up the screen), relative to the formation's centre across and its leader along.
-static func slot(form: String, i: int, n: int) -> Vector2:
-	var at := Vector2.ZERO
-	match form:
-		"v":
-			var k := (i + 1) / 2
-			at = Vector2((-1.0 if i % 2 == 1 else 1.0) * k * FORM_GAP, -k * FORM_GAP * 0.8)
-		"line":
-			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP * 1.15, 0.0)
-		"echelon":
-			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP, -i * FORM_GAP * 0.75)
-		_:
-			at = Vector2((i - (n - 1) * 0.5) * 1.4, 0.0)
-	if form == "v" and n % 2 == 0:
-		at.x += FORM_GAP * 0.5   # the left wing is the longer one: centre the V
-	return at
-
-
-static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
+static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top") -> void:
 	var top := g.frame_z + minf(g.view_top, Rules.Z_TOP) - 2.5
 	var gz := g.frame_z + minf(g.view_ground_top, top - g.frame_z - 3.0) - 2.0
 	var spread := (i - (n - 1) * 0.5)
@@ -566,16 +549,13 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	var side := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if (x < 0.0 or x == 0.0 and i % 2 == 0) else 1.0))
 	match kind:
 		"gull":
-			# in formation: goal.x its place across, goal.z how far behind the leader
-			var at := slot(form, i, n)
-			var half := 0.0   # (y) the formation's half width, to keep it all on screen
-			for k in n:
-				half = maxf(half, absf(slot(form, k, n).x))
-			f.goal = Vector3(at.x, half, at.y)
-			f.pos.x = clampf(f.x0, -maxf(0.0, 6.5 - half), maxf(0.0, 6.5 - half)) + at.x
-			f.pos.z = top + at.y
-			f.vel = Vector3(0, 0, 11.0)
-			f.fire_t = 1.0
+			# a lone seaplane out for a stroll: crosses the upper screen from one side to the other
+			var s := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0))
+			var z := g.hold_z(6.5)
+			f.x0 = s
+			f.goal = Vector3(0, 0, z)
+			f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
+			f.vel = Vector3(-s * GULL_SPEED, 0, 0)
 		"rotor":
 			var gx := clampf(f.x0 + spread * 4.2, -6.0, 6.0)
 			f.goal = Vector3(gx, 0, g.hold_z(7.5 - (i % 2) * 1.8))   # z: above the screen's centre
@@ -691,22 +671,11 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		return
 	match f.kind:
 		"gull":
-			# dives at the ship, fires at the bottom of its dive, pulls up and climbs away
-			if f.hold < 0.0:
-				# the flight lines up on the ship, each in its place, and pulls up as one
-				var room := maxf(0.0, 6.5 - f.goal.y)
-				var want := clampf(g.ppos.x, -room, room) + f.goal.x
-				f.vel.x = clampf((want - f.pos.x) * 1.4, -4.5, 4.5)
-				if f.pos.z - f.goal.z > g.ppos.z - 8.5 or f.t > 2.6:
-					f.hold = f.t
-			else:
-				f.vel.z = move_toward(f.vel.z, -12.0, 20.0 * dt)
-				f.vel.x *= 1.0 - minf(1.0, dt * 1.5)
-				if f.fire_t > 0.0 and f.vel.z < 3.0 and in_play(g, f):
-					f.fire_t = -1.0
-					g.fan(f.pos + Vector3(0, 0, 0.8), 3, 0.4, 10.5)
-			f.pos += f.vel * dt
-			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), clampf(-f.vel.x * 0.08, -0.6, 0.6))
+			# strolls across in a lazy wave, never fires: it's only there to be shot down
+			f.pos.x += f.vel.x * dt
+			f.pos.z = g.frame_z + f.goal.z + sin(f.t * 0.8) * 0.9
+			var dz := cos(f.t * 0.8) * 0.72
+			f.node.rotation = Vector3(0, atan2(f.vel.x, dz), sin(f.t * 0.8) * 0.18 * -f.x0)
 		"rotor":
 			# drops into the upper screen, hovers firing rings, then sinks away down the screen
 			var bl := f.node.get_node("blades") as Node3D
