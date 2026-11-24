@@ -76,10 +76,19 @@ func power() -> void:
 	check(g.power == 0, "a level starts at power 0, whatever was bought")
 	g.step(0.2)
 	check(g.shots.size() == 2, "on the twin gun")
-	for i in Rules.POWER_EVERY:
+	for i in Rules.kills_for(0) - 1:
 		g.count_core(g.ppos + Vector3(0, 0, -4))
+	check(g.picks.filter(func(p: Game.Obj) -> bool: return p.kind == "power").is_empty(), "no core before %d kills" % Rules.kills_for(0))
+	g.count_core(g.ppos + Vector3(0, 0, -4))
 	var cores := g.picks.filter(func(p: Game.Obj) -> bool: return p.kind == "power")
-	check(cores.size() == 1, "every %d kills leave a power core" % Rules.POWER_EVERY)
+	check(cores.size() == 1, "%d kills leave the first power core" % Rules.kills_for(0))
+	# Guillaume (2026-11-24): "you go too quickly from 0 to the max": each step takes more kills
+	var total := 0
+	for k in Rules.POWER_MAX:
+		total += Rules.kills_for(k)
+		if k > 0:
+			check(Rules.kills_for(k) > Rules.kills_for(k - 1), "step %d takes more kills than the one before" % (k + 1))
+	check(total >= 110, "full power takes %d kills, more than a short level holds" % total)
 	cores[0].pos = g.ppos
 	g.step(DT)
 	check(g.power == 1, "picking it up is a power step")
@@ -93,6 +102,10 @@ func power() -> void:
 	g.inv = 0.0
 	g.hurt()
 	check(g.power == Rules.POWER_MAX - 1 and g.hp == Rules.max_hp(g.s) - 1, "a hit costs a power step and a hull pip")
+	g.core_kills = 5
+	g.inv = 0.0
+	g.hurt()
+	check(g.core_kills == 0, "and the kills towards the next core")
 	g.to_hangar()
 	g.launch(0)
 	check(g.power == 0, "the next level starts over")

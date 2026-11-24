@@ -102,7 +102,7 @@ var hp := 3
 ## In-level power (`Rules.POWER_MAX` steps): the spread of the cannon, built up from power cores
 ## picked up in play and lost a step a hit. Every level starts at 0.
 var power := 0
-## Kills towards the next power core (`Rules.POWER_EVERY`).
+## Kills towards the next power core (`Rules.kills_for`).
 var core_kills := 0
 var inv := 0.0
 ## Push from ramming something (world units/s, x and z in the stage, x and y in the chase); eases off.
@@ -1542,8 +1542,8 @@ func part_down(f: Obj) -> void:
 	if not boss_parts.is_empty():
 		return
 	var sec: Dictionary = mid.sections[boss_sec]
-	if boss_sec < mid.sections.size() - 1:
-		drop_core(boss.pos + Vector3(0, 0, 3.0))
+	if boss_sec == mid.sections.size() - 1:
+		drop_core(boss.pos + Vector3(0, 0, 3.0))   # one core for the whole mid-boss
 	var name: String = sec.piece
 	if name != "" and boss.node.has_node(name):
 		boss.node.get_node(name).visible = false
@@ -1934,10 +1934,13 @@ func drop(at: Vector3, value: float) -> Obj:
 	return p
 
 
-## A foe of the vertical stage went down: every `Rules.POWER_EVERY` of them leaves a power core.
+## A foe of the vertical stage went down: every `Rules.kills_for(power)` of them leave a power core
+## (more for each step). Kills in the chase don't count.
 func count_core(at: Vector3) -> void:
+	if pov_mode() or power >= Rules.POWER_MAX:
+		return
 	core_kills += 1
-	if core_kills >= Rules.POWER_EVERY:
+	if core_kills >= Rules.kills_for(power):
 		core_kills = 0
 		drop_core(at)
 
@@ -1988,6 +1991,7 @@ func hurt() -> void:
 	if power > 0 and hp > 0:
 		power -= 1
 		hud.ping_power()
+	core_kills = 0   # and the kills towards the next core
 	inv = 1.6
 	shake = 0.5
 	hud.flash_hurt()

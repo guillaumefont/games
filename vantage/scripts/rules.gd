@@ -520,13 +520,23 @@ static func magnet_radius(s: Dictionary) -> float:
 
 
 ## In-level power (Guillaume, 2026-11-24: with every upgrade bought the game was too easy; "how
-## about keeping an in level progress"). Every level starts on the bare twin gun. Foes drop power
-## cores (one each `POWER_EVERY` kills in the vertical stage, one for each mid-boss section); each
-## widens the spread a step, up to `POWER_MAX`. A hit costs a power step as well as hull. The
-## hangar's Cannon upgrade no longer buys the spread: it makes every shot hit harder
-## (`CANNON_DMG` a level), so the ship keeps improving but every run builds up from weak.
+## about keeping an in level progress"). Every level starts on the bare twin gun. Foes of the
+## vertical stage drop power cores, each a step wider spread, up to `POWER_MAX`. A hit costs a power
+## step and the kills towards the next core. The hangar's Cannon upgrade no longer buys the spread:
+## it makes every shot hit harder (`CANNON_DMG` a level), so the ship keeps improving but every run
+## builds up from weak.
+## Each step takes more kills than the last (`POWER_KILLS`; Guillaume, 2026-11-24: "you go too
+## quickly from 0 to the max, and then you're OP and you cannot lose"), and the mid-boss gives one
+## core when it goes down: full power comes late in a long level, if ever, and is easily lost.
 const POWER_MAX := 4
-const POWER_EVERY := 6
+const POWER_KILLS := [12, 22, 34, 48]
+
+
+## Kills of the vertical stage it takes for the core of the next step from a power.
+static func kills_for(power: int) -> int:
+	return int(POWER_KILLS[clampi(power, 0, POWER_KILLS.size() - 1)])
+
+
 const CANNON_DMG := 0.15
 
 
