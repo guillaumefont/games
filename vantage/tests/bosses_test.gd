@@ -113,23 +113,65 @@ func lanes() -> void:
 						open = false
 						print("    pylon hidden: ", id, " ", f.sections[i].name, " by ", ga)
 		check(open, "%s: its shield pylons can be shot" % f.name)
-		# compact (Guillaume: "you already see the next section, receive its bullets"): from each
-		# section's lane, guns of the next are within range
+		# compact (Guillaume: "you already see the next section, receive its bullets"; then "do the
+		# opposite approach: start by designing a fortress, then choose a path that would clear it by
+		# sections"): from each section's lane the next section's guns are in range and in sight
+		# round the hull (guns don't fire through it), and the sections overlap along the hull
 		var near := true
 		for i in f.sections.size() - 2:
 			var l := Capital.lane(id, i)
-			var best := 1e9
+			var seen := 0
 			for g: Array in f.sections[i + 1].guns:
-				best = minf(best, -Rules.gun_at(id, i + 1, g).z - float(l.along))
-			if f.sections[i + 1].guns.size() > 0 and best > 62.0:
+				var at := Rules.gun_at(id, i + 1, g)
+				var dist: float = -at.z - float(l.along)
+				if dist > 5.0 and dist <= 62.0 and in_sight(id, l, at):
+					seen += 1
+			if seen == 0:
 				near = false
-				print("    next section far: ", id, " ", f.sections[i].name, " ", best)
-		check(near, "%s: the next section's guns already in range from each lane" % f.name)
+				print("    next section out of sight: ", id, " ", f.sections[i].name)
+		check(near, "%s: the next section's guns already in range and in sight from each lane" % f.name)
+		var own := true
+		for i in f.sections.size() - 1:
+			var l := Capital.lane(id, i)
+			for g: Array in f.sections[i].guns:
+				if not in_sight(id, l, Rules.gun_at(id, i, g)):
+					own = false
+					print("    gun out of sight of its lane: ", id, " ", f.sections[i].name, " ", g)
+		check(own, "%s: every gun in sight of its section's lane" % f.name)
+		var L := Rules.fortress_len(id)
+		var span := 0.0
+		for i in f.sections.size() - 1:
+			span += float(f.sections[i].len)
+		var steps := true
+		for i in range(1, f.sections.size() - 1):
+			steps = steps and Rules.section_at(id, i) - Rules.section_at(id, i - 1) <= 20.0
+		check(L <= 125.0 and span > L and steps, "%s: %.0f m, its sections overlapping (%.0f m of sections), each starting within 20 m of the last" % [f.name, L, span])
+		# no two guns in each other's way
+		var apart := true
+		var pos: Array[Vector3] = []
+		for i in f.sections.size():
+			for g: Array in f.sections[i].guns:
+				var at := Rules.gun_at(id, i, g)
+				for p in pos:
+					if p.distance_to(at) < 3.0:
+						apart = false
+						print("    guns on top of each other: ", id, " ", f.sections[i].name, " ", g)
+				pos.append(at)
+		check(apart, "%s: no two guns on top of each other" % f.name)
 		var low := 1e9
 		for i in f.sections.size():
 			var l := Capital.lane(id, i)
 			low = minf(low, Rules.deck_of(id) + float(l.y) + (l.reach as Vector4).z)
 		check(low >= Rules.LOW - 0.01, "%s: the ship never comes within %.0f m of the ground (%.1f)" % [f.name, Rules.LOW, low])
+
+
+## Whether a point on the ship is in sight of the ship anywhere the drag takes it in a lane.
+func in_sight(id: String, l: Dictionary, at: Vector3) -> bool:
+	var r: Vector4 = l.reach
+	for p: Vector2 in [Vector2.ZERO, Vector2(r.x, 0), Vector2(r.y, 0), Vector2(0, r.z), Vector2(0, r.w)]:
+		if Capital.sees(id, at, Vector3(l.x + p.x, l.y + p.y, -float(l.along))):
+			return true
+	return false
 
 
 func make_game() -> Game:

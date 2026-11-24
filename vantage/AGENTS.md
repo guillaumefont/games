@@ -24,7 +24,9 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (Guillaume, 2026-11-23, after rejecting the flying fortress as "a glorified transport with the same useless
   tunnel": "a huge fortress class ship, you clear it sections per sections as you advance along the ship").
   One for each level (Guillaume, 2026-11-24: "I want a different boss per level. You can advance over it, on
-  the sides..."; `Campaign.FORTRESS_ORDER`), 15 in `Rules.FORTRESSES`, 200-290 m long: plated-deck ships
+  the sides..."; `Campaign.FORTRESS_ORDER`), 15 in `Rules.FORTRESSES`, 98-124 m long (Guillaume, 2026-11-24: "start by designing a fortress, then choose a
+  path that would clear it by sections": each ship is one dense object, its sections placed on it by `at`
+  and overlapping, and their order is the path round the hull that clears it): plated-deck ships
   (`hull`: slab, wedge, round, keel: Goliath, Zephyr, Talon, Leviathan, Wyvern, Sirocco galleon, Narwhal
   icebreaker) and ships of smooth lofted `bodies` (`Capital.body_at`: Albatross airship, Marlin catamaran,
   Scarab beetle, Manta flying wing, Trident trimaran, Aurora pod chain, Basilisk serpent, Behemoth with
@@ -46,7 +48,12 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (Guillaume, 2026-11-24: "you already see the next section, receive its bullets"; no dead time on the
   sides): the current section and the next (`Game.live_sec`) fire, take hits and get brackets, the next one
   `Rules.AHEAD_FIRE` times slower, and the current one fires during the glide onto it too. From every lane
-  the next section's guns are within 62 m (tested); the other sections' guns hold fire. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
+  the next section's guns are within 62 m and in sight round the hull (tested): a path winds round the
+  hull (under, up a flank, over, down the other flank), never straight across it. No gun fires through
+  its own hull (`Capital.sees`); the other sections' guns hold fire. The hull is cut into segments at the
+  distinct section starts (`Capital.cuts`, `hull_count`); a section's guns and piece ride the segment it
+  starts on (`Capital.home`; `Game.seg_body` vs `hull_body`). `tools/fortress_plan.gd [id]` prints each
+  ship's plan (lanes, guns in sight, glides) headless. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
   and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
