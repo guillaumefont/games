@@ -91,10 +91,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was
   exciting again; "how about keeping an in level progress"): every level starts on the bare twin gun
-  (`Game.power` 0). Every `Rules.POWER_EVERY` kills in the vertical stage, and each mid-boss section but the
-  heart, leave a power core (`Game.drop_core`, pick kind `power`; in the chase the step is given at once);
-  each widens the spread a step up to `Rules.POWER_MAX` (7 guns, faster fire). A hit costs a power step as well
-  as hull. The hangar's Cannon upgrade only raises damage per shot (`Rules.cannon_dmg`), never the spread, so
+  (`Game.power` 0). Kills in the vertical stage leave power cores (`Game.drop_core`, pick kind `power`), each step
+  taking more kills than the last (`Rules.POWER_KILLS`), and the mid-boss leaves one as it goes down; kills in the
+  chase don't count. Each core widens the spread a step up to `Rules.POWER_MAX` (7 guns, faster fire). A hit costs
+  a power step, the kills towards the next core and hull. Guillaume found the first pace (a core every 6 kills
+  and one per mid-boss section) far too quick: max power early, then "OP and you cannot lose". Keep it slow. The hangar's Cannon upgrade only raises damage per shot (`Rules.cannon_dmg`), never the spread, so
   bought upgrades can't make a run's start easy (tested). HUD: the power bar under the hull pips.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
