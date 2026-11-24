@@ -217,6 +217,31 @@ func towns(g: Game) -> void:
 		check(stray == 0, "%s: no stray landmarks inside" % theme)
 
 
+## The city is a calm backdrop: its colours in a narrow, muted band and few fires, so foes and
+## bullets stand out (Guillaume, 2026-11-24: "the city landscape is too messy... not very easy to
+## see the enemies on the very heavy background").
+func city(g: Game) -> void:
+	print("city")
+	g.apply_theme("city")
+	var n := 0
+	var out := 0
+	var sat := 0.0
+	var fires := 0
+	for k in 10:
+		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+		fires += City.fires.size()
+		for s in m.get_surface_count():
+			for c: Color in m.surface_get_arrays(s)[Mesh.ARRAY_COLOR]:
+				n += 1
+				var l := c.get_luminance()
+				if l < 0.2 or l > 0.7:
+					out += 1
+				sat += c.s
+	check(n > 0 and out < n * 0.03, "city: its colours stay in a calm mid band (%d of %d outside)" % [out, n])
+	check(sat / n < 0.12, "city: muted colours (saturation %.2f)" % (sat / n))
+	check(fires > 0 and fires <= 80, "city: a few fires, not everywhere (%d in 10 chunks)" % fires)
+
+
 func _initialize() -> void:
 	print("Vantage relief test")
 	var g := make_game()
@@ -225,6 +250,7 @@ func _initialize() -> void:
 	seams(g)
 	depth(g)
 	footing(g)
+	city(g)
 	towns(g)
 	Models.theme = "coast"
 	g.queue_free()

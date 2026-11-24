@@ -59,6 +59,20 @@ static var _sa := sin(ANGLE)
 
 
 ## World (x, z) to city coordinates (u, v): the grid turned back by ANGLE.
+## The city's colours, calmed: much less saturated, and every shade drawn in towards one muted
+## mid grey, so the streets read as a quiet backdrop under the foes (their own colours untouched).
+const CALM_TO := Color8(0x7a, 0x7c, 0x80)
+const CALM_GREY := 0.5
+const CALM_MID := 0.5
+
+
+static func calm(col: Color) -> Color:
+	var l := col.get_luminance()
+	var c := col.lerp(Color(l, l, l, col.a), CALM_GREY).lerp(Color(CALM_TO, col.a), CALM_MID)
+	c.a = col.a
+	return c
+
+
 static func to_local(x: float, z: float) -> Vector2:
 	return Vector2(x * _ca - z * _sa, x * _sa + z * _ca)
 
@@ -220,22 +234,16 @@ static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
 			c.lay(quad.call(hw - 0.3, hw), across.call(hw - 0.3, hw), 0.11, Models.KERB)
 			c.lay(quad.call(-0.1, -0.04), across.call(-0.1, -0.04), 0.1, YELLOW)
 			c.lay(quad.call(0.04, 0.1), across.call(0.04, 0.1), 0.1, YELLOW)
-			if posmod(vm, 4.0) < 2.0:
-				for a in [-0.95, 0.95]:
-					c.lay(quad.call(a - 0.05, a + 0.05), across.call(a - 0.05, a + 0.05), 0.1, Models.PAINT)
-			if to_street < 3.0:
-				for s in 7:
-					var a := -1.5 + s * 0.5
-					c.lay(quad.call(a - 0.14, a + 0.14), across.call(a - 0.14, a + 0.14), 0.1, Models.PAINT)
 		var y: float = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25
 		if c.raw(mid.x, mid.z) < 0.02:
 			bridge_bits(c, true, u, vm, hw, y)
 		var r := Models.hash2(u * 3.1 + 0.3, vm * 1.7)
 		var dry := c.raw(mid.x, mid.z) >= 0.02
-		if r < 0.13:
+		# few cars on the roads: they were clutter under the foes
+		if r < 0.05:
 			var side: float = [1.4, 0.55, -0.55, -1.4][int(r * 307.0) % 4]
 			var w := to_world(u + side, vm)
-			if r < 0.045:
+			if r < 0.018:
 				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 40.0, r * 22.0)
 			else:
 				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (0.0 if side > 0.0 else PI), r)
@@ -279,10 +287,10 @@ static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
 		if c.raw(mid.x, mid.z) < 0.02:
 			bridge_bits(c, false, v, um, hw, y)
 		var r := Models.hash2(um * 2.3, v * 0.7 + 0.4)
-		if r < 0.1:
-			var side := 0.55 if r < 0.05 else -0.55
+		if r < 0.035:
+			var side := 0.55 if r < 0.018 else -0.55
 			var w := to_world(um, v + side)
-			if r < 0.035 or (r > 0.05 and r < 0.06):
+			if r < 0.012:
 				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 50.0, r * 15.0)
 			else:
 				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (PI * 0.5 if side > 0.0 else -PI * 0.5), r)
@@ -454,7 +462,8 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 	c.at(u, v, base)
 	c.cap = (Rules.PY - 0.65 - base) / Models.PROP_V
 	h = minf(h, c.cap - 0.12)
-	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.3
+	# a few roofs burn: fire and smoke everywhere made the foes hard to see
+	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.08
 	var glow := BLAZE if c.burning else Models.GLASS
 	var b := c.b
 	b.bevels = true
@@ -579,14 +588,9 @@ static func roof(c: Ctx, w: float, d: float, y: float, r: float) -> void:
 			Models.count("roof spire")
 			b.prism(Vector3.ZERO, Models.ngon(s * 0.3, 4, PI * 0.25), y, y + 0.5, Color8(0xc8, 0xd4, 0xe0), Vector2(0.06, 0.06))
 		2:
-			Models.count("helipad")
-			b.prism(Vector3.ZERO, Models.ngon(s * 0.42, 10), y, y + 0.03, DARK)
-			b.prism(Vector3.ZERO, Models.ngon(s * 0.36, 10), y + 0.03, y + 0.04, YELLOW)
-			b.prism(Vector3.ZERO, Models.ngon(s * 0.31, 10), y + 0.04, y + 0.05, DARK)
-			var hs := s * 0.12
-			b.box(Vector3(-hs, y + 0.055, 0), Vector3(0.06, 0.01, hs * 2.2), Models.PAINT, Vector2.ONE)
-			b.box(Vector3(hs, y + 0.055, 0), Vector3(0.06, 0.01, hs * 2.2), Models.PAINT, Vector2.ONE)
-			b.box(Vector3(0, y + 0.055, 0), Vector3(hs * 2.0, 0.01, 0.06), Models.PAINT, Vector2.ONE)
+			# a plain roof slab (helipads' rings and letters read like targets)
+			Models.count("roof slab")
+			b.box(Vector3(0, y + 0.03, 0), Vector3(w * 0.75, 0.06, d * 0.75), DARK.lightened(0.2))
 		3:
 			Models.count("water tank")
 			for i in 4:
@@ -811,8 +815,8 @@ static func crater(c: Ctx, u: float, v: float, rad: float, r: float) -> void:
 static func wreck(c: Ctx, p: Vector3, ang: float, r: float) -> void:
 	Models.count("wreck")
 	Models.car(c.b, p, ang, r, Color8(0x3a, 0x34, 0x30).lerp(Color8(0x5a, 0x40, 0x30), Models.hash2(r, 3.0)))
-	if r < 0.5:
-		fire(p + Vector3(0, 0.35, 0), 0.6)
+	if r < 0.12:
+		fire(p + Vector3(0, 0.35, 0), 0.6, false)
 
 
 ## Steel tank traps (three crossed beams) at (u, v), ground at y.
@@ -863,7 +867,8 @@ static func ruin(c: Ctx, u: float, v: float, w: float, d: float, r: float) -> vo
 	b.box(Vector3(w * 0.2, 0.42, -d * 0.1), Vector3(w * 0.35, 0.05, d * 0.4), DARK)
 	var mid := to_world(u, v)
 	rubble(c, u, v, base + 0.1, minf(w, d) * 0.45, 9, r)
-	fire(Vector3(mid.x, base + 0.4, mid.z), 0.9 + minf(w, d) * 0.12)
+	if Models.hash2(r * 5.0, u * 0.3) < 0.3:
+		fire(Vector3(mid.x, base + 0.4, mid.z), 0.9 + minf(w, d) * 0.12)
 
 
 ## The fire and smoke of the chunk just built (`fires`), in one mesh: a surface of flickering

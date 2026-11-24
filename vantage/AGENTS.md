@@ -301,6 +301,10 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
   crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
   set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
+- The city is a calm backdrop (Guillaume, 2026-11-24: "too messy... not very easy to see the enemies"): every
+  colour of a city chunk goes through `City.calm` (desaturated, drawn in towards one mid grey; `Builder.tone`), with
+  few fires, cars and road markings, and no helipads. Foes keep their own colours. Tested in `relief_test.gd`;
+  `tools/city_shots.gd` shows foes over it. Keep new city props in that muted band.
 - Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
   like structure with small houses around it"; then "on top of the existing evolutions, like cliffs in glass coast"):
   `scripts/towns.gd` (`Towns`). Each world's town crowns one of its set pieces (`Relief.TOWN_HOST`: the coast's sea
