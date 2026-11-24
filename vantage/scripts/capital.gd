@@ -40,12 +40,12 @@ static func hw(id: String, d: float) -> float:
 	match f.hull:
 		"wedge":
 			# widest just ahead of the stern, narrowing all the way to a sharp bow
-			w = W * (0.9 + 0.1 * clampf(d / 12.0, 0.0, 1.0)) * (1.0 - 0.36 * clampf((d - 40.0) / (L - 80.0), 0.0, 1.0))
+			w = W * (0.9 + 0.1 * clampf(d / 12.0, 0.0, 1.0)) * (1.0 - 0.36 * clampf((d - 30.0) / maxf(L - 60.0, 20.0), 0.0, 1.0))
 		"round":
 			w = W * (0.82 + 0.18 * sin(clampf(d / 26.0, 0.0, 1.0) * PI * 0.5))
 		"keel":
 			# a galleon's: a little narrower aft, drawing in early towards a long bow
-			w = W * (0.86 + 0.14 * clampf(d / 16.0, 0.0, 1.0)) * (1.0 - 0.18 * clampf((d - 70.0) / (L - 110.0), 0.0, 1.0))
+			w = W * (0.86 + 0.14 * clampf(d / 16.0, 0.0, 1.0)) * (1.0 - 0.18 * clampf((d - L * 0.45) / maxf(L * 0.55 - 20.0, 20.0), 0.0, 1.0))
 		_:
 			w = W * (0.9 + 0.1 * clampf(d / 14.0, 0.0, 1.0))
 	var bow := clampf((d - (L - Rules.BOW_LEN - 10.0)) / (Rules.BOW_LEN + 10.0), 0.0, 1.0)
@@ -81,14 +81,50 @@ static func stations(id: String) -> PackedFloat32Array:
 	return out
 
 
-## The segment of hull for section i: from its start to the next one's (the last runs to the bow).
-static func seg_range(id: String, i: int) -> Vector2:
-	var secs: Array = fort(id).sections
+## Where the hull is cut into segments (it parts at these seams when the ship dies): at each
+## distinct start of a section, from the stern; sections side by side (two flanks, a deck over a
+## belly) share their segment.
+static func cuts(id: String) -> PackedFloat32Array:
+	var out := PackedFloat32Array([0.0])
+	for i in real_sections(id):
+		var a := Rules.section_at(id, i)
+		var dup := false
+		for c in out:
+			dup = dup or absf(c - a) < 4.0
+		if not dup:
+			out.append(a)
+	out.sort()
+	return out
+
+
+## How many segments the hull is cut into.
+static func hull_count(id: String) -> int:
+	return cuts(id).size()
+
+
+## Hull segment k: from its cut to the next (the last runs to the bow).
+static func seg_range(id: String, k: int) -> Vector2:
+	var c := cuts(id)
+	k = clampi(k, 0, c.size() - 1)
+	return Vector2(c[k], c[k + 1] if k < c.size() - 1 else Rules.fortress_len(id))
+
+
+## The hull segment section i rides on (its guns and superstructure go with it).
+static func home(id: String, i: int) -> int:
+	var c := cuts(id)
+	var a := Rules.section_at(id, mini(i, real_sections(id) - 1)) + 1.0
+	var k := 0
+	for j in c.size():
+		if c[j] - 3.0 <= a:
+			k = j
+	return k
+
+
+## The stretch of hull section i covers: from its start, its `len`.
+static func sec_range(id: String, i: int) -> Vector2:
 	var a := Rules.section_at(id, i)
-	var b := Rules.section_at(id, i + 1)
-	if i >= real_sections(id) - 1:
-		b = Rules.fortress_len(id)
-	return Vector2(a, b)
+	var sec: Dictionary = fort(id).sections[mini(i, fort(id).sections.size() - 1)]
+	return Vector2(a, minf(a + float(sec.len), Rules.fortress_len(id)))
 
 
 ## Sections with a stretch of hull (the reactor is fought on the bridge's).
@@ -105,7 +141,7 @@ static func pivot(id: String, i: int) -> Vector3:
 	var r := seg_range(id, i)
 	var m := (r.x + r.y) * 0.5
 	if lofted(id):
-		return Vector3(track_x(id, i, m), float(bodies(id)[0].y), -m)
+		return Vector3(wave(bodies(id)[0], m), float(bodies(id)[0].y), -m)
 	return Vector3(0, -Rules.HULL_DEPTH * 0.45, -m)
 
 
@@ -130,7 +166,8 @@ static func segment(id: String, i: int) -> Mesh:
 		var b := B.new()
 		if lofted(id):
 			body_segment(b, id, i)
-			fittings(b, id, i)
+			for j in homed(id, i):
+				fittings(b, id, j)
 			extras(b, id, i)
 			return b.commit()
 		var f := fort(id)
@@ -225,13 +262,23 @@ static func segment(id: String, i: int) -> Mesh:
 				var e := ring[(j + 1) % ring.size()]
 				b.tri(c, Vector3(a.x, a.y, 0), Vector3(e.x, e.y, 0), trim.lerp(flank, 0.3), Vector3.BACK)
 		# the bow's prow: a sharp keel-cutter under the last metres
-		if i == real_sections(id) - 1:
+		if i == hull_count(id) - 1:
 			var L := Rules.fortress_len(id)
 			b.prism(Vector3(0, 0, -L + 4.0), PackedVector2Array([Vector2(0, -4.0), Vector2(0.6, 2.0), Vector2(0, 10.0), Vector2(-0.6, 2.0)]),
 				-1.0, 1.2, accent.darkened(0.2))
-		fittings(b, id, i)
+		for j in homed(id, i):
+			fittings(b, id, j)
 		extras(b, id, i)
 		return b.commit())
+
+
+## The sections riding on hull segment k.
+static func homed(id: String, k: int) -> Array:
+	var out: Array = []
+	for i in real_sections(id):
+		if home(id, i) == k:
+			out.append(i)
+	return out
 
 
 ## A section's deck fittings that stay put (the piece that breaks off is separate).
@@ -241,7 +288,7 @@ static func fittings(b: B, id: String, i: int) -> void:
 	var pt: Array = paint(id)
 	var trim: Color = pt[2]
 	var accent: Color = f.accent
-	var r := seg_range(id, i)
+	var r := sec_range(id, i)
 	var a := r.x
 	var len := r.y - r.x
 	# a ring of armour under each deck gun, a sponson under each gun on a flank, a hanger over
@@ -252,7 +299,7 @@ static func fittings(b: B, id: String, i: int) -> void:
 		"engines":
 			# heat-sink grilles and warning chevrons aft of the engine housings
 			for k in 6:
-				b.box(Vector3(0, 0.05, -(a + 30.0 + k * 1.6)), Vector3(8.0, 0.1, 0.7), trim)
+				b.box(Vector3(0, 0.05, -(a + minf(30.0, len - 10.0) + k * 1.6)), Vector3(8.0, 0.1, 0.7), trim)
 			for sx: float in [-1.0, 1.0]:
 				for k in 4:
 					b.prism(Vector3(sx * 3.0, 0.02, -(a + 1.5 + k * 2.2)), poly([[-1.2, 0.4], [0, -0.6], [1.2, 0.4], [0, -0.1]]), 0.0, 0.06, accent)
@@ -352,7 +399,7 @@ static func piece(id: String, i: int) -> Mesh:
 		var trim: Color = pt[2]
 		var armour: Color = (pt[1] as Color).lerp(trim, 0.35)
 		var accent: Color = f.accent
-		var r := seg_range(id, i)
+		var r := sec_range(id, i)
 		var a := r.x
 		var len := r.y - r.x
 		match sec.kind:
@@ -760,6 +807,16 @@ static func inside(id: String, d: float, p: Vector2, margin: float) -> bool:
 	return false
 
 
+## Whether the hull leaves a clear line between two points of the model (a gun and the ship):
+## guns don't fire through their own ship.
+static func sees(id: String, a: Vector3, b: Vector3) -> bool:
+	for k in range(1, 10):
+		var p := a.lerp(b, 0.08 + 0.09 * k)
+		if inside(id, -p.z, Vector2(p.x, p.y), 0.0):
+			return false
+	return true
+
+
 ## How far out the hull reaches either side at d (m from the centre line).
 static func extent(id: String, d: float) -> float:
 	var e := 0.0
@@ -1022,7 +1079,7 @@ static func glide_time(pts: PackedVector2Array) -> float:
 
 ## A point on the hull's top in segment i (u, v from 0 to 1 across and along), for fires.
 static func deck_point(id: String, i: int, u: float, v: float) -> Vector3:
-	var r := seg_range(id, i)
+	var r := sec_range(id, i)
 	var d := lerpf(r.x + 2.0, r.y - 2.0, v)
 	if not lofted(id):
 		return Vector3((u * 2.0 - 1.0) * 0.7 * hw(id, d), 0.4, -d)
@@ -1142,7 +1199,7 @@ static func mount_fitting(b: B, id: String, i: int, g: Array) -> void:
 
 ## Bay doors along the belly, between the guns slung under it.
 static func bay_doors(b: B, id: String, i: int) -> void:
-	var r := seg_range(id, i)
+	var r := sec_range(id, i)
 	var accent: Color = fort(id).accent
 	var d := r.x + 6.0
 	while d < r.y - 6.0:
@@ -1157,7 +1214,7 @@ static func bay_doors(b: B, id: String, i: int) -> void:
 
 ## The gondola heart: a glazed band under the hull and the reactor's socket.
 static func gondola(b: B, id: String, i: int) -> void:
-	var r := seg_range(id, i)
+	var r := sec_range(id, i)
 	var accent: Color = fort(id).accent
 	var c := core_at(id)
 	b.prism(Vector3(c.x, 0, c.z), Models.ngon(3.0, 10), c.y + 3.0, c.y + 4.4, HAZARD)
@@ -1243,7 +1300,7 @@ static func galleries(b: B, id: String, i: int, armour: Color, trim: Color, acce
 
 ## Ice crystals: long faceted spikes leaning out (`scale` 1 for the big cluster that breaks off).
 static func crystals(b: B, id: String, i: int, accent: Color, scale: float) -> void:
-	var r := seg_range(id, i)
+	var r := sec_range(id, i)
 	var ice := Color8(0xd8, 0xf4, 0xff)
 	var d := r.x + r.y
 	var spots: Array = [[0.0, r.y - 8.0, 7.0], [-3.0, r.y - 10.0, 5.0], [3.0, r.y - 9.5, 5.5], [-9.0, r.x + 20.0, 4.5], [9.0, r.x + 16.0, 4.0],
@@ -1325,7 +1382,7 @@ static func extras(b: B, id: String, i: int) -> void:
 			"legs":
 				# a beetle's legs, folded under the shell
 				for k in 3:
-					var d := 50.0 + k * 52.0
+					var d := L * (0.25 + k * 0.22)
 					if d < r.x or d >= r.y:
 						continue
 					for sx: float in [-1.0, 1.0]:

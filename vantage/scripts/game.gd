@@ -488,6 +488,13 @@ func launch(lv := -1) -> void:
 	time_k = 0.0
 	started = false
 	set_cam("top", 0.0)
+	# nothing steps until that touch, so put the ship (and the ground under it) where it starts
+	# now: it waits in view on "Touch to start", not wherever the hangar left it
+	bank = 0.0
+	update_ship(0.0)
+	update_chunks()
+	update_shadows()
+	sync_shadow_view()
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
@@ -2174,7 +2181,7 @@ func spawn_fortress() -> void:
 	lane_from = lane
 	stern_z = frame_z + Rules.Z_TOP - 3.0 - Rules.SCROLL * 3.0
 	var mat := Models.tinted(world.tint)
-	for i in Capital.real_sections(fort_id):
+	for i in Capital.hull_count(fort_id):
 		var seg := Node3D.new()
 		seg.name = "seg%d" % i
 		var pv := Capital.pivot(fort_id, i)
@@ -2186,12 +2193,14 @@ func spawn_fortress() -> void:
 		var hull := Models.instance(Capital.segment(fort_id, i), mat)
 		body.add_child(hull)
 		cast_shadow_of(hull)
-		var pm := Capital.piece(fort_id, i)
-		if pm:
-			var p := Models.instance(pm, mat)
-			p.name = "piece"
-			body.add_child(p)
-			cast_shadow_of(p)
+		# the superstructure of each section riding on this segment
+		for j: int in Capital.homed(fort_id, i):
+			var pm := Capital.piece(fort_id, j)
+			if pm:
+				var p := Models.instance(pm, mat)
+				p.name = "piece%d" % j
+				body.add_child(p)
+				cast_shadow_of(p)
 		fortress.add_child(seg)
 		segs.append(seg)
 	var lights := Models.instance(Capital.lights(fort_id), Models.glow(Capital.LIGHT))
@@ -2208,16 +2217,22 @@ func spawn_fortress() -> void:
 	sound.music("carrier")
 
 
-## Section i's segment's frame (the fortress's own: its body undoes the segment's pivot).
+## The frame of the hull segment section i rides on (the fortress's own: its body undoes the
+## segment's pivot).
 func seg_body(i: int) -> Node3D:
-	return segs[clampi(i, 0, segs.size() - 1)].get_node("body")
+	return hull_body(Capital.home(fort_id, i))
+
+
+## Hull segment k's frame.
+func hull_body(k: int) -> Node3D:
+	return segs[clampi(k, 0, segs.size() - 1)].get_node("body")
 
 
 ## The superstructure of section i, or null.
 func fort_piece(i: int) -> Node3D:
-	if i >= segs.size():
+	if segs.is_empty() or i >= Capital.real_sections(fort_id):
 		return null
-	return seg_body(i).get_node_or_null("piece")
+	return seg_body(i).get_node_or_null("piece%d" % i)
 
 
 ## A gun on the ship (`Rules.SHIP_GUNS`): a foe whose node rides on its segment.
@@ -2359,7 +2374,7 @@ func section_down() -> void:
 		blasts.chain(pts.slice(1), 3.2, 0.8, fx_carry(), 5.5)
 		shake = 0.7
 		sound.play("crash")
-	if fort_sec < segs.size():
+	if fort_sec < Capital.real_sections(fort_id):
 		burning.append(fort_sec)
 	fort_sec += 1
 	open_fort_section()
@@ -2374,6 +2389,11 @@ func place_fortress() -> void:
 ## at its current scale (before it breaks up).
 func fort_point(p: Vector3) -> Vector3:
 	return Vector3(p.x * fort_s, deck_y + p.y * fort_s, stern_z + p.z * fort_s)
+
+
+## A world point in the fortress's model frame (the inverse of `fort_point`).
+func fort_model(p: Vector3) -> Vector3:
+	return Vector3(p.x / fort_s, (p.y - deck_y) / fort_s, (p.z - stern_z) / fort_s)
 
 
 func begin_pov() -> void:
@@ -2548,12 +2568,12 @@ func step_breakup(dt: float) -> void:
 			if j == 1:
 				d = r.x + 1.0 if rng.randf() < 0.5 else r.y - 1.0
 			if rng.randf() < dt * 9.0:
-				blasts.burn(seg_body(i).to_global(Vector3(rng.randf_range(-0.6, 0.6) * Capital.hw(fort_id, d), rng.randf_range(-4.0, 1.0), -d)),
+				blasts.burn(hull_body(i).to_global(Vector3(rng.randf_range(-0.6, 0.6) * Capital.hw(fort_id, d), rng.randf_range(-4.0, 1.0), -d)),
 					rng.randf_range(3.0, 5.5), carry)
 		if fmod(t + i * 0.13, 0.55) < dt:
 			var r := Capital.seg_range(fort_id, i)
 			var d := rng.randf_range(r.x, r.y)
-			pop(seg_body(i).to_global(Vector3(rng.randf_range(-0.8, 0.8) * Capital.hw(fort_id, d), rng.randf_range(-8.0, 2.0), -d)),
+			pop(hull_body(i).to_global(Vector3(rng.randf_range(-0.8, 0.8) * Capital.hw(fort_id, d), rng.randf_range(-8.0, 2.0), -d)),
 				rng.randf_range(3.0, 5.0), Models.AMBER)
 			sound.play("boom", -6.0)
 
@@ -2650,6 +2670,10 @@ func think_gun(f: Obj, dt: float) -> void:
 	var ahead := f.sec != fort_sec
 	var dist := ppos.z - f.pos.z
 	if dist < 5.0 or dist > 70.0:
+		return
+	# never through its own hull: a gun round the far side waits until the ship comes round
+	if not Capital.sees(fort_id, f.anchor, fort_model(ppos)):
+		f.fire_t = f.t + 0.3
 		return
 	var dir := to_p.normalized()
 	var right := dir.cross(Vector3.UP).normalized()
