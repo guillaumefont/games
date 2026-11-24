@@ -406,7 +406,7 @@ const POV_DOWN := 3.5
 const POV_SWIPE := 0.7
 const RAIL := 18.0
 ## Lifting the finger slows time to a stop over `SLOW_STOP` s (a pause; Guillaume wanted it gradual, so
-## about 2 s with an ease); touching again brings it back up to full speed over `SLOW_RESUME` s.
+## about 2 s; a big drop at once, then a gentle tail, see `Game.time_speed`); touching again brings it back up to full speed over `SLOW_RESUME` s.
 const SLOW_STOP := 2.0
 const SLOW_RESUME := 0.25
 const APPROACH := 2.8

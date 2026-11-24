@@ -71,6 +71,8 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
   fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
+- A level starts on "Touch to start" (`Game.started` false until the first touch), not on the pause screen
+  (Guillaume, 2026-11-24): no dimming, no PAUSED, no Main menu.
 
 ## Pull requests
 
