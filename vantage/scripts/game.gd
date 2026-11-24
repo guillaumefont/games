@@ -79,6 +79,13 @@ var bullets: Array[Obj] = []
 var picks: Array[Obj] = []
 ## While above zero, every coin on screen flies to the ship (after the mid-boss).
 var vacuum_t := 0.0
+## The mid-boss's burnt-out husk once it's down (Guillaume: "it should not just vanish in the
+## explosion. The husk of the ship should slowly drift away from the screen"): it loses way, sinks,
+## turns and burns as the stage scrolls on, until it's off the bottom of the screen.
+var husk: Node3D = null
+var husk_t := 0.0
+var husk_v := 0.0
+var husk_spin := 0.0
 ## Explosions, debris, smoke and their light (blasts.gd).
 var blasts: Blasts
 
@@ -101,6 +108,9 @@ var last_touch := Vector2.ZERO
 ## Slow-motion pause: 1 while a finger is down, eases to 0 (paused) once it's lifted.
 ## `time_speed()` is the eased rate the world runs at.
 var time_k := 1.0
+## False from a level's launch until the first touch: the stage waits on "Touch to start", not
+## the pause screen (no dimming, no Main menu).
+var started := false
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
@@ -467,8 +477,9 @@ func launch(lv := -1) -> void:
 	miss_cd = 0.5
 	run = {"score": 0, "scrap": 0, "kills": 0, "hits": 0, "cleared": false}
 	ship.visible = true
-	# the launch tap is lifted already: wait, paused, for the finger that flies the ship
+	# the launch tap is lifted already: wait, still, for the finger that flies the ship
 	time_k = 0.0
+	started = false
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
@@ -582,6 +593,9 @@ func end_run(cleared: bool) -> void:
 
 func clear_all() -> void:
 	blasts.clear()
+	if husk:
+		husk.queue_free()
+		husk = null
 	for list in [foes, shots, bullets, picks]:
 		for o: Obj in list:
 			if o.node and not (list == foes and landmark(o)):
@@ -658,9 +672,11 @@ func _notification(what: int) -> void:
 		touching = false
 
 
-## In flight the world only runs while the player holds a finger (or a direction key) down.
+## In flight the world only runs while the player holds a finger (or a direction key) down. Once
+## the fortress is destroyed its break-up plays through, finger or not (Guillaume: "don't pause
+## when I lift up my finger after the fortress is destroyed").
 func pausable() -> bool:
-	return phase in ["vert", "approach", "pov", "core", "escape"]
+	return phase in ["vert", "approach", "pov", "core"]
 
 
 func holding() -> bool:
@@ -674,13 +690,17 @@ func holding() -> bool:
 
 ## Moves `time_k` towards 1 (held, or out of flight) or 0 (lifted) over real time `dt`.
 func slow_down(dt: float) -> void:
+	if holding() and pausable():
+		started = true
 	var want := 1.0 if holding() or not pausable() else 0.0
 	var rate := 1.0 / Rules.SLOW_STOP if want < time_k else 1.0 / Rules.SLOW_RESUME
 	time_k = move_toward(time_k, want, dt * rate)
 
 
+## Cubic in `time_k`, which falls linearly once the finger lifts: time drops a lot at once, then
+## eases gently down to the stop (Guillaume, 2026-11-24). Touching again climbs back the same curve.
 func time_speed() -> float:
-	return smoothstep(0.0, 1.0, time_k)
+	return time_k * time_k * time_k
 
 
 func paused() -> bool:
@@ -790,6 +810,7 @@ func step(dt: float) -> void:
 	elif phase == "down":
 		update_objs(dt)
 	shake = maxf(0.0, shake - dt * 1.2)
+	step_husk(dt)
 	blasts.step(dt)
 	update_chunks()
 	update_ship(dt)
@@ -1012,7 +1033,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (f.sec != fort_sec or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1617,7 +1638,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and f.sec != fort_sec):
+			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1639,7 +1660,7 @@ func collide(_dt: float) -> void:
 		if o.dead:
 			continue
 		for f in foes:
-			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or f.sec != fort_sec)):
+			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or not live_sec(f))):
 				continue
 			# the bosses' fire can't be shot down (Guillaume: too easy); only rockets can
 			if f.kind == "orb" and f.homing <= 0.0:
@@ -1791,6 +1812,7 @@ func kill(f: Obj) -> void:
 	if f == boss:
 		# the mid-boss: the sector carries on, its clock picks up after the boss's wave
 		boss = null
+		make_husk(f)
 		boss_done = true
 		vacuum_t = 4.0
 		for b in bullets:
@@ -1800,6 +1822,49 @@ func kill(f: Obj) -> void:
 		say("%s DOWN" % mid.name.to_upper(), "+3,000")
 	if f == core:
 		begin_escape()
+
+
+## The dead mid-boss's hull stays on as a scorched husk (the foe's node is swapped for an empty
+## one, which the cull frees).
+func make_husk(f: Obj) -> void:
+	if husk:
+		husk.queue_free()
+	husk = f.node
+	husk_t = 0.0
+	husk_v = 0.0
+	husk_spin = -1.0 if rng.randf() < 0.5 else 1.0
+	f.node = Node3D.new()
+	add_child(f.node)
+	husk.material_overlay = null
+	for mi in [husk] + husk.find_children("*", "MeshInstance3D", true, false):
+		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override == Models.tinted(world.tint):
+			(mi as MeshInstance3D).material_override = Models.tinted(world.tint * Color(0.42, 0.38, 0.36))
+
+
+## The husk falls behind the scroll (the stage flies on past it), sinks and turns a little,
+## burning, and goes once it's well off the bottom of the screen.
+func step_husk(dt: float) -> void:
+	if husk == null:
+		return
+	if not is_instance_valid(husk):
+		husk = null
+		return
+	husk_t += dt
+	# it keeps pace at first, then loses way: the screen leaves it behind
+	husk_v = minf(Rules.SCROLL * 0.9, husk_v + dt * Rules.HUSK_DRAG)
+	husk.position.z += (-Rules.SCROLL + husk_v) * dt if phase in ["vert", "down", "clear"] else husk_v * dt
+	husk.position.y -= Rules.HUSK_SINK * dt
+	husk.rotation.y += husk_spin * 0.12 * dt
+	husk.rotation.z += husk_spin * 0.05 * dt
+	husk.scale = husk.scale.lerp(Vector3.ONE * 0.85, minf(1.0, dt * 0.2))
+	if rng.randf() < dt * 7.0:
+		var at := husk.to_global(Vector3(rng.randf_range(-3.5, 3.5), 0.8, rng.randf_range(-6.0, 6.0)))
+		blasts.burn(at, rng.randf_range(0.8, 1.6), fx_carry() + Vector3(0, 0, husk_v))
+	if rng.randf() < dt * 1.2:
+		pop(husk.to_global(Vector3(rng.randf_range(-3.0, 3.0), 1.0, rng.randf_range(-5.0, 5.0))), 1.6, Models.AMBER)
+	if husk.position.z - frame_z > maxf(view_bot, Rules.Z_BOT) + 16.0 or husk_t > 30.0:
+		husk.queue_free()
+		husk = null
 
 
 func drop(at: Vector3, value: float) -> Obj:
@@ -2278,7 +2343,10 @@ func step_pov(dt: float) -> void:
 		# the hull first, if it was beneath it)
 		var out := esc_from != esc_to
 		line_x = lerpf(esc_from, esc_to, smoothstep(0.0, 1.4, phase_t))
-		chase_y = fort_deck + fly + Rules.CLIMB * smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t)
+		# and settles at a low cruise, where the land fills the view to the fog (Guillaume: high up
+		# "you can see the limited decor")
+		var cruise := minf(fort_deck + fly + Rules.CLIMB, Rules.CRUISE_Y)
+		chase_y = lerpf(fort_deck + fly, cruise, smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t))
 	else:
 		adv_t += dt
 		k = clampf(adv_t / adv_dur, 0.0, 1.0)
@@ -2507,9 +2575,12 @@ func think_gun(f: Obj, dt: float) -> void:
 		bub.queue_free()
 		if pov_mode():
 			pop(f.pos, 1.2, Models.CYAN)
-	var active := phase == "pov" and f.sec == fort_sec and adv_t > adv_dur * 0.7
+	# the section being cleared fires from the moment it opens (even while the ship glides on to
+	# it), and the next one already joins in
+	var active := phase == "pov" and live_sec(f)
 	if not active or f.t < f.fire_t:
 		return
+	var ahead := f.sec != fort_sec
 	var dist := ppos.z - f.pos.z
 	if dist < 5.0 or dist > 70.0:
 		return
@@ -2565,6 +2636,8 @@ func think_gun(f: Obj, dt: float) -> void:
 			# a pair of drones up out of the hangar
 			f.fire_t = f.t + 5.5
 			spawn_pov({"kind": "drone", "n": 2, "from": f.pos + Vector3(0, 1.0, 0)})
+	if ahead:
+		f.fire_t = f.t + (f.fire_t - f.t) * Rules.AHEAD_FIRE
 
 
 ## An orb fired along `dir` at `speed` (in the frame that flies with the ship).
@@ -2601,7 +2674,14 @@ func lockable(f: Obj) -> bool:
 		return false
 	if (f.kind == "core" and shielded()) or fort_guarded(f):
 		return false
-	return not f.on_fort or f.sec == fort_sec
+	return not f.on_fort or live_sec(f)
+
+
+## The sections in the fight: the one being cleared and the next, already in view (Guillaume:
+## "more compact, even if sections kind of overlap: you already see the next section, receive its
+## bullets"). Its guns fire, a little slower, and can be shot down ahead of time.
+func live_sec(f: Obj) -> bool:
+	return f.sec == fort_sec or f.sec == fort_sec + 1
 
 
 ## Where the guns converge: ahead along `aim_dir`, or the foe closest to that line (aim assist).
@@ -2678,8 +2758,8 @@ func pose(mode: String) -> Array:
 		var c: Vector4 = lane_now().cam if fortress or phase == "escape" else Vector4(4.2, -0.5, 0, 0)
 		c = c.lerp(Vector4(4.2, -0.5, 0, 0), rise)
 		var ox := ppos.x - line_x
-		var at := Vector3(line_x + ox * 0.78 + c.z, chase_y + (ppos.y - chase_y) * 0.75 + c.x + rise * 9.0, ppos.z + 8.5 + rise * 18.0)
-		var look := Vector3(line_x + ox * 0.55 + c.w, chase_y + (ppos.y - chase_y) * 0.6 + c.y - rise * 16.0, ppos.z - 40.0 + rise * 6.0)
+		var at := Vector3(line_x + ox * 0.78 + c.z, chase_y + (ppos.y - chase_y) * 0.75 + c.x + rise * 2.5, ppos.z + 8.5 + rise * 8.0)
+		var look := Vector3(line_x + ox * 0.55 + c.w, chase_y + (ppos.y - chase_y) * 0.6 + c.y - rise * 4.0, ppos.z - 40.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]
