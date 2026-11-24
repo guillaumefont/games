@@ -490,9 +490,22 @@ class Builder:
 			st.add_vertex(q)
 		n += idx.size()
 
+	## When set (`Callable` Color -> Color), every colour goes through it at commit: the city's
+	## calming (`City.calm`).
+	var tone := Callable()
+
 	func commit() -> ArrayMesh:
 		st.generate_normals()
-		return st.commit()
+		if not tone.is_valid():
+			return st.commit()
+		var arr := st.commit_to_arrays()
+		var cols: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		for i in cols.size():
+			cols[i] = tone.call(cols[i])
+		arr[Mesh.ARRAY_COLOR] = cols
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		return m
 
 
 ## Baked ambient occlusion for a model (ships, foes, bosses, landmarks): the mesh is dropped into
@@ -1544,6 +1557,11 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		gv.append_array(PackedVector3Array(roads[0]))
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
+		# a calm, low-contrast backdrop, so foes and bullets stand out (Guillaume, 2026-11-24: "the
+		# city landscape is too messy... not very easy to see the enemies")
+		b.tone = City.calm
+		for i in gc.size():
+			gc[i] = City.calm(gc[i])
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
