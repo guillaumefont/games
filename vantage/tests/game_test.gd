@@ -192,6 +192,13 @@ func controls() -> void:
 	check(moved > 0.5 and moved < 3.0, "dragging moves the ship (%.2f m for 100 px)" % moved)
 	g.drag_by(Vector2(99999, -99999))
 	check(g.prel.x == Rules.HALF_W and g.prel.y == Rules.Z_TOP + 3.0, "the ship stays on the field")
+	var vb := g.view_bot
+	g.view_bot = 16.6  # a 9:16 phone's bottom edge on the flight plane
+	g.drag_by(Vector2(0, 99999))
+	check(is_equal_approx(g.prel.y, 16.6 - g.BOT_MARGIN),
+		"the ship can be dragged down to just above the screen's bottom edge (%.1f m)" % g.prel.y)
+	g.view_bot = vb
+	g.drag_by(Vector2(0, -99999))
 	# real pointer events (touch is emulated as mouse)
 	g.driven = false
 	var p := InputEventMouseButton.new()
