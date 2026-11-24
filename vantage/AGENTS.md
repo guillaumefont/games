@@ -312,6 +312,14 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   flat on the ground (foam rings, paths). Unplaced models (ships, bosses, landmarks) are untouched.
   Each placement's footprint (what stands over `AO_TALL`) becomes a soft see-through disc on the
   ground (`Models.ao_blobs`, one mesh a chunk, the chunk's `ao` child). Costs ~10% of a chunk's build.
+- Models are baked too: every mesh built through `Models.cached` (ships, foes, boss hulls and pieces,
+  fortress segments and guns, towers, landmarks) goes through `Models.bake_ao`, a coarse voxel grid
+  (`AO_CELLS` along its longest side) and a few short rays per vertex over its hemisphere; creases and
+  feet of parts darken by up to `AO_STRENGTH`. Glows and effects are skipped (`NO_AO`). It costs ~5-35 ms
+  a mesh on desktop, once; the fortress is built at `launch`. Separate meshes don't shade each other,
+  so a fortress deck gun gets a contact disc on the deck (`Models.contact`, the gun's `ao` child).
+- Per-world colour grading (`adjustment_color_correction`, split toning) was tried on 2026-11-24 and
+  dropped: in the Compatibility renderer it lifted the blacks and washed every world out.
 - The ground is a shader (`Models.GROUND_SHADER`): where it lies flat at the water line (`SEA_Y`) it
   turns liquid by world (`LIQUIDS`): glossy water with drifting crest glints, or crusted, glowing
   lava. The dunes' dry washes sit at the same height and stay dry. Vertex colours are converted from
