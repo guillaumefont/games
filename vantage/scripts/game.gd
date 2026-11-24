@@ -49,6 +49,8 @@ class Obj:
 	var goal := Vector3.ZERO
 	var burst := 0
 	var under := false
+	## A civilian (`Rules.CIVILIANS`) that is really a foe in disguise: it unveils a gun (`Foes`).
+	var hacked := false
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -97,6 +99,11 @@ var ppos := Vector3(0, Rules.PY, 5)
 var prel := Vector2(0, 5)
 var pvel := Vector2.ZERO
 var hp := 3
+## In-level power (`Rules.POWER_MAX` steps): the spread of the cannon, built up from power cores
+## picked up in play and lost a step a hit. Every level starts at 0.
+var power := 0
+## Kills towards the next power core (`Rules.POWER_EVERY`).
+var core_kills := 0
 var inv := 0.0
 ## Push from ramming something (world units/s, x and z in the stage, x and y in the chase); eases off.
 var knock := Vector2.ZERO
@@ -473,6 +480,8 @@ func launch(lv := -1) -> void:
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	hp = Rules.max_hp(s)
+	power = 0
+	core_kills = 0
 	inv = 0.0
 	knock = Vector2.ZERO
 	fire_cd = 0.0
@@ -483,6 +492,13 @@ func launch(lv := -1) -> void:
 	time_k = 0.0
 	started = false
 	set_cam("top", 0.0)
+	# nothing steps until that touch, so put the ship (and the ground under it) where it starts
+	# now: it waits in view on "Touch to start", not wherever the hangar left it
+	bank = 0.0
+	update_ship(0.0)
+	update_chunks()
+	update_shadows()
+	sync_shadow_view()
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
@@ -768,9 +784,14 @@ func view_size() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
 
+## The ship may be dragged down to just above the bottom edge of the screen (Guillaume,
+## 2026-11-24: "drag the plane down much further"), its tail still in sight.
+const BOT_MARGIN := 2.0
+
+
 func clamp_player() -> void:
 	prel.x = clampf(prel.x, -Rules.HALF_W, Rules.HALF_W)
-	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, Rules.Z_BOT - 1.0)
+	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, maxf(view_bot - BOT_MARGIN, Rules.Z_BOT - 1.0))
 
 
 func step(dt: float) -> void:
@@ -866,12 +887,12 @@ func run_waves() -> void:
 			continue
 		for i in int(w.n):
 			queue.append({"at": stage_t + i * float(w.gap), "kind": w.kind, "x": float(w.x), "i": i, "n": int(w.n),
-				"from": w.get("from", "top"), "form": w.get("form", "")})
+				"from": w.get("from", "top")})
 		wave_i += 1
 	var rest := []
 	for q: Dictionary in queue:
 		if stage_t >= q.at:
-			spawn_vert(q.kind, q.x, q.i, q.n, q.from, q.get("form", ""))
+			spawn_vert(q.kind, q.x, q.i, q.n, q.from)
 		else:
 			rest.append(q)
 	queue = rest
@@ -911,7 +932,7 @@ func new_foe(kind: String, mesh: Mesh) -> Obj:
 	return f
 
 
-func spawn_vert(kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
+func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 	var top := frame_z + minf(view_top, Rules.Z_TOP) - 2.5
 	match kind:
 		"dart":
@@ -970,7 +991,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top", form := "
 			sound.play("warning")
 			sound.music("carrier")
 		_:
-			Foes.spawn(self, kind, x, i, n, from, form)
+			Foes.spawn(self, kind, x, i, n, from)
 			# each level brings in a new kind of foe: announced the first time it shows
 			if kind == Campaign.debut(level) and not debuted:
 				debuted = true
@@ -1001,7 +1022,7 @@ func ground_y(x: float, z: float) -> float:
 
 func fire_vert(dt: float) -> void:
 	fire_cd -= dt
-	var gun := Rules.cannon(Rules.level(s, "cannon"))
+	var gun := Rules.cannon(power, Rules.level(s, "cannon"))
 	if fire_cd <= 0.0:
 		fire_cd += gun.period
 		for sh: Array in gun.shots:
@@ -1037,7 +1058,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1521,6 +1542,8 @@ func part_down(f: Obj) -> void:
 	if not boss_parts.is_empty():
 		return
 	var sec: Dictionary = mid.sections[boss_sec]
+	if boss_sec < mid.sections.size() - 1:
+		drop_core(boss.pos + Vector3(0, 0, 3.0))
 	var name: String = sec.piece
 	if name != "" and boss.node.has_node(name):
 		boss.node.get_node(name).visible = false
@@ -1648,7 +1671,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
+			if f.dead or f.kind == "orb" or shy(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1713,9 +1736,12 @@ func collide(_dt: float) -> void:
 	for p in picks:
 		if not p.dead and flat_dist(p.pos, ppos) < Rules.PICK_R:
 			p.dead = true
-			run.scrap += int(p.dmg)
-			sound.play("scrap")
-			hud.ping_scrap()
+			if p.kind == "power":
+				power_up()
+			else:
+				run.scrap += int(p.dmg)
+				sound.play("scrap")
+				hud.ping_scrap()
 
 
 ## The ship flew into a foe: the ship takes a hit and is thrown back, small foes break up, big
@@ -1785,9 +1811,17 @@ func damage(f: Obj, d: float) -> void:
 func kill(f: Obj) -> void:
 	f.dead = true
 	var info: Dictionary = Rules.FOES[f.kind]
-	run.score += int(info.score)
-	if f.kind not in ["orb", "boss"] and not landmark(f):
+	var civil := civilian(f)
+	var pay := Rules.HACK_PAY if f.hacked else 1.0
+	if civil:
+		run.score = maxi(0, run.score - Rules.CIVIL_COST)
+		say("CIVILIAN DOWN", "-%d" % Rules.CIVIL_COST, 1.2)
+	else:
+		run.score += roundi(int(info.score) * pay)
+	if f.kind not in ["orb", "boss"] and not landmark(f) and not civil:
 		run.kills += 1
+		if not f.on_fort and f not in boss_parts:
+			count_core(f.pos)
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
 		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
@@ -1806,8 +1840,10 @@ func kill(f: Obj) -> void:
 		return
 	sound.play("boom" if big >= 2.0 else "pop")
 	shake = maxf(shake, 0.12 * big)
-	var scrap := roundi(int(info.scrap) * float(world.scrap))
-	if pov_mode():
+	var scrap := 0 if civil else roundi(int(info.scrap) * float(world.scrap) * pay)
+	if scrap <= 0:
+		pass
+	elif pov_mode():
 		run.scrap += scrap
 		if scrap > 0:
 			hud.ping_scrap()
@@ -1894,11 +1930,53 @@ func drop(at: Vector3, value: float) -> Obj:
 	return p
 
 
+## A foe of the vertical stage went down: every `Rules.POWER_EVERY` of them leaves a power core.
+func count_core(at: Vector3) -> void:
+	core_kills += 1
+	if core_kills >= Rules.POWER_EVERY:
+		core_kills = 0
+		drop_core(at)
+
+
+## A power core, the in-level pickup that widens the spread (`power`). In the chase there is
+## nothing to pick up: the step is given at once.
+func drop_core(at: Vector3) -> void:
+	if power >= Rules.POWER_MAX:
+		return
+	if pov_mode():
+		power_up()
+		return
+	var p := Obj.new()
+	p.kind = "power"
+	p.rel = true
+	p.pos = Vector3(at.x, Rules.PY, at.z)
+	p.vel = Vector3(rng.randf_range(-1.5, 1.5), 0, -2.0)
+	p.node = Models.instance(Models.cached("power core", func() -> Mesh:
+		var b := Models.Builder.new()
+		b.octa(Vector3.ZERO, 0.7, Color8(0x5a, 0xf0, 0xff), Vector3(1, 1.6, 1))
+		b.octa(Vector3.ZERO, 0.46, Color8(0xff, 0xff, 0xff), Vector3(1.6, 0.6, 1.6))
+		return b.commit()), Models.glow(Color8(0x6a, 0xf4, 0xff)))
+	add_child(p.node)
+	picks.append(p)
+
+
+func power_up() -> void:
+	sound.play("buy")
+	if power >= Rules.POWER_MAX:
+		run.score += 500
+		return
+	power += 1
+	hud.ping_power()
+
+
 func hurt() -> void:
 	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
 		return
 	hp -= 1
 	run.hits += 1
+	if power > 0 and hp > 0:
+		power -= 1
+		hud.ping_power()
 	inv = 1.6
 	shake = 0.5
 	hud.flash_hurt()
@@ -2077,6 +2155,7 @@ func spawn_marks() -> void:
 			f.node = node
 			f.pos = node.position
 			f.anchor = Vector3(0, 0, m.chunk)   # its chunk, for the ruin
+			f.hacked = f.kind == "lighthouse" and rng.randf() < Rules.HACK_LIGHTHOUSE
 			foes.append(f)
 
 
@@ -2088,6 +2167,17 @@ func well_in_view(f: Obj) -> bool:
 
 func landmark(f: Obj) -> bool:
 	return f.kind in Rules.LANDMARKS
+
+
+## A real civilian, not a hacked one: shooting it down costs points (`Rules.CIVILIANS`).
+func civilian(f: Obj) -> bool:
+	return f.kind in Rules.CIVILIANS and not f.hacked
+
+
+## Not locked onto by missiles or the guns' assist: scenery and civilians, until a hacked one
+## has given itself away (`hold`: when it did).
+func shy(f: Obj) -> bool:
+	return (landmark(f) or f.kind in Rules.CIVILIANS) and not (f.hacked and f.hold >= 0.0)
 
 
 ## A landmark leaves the foes without its node going: the node belongs to the ground chunk.
@@ -2226,6 +2316,9 @@ func begin_approach() -> void:
 	for p in picks:
 		if not p.dead:
 			p.dead = true
+			if p.kind == "power":
+				power_up()
+				continue
 			left += int(p.dmg)
 			pop(p.pos, 0.4, Models.AMBER)
 	if left > 0:
@@ -2698,7 +2791,7 @@ func aim_dir() -> Vector3:
 
 func fire_pov(dt: float) -> void:
 	fire_cd -= dt
-	var gun := Rules.cannon(Rules.level(s, "cannon"))
+	var gun := Rules.cannon(power, Rules.level(s, "cannon"))
 	if fire_cd <= 0.0 and phase != "escape":
 		fire_cd += gun.period
 		var target := aim_point()
@@ -2714,7 +2807,7 @@ func fire_pov(dt: float) -> void:
 ## Whether the ship's guns can lock onto a foe: not a shielded one, and on the ship only the
 ## section being fought (the others' guns can't be hit yet either: shots fly past them).
 func lockable(f: Obj) -> bool:
-	if f.dead or landmark(f) or f.kind == "orb" and f.homing <= 0.0:
+	if f.dead or shy(f) or f.kind == "orb" and f.homing <= 0.0:
 		return false
 	if (f.kind == "core" and shielded()) or fort_guarded(f):
 		return false

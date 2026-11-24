@@ -80,12 +80,27 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (2026-11-24) couldn't tell a flak tower from a flying foe. A tower only stands where its whole footing
   (`FOOT_R`) is on level ground (`Foes.dry_x`/`footed`): firm land first, then a dry canyon floor, then a
   level riverbed; never hanging over a rim. Flying foes that could pass for a tower from above must spin.
-- Groups keep their spacing (Guillaume, 2026-11-24: "hydroplanes cluster together too close"): seaplane
-  flights come in together in a formation (`Foes.FORMS`: V, line abreast, echelon; `Foes.slot`) and line up
-  on the ship each in its place; seekers and darts from behind keep apart (`Foes.keep_apart`), and the
-  darts hold in a line across the screen.
+- Seaplanes (`gull`) are collateral, not foes (Guillaume, 2026-11-24: "Hydro planes should be a collateral
+  damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
+  upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
+  costs points when shot down (see civilians below). No formations.
+- Civilians (`Rules.CIVILIANS`: seaplanes, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
+  real one down costs `CIVIL_COST` points, drops no scrap, isn't a kill and isn't in the kill total; missiles
+  and the guns' assist never lock onto them (`Game.shy`). Some are hacked (`Obj.hacked`: a seaplane after
+  the level's opening, `Foes.HACK_P`; a lighthouse, `Rules.HACK_LIGHTHOUSE`): "a lighthouse that opens to
+  show a turret, a hydro plane that unveils a minigun". A hacked one blinks and sparks red for
+  `Foes.HACK_TELL` s before its gun unfolds (`Foes.unveil`) and fires, then is a foe paying `HACK_PAY` x.
+- Groups keep their spacing: seekers and darts from behind keep apart (`Foes.keep_apart`), and the darts
+  hold in a line across the screen.
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
+- In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was
+  exciting again; "how about keeping an in level progress"): every level starts on the bare twin gun
+  (`Game.power` 0). Every `Rules.POWER_EVERY` kills in the vertical stage, and each mid-boss section but the
+  heart, leave a power core (`Game.drop_core`, pick kind `power`; in the chase the step is given at once);
+  each widens the spread a step up to `Rules.POWER_MAX` (7 guns, faster fire). A hit costs a power step as well
+  as hull. The hangar's Cannon upgrade only raises damage per shot (`Rules.cannon_dmg`), never the spread, so
+  bought upgrades can't make a run's start easy (tested). HUD: the power bar under the hull pips.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 - Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
@@ -130,7 +145,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, in-level power, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
@@ -158,6 +173,8 @@ section from its lane).
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
+
+In-level power (start, a core, full power): same command with `tools/power_shots.gd -- /tmp/power`.
 
 Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
 gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.
@@ -277,6 +294,21 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
+  Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
+  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Ember Dunes is a desert:
+  no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
+  crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
+  set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
+- Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
+  like structure with small houses around it"; then "on top of the existing evolutions, like cliffs in glass coast"):
+  `scripts/towns.gd` (`Towns`). Each world's town crowns one of its set pieces (`Relief.TOWN_HOST`: the coast's sea
+  cliffs, the desert mesas, the ice shelf, the cinders' lava cliffs): `Relief.at` levels a plateau (`GROUND_Y`) over the
+  set piece's own shape (`Relief.shape`), its edge a cliff, with a causeway carrying the avenue down. The town: paved square and centrepiece (pyramid, church, giant snowman, fire altar), an avenue running
+  down towards the player with its furniture (palms, trees, pines, stone heads), a grid of houses facing the square
+  (adobes, cottages and tall houses, igloos and cabins, glowing huts), a wall with towers (hedges, fences). Each chunk builds the pieces whose spot it holds; landmarks go through `Models.mark`. The land's own
+  props keep out (`Relief.in_town`), and elsewhere they come in groups: groves and fields in some 12 m cells, rocks
+  as outcrops (`Models.rocks`: one big rock about the ship's size, smaller ones on its sides; Guillaume found lone
+  mid-size boulders unrealistic). Look at them with `tools/town_shots.gd -- /tmp/towns`.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)

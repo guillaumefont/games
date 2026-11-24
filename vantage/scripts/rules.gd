@@ -20,9 +20,9 @@ const PLAYER_R := 0.42
 ## units/s (easing off at KNOCK_EASE/s). Small foes break up; others take RAM_DMG. Foes are
 ## touched within RAM_R of their radius. Ground targets, scenery and the fortress (flown over, clear
 ## of the ship) can't be rammed; the Bastion's hull is a wall (Game.boss_rammed).
-const RAMMABLE := ["dart", "swing", "heavy", "drone", "gull", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
+const RAMMABLE := ["dart", "swing", "heavy", "drone", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
 	"ember", "wyrm"]
-const RAM_KILLS := ["dart", "swing", "drone", "gull", "rotor", "scarab", "seeker", "lancer", "wyrm"]
+const RAM_KILLS := ["dart", "swing", "drone", "rotor", "scarab", "seeker", "lancer", "wyrm"]
 const RAM_DMG := 12.0
 const RAM_R := 0.7
 const KNOCK := 9.0
@@ -455,7 +455,7 @@ const CRUISE_Y := 32.0
 const ORDER := ["cannon", "missile", "hull", "magnet"]
 const UPGRADES := {
 	"cannon": {"name": "Cannon", "max": 5, "cost": [120, 320, 700, 1300, 2400],
-		"desc": "More guns, wider spread, harder hits"},
+		"desc": "Harder hits (power cores widen the spread)"},
 	"missile": {"name": "Missiles", "max": 4, "cost": [250, 600, 1200, 2200],
 		"desc": "Homing missiles, faster salvos"},
 	"hull": {"name": "Hull", "max": 3, "cost": [200, 550, 1100],
@@ -519,18 +519,34 @@ static func magnet_radius(s: Dictionary) -> float:
 	return 2.5 + 2.0 * level(s, "magnet")
 
 
-## The main gun at a cannon level: shots as [x offset, angle in degrees], damage per shot and
-## the time between volleys. Used by both the vertical stage and the chase.
-static func cannon(lv: int) -> Dictionary:
+## In-level power (Guillaume, 2026-11-24: with every upgrade bought the game was too easy; "how
+## about keeping an in level progress"). Every level starts on the bare twin gun. Foes drop power
+## cores (one each `POWER_EVERY` kills in the vertical stage, one for each mid-boss section); each
+## widens the spread a step, up to `POWER_MAX`. A hit costs a power step as well as hull. The
+## hangar's Cannon upgrade no longer buys the spread: it makes every shot hit harder
+## (`CANNON_DMG` a level), so the ship keeps improving but every run builds up from weak.
+const POWER_MAX := 4
+const POWER_EVERY := 6
+const CANNON_DMG := 0.15
+
+
+## Damage of each cannon shot at a Cannon upgrade level.
+static func cannon_dmg(lv: int) -> float:
+	return 1.0 + CANNON_DMG * clampi(lv, 0, UPGRADES.cannon.max)
+
+
+## The main gun at an in-level power (0..POWER_MAX) and a Cannon upgrade level: shots as
+## [x offset, angle in degrees], damage per shot and the time between volleys. Used by both the
+## vertical stage and the chase.
+static func cannon(power: int, lv := 0) -> Dictionary:
 	var shots: Array = [[-0.22, 0.0], [0.22, 0.0]]
-	if lv >= 1:
+	if power >= 1:
 		shots = [[-0.32, 0.0], [0.0, 0.0], [0.32, 0.0]]
-	if lv >= 2:
+	if power >= 2:
 		shots += [[-0.4, -7.0], [0.4, 7.0]]
-	if lv >= 4:
+	if power >= 3:
 		shots += [[-0.5, -15.0], [0.5, 15.0]]
-	var dmg: float = [1.0, 1.0, 1.0, 1.35, 1.35, 1.7][clampi(lv, 0, 5)]
-	return {"shots": shots, "dmg": dmg, "period": 0.09 if lv >= 5 else 0.11}
+	return {"shots": shots, "dmg": cannon_dmg(lv), "period": 0.09 if power >= POWER_MAX else 0.11}
 
 
 ## Seconds between missile salvos (0: no missiles) and missiles per salvo.
@@ -606,6 +622,14 @@ const FOES := {
 ## How far inside the top of the screen a landmark must be before shots hurt it.
 const LANDMARK_IN := 4.0
 const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tower", "snowman", "stone head"]
+## Civilians (Guillaume, 2026-11-24): shooting a real one down costs CIVIL_COST points and drops no
+## scrap, and it doesn't count towards the kill rate. A hacked one (`Game.Obj.hacked`) unveils a gun:
+## a seaplane a minigun, a lighthouse a turret. It's a foe then, and pays HACK_PAY times its due.
+const CIVILIANS := ["gull", "boat", "house", "lighthouse"]
+const CIVIL_COST := 200
+const HACK_PAY := 2.0
+## Chance a lighthouse is hacked (a seaplane's: `Foes.HACK_P`).
+const HACK_LIGHTHOUSE := 0.4
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the

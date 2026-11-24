@@ -1524,6 +1524,8 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			sea_y = cy
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
+			if shaped and (Relief.in_town(cen.x, cen.z) or Relief.near_fall(cen.x, cen.z)):
+				continue
 			if theme != "coast":
 				# the other worlds' land (Glass Coast's scenery is scatter's)
 				b.xf = Transform3D.IDENTITY
@@ -1531,6 +1533,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			scatter(b, hs4, cen, cy)
 	if shaped:
+		Towns.build(b, z0, z0 - size.y)
 		Relief.fx = Relief.events(z0, z0 - size.y, noise)
 		for ev: Dictionary in Relief.fx:
 			if ev.t == "rock":
@@ -1776,12 +1779,12 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
 			mark("lighthouse", Vector3(cen.x, sea_y, cen.z), ang, r2)
-		elif r < 0.05:
-			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.32 + r * 6.0, r2, true)
+		elif r < 0.016:
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.8 + r * 30.0, r2, true)
 	elif hi < 0.0:
 		# at sea: stacks in the shallows, fishing boats further out
-		if avg > -0.14 and r < 0.012:
-			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.4 + r * 33.0, r2, true)
+		if avg > -0.14 and r < 0.008:
+			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.9 + r * 50.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
 			mark("boat", Vector3(cen.x, sea_y, cen.z), ang, r2)
 		elif avg < -0.22 and r < 0.0045:
@@ -1797,8 +1800,8 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 			place(b, at, ang)
 			b.box(Vector3(0, 0.04, 0), Vector3(1.1, 0.13, 0.13), DRIFT)
 			b.box(Vector3(0.25, 0.05, 0.16), Vector3(0.4, 0.09, 0.09), DRIFT.darkened(0.1))
-		elif r < 0.06:
-			rocks(b, at, 0.25 + (r - 0.045) * 12.0, r2, false)
+		elif r < 0.05:
+			rocks(b, at, 0.7 + (r - 0.045) * 60.0, r2, false)
 		elif r < 0.067:
 			parasol(b, at, ang, r2)
 		elif r < 0.12 and avg > 0.03:
@@ -1813,7 +1816,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
 		# one house per 8 x 8 lot at most, so the scaled-up houses and gardens don't overlap
 		var even := posmod(floori(cen.x * 0.5), 4) == 0 and posmod(floori(cen.z * 0.5), 4) == 0
-		var lot := 0.7 if village else 0.15
+		var lot := 0.7 if village else 0.03
 		if avg >= 0.11 and r < lot and even:
 			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
 			if house_kind(r2) == 1:
@@ -1833,11 +1836,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the woods, with a boulder among the pines
 		if r < 0.3:
 			conifer(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r)
-		elif r < 0.32:
-			rocks(b, at, 0.35, r2, false)
-	elif r < 0.08:
-		# bare rock on the heights
-		rocks(b, at, 0.45 + r, r2, false)
+		elif r < 0.306:
+			rocks(b, at, 0.8 + r2 * 0.4, r2, false)
+	elif r < 0.025:
+		# outcrops of bare rock on the heights
+		rocks(b, at, 1.0 + r * 16.0, r2, false)
 	b.xf = Transform3D.IDENTITY
 
 
@@ -1869,23 +1872,42 @@ static func bush(b: Builder, p: Vector3, r: float) -> void:
 
 
 ## One to three boulders round `p`, sized about `s`; `wet` ones are darker and ringed with surf.
-static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool) -> void:
+static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool, tint := Color(0, 0, 0, 0)) -> void:
+	# a natural outcrop (Guillaume, 2026-11-24: "big rocks, as big as the ship, with small ones on
+	# the sides"): one big faceted rock, a few smaller ones leaning on its sides, pebbles at its foot
 	count("sea rocks" if wet else "rocks")
 	place(b, p, r * TAU)
-	var n := 1 + int(r * 3.0)
+	var col := (STONE_WET if wet else STONE) if tint.a == 0.0 else tint
+	boulder(b, Vector3.ZERO, s, r, col)
+	var n := 3 + int(r * 4.0)
+	var reach := s
 	for k in n:
-		var sz := s * (1.0 - k * 0.3)
-		var off := Vector3(k * s * 0.85, 0, (k % 2) * s * 0.6 - s * 0.3)
-		var out := PackedVector2Array()
-		for a in 6:
-			var rr := sz * (0.75 + hash2(r * 31.0 + a, k * 7.0 + a * 3.0) * 0.5)
-			var an := TAU * a / 6.0 + r * 2.0
-			out.append(Vector2(cos(an), sin(an)) * rr)
-		var c := (STONE_WET if wet else STONE).darkened(hash2(r + k, s) * 0.15)
-		var tall := sz * (0.6 + hash2(k, r * 9.0) * 0.5) + (0.25 if wet else 0.0)
-		b.prism(off, out, -0.3, tall, c, Vector2(0.6, 0.56), Vector2(sz * 0.12, -sz * 0.08))
-		if wet:
-			b.prism(off, ngon(sz * 1.75, 8, r), -0.43, -0.37, FOAM)
+		var hk := hash2(r * 17.0 + k, k * 3.3)
+		var a := TAU * k / n + r * 5.0 + hk * 0.9
+		var sz := s * (0.22 + 0.3 * hash2(k * 1.7, r * 11.0))
+		var d := s * (0.78 + 0.3 * hk) + sz * 0.5
+		reach = maxf(reach, d + sz)
+		boulder(b, Vector3(cos(a), 0, sin(a)) * d, sz, r + k * 0.37, col.darkened(0.04 + hk * 0.1))
+	for k in 5:
+		var a := r * 9.0 + k * 1.3
+		var d := s * (1.25 + 0.4 * hash2(k, r))
+		b.octa(Vector3(cos(a) * d, -0.02, sin(a) * d), s * 0.07 + 0.03, col.darkened(0.12), Vector3(1.0, 0.6, 1.0))
+	if wet:
+		b.prism(Vector3.ZERO, ngon(reach * 1.15, 10, r), -0.43, -0.37, FOAM)
+
+
+## One rock: an irregular faceted body, a narrower cap catching the light, leaning a little.
+static func boulder(b: Builder, c: Vector3, s: float, seed: float, col: Color) -> void:
+	var out := PackedVector2Array()
+	for a in 7:
+		var rr := s * (0.7 + hash2(seed * 31.0 + a, a * 3.0 + seed) * 0.45)
+		var an := TAU * a / 7.0 + seed * 2.0
+		out.append(Vector2(cos(an), sin(an)) * rr)
+	var mid := s * (0.42 + 0.15 * hash2(seed, 5.0))
+	var lean := Vector2(hash2(seed, 7.0) - 0.5, hash2(seed, 9.0) - 0.5) * s * 0.25
+	b.prism(c, out, -0.3, mid, col.darkened(0.05), Vector2(0.9, 0.88), lean * 0.4)
+	b.prism(c + Vector3(lean.x * 0.4, 0, lean.y * 0.4), out, mid, mid + s * (0.32 + 0.2 * hash2(seed, 13.0)), col.lightened(0.06),
+		Vector2(0.45, 0.4), lean, col.darkened(0.12))
 
 
 ## A palm: a slender trunk that leans and curves, a crown of drooping fronds.
@@ -2047,58 +2069,59 @@ static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
 ## cacti, mesas and adobe in the dunes; blocks of buildings on a street grid in the city; pines,
 ## ice shards and floes on the shelf; obsidian spires and lava rocks in the cinder fields.
 static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float) -> void:
+	# things come in groups, not one by one (Guillaume, 2026-11-24: "elements scattered without
+	# real character"): groves, fields and outcrops live in some 12 m cells and not others; the
+	# landmarks and houses stand in the towns (Towns)
 	var r2 := hash2(cen.z * 0.9, cen.x * 2.1)
 	var at := Vector3(cen.x, cy, cen.z)
+	var grove := hash2(floorf(cen.x / 12.0) * 2.3 + 0.7, floorf(cen.z / 12.0) * 1.9 + 0.3)
 	match theme:
 		"dunes":
-			if avg >= 0.15 and avg < 0.6 and r < 0.0025:
-				mark("pyramid", at, snappedf(r2 * TAU, PI * 0.5), r2)
-			elif avg >= 0.8 and r < 0.035:
-				# boulders on the red rock (the land itself has the mesas now, see Relief)
+			if avg >= 0.72 and r < 0.02:
+				# outcrops of red rock on the heights
 				count("boulder")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), blob(0.35 + r * 2.0, 7, r2), 0, 0.3 + r2 * 0.3, Color8(0xb0, 0x5c, 0x3c), Vector2(0.6, 0.6))
-			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
+				rocks(b, at, 0.9 + r * 25.0, r2, false, Color8(0xb8, 0x62, 0x40))
+			elif avg >= 0.05 and avg < 0.6 and grove < 0.22 and r < 0.2:
 				count("cactus")
-				place(b, at, r2 * TAU)
-				var cg := Color8(0x5c, 0x8a, 0x4a)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, 1.4, cg, Vector2(0.85, 0.85))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r2 * TAU)
+				var cg := Color8(0x5c, 0x8a, 0x4a).darkened(r2 * 0.12)
+				var ht := 1.0 + r2 * 0.6
+				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, ht, cg, Vector2(0.85, 0.85))
 				b.prism(Vector3(0.36, 0.45, 0), ngon(0.15, 6), 0, 0.55, cg.darkened(0.06), Vector2(0.8, 0.8))
 				b.prism(Vector3(-0.32, 0.7, 0), ngon(0.13, 6), 0, 0.4, cg.darkened(0.06), Vector2(0.8, 0.8))
-			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.055:
-				count("adobe")
-				place(b, at, snappedf(r2 * TAU, PI * 0.5))
-				b.box(Vector3(0, 0.3, 0), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
-				b.box(Vector3(-0.2, 0.75, 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
+			elif avg >= 0.05 and avg < 0.6 and grove > 0.93 and r < 0.06:
+				rocks(b, at, 0.7 + r * 8.0, r2, false, Color8(0xd0, 0x9a, 0x62))
 		"city":
 			# the city itself is City.build's; the canals get the odd giant rubber duck
 			if avg < -0.05 and r < 0.012 and not City.on_road(cen.x, cen.z, 1.5):
 				mark("duck", Vector3(cen.x, sea_y, cen.z), r2 * TAU, r2)
 		"ice":
-			if avg >= 0.05 and avg < 0.28 and r < 0.004:
-				mark("snowman", at, r2 * TAU, r2)
-			elif avg >= 0.28 and avg < 0.5 and r < 0.25:
+			if avg >= 0.28 and avg < 0.5 and r < 0.25:
 				count("pine")
 				place(b, at, r * 6.0)
 				var tall := 1.3 + r2 * 0.6
 				var tc := Color8(0x2e, 0x50, 0x4c).darkened(r * 0.2)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.6, 6), 0, tall, tc, Vector2(0.05, 0.05))
 				b.prism(Vector3(0, tall * 0.55, 0), ngon(0.45, 6, 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
-			elif avg >= 0.72 and r < 0.08:
+			elif avg >= 0.6 and grove < 0.35 and r < 0.18:
+				# fields of ice shards, leaning together
 				count("ice shard")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), 0.4 + r2 * 0.5)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.25, 0.05))
+				b.prism(Vector3(0.45, -0.1, 0.3), ngon(0.28, 4, 0.4), 0, 0.6 + r * 2.0, Color8(0xc4, 0xe6, 0xf4), Vector2(0.1, 0.1), Vector2(0.15, 0.05))
 			elif avg < -0.05 and r < 0.025:
 				count("floe")
 				place(b, Vector3(cen.x, sea_y - 0.02, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
-			if avg >= 0.15 and avg < 0.6 and r < 0.004:
-				mark("stone head", at, r2 * TAU, r2)
-			elif avg >= 0.62 and r < 0.1:
+			if avg >= 0.55 and grove < 0.4 and r < 0.22:
+				# stands of basalt spires, a big one with smaller round it
 				count("spire")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				place(b, at + Vector3((r2 - 0.5), 0, 0), r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.2 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				b.prism(Vector3(0.6, -0.1, 0.25), ngon(0.3, 5, 0.5), 0, 0.5 + r * 3.0, Color8(0x30, 0x2a, 0x30), Vector2(0.2, 0.2))
+			elif avg >= 0.15 and avg < 0.55 and r < 0.012:
+				rocks(b, at, 0.9 + r * 30.0, r2, false, Color8(0x4a, 0x40, 0x42))
 			elif avg < -0.05 and r < 0.02:
 				# a raft of cooled crust drifting on the lava
 				count("lava rock")

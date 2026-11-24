@@ -30,8 +30,14 @@ func rules() -> void:
 		Rules.buy(s, "hull")
 	check(Rules.level(s, "hull") == 3 and Rules.cost(s, "hull") == -1, "upgrades stop at their max")
 	check(Rules.max_hp(s) == 6, "each hull level is one more hit")
-	check(Rules.cannon(0).shots.size() == 2 and Rules.cannon(5).shots.size() == 7, "the cannon grows from 2 to 7 guns")
-	check(Rules.cannon(5).period < Rules.cannon(0).period and Rules.cannon(5).dmg > Rules.cannon(0).dmg, "and fires faster and harder")
+	check(Rules.cannon(0).shots.size() == 2 and Rules.cannon(Rules.POWER_MAX).shots.size() == 7, "power grows the cannon from 2 to 7 guns")
+	check(Rules.cannon(Rules.POWER_MAX).period < Rules.cannon(0).period, "and fires faster at full power")
+	check(Rules.cannon(0, 5).shots.size() == 2 and Rules.cannon(0, 5).dmg > Rules.cannon(0, 0).dmg, "the Cannon upgrade hits harder, but never widens the spread")
+	# the upgrade can't take a run's start anywhere near full power (Guillaume: it got too easy)
+	var top := Rules.cannon(Rules.POWER_MAX, 0)
+	var bought := Rules.cannon(0, 5)
+	check(bought.shots.size() * bought.dmg / bought.period < 0.5 * top.shots.size() * top.dmg / top.period,
+		"a maxed Cannon at the start of a level has under half the fire of a bare ship at full power")
 	check(Rules.missile_period(0) == 0.0 and Rules.missile_period(4) < Rules.missile_period(1), "missiles only once bought")
 	var m := Rules.migrate({"scrap": -5, "up": {"cannon": 99, "magnet": 2}})
 	check(m.scrap == 0 and m.up.cannon == 5 and m.up.magnet == 2 and m.up.hull == 0, "saves are clamped")
@@ -56,6 +62,42 @@ func make_game() -> Game:
 	root.add_child(g)
 	g.rng.seed = 3
 	return g
+
+
+## In-level power (Guillaume, 2026-11-24: "how about keeping an in level progress"): every level
+## starts on the twin gun, cores dropped by foes widen it, a hit costs a step.
+func power() -> void:
+	print("in-level power")
+	var g := make_game()
+	await process_frame
+	g.s.up.cannon = 5
+	g.launch(0)
+	g.time_k = 1.0
+	check(g.power == 0, "a level starts at power 0, whatever was bought")
+	g.step(0.2)
+	check(g.shots.size() == 2, "on the twin gun")
+	for i in Rules.POWER_EVERY:
+		g.count_core(g.ppos + Vector3(0, 0, -4))
+	var cores := g.picks.filter(func(p: Game.Obj) -> bool: return p.kind == "power")
+	check(cores.size() == 1, "every %d kills leave a power core" % Rules.POWER_EVERY)
+	cores[0].pos = g.ppos
+	g.step(DT)
+	check(g.power == 1, "picking it up is a power step")
+	for i in 10:
+		g.power_up()
+	check(g.power == Rules.POWER_MAX, "power stops at its max")
+	g.clear_all()
+	g.fire_cd = 0.0
+	g.step(DT)
+	check(g.shots.size() == 7, "at full power the whole spread fires")
+	g.inv = 0.0
+	g.hurt()
+	check(g.power == Rules.POWER_MAX - 1 and g.hp == Rules.max_hp(g.s) - 1, "a hit costs a power step and a hull pip")
+	g.to_hangar()
+	g.launch(0)
+	check(g.power == 0, "the next level starts over")
+	g.queue_free()
+	await process_frame
 
 
 ## Steps the game; in the chase the autopilot lines up with the nearest foe it can hurt.
@@ -156,6 +198,8 @@ func pause_menu() -> void:
 	g.tick(DT)
 	check(g.paused() and not g.started, "a level waits for its first touch")
 	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
+	check(g.ship.visible and g.ship.position.is_equal_approx(g.ppos), "the ship waits on touch to start where it will fly from")
+	check(g.cam.is_position_in_frustum(g.ship.global_position), "the waiting ship is in view")
 	g.touching = true
 	for i in 30:
 		g.tick(DT)
@@ -192,6 +236,13 @@ func controls() -> void:
 	check(moved > 0.5 and moved < 3.0, "dragging moves the ship (%.2f m for 100 px)" % moved)
 	g.drag_by(Vector2(99999, -99999))
 	check(g.prel.x == Rules.HALF_W and g.prel.y == Rules.Z_TOP + 3.0, "the ship stays on the field")
+	var vb := g.view_bot
+	g.view_bot = 16.6  # a 9:16 phone's bottom edge on the flight plane
+	g.drag_by(Vector2(0, 99999))
+	check(is_equal_approx(g.prel.y, 16.6 - g.BOT_MARGIN),
+		"the ship can be dragged down to just above the screen's bottom edge (%.1f m)" % g.prel.y)
+	g.view_bot = vb
+	g.drag_by(Vector2(0, -99999))
 	# real pointer events (touch is emulated as mouse)
 	g.driven = false
 	var p := InputEventMouseButton.new()
@@ -697,6 +748,22 @@ func hangar_fits() -> void:
 			"%s: the hangar panel fits (%.0f to %.0f of %.0f)" % [res, top, bottom, vp.y])
 		var sy := g.cam.unproject_position(g.ppos).y
 		check(sy > Hud.HANGAR_TOP and sy < top - 40.0, "%s: the ship idles above the panel (y %.0f)" % [res, sy])
+		# Guillaume (2026-11-24, again): a long upgrade line pushed the panel off the right edge.
+		# Its widest content (every world's level names, a big scrap count, the armed reset
+		# button, every upgrade line) must fit the screen's width.
+		g.s.open = Campaign.WORLDS.size() * Campaign.PER_WORLD - 1
+		g.s.scrap = 9999999
+		g.hud.reset_btn.text = "Tap again to wipe all"
+		var widest := 0.0
+		for lv in Campaign.WORLDS.size() * Campaign.PER_WORLD:
+			g.level = lv
+			g.hud.refresh_hangar()
+			g.hud.reset_btn.text = "Tap again to wipe all"
+			widest = maxf(widest, p.get_combined_minimum_size().x)
+		await process_frame
+		r = p.get_global_rect()
+		check(widest <= vp.x - 48.0 + 0.5 and r.position.x >= 0.0 and r.end.x <= vp.x + 0.5,
+			"%s: the hangar panel fits the width (needs %.0f, %.0f to %.0f of %.0f)" % [res, widest, r.position.x, r.end.x, vp.x])
 		sv.free()
 
 
@@ -779,8 +846,13 @@ func landmarks() -> void:
 	g.damage(found, 1.0)
 	check(not found.dead and found.hit > 0.0, "a hit landmark flashes")
 	g.damage(found, 999.0)
-	check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
-	check(g.picks.size() > picks, "it drops scrap")
+	if g.civilian(found):
+		# Guillaume (2026-11-24): a real civilian costs points and pays nothing
+		check(found.dead and g.run.score == maxi(0, score - Rules.CIVIL_COST) and g.run.kills == kills, "shooting a civilian (%s) down costs points and isn't a kill" % found.kind)
+		check(g.picks.size() == picks, "it drops no scrap")
+	else:
+		check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
+		check(g.picks.size() > picks, "it drops scrap")
 	check(parent.get_child_count() == children + 1 and g.ruined.size() == 1, "a ruin is left where it stood")
 	# the chase lets standing landmarks go without blowing them up
 	g.step(DT)
@@ -821,6 +893,7 @@ func _initialize() -> void:
 	await scenery()
 	await landmarks()
 	await stage()
+	await power()
 	await death()
 	await readable_fire()
 	await world_edges()

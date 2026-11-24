@@ -226,7 +226,7 @@ static func foes_in(lv: int) -> int:
 			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
 			n += Rules.fortress_parts(fortress_of(lv))
-		elif w.kind != "end":
+		elif w.kind != "end" and w.kind not in Rules.CIVILIANS:
 			n += int(w.n)
 	return n
 
@@ -236,8 +236,8 @@ static func new_wave(kind: String, rng: RandomNumberGenerator, side: float) -> D
 	var x := snappedf(rng.randf_range(-3.0, 3.0), 0.5)
 	match kind:
 		"gull":
-			# a flight in formation, all in at once (Guillaume: they bunched up too close)
-			return {"kind": kind, "n": 4, "x": x * 0.6, "gap": 0.0, "form": Foes.FORMS[rng.randi() % Foes.FORMS.size()]}
+			# collateral, not a threat (Guillaume, 2026-11-24): one seaplane strolls across alone
+			return {"kind": kind, "n": 1, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
 		"rotor":
 			return {"kind": kind, "n": rng.randi_range(2, 3), "x": 0.0, "gap": 0.5}
 		"pillbox", "aa", "mortar":

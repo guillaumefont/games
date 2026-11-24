@@ -24,7 +24,8 @@ func roster() -> void:
 	for k: String in Foes.INTRO:
 		check(not seen.has(k) and Rules.FOES.has(k) and Foes.NAMES.has(k) and Foes.mesh(k) != null, "%s: stats, a name and a model" % k)
 		seen[k] = true
-		check((k in Rules.RAMMABLE) != Foes.is_ground(k), "%s: %s" % [k, "on the ground, passes under the ship" if Foes.is_ground(k) else "in the air, can be rammed"])
+		check((k in Rules.RAMMABLE) != (Foes.is_ground(k) or k in Foes.HARMLESS), "%s: %s" % [k, "on the ground, passes under the ship" if Foes.is_ground(k)
+			else ("harmless, the ship flies through it" if k in Foes.HARMLESS else "in the air, can be rammed")])
 	for lv in Campaign.count():
 		var ws: Array = Campaign.waves(lv)
 		var kinds := {}
@@ -115,6 +116,8 @@ func each_kind() -> void:
 		check(shown >= 1.5, "%s: shows on screen (%.1f s)" % [kind, shown])
 		if kind == "seeker":
 			check(closest < 2.5, "%s: flies at the ship (%.1f m)" % [kind, closest])
+		elif kind in Foes.HARMLESS:
+			check(fired == 0, "%s: harmless, never fires (%d shots)" % [kind, fired])
 		else:
 			check(fired > 0, "%s: fires (%d shots)" % [kind, fired])
 		# hit flash on the body and its moving parts, then down
@@ -132,7 +135,7 @@ func each_kind() -> void:
 		check(mi.material_overlay != null and parts_flash, "%s: flashes when hit" % kind)
 		var kills: int = g.run.kills
 		g.damage(f, 1e6)
-		check(f.dead and g.run.kills == kills + 1, "%s: goes down" % kind)
+		check(f.dead and g.run.kills == kills + (0 if g.civilian(f) else 1), "%s: goes down%s" % [kind, ", not a kill (a civilian)" if g.civilian(f) else ""])
 	g.queue_free()
 	await process_frame
 
@@ -185,20 +188,52 @@ func holds() -> void:
 	await process_frame
 
 
-## Guillaume (2026-11-24): "hydroplanes cluster together too close, how about keeping them in
-## formations?" Flights keep their spacing all the way, swarms and holding lines don't stack.
+## Guillaume (2026-11-24): "Hydro planes should be a collateral damage, not an enemy. It should
+## stroll by (alone) waiting to be shot." Swarms and holding lines still don't stack.
 func formations() -> void:
-	print("flights keep formation, swarms keep apart")
+	print("seaplanes stroll by alone and harmless, swarms keep apart")
+	for lv in Campaign.count():
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind == "gull":
+				check(int(w.n) == 1, "%s: seaplanes come one at a time (%d)" % [Campaign.code(lv), int(w.n)])
 	var g := make_game()
 	await process_frame
 	g.s.open = Campaign.count() - 1
 	g.launch(0)
 	g.step(DT)
-	var groups := []
-	for form: String in Foes.FORMS:
-		groups.append(["gull", 4, form, "top", 0.0])
-	groups.append(["seeker", 6, "", "top", 0.3])
-	groups.append(["dart", 6, "", "back", 0.3])
+	for from: String in ["left", "right"]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		g.spawn_vert("gull", 0.0, 0, 1, from)
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hp = 1e6
+		var hp0 := g.hp
+		var shown := 0.0
+		var x0 := f.pos.x
+		var fired := false
+		var t := 0.0
+		while t < 14.0 and f in g.foes:
+			g.inv = 0.0
+			# the ship sits right in its path
+			g.prel = Vector2(clampf(f.pos.x, -5.0, 5.0), f.pos.z - g.frame_z)
+			g.step(DT)
+			t += DT
+			fired = fired or g.bullets.size() > 0
+			if f in g.foes and g.on_screen(f):
+				shown += DT
+		check(signf(x0) == (-1.0 if from == "left" else 1.0) and (f not in g.foes or signf(f.pos.x) != signf(x0)),
+			"from the %s: crosses the screen (%.1f m to %.1f m)" % [from, x0, f.pos.x])
+		check(shown > 4.0, "from the %s: lazy, on screen %.1f s" % [from, shown])
+		check(not fired and g.hp == hp0, "from the %s: never fires, flying into it costs nothing" % from)
+	g.queue_free()
+	await process_frame
+	g = make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	var groups := [["seeker", 6, "top", 0.3], ["dart", 6, "back", 0.3]]
 	for grp: Array in groups:
 		g.clear_all()
 		g.queue.clear()
@@ -210,8 +245,8 @@ func formations() -> void:
 		var next := 0
 		var closest := 1e9
 		while t < 6.0:
-			while next < n and t >= next * float(grp[4]):
-				g.spawn_vert(kind, 4.5 if grp[3] == "back" else 0.0, next, n, grp[3], grp[2])
+			while next < n and t >= next * float(grp[3]):
+				g.spawn_vert(kind, 4.5 if grp[2] == "back" else 0.0, next, n, grp[2])
 				var f: Game.Obj = g.foes[g.foes.size() - 1]
 				f.hp = 1e6
 				mine.append(f)
@@ -226,8 +261,100 @@ func formations() -> void:
 					if mine[a] in g.foes and mine[b] in g.foes and g.on_screen(mine[a]) and g.on_screen(mine[b]):
 						var d := Vector2(mine[a].pos.x - mine[b].pos.x, mine[a].pos.z - mine[b].pos.z).length()
 						closest = minf(closest, d)
-		var want := 2.0 if kind == "gull" else 1.4
-		check(closest >= want and closest < 1e8, "%s %s: never closer than %.1f m on screen (%.1f)" % [kind, grp[2] if grp[2] != "" else grp[3], want, closest])
+		check(closest >= 1.4 and closest < 1e8, "%s %s: never closer than 1.4 m on screen (%.1f)" % [kind, grp[2], closest])
+	g.queue_free()
+	await process_frame
+
+
+## Guillaume (2026-11-24): "civil characters can be enemies if they are clearly hacked: a lighthouse
+## that opens to show a turret, a hydro plane that unveils a minigun... should we give bad points
+## when shooting down a real civil target?" Hacked ones give themselves away before they fire,
+## real ones cost points.
+func hacked() -> void:
+	print("hacked civilians unveil a gun, real ones cost points")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	for lv in Campaign.count():
+		var real := 0
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind in Rules.CIVILIANS:
+				real += int(w.n)
+		var all := 0
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind == "boss":
+				all += Rules.boss_parts(Campaign.midboss_of(lv))
+			elif w.kind == "fortress":
+				all += Rules.fortress_parts(Campaign.fortress_of(lv))
+			elif w.kind != "end":
+				all += int(w.n)
+		check(Campaign.foes_in(lv) == all - real, "%s: the %d civilians aren't in the kill total" % [Campaign.code(lv), real])
+	# a hacked seaplane and a hacked lighthouse: a tell, then the gun, then fire
+	for kind: String in ["gull", "lighthouse"]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		var f: Game.Obj
+		if kind == "gull":
+			g.spawn_vert("gull", 0.0, 0, 1, "left")
+			f = g.foes[g.foes.size() - 1]
+		else:
+			f = Game.Obj.new()
+			f.kind = "lighthouse"
+			f.ground = true
+			f.rel = true
+			f.hp = 1e6
+			f.max_hp = 1e6
+			f.r = 2.0
+			f.node = Models.instance(Models.landmark("lighthouse", 1.0))
+			g.add_child(f.node)
+			f.pos = Vector3(3.0, 0.0, g.frame_z + g.view_top + 9.0)
+			g.foes.append(f)
+		f.hacked = true
+		f.hp = 1e6
+		check(g.shy(f), "%s: hacked but still hidden, nothing locks onto it" % kind)
+		var told := -1.0
+		var first := -1.0
+		var t := 0.0
+		while t < 9.0 and f in g.foes and first < 0.0:
+			g.hp = 5
+			g.inv = 1.0
+			var before := g.bullets.size()
+			g.step(DT)
+			t += DT
+			if told < 0.0 and f.hold >= 0.0:
+				told = t
+			if g.bullets.size() > before:
+				first = t
+		var gun := "minigun" if kind == "gull" else "hacked turret"
+		check(told >= 0.0 and first > 0.0 and first - told >= Foes.HACK_TELL, "%s: gives itself away %.1f s before it fires (%.1f s)" % [kind, Foes.HACK_TELL, first - told])
+		check(f.node.has_node(gun), "%s: unveils its %s" % [kind, gun])
+		check(not g.shy(f), "%s: once unveiled, missiles and the guns' assist go for it" % kind)
+	# shooting down: a real civilian costs points and drops nothing, a hacked one pays double
+	for hack: bool in [false, true]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		g.spawn_vert("gull", 0.0, 0, 1, "left")
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hacked = hack
+		g.run.score = 1000
+		var kills: int = g.run.kills
+		var drops := g.picks.size()
+		g.kill(f)
+		var due: int = Rules.FOES.gull.score
+		if hack:
+			check(g.run.score == 1000 + roundi(due * Rules.HACK_PAY) and g.run.kills == kills + 1 and g.picks.size() > drops,
+				"a hacked seaplane pays double and counts as a kill (%d)" % g.run.score)
+		else:
+			check(g.run.score == 1000 - Rules.CIVIL_COST and g.run.kills == kills and g.picks.size() == drops,
+				"a real seaplane costs %d points, drops no scrap and isn't a kill (%d)" % [Rules.CIVIL_COST, g.run.score])
+	g.run.score = 50
+	g.spawn_vert("gull", 0.0, 0, 1, "left")
+	g.kill(g.foes[g.foes.size() - 1])
+	check(g.run.score == 0, "the score never goes below zero (%d)" % g.run.score)
 	g.queue_free()
 	await process_frame
 
@@ -347,6 +474,7 @@ func _initialize() -> void:
 	await each_kind()
 	await holds()
 	await formations()
+	await hacked()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

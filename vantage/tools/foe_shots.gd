@@ -23,7 +23,7 @@ func _initialize() -> void:
 	g.rng.seed = 3
 	root.add_child(g)
 	await process_frame
-	var wait := {"gull": 1.2, "borer": 2.4, "gunship": 2.4, "lancer": 1.7, "prism": 3.0, "tank": 2.6, "hover": 2.4,
+	var wait := {"gull": 4.5, "borer": 2.4, "gunship": 2.4, "lancer": 1.7, "prism": 3.0, "tank": 2.6, "hover": 2.4,
 		"aa": 2.6, "mortar": 2.8, "pillbox": 2.4, "seeker": 1.8, "wyrm": 2.6}
 	for lv in Foes.INTRO.size():
 		var kind: String = Foes.INTRO[lv]
