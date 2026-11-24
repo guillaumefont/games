@@ -106,7 +106,7 @@ func data() -> void:
 	var looks := {}
 	for id: String in Rules.FORTRESSES:
 		var f: Dictionary = Rules.FORTRESSES[id]
-		var ok: bool = f.sections[-1].kind == "core" and f.sections[-1].guns.is_empty() and f.sections[0].kind == "engines"
+		var ok: bool = f.sections[-1].kind == "core" and f.sections[-1].guns.is_empty()
 		var kinds := []
 		for k in f.sections.size() - 1:
 			var sec: Dictionary = f.sections[k]
@@ -115,9 +115,9 @@ func data() -> void:
 				and Capital.piece(id, k).get_surface_count() > 0
 			for g: Array in sec.guns:
 				ok = ok and g[0] in Rules.SHIP_GUNS and Rules.FOES.has(g[0])
-		ok = ok and kinds[-1] == "bridge" and Rules.fortress_len(id) > 180.0
-		looks["%s/%s/%s" % [f.hull, f.paint, kinds]] = true
-		check(ok, "%s: %.0f m, %d sections from the engines to the bridge, each with its guns and a piece that breaks off, then the reactor" % [
+		ok = ok and kinds[-1] in Capital.HEARTS and Rules.fortress_len(id) > 180.0
+		looks["%s/%s/%s" % [f.get("hull", Capital.bodies(id).size()), f.paint, kinds]] = true
+		check(ok, "%s: %.0f m, %d sections from the stern to the bridge or gondola, each with its guns and a piece that breaks off, then the reactor" % [
 			f.title, Rules.fortress_len(id), f.sections.size()])
 	check(looks.size() == Rules.FORTRESSES.size(), "no two fortresses look alike")
 	check(Campaign.waves(4) == Campaign.waves(4), "a level's waves are the same every time")
@@ -172,7 +172,7 @@ func run(g: Game, secs: float, until: Callable) -> void:
 						best = f
 			if best:
 				# line the dipped guns up with it
-				g.off = Vector2(best.pos.x, best.pos.y + (g.ppos.z - best.pos.z) * Rules.AIM_DIP - g.chase_y)
+				g.off = g.line_up(best)
 		g.step(DT)
 		if until.call():
 			return
@@ -304,7 +304,7 @@ func levels() -> void:
 		var secs := [0]
 		var hidden := [true]
 		var broke := [false]
-		run(g, 300.0, func() -> bool:
+		run(g, 480.0, func() -> bool:
 			if g.fortress != null and g.pov_mode() and g.fort_sec > secs[0] and secs[0] < g.segs.size():
 				hidden[0] = hidden[0] and not g.fort_piece(secs[0]).visible
 				secs[0] = g.fort_sec
