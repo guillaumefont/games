@@ -773,9 +773,14 @@ func view_size() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
 
+## The ship may be dragged down to just above the bottom edge of the screen (Guillaume,
+## 2026-11-24: "drag the plane down much further"), its tail still in sight.
+const BOT_MARGIN := 2.0
+
+
 func clamp_player() -> void:
 	prel.x = clampf(prel.x, -Rules.HALF_W, Rules.HALF_W)
-	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, Rules.Z_BOT - 1.0)
+	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, maxf(view_bot - BOT_MARGIN, Rules.Z_BOT - 1.0))
 
 
 func step(dt: float) -> void:
@@ -871,12 +876,12 @@ func run_waves() -> void:
 			continue
 		for i in int(w.n):
 			queue.append({"at": stage_t + i * float(w.gap), "kind": w.kind, "x": float(w.x), "i": i, "n": int(w.n),
-				"from": w.get("from", "top"), "form": w.get("form", "")})
+				"from": w.get("from", "top")})
 		wave_i += 1
 	var rest := []
 	for q: Dictionary in queue:
 		if stage_t >= q.at:
-			spawn_vert(q.kind, q.x, q.i, q.n, q.from, q.get("form", ""))
+			spawn_vert(q.kind, q.x, q.i, q.n, q.from)
 		else:
 			rest.append(q)
 	queue = rest
@@ -916,7 +921,7 @@ func new_foe(kind: String, mesh: Mesh) -> Obj:
 	return f
 
 
-func spawn_vert(kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
+func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 	var top := frame_z + minf(view_top, Rules.Z_TOP) - 2.5
 	match kind:
 		"dart":
@@ -975,7 +980,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top", form := "
 			sound.play("warning")
 			sound.music("carrier")
 		_:
-			Foes.spawn(self, kind, x, i, n, from, form)
+			Foes.spawn(self, kind, x, i, n, from)
 			# each level brings in a new kind of foe: announced the first time it shows
 			if kind == Campaign.debut(level) and not debuted:
 				debuted = true
