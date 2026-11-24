@@ -479,7 +479,7 @@ func show_results() -> void:
 
 # ---------------------------------------------------------------- pause menu
 
-## "Main menu" above the pause title, away from where the thumb rests to fly. Only shown once time has stopped, so a finger coming back
+## "Main menu" under the pause title and hint (Guillaume's call). Only shown once time has stopped, so a finger coming back
 ## down to fly never lands on it; the button takes its tap, so pressing it doesn't resume.
 func build_quit() -> void:
 	quit_btn = Button.new()
@@ -489,7 +489,7 @@ func build_quit() -> void:
 	sb.set_content_margin_all(18)
 	for st in ["normal", "hover", "pressed"]:
 		quit_btn.add_theme_stylebox_override(st, sb)
-	place(quit_btn, Rect2(0.5, 0.42, 0, 0), Rect2(-170, -190, 340, 76))
+	place(quit_btn, Rect2(0.5, 0.42, 0, 0), Rect2(-170, 110, 340, 76))
 	quit_btn.pressed.connect(quit_tap)
 	add_child(quit_btn)
 	quit_btn.visible = false

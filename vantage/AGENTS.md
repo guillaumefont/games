@@ -47,7 +47,7 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 - The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
-  fully stopped and placed above the PAUSED title, away from the thumb. Two taps (`RESET_ARM` s) quit the run
+  fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
 
 ## Pull requests
