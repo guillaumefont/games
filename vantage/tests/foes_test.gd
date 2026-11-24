@@ -295,6 +295,7 @@ func towers() -> void:
 			var gy := g.ground_y(f.pos.x, f.pos.z)
 			check(f.ground and f.node.mesh == Towers.base(theme) and f.node.has_node("top") and is_equal_approx(f.pos.y, gy + Towers.height(theme)),
 				"%s: a %s on its world's footing, its gun %.1f m up" % [theme, t, Towers.height(theme)])
+			check(Towers.pole(theme) >= 0.8, "%s: the %s's gun stands on a pole, so it reads as a tower, not a flyer" % [theme, t])
 			f.hp = 1e6
 			var fired := 0
 			var big := false
@@ -316,6 +317,24 @@ func towers() -> void:
 			var top := f.node.get_node("top") as MeshInstance3D
 			check(f.node.material_overlay != null and top.material_overlay != null, "%s: the %s flashes, gun and all" % [theme, t])
 	check(all.size() == Towers.TYPES.size(), "every type of tower is fielded somewhere")
+	# down every level's course, a tower's whole footing stands on level ground, never over a rim
+	for lv in Campaign.count():
+		g.launch(lv)
+		g.step(DT)
+		g.clear_all()
+		var bad := 0
+		var dry_ok := 0
+		var n := 0
+		for z in range(0, 1500, 23):
+			for x in [-4.0, 0.0, 4.0]:
+				var at := Foes.dry_x(g, x, -float(z), null, Towers.FOOT_R)
+				n += 1
+				if not Foes.footed(g, at.x, at.y, Towers.FOOT_R, false, false):
+					bad += 1
+				if Foes.dry(g, at.x, at.y):
+					dry_ok += 1
+		check(bad <= n / 100, "level %d: towers stand level, not over a rim (%d of %d spots)" % [lv + 1, n - bad, n])
+		check(dry_ok >= n * 0.8, "level %d: towers mostly stand out of the water (where the sea or a river fills the width they stand in it, level, like a pier) (%d of %d spots)" % [lv + 1, dry_ok, n])
 	check(Towers.height("city") + 1.6 < Rules.PY, "a tower on a building stays under the flight altitude")
 	g.queue_free()
 	await process_frame

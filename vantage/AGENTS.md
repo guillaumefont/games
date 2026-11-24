@@ -64,6 +64,10 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (2026-11-24) found they stopped "much too far from the ship" on tall phones. When the way down from the
   top edge to the hold is longer than `Game.SIDE_ENTRY`, they come in from a side, level with their hold
   (`Game.enter_toward`).
+- Gun towers (`Towers`) stand on a pole (`Towers.POLE`) between their footing and the gun: Guillaume
+  (2026-11-24) couldn't tell a flak tower from a flying foe. A tower only stands where its whole footing
+  (`FOOT_R`) is on level ground (`Foes.dry_x`/`footed`): firm land first, then a dry canyon floor, then a
+  level riverbed; never hanging over a rim. Flying foes that could pass for a tower from above must spin.
 - Groups keep their spacing (Guillaume, 2026-11-24: "hydroplanes cluster together too close"): seaplane
   flights come in together in a formation (`Foes.FORMS`: V, line abreast, echelon; `Foes.slot`) and line up
   on the ship each in its place; seekers and darts from behind keep apart (`Foes.keep_apart`), and the
