@@ -1,7 +1,8 @@
 extends SceneTree
-## Every fortress side by side (needs a display): each one from above as it arrives, behind its
-## stern in the chase, an overview with no fog, and over its deck at its second and third sections.
-##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/fortress_lineup.gd -- /tmp/fortresses
+## Every fortress side by side (needs a display): each one from above as it arrives, in the chase
+## at its first section, two overviews with no fog (from above and from below), and at each of its
+## other sections from its lane (over it, along a flank, beneath it, between its hulls).
+##   xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/fortress_lineup.gd -- /tmp/fortresses [id]
 
 var out := "/tmp/fortresses"
 var g: Game
@@ -39,6 +40,9 @@ func _initialize() -> void:
 	var env: Environment = (g.find_children("*", "WorldEnvironment", false, false)[0] as WorldEnvironment).environment
 	var n := 1
 	for id: String in Rules.FORTRESSES:
+		if args.size() > 1 and args[1] != id:
+			n += 1
+			continue
 		var lv := 0
 		while Campaign.fortress_of(lv) != id:
 			lv += 1
@@ -62,13 +66,15 @@ func _initialize() -> void:
 		var mid := g.fort_point(Vector3(0, 0, -Rules.fortress_len(id) * 0.5))
 		g.cam.global_transform = Transform3D(Basis(), mid + Vector3(-190.0, 120.0, 210.0)).looking_at(mid, Vector3.UP)
 		await shot("%d-%s-3-overview" % [n, id])
+		g.cam.global_transform = Transform3D(Basis(), mid + Vector3(170.0, -90.0, 200.0)).looking_at(mid, Vector3.UP)
+		await shot("%d-%s-3b-below" % [n, id])
 		env.fog_enabled = true
 		g.cam.far = 400.0
-		for k in 2:
+		for k in Rules.FORTRESSES[id].sections.size() - 2:
 			for p in g.fort_parts.duplicate():
 				g.damage(p, 99999.0)
 			g.off = Vector2.ZERO
-			await tick(int(Rules.ADVANCE * 60) + 60)
+			await tick(int(g.adv_dur * 60) + 60)
 			await shot("%d-%s-%d-section%d" % [n, id, 4 + k, g.fort_sec + 1])
 		n += 1
 	quit()
