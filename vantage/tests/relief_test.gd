@@ -73,7 +73,7 @@ func seams(g: Game) -> void:
 				for i in 25:
 					var x := -40.0 + i * 3.3
 					var h := Relief.raw(g.noise, x, z2)
-					worst = maxf(worst, absf(Relief.at(x, z2, h).x - Relief.base_y(h)))
+					worst = maxf(worst, absf(Relief.at(x, z2, h).x - Relief.plain(x, z2, h)))
 		check(worst < 0.1, "%s: stretches meet on the plain (off by %.2f)" % [theme, worst])
 
 
@@ -87,6 +87,8 @@ func depth(g: Game) -> void:
 		var steep := 0
 		var liquid := 0
 		var fx := {}
+		var falls := 0
+		var buried := 0.0
 		for k in 30:
 			var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 			var arr := m.surface_get_arrays(m.get_surface_count() - 1)
@@ -101,18 +103,42 @@ func depth(g: Game) -> void:
 			var fm := Relief.fx_mesh(g.noise)
 			for e: Dictionary in Relief.fx:
 				fx[e.get("m", e.t)] = true
+				if e.t == "fall":
+					falls += 1
+					buried = maxf(buried, fall_buried(g, e))
 		check(lo < -6.0, "%s: the land drops far below the plain (%.1f m)" % [theme, lo])
 		check(hi < Rules.PY - 3.0, "%s: and never rises near the ship (%.1f m)" % [theme, hi])
 		check(steep > 200, "%s: steep faces are bare, layered rock (%d vertices)" % [theme, steep])
-		var want: Array = {"coast": ["fall", "spray"], "dunes": ["fall", "devil", "rock", "smoke"], "ice": ["avalanche", "geyser"],
+		var want: Array = {"coast": ["fall", "spray"], "dunes": ["avalanche", "devil", "rock", "smoke"], "ice": ["avalanche", "geyser"],
 			"volcano": ["fall", "bomb", "fountain", "smoke", "steam"]}[theme]
 		var have := true
 		for w: String in want:
 			have = have and fx.has(w)
 		check(have, "%s: moving set pieces %s" % [theme, fx.keys()])
-		check(theme == "ice" or liquid > 0, "%s: rivers, lakes or lava flow (%d vertices)" % [theme, liquid])
+		if theme == "dunes":
+			check(falls == 0 and liquid == 0, "dunes: a desert, no falls and no water (%d falls, %d wet vertices)" % [falls, liquid])
+		elif theme != "ice":
+			check(falls > 0 and buried < 0.05, "%s: its %d falls pour clear of the rock, never through a ledge (%.2f m under)" % [theme, falls, buried])
+		check(theme in ["ice", "dunes"] or liquid > 0, "%s: rivers, lakes or lava flow (%d vertices)" % [theme, liquid])
 	for key: String in Relief.MOVERS:
 		check(Relief.mover_mat(key).shader.code.contains("min(p.y, %f" % Relief.TOP_Y), "%s: capped under the ship" % key)
+
+
+## How far a fall's curtain goes under the ground anywhere across it (Guillaume, 2026-11-24:
+## "waterfall should not pass through the stones").
+func fall_buried(g: Game, e: Dictionary) -> float:
+	var worst := 0.0
+	var path: PackedVector3Array = e.path
+	for i in path.size() - 1:
+		var a := path[i]
+		var b := path[i + 1]
+		var side: Vector3 = Vector3(b.z - a.z, 0, -(b.x - a.x)).normalized() * e.w * 0.5
+		for t in 5:
+			var p := a.lerp(b, t / 4.0)
+			for s in [-0.85, 0.0, 0.85]:
+				var q: Vector3 = p + side * s
+				worst = maxf(worst, Relief.y_at(g.noise, q.x, q.z) - q.y)
+	return worst
 
 
 ## Ground foes stand on the ground the chunks show, and only where they can stand.
