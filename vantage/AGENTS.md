@@ -89,6 +89,13 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   hold in a line across the screen.
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
+- In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was
+  exciting again; "how about keeping an in level progress"): every level starts on the bare twin gun
+  (`Game.power` 0). Every `Rules.POWER_EVERY` kills in the vertical stage, and each mid-boss section but the
+  heart, leave a power core (`Game.drop_core`, pick kind `power`; in the chase the step is given at once);
+  each widens the spread a step up to `Rules.POWER_MAX` (7 guns, faster fire). A hit costs a power step as well
+  as hull. The hangar's Cannon upgrade only raises damage per shot (`Rules.cannon_dmg`), never the spread, so
+  bought upgrades can't make a run's start easy (tested). HUD: the power bar under the hull pips.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 - Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
@@ -133,7 +140,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, in-level power, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
@@ -160,6 +167,8 @@ section from its lane).
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
+
+In-level power (start, a core, full power): same command with `tools/power_shots.gd -- /tmp/power`.
 
 Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
 gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.

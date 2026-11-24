@@ -455,7 +455,7 @@ const CRUISE_Y := 32.0
 const ORDER := ["cannon", "missile", "hull", "magnet"]
 const UPGRADES := {
 	"cannon": {"name": "Cannon", "max": 5, "cost": [120, 320, 700, 1300, 2400],
-		"desc": "More guns, wider spread, harder hits"},
+		"desc": "Harder hits (the spread comes from power cores in play)"},
 	"missile": {"name": "Missiles", "max": 4, "cost": [250, 600, 1200, 2200],
 		"desc": "Homing missiles, faster salvos"},
 	"hull": {"name": "Hull", "max": 3, "cost": [200, 550, 1100],
@@ -519,18 +519,34 @@ static func magnet_radius(s: Dictionary) -> float:
 	return 2.5 + 2.0 * level(s, "magnet")
 
 
-## The main gun at a cannon level: shots as [x offset, angle in degrees], damage per shot and
-## the time between volleys. Used by both the vertical stage and the chase.
-static func cannon(lv: int) -> Dictionary:
+## In-level power (Guillaume, 2026-11-24: with every upgrade bought the game was too easy; "how
+## about keeping an in level progress"). Every level starts on the bare twin gun. Foes drop power
+## cores (one each `POWER_EVERY` kills in the vertical stage, one for each mid-boss section); each
+## widens the spread a step, up to `POWER_MAX`. A hit costs a power step as well as hull. The
+## hangar's Cannon upgrade no longer buys the spread: it makes every shot hit harder
+## (`CANNON_DMG` a level), so the ship keeps improving but every run builds up from weak.
+const POWER_MAX := 4
+const POWER_EVERY := 6
+const CANNON_DMG := 0.15
+
+
+## Damage of each cannon shot at a Cannon upgrade level.
+static func cannon_dmg(lv: int) -> float:
+	return 1.0 + CANNON_DMG * clampi(lv, 0, UPGRADES.cannon.max)
+
+
+## The main gun at an in-level power (0..POWER_MAX) and a Cannon upgrade level: shots as
+## [x offset, angle in degrees], damage per shot and the time between volleys. Used by both the
+## vertical stage and the chase.
+static func cannon(power: int, lv := 0) -> Dictionary:
 	var shots: Array = [[-0.22, 0.0], [0.22, 0.0]]
-	if lv >= 1:
+	if power >= 1:
 		shots = [[-0.32, 0.0], [0.0, 0.0], [0.32, 0.0]]
-	if lv >= 2:
+	if power >= 2:
 		shots += [[-0.4, -7.0], [0.4, 7.0]]
-	if lv >= 4:
+	if power >= 3:
 		shots += [[-0.5, -15.0], [0.5, 15.0]]
-	var dmg: float = [1.0, 1.0, 1.0, 1.35, 1.35, 1.7][clampi(lv, 0, 5)]
-	return {"shots": shots, "dmg": dmg, "period": 0.09 if lv >= 5 else 0.11}
+	return {"shots": shots, "dmg": cannon_dmg(lv), "period": 0.09 if power >= POWER_MAX else 0.11}
 
 
 ## Seconds between missile salvos (0: no missiles) and missiles per salvo.

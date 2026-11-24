@@ -9,6 +9,8 @@ const DIM := Color(0.86, 0.92, 1.0, 0.7)
 const GOLD := Color8(0xff, 0xd2, 0x4a)
 const CY := Color8(0x5f, 0xe2, 0xff)
 const RED := Color8(0xff, 0x4d, 0x6d)
+## In-level power steps (the cores are the same cyan-white).
+const POWER := Color8(0x6a, 0xf4, 0xff)
 ## Below the title, tag line and version; the hangar panel and the ship stay under it.
 const HANGAR_TOP := 330.0
 ## Open sky kept between that and the hangar panel for the idling ship.
@@ -48,6 +50,7 @@ var res_body: Label
 var res_hint: Label
 var hurt_t := 0.0
 var scrap_t := 0.0
+var power_t := 0.0
 
 
 func _ready() -> void:
@@ -524,6 +527,10 @@ func ping_scrap() -> void:
 	scrap_t = 0.25
 
 
+func ping_power() -> void:
+	power_t = 0.5
+
+
 func flash_hurt() -> void:
 	hurt_t = 0.35
 
@@ -532,6 +539,7 @@ func sync() -> void:
 	var dt := get_process_delta_time()
 	hurt_t = maxf(0.0, hurt_t - dt)
 	scrap_t = maxf(0.0, scrap_t - dt)
+	power_t = maxf(0.0, power_t - dt)
 	var playing := game.phase not in ["hangar", "results"]
 	quit_btn.visible = game.paused() and game.started
 	if not quit_btn.visible and quit_armed:
@@ -573,6 +581,13 @@ func _draw() -> void:
 			draw_rect(r, Color(1, 1, 1, 0.16), true)
 			if i < game.hp:
 				draw_rect(r.grow(-5), CY if game.hp > 1 else RED, true)
+		# power: the in-level spread, a bar of steps under the hull (pulses when it changes)
+		for i in Rules.POWER_MAX:
+			var r := Rect2(30 + i * 30, 76, 24, 12)
+			draw_rect(r.grow(power_t * 6.0), Color(1, 1, 1, 0.16 + power_t * 0.5), true)
+			if i < game.power:
+				draw_rect(r, POWER if game.power < Rules.POWER_MAX else INK, true)
+		draw_string(FONT, Vector2(36 + Rules.POWER_MAX * 30, 89), "MAX" if game.power >= Rules.POWER_MAX else "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(INK, 0.7 + power_t * 0.6))
 		# boss / reactor bar
 		var bar := game.boss_bar()
 		if not bar.is_empty():
