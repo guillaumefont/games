@@ -39,3 +39,5 @@ jobs:
         run: ./godot --headless --path . --script tests/icon_test.gd
       - name: Explosions (pieces, pool, budget, chains, carry, shake)
         run: ./godot --headless --path . --script tests/blasts_test.gd
+      - name: The look (baked occlusion, contact shadows, liquids, vignette)
+        run: ./godot --headless --path . --script tests/look_test.gd

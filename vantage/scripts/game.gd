@@ -298,12 +298,41 @@ void sky() {
 	blasts = Blasts.new()
 	blasts.cam = cam
 	add_child(blasts)
+	add_vignette()
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
 	hud.game = self
 	layer.add_child(hud)
 	to_hangar()
+
+
+## A soft vignette over the 3D view (under the HUD): the corners fall off a little into a cool
+## shade, which frames the action and lifts the centre, like a lens.
+const VIGNETTE_SHADER := """
+shader_type canvas_item;
+uniform vec4 shade : source_color = vec4(0.02, 0.05, 0.12, 0.42);
+void fragment() {
+	vec2 d = (UV - 0.5) * vec2(1.0, 1.35);
+	float v = smoothstep(0.32, 0.85, length(d));
+	COLOR = vec4(shade.rgb, shade.a * v * v);
+}
+"""
+
+
+func add_vignette() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "vignette"
+	add_child(layer)
+	var r := ColorRect.new()
+	r.set_anchors_preset(Control.PRESET_FULL_RECT)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = VIGNETTE_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	r.material = m
+	layer.add_child(r)
 
 
 # ---------------------------------------------------------------- flow
@@ -1796,6 +1825,11 @@ func update_chunks() -> void:
 			var mi := Models.instance(Models.ground_chunk(noise, -k * CHUNK, Vector2(CHUNK_W, CHUNK), 2.0, CHUNK_FLANK), Models.ground_mat())
 			add_child(mi)
 			chunks[k] = mi
+			# baked contact shadows under the scenery
+			if Models.ao_mesh:
+				var aoi := Models.instance(Models.ao_mesh, Models.ao_mat())
+				aoi.name = "ao"
+				mi.add_child(aoi)
 			# the city's fires and smoke, animated in their shaders
 			var fx := City.fx_mesh() if Models.theme == "city" else null
 			if fx:
