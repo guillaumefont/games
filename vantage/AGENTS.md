@@ -72,6 +72,13 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
+- Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
+  every frame: 60 in flight (`PLAY_FPS`; 90-120 Hz phones would otherwise draw every refresh), 30 in the
+  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1080) px wide
+  (`Game.render_scale`, bilinear upscale). Set these in scripts, not project.godot: a project setting
+  needs a new APK shell, a script ships in the game pack. Per-frame script time is small (about 1 ms a
+  step, `tools/perf.gd` prints it with draw calls); the cost is on the GPU, so watch fill (full-screen
+  passes, see-through layers) before adding more.
 - The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
   fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
@@ -116,6 +123,7 @@ godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by 
 godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
 godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
 godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
+godot --headless --path . --script tests/power_test.gd  # battery: frame rate cap by moment, 3D resolution cap
 ```
 
 Screenshots (needs a display; one per key moment of a full run):
