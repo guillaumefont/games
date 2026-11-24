@@ -273,6 +273,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
+  Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
+  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Ember Dunes is a desert:
+  no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
+  crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
+  set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
 - Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
   like structure with small houses around it"; then "on top of the existing evolutions, like cliffs in glass coast"):
   `scripts/towns.gd` (`Towns`). Each world's town crowns one of its set pieces (`Relief.TOWN_HOST`: the coast's sea

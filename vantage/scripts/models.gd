@@ -1524,7 +1524,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			sea_y = cy
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
-			if shaped and Relief.in_town(cen.x, cen.z):
+			if shaped and (Relief.in_town(cen.x, cen.z) or Relief.near_fall(cen.x, cen.z)):
 				continue
 			if theme != "coast":
 				# the other worlds' land (Glass Coast's scenery is scatter's)
