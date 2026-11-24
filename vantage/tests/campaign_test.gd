@@ -1,6 +1,6 @@
 extends SceneTree
 ## The campaign: worlds and levels, their waves, progress and unlocks in the save, the level
-## select in the hangar, each world's look, and full runs of a level, and every mid-boss flown down.
+## select in the hangar, the progress reset, each world's look, and full runs of a level, and every mid-boss flown down.
 ##   godot --headless --path . --script tests/campaign_test.gd
 
 const SAVE := "user://test_campaign.json"
@@ -221,6 +221,36 @@ func select() -> void:
 	await process_frame
 
 
+## The hangar's reset button: one tap only arms it, a second wipes scrap, upgrades, unlocks,
+## grades and best score, saves that and goes back to 1-1.
+func reset() -> void:
+	print("progress reset")
+	var s := Rules.fresh()
+	s.scrap = 5000
+	s.best = 99999
+	s.runs = 12
+	s.up.cannon = 4
+	s.up.hull = 3
+	s.open = 7
+	s.sel = 7
+	s.grades = {"1-1": "S", "2-1": "A"}
+	var g := make_game(s)
+	await process_frame
+	check(g.level == 7 and g.hud.reset_btn.text == "Reset progress", "a veteran pilot on 3-2 sees the reset button")
+	g.hud.reset_btn.pressed.emit()
+	check(g.s.scrap == 5000 and g.s.open == 7 and g.hud.reset_armed, "one tap only asks for confirmation")
+	check(g.hud.reset_btn.text.contains("again"), "and says to tap again")
+	g.hud.reset_btn.pressed.emit()
+	check(g.s == Rules.fresh(), "the second tap wipes everything back to a new pilot")
+	check(Rules.load_game(SAVE) == Rules.fresh(), "and saves it")
+	check(g.level == 0 and Models.theme == "coast" and g.hud.go_btn.text.contains("1-1"), "the hangar is back on 1-1")
+	check(g.hud.level_btns[1].disabled and g.hud.world_next.disabled, "with the rest locked again")
+	check(Rules.max_hp(g.s) == 3 and g.hud.hangar_scrap.text.contains("0"), "no upgrades, no scrap")
+	check(not g.hud.reset_armed and g.hud.reset_btn.text == "Reset progress", "the button calms down")
+	g.queue_free()
+	await process_frame
+
+
 func looks() -> void:
 	print("each world's look")
 	var noise := FastNoiseLite.new()
@@ -324,6 +354,7 @@ func _initialize() -> void:
 	data()
 	progress()
 	await select()
+	await reset()
 	looks()
 	await levels()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)

@@ -44,6 +44,8 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   rail speed and can be shot; a pod's rockets home in for a while (`Obj.homing`).
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
+- The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
+  `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 
 ## Pull requests
 
@@ -75,7 +77,7 @@ under an `## AGENTS.md` heading in the PR body.
 ```
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
-godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, world looks, a full level, every mid-boss and fortress
+godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
