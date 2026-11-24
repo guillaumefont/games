@@ -236,6 +236,16 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
+- Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
+  like structure with small houses around it"; preview asked before merging): `scripts/towns.gd` (`Towns`). A `town`
+  stretch of the course (Relief cycles: two set pieces, town, set piece, stream) levels a platform (`GROUND_Y`) and
+  lays a composed town: paved square and centrepiece (pyramid, church, giant snowman, fire altar), an avenue running
+  down towards the player with its furniture (palms, trees, pines, stone heads), a grid of houses facing the square
+  (adobes, cottages and tall houses, igloos and cabins, glowing huts), a wall with towers (hedges, fences), a lava moat
+  in the cinders. Each chunk builds the pieces whose spot it holds; landmarks go through `Models.mark`. The land's own
+  props keep out (`Relief.in_town`), and elsewhere they come in groups: groves and fields in some 12 m cells, rocks
+  as outcrops (`Models.rocks`: one big rock about the ship's size, smaller ones on its sides; Guillaume found lone
+  mid-size boulders unrealistic). Look at them with `tools/town_shots.gd -- /tmp/towns`.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)

@@ -71,11 +71,11 @@ static func course() -> Array:
 	var out := []
 	for n in 64:
 		var lv := level if n >= LEVEL_FROM else 0
-		var cyc: Array = [list[lv % 3], list[(lv + 1) % 3], list[(lv + 2) % 3], "stream"]
-		var k: String = cyc[n % 4]
+		var cyc: Array = [list[lv % 3], list[(lv + 1) % 3], "town", list[(lv + 2) % 3], "stream"]
+		var k: String = cyc[n % 5]
 		if not out.is_empty() and k == out[-1]:
 			for alt: String in list + ["stream"]:
-				if alt != out[-1] and alt != cyc[(n + 1) % 4]:
+				if alt != out[-1] and alt != cyc[(n + 1) % 5]:
 					k = alt
 					break
 		out.append(k)
@@ -145,6 +145,20 @@ static func crater_c(n: int) -> Vector2:
 	return Vector2((h1(n, 4.0) - 0.5) * 8.0, START - n * SEG - SEG * 0.5)
 
 
+## True inside a town's wall and just round it, where the land's own props keep out.
+static func in_town(x: float, z: float) -> bool:
+	var n := stretch_of(z)
+	if kind_of(n) != "town":
+		return false
+	var c := town_c(n)
+	return maxf(absf(x - c.x), absf(z - c.y)) < Towns.WALL + 6.0
+
+
+## Where stretch n's town stands (its square's centre).
+static func town_c(n: int) -> Vector2:
+	return Vector2((h1(n, 20.0) - 0.5) * 4.0, START - n * SEG - SEG * 0.52)
+
+
 const CRATER_R := 15.0
 const CRATER_FLOOR := 5.0
 
@@ -159,6 +173,23 @@ static func at(x: float, z: float, h: float) -> Vector4:
 		return Vector4(base_y(h), h, lava if (h < 0.0 and lava == 2.0) else 0.0, 0.0)
 	var zl := local(z, n)
 	match kind:
+		"town":
+			# a levelled platform for the town (Towns), back to the land round it; in the cinders a
+			# moat of lava round the wall, bridged where the avenue leaves
+			var c := town_c(n)
+			var o := Vector2(x - c.x, z - c.y)
+			var d := maxf(absf(o.x), absf(o.y)) * 0.7 + o.length() * 0.3 + wob(x, z) * 0.8
+			var w := smoothstep(Towns.EDGE, Towns.FLAT, d) * ease_in_out(zl, 20.0)
+			var hc: float = Towns.GROUND_H[Models.theme]
+			var hl := lerpf(h, hc, w)
+			var y := lerpf(base_y(h), Towns.GROUND_Y, w)
+			if lava == 2.0:
+				var md := maxf(absf(o.x), absf(o.y))
+				if md > Towns.WALL + 1.5 and md < Towns.WALL + 5.5 and not (absf(o.x) < Towns.AVENUE + 0.6 and o.y > 0.0):
+					return Vector4(-1.4, hl, 2.0, 0.0)
+			if hl < 0.0 and w < 0.01:
+				return Vector4(y, hl, lava if lava == 2.0 else 0.0, 0.0)
+			return Vector4(y, maxf(hl, 0.02) if w > 0.01 else hl, 0.0, 0.0)
 		"stream":
 			var e := ease_in_out(zl, 25.0)
 			var d := absf(x - canyon_x(z, n)) + wob(x, z) * 0.8

@@ -47,7 +47,7 @@ func course() -> void:
 			var all := true
 			for f: String in Relief.FEATURES[theme]:
 				all = all and seen.has(f)
-			check(all and seen.has("stream") and repeats == 0, "%s level %d: every set piece, no two alike in a row %s" % [theme, lv, seen.keys()])
+			check(all and seen.has("stream") and seen.has("town") and repeats == 0, "%s level %d: every set piece, no two alike in a row %s" % [theme, lv, seen.keys()])
 		# the land the hangar shows is the same for every level, so picking one never rebuilds it
 		var same := true
 		for n in Relief.LEVEL_FROM:
@@ -139,6 +139,50 @@ func footing(g: Game) -> void:
 		check(bad == 0, "%s: never in a river, on lava or on a cliff (%d)" % [theme, bad])
 
 
+## Guillaume (2026-11-24): "a pyramid in a city like structure with small houses around it". Each
+## world's town: a level platform, its centrepiece on the square, houses facing it, a wall round it,
+## and none of the land's loose props inside.
+func towns(g: Game) -> void:
+	print("towns")
+	var centre := {"dunes": "pyramid", "coast": "church", "ice": "snowman", "volcano": "altar"}
+	var homes := {"dunes": "adobe", "coast": "house", "ice": "igloo", "volcano": "hut"}
+	for theme: String in Relief.FEATURES:
+		Models.theme = theme
+		var n := -1
+		for k in 10:
+			if Relief.kind_of(k) == "town":
+				n = k
+				break
+		check(n >= 0 and n < 5, "%s: a town early in every level (stretch %d)" % [theme, n])
+		var c := Relief.town_c(n)
+		var worst := 0.0
+		for i in 9:
+			for j in 9:
+				var x := c.x - 12.0 + i * 3.0
+				var z := c.y - 12.0 + j * 3.0
+				worst = maxf(worst, absf(Relief.y_at(g.noise, x, z) - Towns.GROUND_Y))
+		check(worst < 0.05, "%s: the town stands on level ground (off by %.2f)" % [theme, worst])
+		Models.scenery.clear()
+		Models.marks.clear()
+		var z0 := floorf((c.y + 40.0) / Game.CHUNK) * Game.CHUNK
+		for k in 3:
+			Models.ground_chunk(g.noise, z0 - k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+		var kinds := {}
+		for m: Dictionary in Models.marks:
+			kinds[m.kind] = int(kinds.get(m.kind, 0)) + 1
+		var have: int = Models.scenery.get(centre[theme], 0)
+		check(have == 1, "%s: one %s at its heart" % [theme, centre[theme]])
+		var houses: int = Models.scenery.get(homes[theme], 0) + Models.scenery.get("cabin", 0)
+		check(houses >= 25, "%s: %d %s round it" % [theme, houses, homes[theme]])
+		check(Models.scenery.get("paving", 0) >= 2, "%s: a paved square and avenue" % theme)
+		check(Models.scenery.get("town wall", 0) + Models.scenery.get("hedge", 0) + Models.scenery.get("fence", 0) > 20, "%s: a wall round it" % theme)
+		var stray := 0
+		for m: Dictionary in Models.marks:
+			if Relief.in_town(m.pos.x, m.pos.z) and m.kind not in ["pyramid", "snowman", "house", "stone head"]:
+				stray += 1
+		check(stray == 0, "%s: no stray landmarks inside" % theme)
+
+
 func _initialize() -> void:
 	print("Vantage relief test")
 	var g := make_game()
@@ -147,6 +191,7 @@ func _initialize() -> void:
 	seams(g)
 	depth(g)
 	footing(g)
+	towns(g)
 	Models.theme = "coast"
 	g.queue_free()
 	await process_frame
