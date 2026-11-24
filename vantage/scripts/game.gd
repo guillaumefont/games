@@ -780,9 +780,14 @@ func view_size() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
 
+## The ship may be dragged down to just above the bottom edge of the screen (Guillaume,
+## 2026-11-24: "drag the plane down much further"), its tail still in sight.
+const BOT_MARGIN := 2.0
+
+
 func clamp_player() -> void:
 	prel.x = clampf(prel.x, -Rules.HALF_W, Rules.HALF_W)
-	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, Rules.Z_BOT - 1.0)
+	prel.y = clampf(prel.y, Rules.Z_TOP + 3.0, maxf(view_bot - BOT_MARGIN, Rules.Z_BOT - 1.0))
 
 
 func step(dt: float) -> void:
