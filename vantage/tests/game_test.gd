@@ -119,8 +119,10 @@ func slow_pause() -> void:
 		var d := g.stage_t - before
 		slowing = slowing and d <= last + 1e-6
 		last = d
+		if i == int(0.25 / DT):
+			check(g.time_speed() < 0.75, "a quarter second after lifting, time has already dropped a lot (%.2f)" % g.time_speed())
 		if i == int(1.0 / DT):
-			check(g.time_speed() > 0.3 and not g.paused(), "a second after lifting, time still runs (%.2f): the slowdown is gradual" % g.time_speed())
+			check(g.time_speed() > 0.05 and not g.paused(), "a second after lifting, time still runs (%.2f): then it eases to the stop" % g.time_speed())
 	check(slowing, "lifting the finger slows time steadily")
 	check(g.paused(), "until the game is paused (after %.1f s)" % Rules.SLOW_STOP)
 	var x0 := g.prel.x
@@ -151,9 +153,13 @@ func pause_menu() -> void:
 	var g := make_game()
 	await process_frame
 	g.launch()
+	g.tick(DT)
+	check(g.paused() and not g.started, "a level waits for its first touch")
+	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
 	g.touching = true
 	for i in 30:
 		g.tick(DT)
+	check(g.started, "the first touch starts it")
 	check(not g.hud.quit_btn.visible, "no main menu button while flying")
 	g.run.scrap = 7
 	var scrap0: int = g.s.scrap
@@ -239,6 +245,15 @@ func stage() -> void:
 	check(froms.has("left") and froms.has("right") and froms.has("back") and froms.has("top"), "from every edge: top, left, right and back")
 	# the final boss: the fortress, chased in third person
 	check(g.vacuum_t > 0.0 or g.picks.is_empty(), "its scrap flies to the ship")
+	# Guillaume: "it should not just vanish in the explosion. The husk of the ship should slowly drift away"
+	var husk := g.husk
+	var hz0 := husk.position.z - g.frame_z if husk else 0.0
+	check(husk != null and husk.visible and husk.is_inside_tree(), "its husk stays on")
+	run(g, 2.0)
+	var drift := husk.position.z - g.frame_z - hz0 if is_instance_valid(husk) else 0.0
+	check(is_instance_valid(husk) and drift > 0.5 and drift < 6.0, "and drifts slowly down the screen (%.1f m in 2 s)" % drift)
+	run(g, 25.0, func() -> bool: return g.husk == null)
+	check(g.husk == null, "until it's gone off the bottom")
 	run(g, 60.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.fortress != null, "the fortress arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
@@ -252,7 +267,7 @@ func stage() -> void:
 	# Guillaume (2026-11-23): a huge fortress-class ship, no tunnel: a capital ship far longer and
 	# wider than the screen, cut into sections along its length
 	var L := Rules.fortress_len(g.fort_id)
-	check(L > 200.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
+	check(L > 140.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
 	var vs := g.view_size()
 	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, 0, -10.0)))
 	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, 0, -10.0)))

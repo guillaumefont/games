@@ -618,7 +618,7 @@ const UNDER_IN := 6.5
 ## The clearance a glide keeps from the hull (`glide`).
 const GLIDE_M := 4.0
 ## A glide's speed across (m/s): a long way round takes longer than `Rules.ADVANCE`.
-const GLIDE_V := 34.0
+const GLIDE_V := 44.0
 
 static var _loops := {}
 static var _lanes := {}
