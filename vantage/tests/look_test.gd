@@ -69,6 +69,53 @@ func occlusion() -> void:
 	check(aabb.size.x > 0.75 * 2.5 and aabb.position.y > 0.0, "the contact shadow spreads past the prop's footprint, just above the ground")
 
 
+## The darkest vertex colour of a mesh, against the same mesh before baking.
+func darkest(m: Mesh) -> float:
+	var lo := 1.0
+	for si in m.get_surface_count():
+		var cs: PackedColorArray = m.surface_get_arrays(si)[Mesh.ARRAY_COLOR]
+		for c in cs:
+			lo = minf(lo, c.get_luminance())
+	return lo
+
+
+func model_ao() -> void:
+	print("baked occlusion on models")
+	# a post standing on a slab: the slab's top darkens round the post's foot, not out at its edge
+	var b := Models.Builder.new()
+	b.box(Vector3(0, -0.1, 0), Vector3(6, 0.2, 6), Color.WHITE)
+	b.box(Vector3(0, 1.0, 0), Vector3(0.6, 2.0, 0.6), Color.WHITE)
+	var m := Models.bake_ao(b.commit())
+	var arr := m.surface_get_arrays(0)
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	var near := 1.0
+	var far := 0.0
+	for i in vs.size():
+		if ns[i].y > 0.9 and absf(vs[i].y) < 0.01:
+			var r := Vector2(vs[i].x, vs[i].z).length()
+			if r < 0.6:
+				near = minf(near, cs[i].get_luminance())
+			elif r > 3.5:
+				far = maxf(far, cs[i].get_luminance())
+	check(near < far - 0.1, "a slab darkens at the foot of a post standing on it (%.2f there, %.2f at its edge)" % [near, far])
+	var top := 0.0
+	for i in vs.size():
+		if vs[i].y > 1.99:
+			top = maxf(top, cs[i].get_luminance())
+	check(top > 0.95, "the post's top, open all round, stays as it was")
+	var plain := Models.Builder.new()
+	plain.box(Vector3(0, -0.1, 0), Vector3(6, 0.2, 6), Color.WHITE)
+	var raw := plain.commit()
+	check(is_equal_approx(darkest(Models.bake_ao(raw)), darkest(raw)), "a lone slab has nothing to shade it: barely touched")
+	check(darkest(Models.midboss_hull("bastion")) > 0.04, "a cached boss hull is baked without going black")
+	var gun := Capital.gun("twin", "goliath")
+	var c := Models.contact("twin", gun)
+	check(c != null and c.get_aabb().size.x > gun.get_aabb().size.x * 0.8 and absf(c.get_aabb().position.y - Models.AO_LIFT) < 0.01,
+		"a deck gun's contact shadow is a flat disc about as wide as the gun")
+
+
 func in_game() -> void:
 	print("in the game")
 	var g: Game = load("res://scenes/main.tscn").instantiate()
@@ -97,6 +144,7 @@ func in_game() -> void:
 func _initialize() -> void:
 	print("Vantage look test")
 	occlusion()
+	model_ao()
 	await in_game()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

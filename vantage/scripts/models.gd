@@ -80,7 +80,7 @@ void fragment() {
 	// crest glints: short thin streaks along the swell, where the ripples peak on it
 	float line = smoothstep(0.86, 1.0, sin(p.x * 0.31 + p.y * 0.62 + t * 0.8 + w2 * 0.6));
 	float crest = line * smoothstep(0.2, 0.9, w2 * 0.5 + 0.5) * smoothstep(-0.5, 1.5, w1);
-	col += glint * crest * 0.1 * aw;
+	col += glint * crest * 0.07 * aw;
 	ALBEDO = col;
 	NORMAL = mix(NORMAL, normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz), aw);
 	ROUGHNESS = mix(0.95, 0.32, aw);
@@ -475,6 +475,92 @@ class Builder:
 		return st.commit()
 
 
+## Baked ambient occlusion for a model (ships, foes, bosses, landmarks): the mesh is dropped into
+## a coarse grid of cells (`AO_CELLS` along its longest side), then from each vertex a few rays go
+## out over its hemisphere; the sooner they hit the model itself, the darker the vertex, down to
+## `1 - AO_STRENGTH`. Creases, the feet of turrets and bridges, gun wells and the gaps between
+## parts darken; open plating stays as it was. Runs once per cached mesh (`cached`).
+const AO_CELLS := 44.0
+const AO_STRENGTH := 0.6
+const AO_STEPS := [0.8, 1.8, 3.2, 5.5]
+## The ray directions round +y (a hemisphere, slightly favouring the normal).
+const AO_DIRS := [Vector3(0, 1, 0), Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7),
+	Vector3(0, 0.7, -0.7), Vector3(0.9, 0.3, 0.3), Vector3(-0.9, 0.3, -0.3), Vector3(0.3, 0.3, -0.9),
+	Vector3(-0.3, 0.3, 0.9)]
+
+
+static func bake_ao(m: Mesh) -> Mesh:
+	if not (m is ArrayMesh) or m.get_surface_count() == 0:
+		return m
+	var aabb := m.get_aabb()
+	var cell := maxf(aabb.get_longest_axis_size() / AO_CELLS, 0.02)
+	var org := aabb.position - Vector3.ONE * cell * 2.0
+	var dim := Vector3i((aabb.size / cell).ceil()) + Vector3i(5, 5, 5)
+	var grid := PackedByteArray()
+	grid.resize(dim.x * dim.y * dim.z)
+	var surfs := []
+	for si in m.get_surface_count():
+		surfs.append(m.surface_get_arrays(si))
+	# the surface, rasterised by sampling each triangle finer than a cell
+	for arr: Array in surfs:
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var nt := idx.size() / 3 if idx.size() > 0 else vs.size() / 3
+		for t in nt:
+			var a := vs[idx[t * 3] if idx.size() > 0 else t * 3]
+			var b := vs[idx[t * 3 + 1] if idx.size() > 0 else t * 3 + 1]
+			var c := vs[idx[t * 3 + 2] if idx.size() > 0 else t * 3 + 2]
+			var steps := ceili(maxf((b - a).length(), (c - a).length()) / (cell * 0.7)) + 1
+			for i in steps + 1:
+				for j in steps + 1 - i:
+					var q := a + (b - a) * (float(i) / steps) + (c - a) * (float(j) / steps)
+					var g := Vector3i(((q - org) / cell).floor())
+					grid[(g.z * dim.y + g.y) * dim.x + g.x] = 1
+	var out := ArrayMesh.new()
+	for si in surfs.size():
+		var arr: Array = surfs[si]
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		if arr[Mesh.ARRAY_COLOR] == null or ns.is_empty():
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		var seen := {}
+		for v in vs.size():
+			var key := Vector3i(((vs[v] - org) / (cell * 0.25)).round()) * 8 + Vector3i((ns[v] * 3.0).round())
+			var k: float = seen.get(key, -1.0)
+			if k < 0.0:
+				k = 1.0 - AO_STRENGTH * occlusion(grid, dim, org, cell, vs[v], ns[v])
+				seen[key] = k
+			cs[v] = Color(cs[v].r * k, cs[v].g * k, cs[v].b * k, cs[v].a)
+		arr[Mesh.ARRAY_COLOR] = cs
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		var mt := m.surface_get_material(si)
+		if mt:
+			out.surface_set_material(si, mt)
+	return out
+
+
+## How shut in a point is (0 open, 1 buried): the share of rays from it that hit the grid, nearer
+## hits counting more.
+static func occlusion(grid: PackedByteArray, dim: Vector3i, org: Vector3, cell: float, p: Vector3, n: Vector3) -> float:
+	var basis := Basis.looking_at(n, Vector3.UP if absf(n.y) < 0.95 else Vector3.RIGHT)
+	# looking_at points -z along n: map the table's +y onto n
+	var occ := 0.0
+	for d: Vector3 in AO_DIRS:
+		var dir := (basis * Vector3(d.x, d.z, -d.y)).normalized()
+		var w := 1.0
+		for st: float in AO_STEPS:
+			var g := Vector3i(((p + n * cell * 1.01 + dir * st * cell - org) / cell).floor())
+			if g.x < 0 or g.y < 0 or g.z < 0 or g.x >= dim.x or g.y >= dim.y or g.z >= dim.z:
+				break
+			if grid[(g.z * dim.y + g.y) * dim.x + g.x] == 1:
+				occ += w
+				break
+			w *= 0.75
+	return occ / AO_DIRS.size()
+
+
 static func ngon(r: float, n: int, rot := 0.0) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for i in n:
@@ -570,8 +656,16 @@ static func shadow_plane_mat(mask: Texture2D) -> ShaderMaterial:
 
 static func cached(key: String, f: Callable) -> Mesh:
 	if not _cache.has(key):
-		_cache[key] = f.call()
+		var m: Mesh = f.call()
+		# every solid model gets its occlusion baked in; glowing things (shots, lights) don't need it
+		if not NO_AO.any(func(p: String) -> bool: return key.begins_with(p)):
+			m = bake_ao(m)
+		_cache[key] = m
 	return _cache[key]
+
+
+## Cached meshes left without baked occlusion: unshaded glows and effects.
+const NO_AO := ["halo", "shot", "ring", "scrap", "cap_glow", "cap_lights", "cap_bubble", "contact"]
 
 
 # ---------------------------------------------------------------- the player's ship
@@ -1412,6 +1506,16 @@ static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
 	if n == 0:
 		return null
 	return st.commit()
+
+
+## A contact shadow for a model standing on something else (a gun on a fortress's deck): a soft disc
+## on y = 0 as wide as the model seen from above, cached by `key`.
+static func contact(key: String, m: Mesh) -> Mesh:
+	return cached("contact_" + key, func() -> Mesh:
+		var bx := m.get_aabb()
+		var lo := Vector2(bx.position.x, bx.position.z)
+		var hi := lo + Vector2(bx.size.x, bx.size.z)
+		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0))
 
 
 const AO_SEG := 10

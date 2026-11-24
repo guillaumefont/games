@@ -2019,6 +2019,12 @@ func spawn_gun(i: int, g: Array) -> Obj:
 		var gl := Models.instance(gm, Models.glow({"nozzle": Color8(0xff, 0xc4, 0x6a), "mast": Color8(0xff, 0x5a, 0x7a)}.get(kind, Models.CYAN)))
 		gl.name = "glow"
 		f.node.add_child(gl)
+	if Capital.mount(fort_id, i, g).how == "deck":
+		# a soft contact shadow on the deck round the gun's foot
+		var ao := Models.instance(Models.contact(kind, f.node.mesh), Models.ao_mat())
+		ao.name = "ao"
+		ao.position.y = -float(Rules.GUN_H[kind]) - Models.AO_LIFT + 0.05
+		f.node.add_child(ao)
 	remove_child(f.node)
 	seg_body(i).add_child(f.node)
 	f.node.position = f.anchor
