@@ -748,6 +748,22 @@ func hangar_fits() -> void:
 			"%s: the hangar panel fits (%.0f to %.0f of %.0f)" % [res, top, bottom, vp.y])
 		var sy := g.cam.unproject_position(g.ppos).y
 		check(sy > Hud.HANGAR_TOP and sy < top - 40.0, "%s: the ship idles above the panel (y %.0f)" % [res, sy])
+		# Guillaume (2026-11-24, again): a long upgrade line pushed the panel off the right edge.
+		# Its widest content (every world's level names, a big scrap count, the armed reset
+		# button, every upgrade line) must fit the screen's width.
+		g.s.open = Campaign.WORLDS.size() * Campaign.PER_WORLD - 1
+		g.s.scrap = 9999999
+		g.hud.reset_btn.text = "Tap again to wipe all"
+		var widest := 0.0
+		for lv in Campaign.WORLDS.size() * Campaign.PER_WORLD:
+			g.level = lv
+			g.hud.refresh_hangar()
+			g.hud.reset_btn.text = "Tap again to wipe all"
+			widest = maxf(widest, p.get_combined_minimum_size().x)
+		await process_frame
+		r = p.get_global_rect()
+		check(widest <= vp.x - 48.0 + 0.5 and r.position.x >= 0.0 and r.end.x <= vp.x + 0.5,
+			"%s: the hangar panel fits the width (needs %.0f, %.0f to %.0f of %.0f)" % [res, widest, r.position.x, r.end.x, vp.x])
 		sv.free()
 
 

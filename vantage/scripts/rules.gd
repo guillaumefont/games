@@ -455,7 +455,7 @@ const CRUISE_Y := 32.0
 const ORDER := ["cannon", "missile", "hull", "magnet"]
 const UPGRADES := {
 	"cannon": {"name": "Cannon", "max": 5, "cost": [120, 320, 700, 1300, 2400],
-		"desc": "Harder hits (the spread comes from power cores in play)"},
+		"desc": "Harder hits (power cores widen the spread)"},
 	"missile": {"name": "Missiles", "max": 4, "cost": [250, 600, 1200, 2200],
 		"desc": "Homing missiles, faster salvos"},
 	"hull": {"name": "Hull", "max": 3, "cost": [200, 550, 1100],
