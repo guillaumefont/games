@@ -529,7 +529,7 @@ static func magnet_radius(s: Dictionary) -> float:
 ## quickly from 0 to the max, and then you're OP and you cannot lose"), and the mid-boss gives one
 ## core when it goes down: full power comes late in a long level, if ever, and is easily lost.
 const POWER_MAX := 4
-const POWER_KILLS := [10, 18, 28, 40]
+const POWER_KILLS := [12, 22, 34, 48]
 
 
 ## Kills of the vertical stage it takes for the core of the next step from a power.

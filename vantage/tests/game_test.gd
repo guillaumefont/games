@@ -88,7 +88,7 @@ func power() -> void:
 		total += Rules.kills_for(k)
 		if k > 0:
 			check(Rules.kills_for(k) > Rules.kills_for(k - 1), "step %d takes more kills than the one before" % (k + 1))
-	check(total >= 90, "full power takes %d kills, more than a short level holds" % total)
+	check(total >= 110, "full power takes %d kills, more than a short level holds" % total)
 	cores[0].pos = g.ppos
 	g.step(DT)
 	check(g.power == 1, "picking it up is a power step")
