@@ -173,6 +173,8 @@ var aim_dip := Rules.AIM_DIP
 var fort_deck := Rules.CHASE_DECK
 var esc_from := 0.0
 var esc_to := 0.0
+## When the wreck had slid back past the ship, so it could come down to its cruise (-1: not yet).
+var esc_down := -1.0
 ## Every gun on the ship (foes riding its segments).
 var fort_guns: Array[Obj] = []
 var boss_done := false
@@ -1716,6 +1718,10 @@ func collide(_dt: float) -> void:
 		if f.dead or f.ground:
 			continue
 		if pov:
+			# gliding on between the fortress's sections, nothing touches the ship: shots and
+			# drones pass through
+			if transit():
+				continue
 			if f.kind == "orb" and f.pos.distance_to(ppos) < f.r + Rules.PLAYER_R + 0.2:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
@@ -1967,8 +1973,15 @@ func power_up() -> void:
 	hud.ping_power()
 
 
+## Whether the ship is on its way between the fortress's sections (the swoop in, a glide on to the
+## next section, the climb away from the wreck): it can't be hit then (Guillaume, 2026-11-24: "I
+## don't want the ship to be hit during fortress transitions").
+func transit() -> bool:
+	return phase in ["approach", "escape"] or (phase in ["pov", "core"] and adv_t < adv_dur)
+
+
 func hurt() -> void:
-	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
+	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"] or transit():
 		return
 	hp -= 1
 	run.hits += 1
@@ -2355,8 +2368,11 @@ func step_approach(dt: float) -> void:
 func open_fort_section() -> void:
 	fort_parts.clear()
 	adv_from = Vector3(line_x, fly, along)
-	adv_t = 0.0
+	# the lane as it is now (mid-glide, a blend), taken before the glide restarts: taken after, it
+	# blended back towards the lane before, and the camera, reach and aim jumped at the end of a
+	# section (Guillaume, 2026-11-24: "sometimes the plane jumps position")
 	lane_from = lane_now()
+	adv_t = 0.0
 	lane = Capital.lane(fort_id, fort_sec)
 	glide_pts = Capital.glide(fort_id, adv_from, Vector3(lane.x, lane.y, lane.along))
 	adv_dur = Capital.glide_time(glide_pts)
@@ -2365,7 +2381,10 @@ func open_fort_section() -> void:
 		spawn_pov({"kind": "core", "n": 1})
 		phase = "core"
 		phase_t = 0.0
-		adv_t = adv_dur
+		# already at the heart's lane (it's fought from there): no glide; but if the heart's guns
+		# went down early, the ship glides on to it like to any section, it never jumps there
+		if Vector2(adv_from.x, adv_from.y).distance_to(Vector2(lane.x, lane.y)) < 0.5 and absf(adv_from.z - lane.along) < 0.5:
+			adv_t = adv_dur
 	else:
 		for f in fort_guns:
 			if f.sec == fort_sec and not f.dead:
@@ -2458,9 +2477,20 @@ func step_pov(dt: float) -> void:
 		var out := esc_from != esc_to
 		line_x = lerpf(esc_from, esc_to, smoothstep(0.0, 1.4, phase_t))
 		# and settles at a low cruise, where the land fills the view to the fog (Guillaume: high up
-		# "you can see the limited decor")
-		var cruise := minf(fort_deck + fly + Rules.CLIMB, Rules.CRUISE_Y)
-		chase_y = lerpf(fort_deck + fly, cruise, smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t))
+		# "you can see the limited decor"). Up off the deck at once; any other way (down to the
+		# cruise from over a high ship, up from beside one fought from beneath) only once the wreck
+		# has slid back past the ship, so it never flies into the hull (Guillaume, 2026-11-24)
+		var start := fort_deck + fly
+		var cruise := minf(start + Rules.CLIMB, Rules.CRUISE_Y)
+		# over the hull, up clear of all that stands on it (the bridge, its mast) as it slides by
+		var over := start
+		if not out and absf(line_x) < Capital.widest(fort_id):
+			over = maxf(start + Rules.CLIMB, fort_deck + Capital.crest(fort_id) + 3.0)
+		var held := lerpf(start, over, smoothstep(0.0, 2.0, phase_t))
+		var bow_z := stern_z - Rules.fortress_len(fort_id) * fort_s
+		if esc_down < 0.0 and bow_z > rail_z - rail_s + 4.0:
+			esc_down = phase_t
+		chase_y = lerpf(held, cruise, smoothstep(esc_down, esc_down + 1.6, phase_t)) if esc_down >= 0.0 else held
 	else:
 		adv_t += dt
 		k = clampf(adv_t / adv_dur, 0.0, 1.0)
@@ -2529,7 +2559,7 @@ func lane_now() -> Dictionary:
 func reach_now(k: float) -> Vector4:
 	var r: Vector4 = lane_now().reach
 	if k < 1.0 and phase != "escape":
-		r *= 1.0 - 0.75 * sin(PI * k)
+		r *= 1.0 - 0.85 * sin(PI * k)
 	return r
 
 
@@ -2843,9 +2873,11 @@ func begin_escape() -> void:
 	# beneath the hull, the ship first slips out to the side before it climbs away
 	esc_from = line_x
 	esc_to = line_x
+	esc_down = -1.0
 	if lane_now().route == "under":
 		var sx := signf(line_x) if absf(line_x) > 1.0 else 1.0
-		esc_to = sx * (Capital.extent(fort_id, maxf(along, 0.0)) + 14.0)
+		# out past the widest the wreck reaches as it slides back under the ship
+		esc_to = sx * (Capital.widest(fort_id) + 14.0)
 	if fortress and fortress.has_node("lights"):
 		fortress.get_node("lights").visible = false
 	# the reactor goes up, then a chain of blasts runs aft along the spine
