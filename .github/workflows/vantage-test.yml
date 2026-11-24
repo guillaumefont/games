@@ -43,6 +43,8 @@ jobs:
         run: ./godot --headless --path . --script tests/look_test.gd
       - name: Final bosses (one a level, lanes over, beside, beneath and between, glides, fire, a fight from beneath)
         run: ./godot --headless --path . --script tests/bosses_test.gd
+      - name: Every fortress fight clear of its hull, no jumps (whole fights, break-up included)
+        run: ./godot --headless --path . --script tests/clearance_test.gd
       - name: The land's set pieces (course, seams, depth, moving parts, ground foes' footing)
         run: ./godot --headless --path . --script tests/relief_test.gd
       - name: Battery (frame rate cap by moment, 3D resolution cap)

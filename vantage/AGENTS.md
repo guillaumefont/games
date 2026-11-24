@@ -53,7 +53,12 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   its own hull (`Capital.sees`); the other sections' guns hold fire. The hull is cut into segments at the
   distinct section starts (`Capital.cuts`, `hull_count`); a section's guns and piece ride the segment it
   starts on (`Capital.home`; `Game.seg_body` vs `hull_body`). `tools/fortress_plan.gd [id]` prints each
-  ship's plan (lanes, guns in sight, glides) headless. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
+  ship's plan (lanes, guns in sight, glides) headless. The lanes and glides keep clear of the hull and
+  of a galleon's masts and sails (`Capital.rigging`, in `inside`; shots and sight pass through sails,
+  `in_hull`). After the kill the ship climbs over the tallest thing on the hull (`Capital.crest`) and
+  only comes down to its cruise once the wreck has slid back past it (`esc_down`); beneath, it slips out
+  past the hull's widest (`Capital.widest`). `tests/clearance_test.gd` flies every whole fight and checks
+  the ship never passes through any mesh and neither it nor the camera jumps. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
   and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
@@ -133,6 +138,7 @@ godot --headless --path . --script tests/icon_test.gd   # project icon and Andro
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
 godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
 godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
+godot --headless --path . --script tests/clearance_test.gd # every fortress's whole fight: the ship never passes through its meshes, ship and camera never jump
 godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
 godot --headless --path . --script tests/power_test.gd  # battery: frame rate cap by moment, 3D resolution cap
 ```
