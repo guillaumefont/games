@@ -67,7 +67,7 @@ Trois emplacements, tous ajoutés à une course sans jamais en racheter une. Auc
 - **Nouveau contenu :** une trace par piste + variante Standard, Reverse et Obstacles (17 × 3 ; pas de Collect, où la médaille porte sur le score de toute la course, décidé le 14/11), générée par un outil voisin de `tools/gen_medals.gd`. Il fait rouler l'IA, enregistre son tour comme `race.gd` enregistre déjà un tour de Time trial (30 points par seconde), puis rééchelonne le temps pour finir au temps Gold. Fichiers dans `res://ghosts/gold/`, au format binaire de `records.gd`, à régénérer quand un tracé change (comme `medal_times.gd`).
 - **Stockage :** les déblocages dans `wallet.cfg`, section `ghosts`. Ils repartent à zéro avec « Reset progress ».
 
-### 3. Ligne idéale (`ideal_line`)
+### 3. Ligne idéale (`ideal_line`) (retirée le 24/11/2026)
 
 - **Où :** même fiche de piste avant un Time trial, et sur l'écran de résultats.
 - **Effet :** pour la course suivante seulement, la trajectoire de la trace Gold est dessinée au sol en ruban discret, avec un repère aux endroits où l'IA accroche et lâche. Rien ne change dans la physique.
