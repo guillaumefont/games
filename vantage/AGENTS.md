@@ -17,7 +17,9 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   `Rules.BOSS_PART_KINDS`, patterns in `Game.think_part`) and a `piece` (`Models.midboss_piece`) that
   breaks off; the last section is the heart (`BOSS_HEARTS`), shielded until then. Each flies its own way
   (`move`, `Game.think_boss`); the hull comes down far enough that the section's deepest gun shows on a
-  short screen. Parts stay within |x| <= 7, z -5..8 (tested). The hull can't be hurt; it holds the wave
+  short screen. Parts stay within |x| <= 7, z -5..8 (tested). A boss never just vanishes (Guillaume,
+  2026-11-24): the mid-boss's scorched husk (`Game.make_husk`, `step_husk`) loses way against the scroll,
+  sinks, turns and burns until it's off the bottom of the screen; the fortress breaks up and drifts off. The hull can't be hurt; it holds the wave
   clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss: a capital ship
   (Guillaume, 2026-11-23, after rejecting the flying fortress as "a glorified transport with the same useless
   tunnel": "a huge fortress class ship, you clear it sections per sections as you advance along the ship").

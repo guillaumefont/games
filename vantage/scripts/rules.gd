@@ -431,6 +431,9 @@ const SINK := 1.1
 ## Meanwhile the ship climbs a little away from the blast, but no higher than `CRUISE_Y` above
 ## the ground: from higher up the camera would see the edges of the land.
 const CLIMB := 5.0
+## The mid-boss's husk: how fast it loses way against the scroll (m/s per s) and sinks (m/s).
+const HUSK_DRAG := 1.6
+const HUSK_SINK := 0.35
 const CRUISE_Y := 32.0
 
 # ---------------------------------------------------------------- upgrades

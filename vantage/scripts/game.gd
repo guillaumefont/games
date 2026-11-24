@@ -79,6 +79,13 @@ var bullets: Array[Obj] = []
 var picks: Array[Obj] = []
 ## While above zero, every coin on screen flies to the ship (after the mid-boss).
 var vacuum_t := 0.0
+## The mid-boss's burnt-out husk once it's down (Guillaume: "it should not just vanish in the
+## explosion. The husk of the ship should slowly drift away from the screen"): it loses way, sinks,
+## turns and burns as the stage scrolls on, until it's off the bottom of the screen.
+var husk: Node3D = null
+var husk_t := 0.0
+var husk_v := 0.0
+var husk_spin := 0.0
 ## Explosions, debris, smoke and their light (blasts.gd).
 var blasts: Blasts
 
@@ -580,6 +587,9 @@ func end_run(cleared: bool) -> void:
 
 func clear_all() -> void:
 	blasts.clear()
+	if husk:
+		husk.queue_free()
+		husk = null
 	for list in [foes, shots, bullets, picks]:
 		for o: Obj in list:
 			if o.node and not (list == foes and landmark(o)):
@@ -761,6 +771,7 @@ func step(dt: float) -> void:
 	elif phase == "down":
 		update_objs(dt)
 	shake = maxf(0.0, shake - dt * 1.2)
+	step_husk(dt)
 	blasts.step(dt)
 	update_chunks()
 	update_ship(dt)
@@ -1762,6 +1773,7 @@ func kill(f: Obj) -> void:
 	if f == boss:
 		# the mid-boss: the sector carries on, its clock picks up after the boss's wave
 		boss = null
+		make_husk(f)
 		boss_done = true
 		vacuum_t = 4.0
 		for b in bullets:
@@ -1771,6 +1783,49 @@ func kill(f: Obj) -> void:
 		say("%s DOWN" % mid.name.to_upper(), "+3,000")
 	if f == core:
 		begin_escape()
+
+
+## The dead mid-boss's hull stays on as a scorched husk (the foe's node is swapped for an empty
+## one, which the cull frees).
+func make_husk(f: Obj) -> void:
+	if husk:
+		husk.queue_free()
+	husk = f.node
+	husk_t = 0.0
+	husk_v = 0.0
+	husk_spin = -1.0 if rng.randf() < 0.5 else 1.0
+	f.node = Node3D.new()
+	add_child(f.node)
+	husk.material_overlay = null
+	for mi in [husk] + husk.find_children("*", "MeshInstance3D", true, false):
+		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override == Models.tinted(world.tint):
+			(mi as MeshInstance3D).material_override = Models.tinted(world.tint * Color(0.42, 0.38, 0.36))
+
+
+## The husk falls behind the scroll (the stage flies on past it), sinks and turns a little,
+## burning, and goes once it's well off the bottom of the screen.
+func step_husk(dt: float) -> void:
+	if husk == null:
+		return
+	if not is_instance_valid(husk):
+		husk = null
+		return
+	husk_t += dt
+	# it keeps pace at first, then loses way: the screen leaves it behind
+	husk_v = minf(Rules.SCROLL * 0.9, husk_v + dt * Rules.HUSK_DRAG)
+	husk.position.z += (-Rules.SCROLL + husk_v) * dt if phase in ["vert", "down", "clear"] else husk_v * dt
+	husk.position.y -= Rules.HUSK_SINK * dt
+	husk.rotation.y += husk_spin * 0.12 * dt
+	husk.rotation.z += husk_spin * 0.05 * dt
+	husk.scale = husk.scale.lerp(Vector3.ONE * 0.85, minf(1.0, dt * 0.2))
+	if rng.randf() < dt * 7.0:
+		var at := husk.to_global(Vector3(rng.randf_range(-3.5, 3.5), 0.8, rng.randf_range(-6.0, 6.0)))
+		blasts.burn(at, rng.randf_range(0.8, 1.6), fx_carry() + Vector3(0, 0, husk_v))
+	if rng.randf() < dt * 1.2:
+		pop(husk.to_global(Vector3(rng.randf_range(-3.0, 3.0), 1.0, rng.randf_range(-5.0, 5.0))), 1.6, Models.AMBER)
+	if husk.position.z - frame_z > maxf(view_bot, Rules.Z_BOT) + 16.0 or husk_t > 30.0:
+		husk.queue_free()
+		husk = null
 
 
 func drop(at: Vector3, value: float) -> Obj:
