@@ -313,6 +313,8 @@ void sky() {
 	blasts.cam = cam
 	add_child(blasts)
 	add_vignette()
+	fit_render_scale()
+	get_viewport().size_changed.connect(fit_render_scale)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
@@ -607,6 +609,35 @@ func _process(delta: float) -> void:
 	if driven:
 		return
 	tick(minf(delta, 0.05))
+	Engine.max_fps = fps_cap()
+
+
+# ---------------------------------------------------------------- battery
+
+## Frames a second in flight. Without a cap a phone with a 90 or 120 Hz screen draws every
+## refresh, up to twice the frames (and the power) for no visible gain in this game.
+const PLAY_FPS := 60
+## Frames a second where little moves: the hangar, the results and a full pause.
+const IDLE_FPS := 30
+## The 3D view is drawn at most this many pixels wide, then scaled up to the screen: a
+## 1440 px phone screen would otherwise shade 1.8 times the pixels of a 1080 px one, for a
+## low poly world that looks the same. 1080 px wide screens and smaller draw at full size.
+const MAX_3D_W := 1080.0
+
+
+func fps_cap() -> int:
+	return IDLE_FPS if phase in ["hangar", "results"] or paused() else PLAY_FPS
+
+
+## The share of the screen's width the 3D view is drawn at.
+static func render_scale(screen_w: float) -> float:
+	return clampf(MAX_3D_W / maxf(screen_w, 1.0), 0.5, 1.0)
+
+
+func fit_render_scale() -> void:
+	var vp := get_viewport()
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = render_scale(get_window().size.x)
 
 
 ## One frame of real time: the keys, then the world at the slow-motion rate. Fully paused, the
