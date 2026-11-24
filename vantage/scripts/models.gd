@@ -40,15 +40,74 @@ static func mat() -> StandardMaterial3D:
 	return _mat
 
 
-## The terrain material: matte, no rim, so the ground stays calm under the action.
-static func ground_mat() -> StandardMaterial3D:
+## The terrain material: matte, no rim, so the ground stays calm under the action. Where the
+## ground lies at the water line (`SEA_Y`, flat), it turns liquid by the theme (`LIQUIDS`): open water
+## gets a glossy sun highlight and slow drifting glints, lava glows and churns.
+const GROUND_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+uniform float sea_y = -0.4;
+uniform float water = 1.0;
+uniform float lava = 0.0;
+uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
+varying vec3 wpos;
+varying float flat_up;
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), c * (1.0 / 12.92), lessThan(c, vec3(0.04045)));
+}
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	flat_up = (MODEL_MATRIX * vec4(NORMAL, 0.0)).y;
+	// vertex colours are sRGB (as `vertex_color_is_srgb` does it)
+	if (!OUTPUT_IS_SRGB) {
+		COLOR.rgb = to_linear(COLOR.rgb);
+	}
+}
+
+void fragment() {
+	vec3 col = COLOR.rgb;
+	float wet = (1.0 - smoothstep(sea_y + 0.01, sea_y + 0.12, wpos.y)) * smoothstep(0.92, 0.99, flat_up);
+	float t = TIME;
+	vec2 p = wpos.xz;
+	// two slow swells crossing, and finer ripples on them
+	float w1 = sin(p.x * 0.35 + p.y * 0.21 + t * 0.9) + sin(p.x * -0.18 + p.y * 0.42 - t * 0.7);
+	float w2 = sin(p.x * 1.7 - p.y * 1.1 + t * 2.3) * sin(p.x * 0.9 + p.y * 1.9 - t * 1.9);
+	vec3 n = normalize(vec3(cos(p.x * 0.35 + p.y * 0.21 + t * 0.9) * 0.06 + w2 * 0.05, 1.0,
+		cos(p.x * -0.18 + p.y * 0.42 - t * 0.7) * 0.06 + w2 * 0.04));
+	float aw = wet * water;
+	// crest glints: short thin streaks along the swell, where the ripples peak on it
+	float line = smoothstep(0.86, 1.0, sin(p.x * 0.31 + p.y * 0.62 + t * 0.8 + w2 * 0.6));
+	float crest = line * smoothstep(0.2, 0.9, w2 * 0.5 + 0.5) * smoothstep(-0.5, 1.5, w1);
+	col += glint * crest * 0.1 * aw;
+	ALBEDO = col;
+	NORMAL = mix(NORMAL, normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz), aw);
+	ROUGHNESS = mix(0.95, 0.32, aw);
+	SPECULAR = mix(0.2, 0.6, aw);
+	// lava: a dark crust broken by hot veins that crawl and pulse, glowing in the dark
+	float al = wet * lava;
+	float vein = smoothstep(0.55, 0.95, abs(sin(p.x * 0.45 + w1 * 0.9 + t * 0.25) * sin(p.y * 0.38 - w2 * 0.7 - t * 0.2)));
+	ALBEDO = mix(ALBEDO, col * mix(0.35, 1.1, vein), al);
+	EMISSION = col * al * (0.25 + vein * (1.3 + 0.3 * sin(t * 2.0 + p.x * 0.3)));
+}
+"""
+const SEA_Y := -0.4
+## Each theme's liquid at the water line: water gloss and glints, or lava glow.
+const LIQUIDS := {"coast": [1.0, 0.0], "dunes": [0.0, 0.0], "city": [0.55, 0.0], "ice": [0.9, 0.0], "volcano": [0.0, 1.0]}
+
+
+static func ground_mat() -> ShaderMaterial:
 	if not _cache.has("ground"):
-		var m := StandardMaterial3D.new()
-		m.vertex_color_use_as_albedo = true
-		m.vertex_color_is_srgb = true
-		m.roughness = 0.95
-		m.metallic_specular = 0.2
+		var sh := Shader.new()
+		sh.code = GROUND_SHADER
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.set_shader_parameter("sea_y", SEA_Y)
 		_cache["ground"] = m
+	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
+	_cache["ground"].set_shader_parameter("water", lq[0])
+	_cache["ground"].set_shader_parameter("lava", lq[1])
 	return _cache["ground"]
 
 
@@ -138,13 +197,40 @@ static func hash2(x: float, y: float) -> float:
 	return s - floor(s)
 
 
+## Baked occlusion (`Builder.ao`): how dark a placed prop gets at its very base, how high (m) the
+## darkening reaches, and how tall a part must stand to shade the ground round it.
+const AO_BASE := 0.5
+const AO_H := 1.4
+const AO_TALL := 0.75
+const AO_FLAT := 0.15
+
 ## Collects coloured triangles from many parts into one flat-shaded mesh.
 class Builder:
 	var st := SurfaceTool.new()
 	var n := 0
 	## Where parts go: everything added is moved by this (scenery is built round its own origin,
 	## then turned and placed).
-	var xf := Transform3D.IDENTITY
+	var xf := Transform3D.IDENTITY:
+		set(v):
+			if ao > 0.0:
+				close_spot()
+			xf = v
+			ao = 0.0
+	## Baked ambient occlusion for things standing on the ground (`Models.place` turns it on):
+	## vertices darken towards the placement's base over `ao` metres, so walls, trunks and rocks
+	## sit in the ground instead of floating on it. Any new `xf` turns it off.
+	var ao := 0.0
+	## The footprint of each placement with `ao` on, seen from above, where it stands taller than
+	## `AO_TALL`: [origin at its base, height, (x, z) min, (x, z) max]. `Models.ao_blobs` turns them
+	## into soft dark patches on the ground (`take_spots`).
+	var spots: Array = []
+	# the open placement's footprint, kept in plain floats (this runs for every vertex)
+	var _oy := 0.0
+	var _top := 0.0
+	var _lx := INF
+	var _lz := INF
+	var _hx := -INF
+	var _hz := -INF
 	## False for things that sit on the ground: their bottom faces are never seen.
 	var bottoms := true
 	## False skips prism's bevelled top edge (small parts, built by the thousand, don't need it).
@@ -195,6 +281,61 @@ class Builder:
 			for k in r.size():
 				tri(mids[e[1]], r[k], r[(k + 1) % r.size()], colf.call(r[k]), o2)
 
+	## Starts occlusion for a placement at `xf` (`h`: how high the darkening reaches, metres).
+	func occlude(h: float) -> void:
+		ao = h
+		_oy = xf.origin.y
+		_top = 0.0
+		_lx = INF
+		_lz = INF
+		_hx = -INF
+		_hz = -INF
+
+	func close_spot() -> void:
+		if _lx <= _hx:
+			spots.append([Vector3(xf.origin.x, _oy, xf.origin.z), _top, Vector2(_lx, _lz), Vector2(_hx, _hz)])
+		_lx = INF
+		_hx = -INF
+
+	## The footprints so far (closing the open one).
+	func take_spots() -> Array:
+		if ao > 0.0:
+			close_spot()
+			ao = 0.0
+		return spots
+
+	func grow(p: Vector3) -> void:
+		var up := p.y - _oy
+		if up > AO_TALL:
+			_lx = minf(_lx, p.x)
+			_lz = minf(_lz, p.z)
+			_hx = maxf(_hx, p.x)
+			_hz = maxf(_hz, p.z)
+			_top = maxf(_top, up)
+
+	## Whether a triangle needs darkening: not if it lies flat on the ground (foam rings, paths,
+	## garden beds) or stands clear above `ao`. It also grows the footprint.
+	func occluded(a: Vector3, b: Vector3, c: Vector3) -> bool:
+		grow(a)
+		grow(b)
+		grow(c)
+		var lo := minf(a.y, minf(b.y, c.y)) - _oy
+		var hi := maxf(a.y, maxf(b.y, c.y)) - _oy
+		return lo < ao and hi > AO_FLAT
+
+	## A vertex colour darkened by how close the (world) point is to its placement's base, less so
+	## on faces open to the sky (`open`).
+	func shade(p: Vector3, col: Color, open := 0.0) -> Color:
+		var k := lerpf(AO_BASE, 1.0, maxf(smoothstep(-0.1, ao, p.y - _oy), open))
+		return Color(col.r * k, col.g * k, col.b * k, col.a)
+
+	## How open to the sky a face is (tops of rocks and roofs stay lit; walls darken at the base).
+	func sky(a: Vector3, b: Vector3, c: Vector3, out: Vector3) -> float:
+		var fn := (b - a).cross(c - a)
+		if fn.dot(out) < 0.0:
+			fn = -fn
+		return smoothstep(0.5, 0.95, fn.y / maxf(fn.length(), 1e-9))
+
 	## One triangle; `out` is roughly the direction its front faces.
 	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, out: Vector3) -> void:
 		a = xf * a
@@ -205,10 +346,19 @@ class Builder:
 			var t := b
 			b = c
 			c = t
-		st.set_color(col)
-		st.add_vertex(a)
-		st.add_vertex(c)
-		st.add_vertex(b)
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			st.set_color(shade(a, col, o))
+			st.add_vertex(a)
+			st.set_color(shade(c, col, o))
+			st.add_vertex(c)
+			st.set_color(shade(b, col, o))
+			st.add_vertex(b)
+		else:
+			st.set_color(col)
+			st.add_vertex(a)
+			st.add_vertex(c)
+			st.add_vertex(b)
 		n += 3
 
 	## A triangle with a colour per corner.
@@ -224,6 +374,11 @@ class Builder:
 			var u := cb
 			cb = cc
 			cc = u
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			ca = shade(a, ca, o)
+			cb = shade(b, cb, o)
+			cc = shade(c, cc, o)
 		st.set_color(ca)
 		st.add_vertex(a)
 		st.set_color(cc)
@@ -308,7 +463,11 @@ class Builder:
 		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 		st.set_color(col)
 		for i in idx.size():
-			st.add_vertex(xf * (at * v[idx[i]]))
+			var q := xf * (at * v[idx[i]])
+			if ao > 0.0:
+				grow(q)
+				st.set_color(shade(q, col))
+			st.add_vertex(q)
 		n += idx.size()
 
 	func commit() -> ArrayMesh:
@@ -1200,6 +1359,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
+	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = gv
@@ -1207,6 +1367,73 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	arr[Mesh.ARRAY_COLOR] = gc
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+
+## The last `ground_chunk`'s contact shadows (`ao_blobs`), for `Game.update_chunks` to hang under it.
+static var ao_mesh: Mesh
+
+
+## Baked contact occlusion: a soft dark disc on the ground under each placed prop, as wide as
+## what stands on it and darker the taller it is, following the ground's height (`ground_h`).
+## One see-through mesh a chunk, drawn with `ao_mat`.
+static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	for sp: Array in spots:
+		var lo: Vector2 = sp[2]
+		var hi: Vector2 = sp[3]
+		var base: Vector3 = sp[0]
+		var c := (lo + hi) * 0.5
+		var r := maxf(hi.x - lo.x, hi.y - lo.y) * 0.5 * AO_SPREAD + 0.3
+		var a := clampf(0.2 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		var on_ground := func(x: float, z: float) -> Vector3:
+			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
+		# a soft falloff: an inner ring at 55% of the radius still holds 60% of the shade
+		var mid: Vector3 = on_ground.call(c.x, c.y)
+		var inner := []
+		var ring := []
+		for k in AO_SEG:
+			var ang := TAU * k / AO_SEG
+			inner.append(on_ground.call(c.x + cos(ang) * r * 0.55, c.y + sin(ang) * r * 0.55))
+			ring.append(on_ground.call(c.x + cos(ang) * r, c.y + sin(ang) * r))
+		var dark := Color(0, 0, 0, a)
+		var half := Color(0, 0, 0, a * 0.6)
+		var clear := Color(0, 0, 0, 0)
+		for k in AO_SEG:
+			var k1 := (k + 1) % AO_SEG
+			for t: Array in [[mid, dark, inner[k], half, inner[k1], half],
+					[inner[k], half, ring[k], clear, ring[k1], clear],
+					[inner[k], half, ring[k1], clear, inner[k1], half]]:
+				for v in 3:
+					st.set_color(t[v * 2 + 1])
+					st.add_vertex(t[v * 2])
+			n += 9
+	if n == 0:
+		return null
+	return st.commit()
+
+
+const AO_SEG := 10
+## Contact shadows: how far past the prop's own footprint they spread, their darkest, their lift
+## off the ground (above the low poly ground's facets).
+const AO_SPREAD := 1.35
+const AO_DARK := 0.42
+const AO_LIFT := 0.1
+
+
+## The contact shadows' material: black, see-through by vertex alpha, fogged like the ground.
+static func ao_mat() -> StandardMaterial3D:
+	if not _cache.has("ao"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.vertex_color_use_as_albedo = true
+		m.albedo_color = Color.WHITE
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		m.render_priority = -10
+		_cache["ao"] = m
+	return _cache["ao"]
 
 
 # ---------------------------------------------------------------- scenery
@@ -1339,6 +1566,7 @@ static func ruin(kind: String) -> Mesh:
 
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
 	b.xf = Transform3D(Basis(Vector3.UP, ang) * Basis.from_scale(Vector3(PROP_SCALE, PROP_V, PROP_SCALE)), pos)
+	b.occlude(AO_H)
 
 
 ## What grows or stands on one terrain cell, from the noise heights at its corners `h`;

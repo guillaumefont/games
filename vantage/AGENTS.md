@@ -97,6 +97,7 @@ godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
+godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
 godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
 ```
 
@@ -304,6 +305,18 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
   height field, so chunks meet seamlessly) and 20% facet, colours blend per vertex in narrow bands,
   hollows are darkened. No random per-facet shade.
+- Baked occlusion (Guillaume, 2026-11-24: "keep improving the graphics, like baked AO"): no SSAO in
+  the Compatibility renderer, so it is baked into the meshes. `Models.place` (and `City.Ctx.at` for
+  buildings) calls `Builder.occlude`: until the next `xf`, vertex colours darken towards the
+  placement's base over `AO_H` m (down to `AO_BASE`), except faces open to the sky and parts lying
+  flat on the ground (foam rings, paths). Unplaced models (ships, bosses, landmarks) are untouched.
+  Each placement's footprint (what stands over `AO_TALL`) becomes a soft see-through disc on the
+  ground (`Models.ao_blobs`, one mesh a chunk, the chunk's `ao` child). Costs ~10% of a chunk's build.
+- The ground is a shader (`Models.GROUND_SHADER`): where it lies flat at the water line (`SEA_Y`) it
+  turns liquid by world (`LIQUIDS`): glossy water with drifting crest glints, or crusted, glowing
+  lava. The dunes' dry washes sit at the same height and stay dry. Vertex colours are converted from
+  sRGB in `vertex()` only when `!OUTPUT_IS_SRGB` (as the standard material does), or the colours go dark.
+- A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
   spine, the seams part bow first (`SEAM_GAP`), each segment drifts apart, turns, sinks a little, scorched and

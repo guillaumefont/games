@@ -154,6 +154,7 @@ class Ctx:
 	func at(u: float, v: float, y: float) -> void:
 		var w := City.to_world(u, v)
 		b.xf = Transform3D(Basis(Vector3.UP, City.ANGLE) * Basis.from_scale(Vector3(1, Models.PROP_V, 1)), Vector3(w.x, y, w.z))
+		b.occlude(Models.AO_H)
 
 
 ## Builds the city on one chunk: props into `b`; returns the road and paving triangles
