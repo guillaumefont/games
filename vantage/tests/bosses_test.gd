@@ -113,6 +113,18 @@ func lanes() -> void:
 						open = false
 						print("    pylon hidden: ", id, " ", f.sections[i].name, " by ", ga)
 		check(open, "%s: its shield pylons can be shot" % f.name)
+		# compact (Guillaume: "you already see the next section, receive its bullets"): from each
+		# section's lane, guns of the next are within range
+		var near := true
+		for i in f.sections.size() - 2:
+			var l := Capital.lane(id, i)
+			var best := 1e9
+			for g: Array in f.sections[i + 1].guns:
+				best = minf(best, -Rules.gun_at(id, i + 1, g).z - float(l.along))
+			if f.sections[i + 1].guns.size() > 0 and best > 62.0:
+				near = false
+				print("    next section far: ", id, " ", f.sections[i].name, " ", best)
+		check(near, "%s: the next section's guns already in range from each lane" % f.name)
 		var low := 1e9
 		for i in f.sections.size():
 			var l := Capital.lane(id, i)
@@ -175,10 +187,17 @@ func fight() -> void:
 		if Capital.route_of(g.fort_id, f.sec) == "under" and absf(f.node.rotation.z - PI) < 0.01:
 			hung += 1
 	check(hung > 0, "guns slung under the hull hang upside down (%d)" % hung)
+	var ahead := 0
+	for f in g.fort_guns:
+		if f.sec == g.fort_sec + 1 and g.lockable(f):
+			ahead += 1
+	check(ahead > 0, "the next section's guns are already in the fight (%d)" % ahead)
 	# the whole fight, the ship lined up with each gun in turn
 	var routes := {}
 	var lowest := 1e9
 	var max_dip := 0.0
+	var held_up := true
+	var cruise := 0.0
 	var min_dip := 1.0
 	for i in int(400.0 / DT):
 		g.hp = maxi(g.hp, 2)
@@ -197,12 +216,19 @@ func fight() -> void:
 		if g.phase == "escape" and g.fortress != null:
 			for seg in g.segs:
 				lowest = minf(lowest, seg.global_position.y - 14.0)
+			g.touching = false
+			g.slow_down(0.5)
+			held_up = held_up and not g.paused() and g.time_speed() > 0.99
+			cruise = g.chase_y
 		if g.phase == "results" or g.phase == "clear":
 			break
 	check(g.phase in ["clear", "results"], "the Basilisk taken apart, its reactor down from beneath its throat")
 	check(routes.has("top") and routes.has("left") and routes.has("right") and routes.has("under"),
 		"over it, along both flanks and beneath it (%s)" % [routes.keys()])
 	check(min_dip < 0.0 and max_dip > 0.0, "the guns aim up from beneath, down from above")
+	check(held_up, "lifting the finger doesn't pause the break-up")
+	# Guillaume: high up after the kill "you can see the limited decor"
+	check(cruise > 0.0 and cruise <= Rules.CRUISE_Y + 0.01, "the ship flies on low after the kill (%.1f m)" % cruise)
 	check(lowest > 4.0, "it breaks up in the air (lowest piece %.1f m up)" % lowest)
 	g.queue_free()
 	await process_frame

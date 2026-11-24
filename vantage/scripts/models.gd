@@ -1378,6 +1378,10 @@ static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32
 	return cols
 
 
+## How much wider than the core strip the city is built (half on each side).
+const CITY_MORE := 24.0
+
+
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float, flank := 0.0) -> Mesh:
 	var b := Builder.new()
 	b.bottoms = false
@@ -1532,7 +1536,8 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			if ev.t == "rock":
 				meteorite(b, ev.at)
 	if theme == "city":
-		var roads := City.build(b, z0, size, hgt, height)
+		# the city runs on past the core strip, so from the chase its blocks don't stop short
+		var roads := City.build(b, z0, Vector2(size.x + CITY_MORE, size.y), hgt, height)
 		gv.append_array(PackedVector3Array(roads[0]))
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
