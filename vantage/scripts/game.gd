@@ -101,6 +101,9 @@ var last_touch := Vector2.ZERO
 ## Slow-motion pause: 1 while a finger is down, eases to 0 (paused) once it's lifted.
 ## `time_speed()` is the eased rate the world runs at.
 var time_k := 1.0
+## False from a level's launch until the first touch: the stage waits on "Touch to start", not
+## the pause screen (no dimming, no Main menu).
+var started := false
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
@@ -465,8 +468,9 @@ func launch(lv := -1) -> void:
 	miss_cd = 0.5
 	run = {"score": 0, "scrap": 0, "kills": 0, "hits": 0, "cleared": false}
 	ship.visible = true
-	# the launch tap is lifted already: wait, paused, for the finger that flies the ship
+	# the launch tap is lifted already: wait, still, for the finger that flies the ship
 	time_k = 0.0
+	started = false
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
@@ -643,13 +647,17 @@ func holding() -> bool:
 
 ## Moves `time_k` towards 1 (held, or out of flight) or 0 (lifted) over real time `dt`.
 func slow_down(dt: float) -> void:
+	if holding() and pausable():
+		started = true
 	var want := 1.0 if holding() or not pausable() else 0.0
 	var rate := 1.0 / Rules.SLOW_STOP if want < time_k else 1.0 / Rules.SLOW_RESUME
 	time_k = move_toward(time_k, want, dt * rate)
 
 
+## Cubic in `time_k`, which falls linearly once the finger lifts: time drops a lot at once, then
+## eases gently down to the stop (Guillaume, 2026-11-24). Touching again climbs back the same curve.
 func time_speed() -> float:
-	return smoothstep(0.0, 1.0, time_k)
+	return time_k * time_k * time_k
 
 
 func paused() -> bool:
