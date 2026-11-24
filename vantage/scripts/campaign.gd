@@ -13,8 +13,9 @@ extends RefCounted
 ## built from their world's mix by `waves()`, the same every time (seeded by the level).
 
 const PER_WORLD := 3
-## Seconds of waves before the mid-boss and after it, by level in the world.
-const LENGTHS := [[12.0, 10.0], [15.0, 14.0], [17.0, 17.0]]
+## Seconds of waves before the mid-boss and after it, by level in the world (Guillaume,
+## 2026-11-24: "the journey between two bosses should be longer": about twice what it was).
+const LENGTHS := [[25.0, 22.0], [30.0, 28.0], [35.0, 35.0]]
 ## The mid-bosses' hull (hp of their parts), by level in the world: the first is a little quicker.
 const BOSS_HP := [0.75, 0.9, 1.0]
 ## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a

@@ -183,7 +183,7 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - `scripts/campaign.gd` (`Campaign`): five worlds (Glass Coast, Ember Dunes, Iron Sprawl, Frost Shelf,
   Cinder Reach) of three levels each, played in order. Guillaume (2026-11-23): "mid bosses and final
   fortresses for every level", so every level is waves, a mid-boss, waves, the fortress chase
-  (`LENGTHS`: the first level of a world shortest). Each level has its own mid-boss (`midboss_of`:
+  (`LENGTHS`: the first level of a world shortest; Guillaume, 2026-11-24, wanted longer runs between bosses, so about twice what they were). Each level has its own mid-boss (`midboss_of`:
   three different ones per world, `MIDBOSS_ORDER`); 1-3 is the hand-made `Rules.STAGE` and keeps the
   Bastion. Every other level's waves come from its world's `mix`, seeded by the level (same every time).
   The hangar's level buttons name the level's mid-boss. (`Game.level_clear` and the `end` wave remain
