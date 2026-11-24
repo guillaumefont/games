@@ -481,6 +481,13 @@ func launch(lv := -1) -> void:
 	time_k = 0.0
 	started = false
 	set_cam("top", 0.0)
+	# nothing steps until that touch, so put the ship (and the ground under it) where it starts
+	# now: it waits in view on "Touch to start", not wherever the hangar left it
+	bank = 0.0
+	update_ship(0.0)
+	update_chunks()
+	update_shadows()
+	sync_shadow_view()
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
