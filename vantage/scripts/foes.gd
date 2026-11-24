@@ -466,16 +466,46 @@ static func add_part(g: Game, f: Game.Obj, name: String, at: Vector3, material: 
 
 ## The spot nearest (x, z), across the field and then further ahead, where the land is dry, or
 ## (x, z) if there is none (all sea).
-static func dry_x(g: Game, x: float, z: float, me: Game.Obj) -> Vector2:
-	for dz in [0.0, -4.0, -8.0, -12.0]:
-		for k in 15:
-			var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
-			var tx := clampf(x + d, -6.5, 6.5)
-			var tz: float = z + dz
-			if g.land(tx, tz) > 0.06 and g.land(tx + 0.9, tz) > 0.0 and g.land(tx - 0.9, tz) > 0.0 \
-					and g.land(tx, tz + 0.9) > 0.0 and g.land(tx, tz - 0.9) > 0.0 and clear(g, tx, tz, me):
-				return Vector2(tx, tz)
+## A tower (`foot` past 0.9) that finds no firm ground (a canyon runs the whole width) settles for
+## any dry, level floor (down in the canyon beside its river), else for a level riverbed (it stands
+## in the water like a pier); never over a rim.
+static func dry_x(g: Game, x: float, z: float, me: Game.Obj, foot := 0.9) -> Vector2:
+	var tower := foot > 0.9
+	var dzs := [0.0, -4.0, -8.0, -12.0, -16.0, -20.0, -24.0] if tower else [0.0, -4.0, -8.0, -12.0]
+	for pass_i in (3 if tower else 1):
+		for dz in dzs:
+			for k in 15:
+				var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
+				var tx := clampf(x + d, -6.5, 6.5)
+				var tz: float = z + dz
+				var ok := g.land(tx, tz) > 0.06 if pass_i == 0 else (dry(g, tx, tz) if pass_i == 1 else true)
+				if ok and footed(g, tx, tz, foot, pass_i == 0, pass_i < 2) and clear(g, tx, tz, me):
+					return Vector2(tx, tz)
 	return Vector2(x, z)
+
+
+## Whether everything within `foot` m of (x, z) is firm land (or, not `firm`, any dry ground), and
+## for a tower about level with its centre: its footing never hangs over a rim or a bank.
+static func footed(g: Game, x: float, z: float, foot: float, firm := true, dry_only := true) -> bool:
+	var y := g.ground_y(x, z)
+	var n := 4 if foot <= 0.9 else 8
+	for k in n:
+		var a := TAU * k / n
+		var px := x + sin(a) * foot
+		var pz := z + cos(a) * foot
+		if dry_only and ((g.land(px, pz) <= 0.0) if firm else not dry(g, px, pz)):
+			return false
+		if foot > 0.9 and absf(g.ground_y(px, pz) - y) > 0.5:
+			return false
+	return true
+
+
+## No water or lava at (x, z) (a canyon floor counts).
+static func dry(g: Game, x: float, z: float) -> bool:
+	if Models.theme == "city":
+		return g.land(x, z) > 0.0
+	var v := Relief.at(x, z, Relief.raw(g.noise, x, z))
+	return v.z == 0.0 and v.y > 0.0
 
 
 ## No other ground foe (but `me`) stands within 3.5 m of (x, z).
@@ -496,7 +526,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	if is_ground(kind):
 		f.ground = true
 		var sx := clampf(x * 1.25 + spread * 4.0, -6.5, 6.5)
-		var at := dry_x(g, sx, gz, f) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
+		var at := dry_x(g, sx, gz, f, Towers.FOOT_R if Towers.is_tower(kind) else 0.9) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
 		f.pos = Vector3(at.x, g.ground_y(at.x, at.y), at.y)
 		sx = at.x
 		f.x0 = sx

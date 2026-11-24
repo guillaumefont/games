@@ -12,6 +12,12 @@ extends RefCounted
 ## A tower's node is its footing; the gun is a child (`top`, a `Foes` part: it turns to aim and
 ## flashes with the hit). The node sits at the gun's height (`height`) so the tower is hit where its
 ## gun shows from the tilted camera; the footing reaches down to the ground.
+##
+## Every gun stands on a pole (`POLE`): Guillaume (2026-11-24) couldn't tell a flak turret on its pad
+## from a flying foe ("if it's a tower put it on a pole"). The pole and its long shadow tie the gun
+## to the ground. A tower only stands where its whole footing is on firm, level ground
+## (`Foes.dry_x` with `FOOT_R`), never hanging over a canyon rim, and the footing runs `SINK` m into
+## the ground so a slope never shows air under it.
 
 const TYPES := ["turret", "rocket", "howitzer", "pulse"]
 ## The types a world can field, by world: the coast starts with flak turrets and rocket
@@ -32,27 +38,46 @@ const LIT := Color8(0xff, 0xc8, 0x6a)
 const SANDBAG := Color8(0xb0, 0xa0, 0x76)
 
 
+## How tall the pole between the footing and the gun is, by theme (short on a city roof).
+const POLE := {"coast": 1.6, "dunes": 1.3, "city": 0.9, "ice": 1.4, "volcano": 1.3}
+## The footing's own height, by theme (the city's is the building).
+const FOOT := {"coast": 0.5, "dunes": 0.9, "city": 2.6, "ice": 0.6, "volcano": 1.0}
+## How far out the footing reaches from the tower's centre (sandbags, drifts): all of it must stand
+## on firm ground.
+const FOOT_R := 1.8
+## How far the footing runs on under the ground.
+const SINK := 1.5
+
+
 static func is_tower(kind: String) -> bool:
 	return kind in TYPES
 
 
-## How high the gun stands above the ground in a theme (the footing's height).
+## How high the gun stands above the ground in a theme (the footing and the pole).
 static func height(theme: String) -> float:
-	return {"coast": 0.5, "dunes": 0.9, "city": 2.6, "ice": 0.6, "volcano": 1.0}.get(theme, 0.5)
+	return FOOT.get(theme, 0.5) + pole(theme)
+
+
+static func pole(theme: String) -> float:
+	return POLE.get(theme, 1.6)
 
 
 # ---------------------------------------------------------------- models
 
-## The footing of a tower in a theme, its top at y = 0 (the gun's mount), down to -height.
+## The footing of a tower in a theme and its pole, the pole's top at y = 0 (the gun's mount), down
+## to -height (the ground) and on under it.
 static func base(theme: String) -> Mesh:
 	return Models.cached("tower_base_" + theme, func() -> Mesh:
 		var b := Models.Builder.new()
 		b.bottoms = false
-		var h := height(theme)
+		var h: float = FOOT.get(theme, 0.5)
+		var up := pole(theme)
+		# the footing, its top at -up
+		b.xf = Transform3D(Basis.IDENTITY, Vector3(0, -up, 0))
 		match theme:
 			"dunes":
 				# a stepped sandstone block, half buried in a drift, with a red band
-				b.prism(Vector3(0, -h, 0), Models.ngon(1.7, 4, PI / 4), 0.0, 0.45, SANDSTONE_D, Vector2(0.92, 0.92))
+				b.prism(Vector3(0, -h, 0), Models.ngon(1.7, 4, PI / 4), -SINK, 0.45, SANDSTONE_D, Vector2(0.92, 0.92))
 				b.prism(Vector3(0, -h + 0.45, 0), Models.ngon(1.35, 4, PI / 4), 0.0, 0.45, SANDSTONE, Vector2(0.9, 0.9))
 				b.box(Vector3(0, -0.12, 0), Vector3(1.75, 0.1, 1.75), Models.FOE)
 				b.prism(Vector3(0.6, -h, 0.9), Models.ngon(1.2, 7), 0.0, 0.5, DRIFT, Vector2(0.4, 0.4), Vector2(0.2, 0.3))
@@ -60,7 +85,7 @@ static func base(theme: String) -> Mesh:
 			"city":
 				# a battered block of flats with the gun on its roof
 				var w := 1.6
-				b.box(Vector3(0, -h * 0.5 - 0.1, 0), Vector3(w * 2.0, h - 0.2, w * 2.0), WALL)
+				b.box(Vector3(0, -(h + SINK) * 0.5 - 0.1, 0), Vector3(w * 2.0, h + SINK - 0.2, w * 2.0), WALL)
 				for side in 4:
 					var a := TAU * side / 4.0
 					var n := Vector3(sin(a), 0, cos(a))
@@ -81,7 +106,7 @@ static func base(theme: String) -> Mesh:
 					b.box(Vector3(-1.05 + k * 0.45, 0.0, 1.15), Vector3(0.42, 0.22, 0.28), SANDBAG, Vector2(0.85, 0.7))
 			"ice":
 				# a concrete pad under a cap of snow, a drift round its foot, icicles
-				b.prism(Vector3(0, -h, 0), Models.ngon(1.3, 8, PI / 8), 0.0, h - 0.1, Models.HULL, Vector2(0.92, 0.92))
+				b.prism(Vector3(0, -h, 0), Models.ngon(1.3, 8, PI / 8), -SINK, h - 0.1, Models.HULL, Vector2(0.92, 0.92))
 				b.prism(Vector3(0, -0.12, 0), Models.ngon(1.32, 8, PI / 8), 0.0, 0.16, SNOW, Vector2(0.88, 0.88))
 				b.prism(Vector3(0, -h, 0), Models.ngon(1.9, 9), 0.0, 0.28, SNOW_D, Vector2(0.55, 0.55))
 				for k in 8:
@@ -89,7 +114,7 @@ static func base(theme: String) -> Mesh:
 					b.prism(Vector3(sin(a) * 1.18, -0.12, cos(a) * 1.18), Models.ngon(0.08, 4), 0.0, -0.32, ICE, Vector2(0.1, 0.1))
 			"volcano":
 				# a basalt crag, cracked with glowing magma
-				b.prism(Vector3(0, -h, 0), Models.ngon(1.6, 6, 0.3), 0.0, h, Foes.BASALT, Vector2(0.72, 0.72))
+				b.prism(Vector3(0, -h, 0), Models.ngon(1.6, 6, 0.3), -SINK, h, Foes.BASALT, Vector2(0.72, 0.72))
 				for k in 3:
 					var a := TAU * k / 3.0 + 0.4
 					b.box(Vector3(sin(a) * 1.18, -h * 0.5, cos(a) * 1.18), Vector3(0.12 + absf(cos(a)) * 0.5, h * 0.8, 0.12 + absf(sin(a)) * 0.5), Foes.MAGMA)
@@ -99,8 +124,18 @@ static func base(theme: String) -> Mesh:
 				for k in 10:
 					var a := TAU * k / 10.0
 					b.box(Vector3(sin(a) * 1.5, -h + 0.14, cos(a) * 1.5), Vector3(0.55, 0.28, 0.36), SANDBAG, Vector2(0.85, 0.7))
-				b.prism(Vector3(0, -h, 0), Models.ngon(1.15, 8, PI / 8), 0.0, h, Foes.CONCRETE, Vector2(0.9, 0.9))
+				b.prism(Vector3(0, -h, 0), Models.ngon(1.15, 8, PI / 8), -SINK, h, Foes.CONCRETE, Vector2(0.9, 0.9))
 				b.prism(Vector3(0, -0.06, 0), Models.ngon(0.95, 8, PI / 8), 0.0, 0.08, Models.FOE)
+		# the pole: a steel column on a flange, four fins at its foot, a red band, a collar under the gun
+		b.xf = Transform3D.IDENTITY
+		b.prism(Vector3(0, -up, 0), Models.ngon(0.6, 8, PI / 8), 0.0, 0.14, Models.HULL_D, Vector2(0.85, 0.85))
+		b.prism(Vector3(0, -up, 0), Models.ngon(0.3, 8, PI / 8), 0.0, up, Models.HULL, Vector2.ONE)
+		b.prism(Vector3(0, -up * 0.5, 0), Models.ngon(0.33, 8, PI / 8), -0.12, 0.12, Models.FOE, Vector2.ONE)
+		for k in 4:
+			var a := TAU * k / 4.0
+			var n := Vector3(sin(a), 0, cos(a))
+			b.box(n * 0.42 + Vector3(0, -up + up * 0.225 + 0.1, 0), Vector3(0.08 + absf(n.x) * 0.3, up * 0.45, 0.08 + absf(n.z) * 0.3), Models.HULL_D)
+		b.prism(Vector3(0, -0.16, 0), Models.ngon(0.5, 8, PI / 8), 0.0, 0.16, Models.FOE_D, Vector2(0.85, 0.85))
 		return b.commit())
 
 
