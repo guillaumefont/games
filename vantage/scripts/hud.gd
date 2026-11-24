@@ -73,6 +73,8 @@ func _ready() -> void:
 	build_quit()
 	get_viewport().size_changed.connect(fit_hangar)
 	hangar_panel.resized.connect(fit_hangar)
+	# wrapped lines settle their height once the panel has its width: refit then
+	hangar_panel.minimum_size_changed.connect(fit_hangar)
 	fit_hangar()
 
 
@@ -202,6 +204,8 @@ func build_hangar() -> void:
 		pips.reparent(col)
 		var desc := label(20, DIM)
 		desc.text = u.desc
+		# wraps instead of widening the panel off the screen (tested in hangar_fits)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		desc.reparent(col)
 		var b := button("", GOLD, 26)
 		b.custom_minimum_size = Vector2(170, 72)
@@ -220,6 +224,7 @@ func build_hangar() -> void:
 	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_LEFT)
 	hangar_best.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hangar_best.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hangar_best.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hangar_best.reparent(foot)
 	reset_btn = Button.new()
 	reset_btn.flat = true
@@ -303,6 +308,9 @@ func build_campaign(v: VBoxContainer) -> void:
 		var b := button("", CY, 22)
 		b.custom_minimum_size = Vector2(150, 118)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# a long level name trims to "…" rather than pushing the panel off the screen
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.pressed.connect(func() -> void:
 			game.pick_level(int(game.level) / Campaign.PER_WORLD * Campaign.PER_WORLD + k)
 			game.sound.play("tap")
