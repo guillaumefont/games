@@ -65,13 +65,64 @@ const ADVANCE := 2.6
 const SHIP_GUNS := ["nozzle", "twin", "quad", "pod", "mast", "dish", "pylon", "hatch"]
 ## Each gun's centre above the deck (its hit point), for guns standing on the deck.
 const GUN_H := {"twin": 1.7, "quad": 1.6, "pod": 2.0, "mast": 6.5, "dish": 3.0, "pylon": 3.4, "hatch": 0.7, "nozzle": 0.0}
-## The ships. Each section: `name`, `kind` (its look: engines, hangar, guns, missiles, lances,
-## bridge; the last is the reactor, `core`), `len` (m of hull) and its `guns`: [kind, x, dz] on the
-## deck `dz` ahead of the section's start, or [kind, x, y, dz] where the gun sits higher (a nozzle
-## low on the stern, a gun up the bridge). Clearing a section breaks off its `piece` of
-## superstructure (`Models.ship_piece`). Each ship also has its hull's look (`hull`: slab, wedge,
-## round), paint, accent and drone rate (s). Each level has its own (`Campaign.fortress_of`).
+## The ships, one for each level (`Campaign.FORTRESS_ORDER`; Guillaume, 2026-11-24: "I want a
+## different boss per level. You can advance over it, on the sides..."). Each has its hull's look
+## (`hull`: slab, wedge, round or keel, a plated deck over a hull side; or `bodies`, smooth lofted
+## bodies: an airship's envelope and gondola, twin or triple hulls, a flying wing, a string of pods,
+## a serpent; see `Capital.body_at`), paint, accent, drone rate (s), `extras` (fins, masts and sails,
+## a tusk, crystal spires, legs and a horn, dorsal spines) and its sections from stern to bow.
+##
+## Each section: `name`, `kind` (its look and the piece that breaks off: engines, hangar, guns,
+## missiles, lances, battery, bays, then the heart, bridge or gondola; the last is the reactor,
+## `core`), `len` (m of hull), the `route` the ship takes past it (`Capital.lane`: `stern` behind
+## it, `top` over it, `left`/`right` along a flank, `under` beneath it, `gap` between two hulls;
+## `x`, `y` place the lane where it isn't worked out) and its `guns`, by route:
+## - top, stern: [kind, x, dz] on the hull's top `dz` ahead of the section's start (x from the
+##   section's track: its `x` and a serpent's wave), or [kind, x, y, dz] where it sits higher
+##   (up the bridge) or on the stern's face (a nozzle);
+## - left, right: [kind, y, dz] on a sponson on that flank, its hit point at height y;
+## - under: [kind, x, dz] hung under the hull;
+## - gap: [kind, side, y, dz] on a sponson on the face of the hull to that side (-1, 1) of the lane.
 const FORTRESSES := {
+	# Glass Coast
+	# an airship carrier: a great envelope, a gondola slung under it, engine nacelles on outriggers
+	"albatross": {"name": "Albatross", "title": "Albatross airship carrier", "paint": "pearl",
+		"accent": Color8(0xff, 0x6a, 0x4a), "drones": 6.0, "extras": ["fins"], "bodies": [
+		{"y": -13.0, "w": 15.0, "t": 13.0, "b": 13.0, "n": 3.0, "tail": 50.0, "tip": 0.1, "nose": 42.0, "nose_tip": 0.08},
+		{"y": -29.5, "w": 6.0, "t": 5.0, "b": 4.5, "n": 2.6, "from": 60.0, "to": 168.0, "tail": 18.0, "tip": 0.25, "nose": 16.0, "nose_tip": 0.3, "role": "keel"},
+		{"x": 21.0, "y": -14.0, "w": 3.2, "t": 3.2, "b": 3.2, "n": 2.0, "from": 12.0, "to": 48.0, "tail": 7.0, "tip": 0.4, "nose": 9.0, "nose_tip": 0.3, "role": "pod"},
+		{"x": -21.0, "y": -14.0, "w": 3.2, "t": 3.2, "b": 3.2, "n": 2.0, "from": 12.0, "to": 48.0, "tail": 7.0, "tip": 0.4, "nose": 9.0, "nose_tip": 0.3, "role": "pod"},
+		{"x": 14.0, "y": -14.0, "w": 8.0, "t": 0.7, "b": 0.7, "n": 2.0, "from": 20.0, "to": 40.0, "tail": 4.0, "tip": 0.5, "nose": 4.0, "nose_tip": 0.5, "role": "wing"},
+		{"x": -14.0, "y": -14.0, "w": 8.0, "t": 0.7, "b": 0.7, "n": 2.0, "from": 20.0, "to": 40.0, "tail": 4.0, "tip": 0.5, "nose": 4.0, "nose_tip": 0.5, "role": "wing"},
+	], "sections": [
+		{"name": "STARBOARD ENGINES", "kind": "battery", "route": "right", "y": -14.0, "len": 44.0, "guns": [["twin", -11.0, 18.0],
+			["quad", -12.5, 24.0], ["pod", -12.5, 30.0], ["twin", -11.0, 32.0]]},
+		{"name": "GONDOLA", "kind": "bays", "route": "under", "len": 44.0, "guns": [["hatch", -3.0, 22.0], ["twin", 3.0, 18.0],
+			["twin", -3.0, 30.0], ["quad", 3.0, 28.0], ["twin", 0.0, 32.0]]},
+		{"name": "PORT GUNS", "kind": "battery", "route": "left", "y": -13.0, "len": 44.0, "guns": [["twin", -10.0, 10.0],
+			["twin", -16.0, 16.0], ["quad", -12.0, 22.0], ["twin", -9.0, 28.0], ["pod", -16.0, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["quad", 0.0, 5.6, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# a catamaran: two long hulls, a low wing between them aft, a bridge deck joining them forward
+	"marlin": {"name": "Marlin", "title": "Marlin twin-hull cruiser", "paint": "teal",
+		"accent": Color8(0xff, 0xd0, 0x4a), "drones": 6.5, "bodies": [
+		{"x": -22.0, "y": -7.0, "w": 7.0, "t": 7.0, "b": 9.0, "n": 2.6, "tail": 8.0, "tip": 0.55, "nose": 48.0, "nose_tip": 0.04, "nose_p": 1.4},
+		{"x": 22.0, "y": -7.0, "w": 7.0, "t": 7.0, "b": 9.0, "n": 2.6, "tail": 8.0, "tip": 0.55, "nose": 48.0, "nose_tip": 0.04, "nose_p": 1.4},
+		{"y": -3.2, "w": 18.0, "t": 3.2, "b": 3.0, "n": 3.0, "from": 122.0, "to": -2.0, "tail": 14.0, "tip": 0.2, "nose": 44.0, "nose_tip": 0.06},
+		{"y": -12.5, "w": 20.0, "t": 1.2, "b": 1.4, "n": 2.0, "from": 6.0, "to": 124.0, "tail": 6.0, "tip": 0.6, "nose": 10.0, "nose_tip": 0.4, "role": "wing"},
+	], "sections": [
+		{"name": "TWIN STERNS", "kind": "battery", "route": "gap", "y": -4.0, "len": 44.0, "guns": [["twin", -1, -3.0, 12.0],
+			["twin", 1, -3.0, 12.0], ["quad", -1, -6.0, 22.0], ["quad", 1, -6.0, 22.0], ["pod", -1, -2.0, 32.0], ["pod", 1, -2.0, 32.0]]},
+		{"name": "STARBOARD HULL", "kind": "battery", "route": "right", "y": -6.0, "len": 44.0, "guns": [["twin", -3.0, 10.0],
+			["twin", -9.0, 16.0], ["quad", -4.0, 22.0], ["mast", 1.0, 28.0], ["twin", -10.0, 32.0]]},
+		{"name": "PORT HULL", "kind": "battery", "route": "left", "y": -6.0, "len": 44.0, "guns": [["pylon", 2.0, 32.0],
+			["quad", -4.0, 10.0], ["twin", -9.0, 16.0], ["pod", -3.0, 24.0], ["twin", -10.0, 30.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", 0.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
 	"goliath": {"name": "Goliath", "title": "Goliath-class dreadnought", "hull": "slab",
 		"paint": "steel", "accent": Color8(0xff, 0xa8, 0x2e), "drones": 7.0, "sections": [
 		{"name": "ENGINES", "kind": "engines", "len": 44.0, "guns": [["nozzle", -7.5, -6.5, 0.0], ["nozzle", -2.5, -6.5, 0.0],
@@ -84,58 +135,213 @@ const FORTRESSES := {
 			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
 		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# a sky carrier: a round-bellied hull, two hangar decks and drones in swarms
-	"zephyr": {"name": "Zephyr", "title": "Zephyr sky carrier", "hull": "round",
-		"paint": "ivory", "accent": Color8(0x4c, 0xe0, 0xa8), "drones": 5.0, "sections": [
-		{"name": "ENGINES", "kind": "engines", "len": 40.0, "guns": [["nozzle", -6.0, -6.0, 0.0], ["nozzle", 0.0, -6.0, 0.0],
-			["nozzle", 6.0, -6.0, 0.0], ["quad", -7.0, 9.0], ["quad", 7.0, 9.0]]},
-		{"name": "FLIGHT DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 8.0], ["hatch", 5.0, 8.0],
-			["hatch", 0.0, 20.0], ["twin", -8.0, 24.0], ["twin", 8.0, 24.0]]},
-		{"name": "AFT HANGARS", "kind": "hangar", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["hatch", -5.0, 8.0],
-			["hatch", 5.0, 8.0], ["quad", -8.0, 20.0], ["quad", 8.0, 20.0]]},
-		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+	# Ember Dunes
+	# a sky galleon: a deep keeled hull under masts and fin sails, broadsides down both flanks
+	"sirocco": {"name": "Sirocco", "title": "Sirocco sky galleon", "hull": "keel", "paint": "bronze",
+		"accent": Color8(0xff, 0xc2, 0x5a), "drones": 7.0, "extras": ["masts"], "sections": [
+		{"name": "STERN CASTLE", "kind": "engines", "len": 40.0, "guns": [["nozzle", -6.0, -5.5, 0.0], ["nozzle", 6.0, -5.5, 0.0],
+			["twin", -7.0, 9.0], ["twin", 7.0, 9.0]]},
+		{"name": "PORT BROADSIDE", "kind": "battery", "route": "left", "y": -4.0, "len": 44.0, "guns": [["twin", -1.5, 8.0],
+			["twin", -1.5, 14.0], ["quad", -4.5, 20.0], ["twin", -1.5, 26.0], ["twin", -1.5, 32.0]]},
+		{"name": "MAIN DECK", "kind": "guns", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["twin", -7.0, 10.0],
+			["twin", 7.0, 10.0], ["quad", -5.0, 26.0], ["quad", 5.0, 26.0]]},
+		{"name": "STARBOARD BROADSIDE", "kind": "battery", "route": "right", "y": -4.0, "len": 44.0, "guns": [["twin", -1.5, 8.0],
+			["twin", -1.5, 14.0], ["quad", -4.5, 20.0], ["twin", -1.5, 26.0], ["twin", -1.5, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["mast", 0.0, 10.5, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# a beetle: a broad domed shell, a horned head, legs folded under
+	"scarab": {"name": "Scarab", "title": "Scarab dome carrier", "paint": "sand",
+		"accent": Color8(0x3a, 0xd0, 0xb8), "drones": 6.5, "extras": ["legs", "horn"], "bodies": [
+		{"y": -9.0, "w": 24.0, "t": 9.0, "b": 6.0, "n": 2.4, "tail": 34.0, "tip": 0.35, "nose": 62.0, "nose_tip": 0.3},
+		{"from": -50.0, "y": -7.0, "w": 10.0, "t": 6.0, "b": 5.0, "n": 2.4, "tail": 10.0, "tip": 0.6, "nose": 16.0, "nose_tip": 0.3},
+	], "sections": [
+		{"name": "UNDERBELLY", "kind": "bays", "route": "under", "len": 44.0, "guns": [["twin", -6.0, 14.0], ["twin", 6.0, 14.0],
+			["hatch", 0.0, 22.0], ["quad", -7.0, 32.0], ["quad", 7.0, 32.0]]},
+		{"name": "PORT ELYTRON", "kind": "battery", "route": "left", "y": -9.0, "len": 44.0, "guns": [["twin", -7.0, 10.0],
+			["quad", -10.0, 18.0], ["twin", -6.0, 25.0], ["pod", -9.0, 32.0]]},
+		{"name": "STARBOARD ELYTRON", "kind": "battery", "route": "right", "y": -9.0, "len": 44.0, "guns": [["twin", -7.0, 10.0],
+			["pod", -9.0, 18.0], ["twin", -6.0, 25.0], ["quad", -10.0, 32.0]]},
+		{"name": "THORAX", "kind": "battery", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["twin", -8.0, 10.0],
+			["twin", 8.0, 10.0], ["dish", 0.0, 32.0]]},
+		{"name": "CROWN", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
 			["twin", 6.5, 5.7, 12.0], ["quad", 0.0, 5.6, 10.0]]},
 		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# a missile cruiser: a sharp wedge of a hull, missile banks and a lance array
+	# a missile cruiser: a sharp wedge of a hull, missile banks and a lance array down its flank
 	"talon": {"name": "Talon", "title": "Talon missile cruiser", "hull": "wedge",
 		"paint": "iron", "accent": Color8(0xff, 0x58, 0x40), "drones": 7.5, "sections": [
 		{"name": "ENGINES", "kind": "engines", "len": 38.0, "guns": [["nozzle", -5.0, -6.0, 0.0], ["nozzle", 5.0, -6.0, 0.0],
 			["pod", -6.5, 9.0], ["pod", 6.5, 9.0]]},
 		{"name": "MISSILE BANKS", "kind": "missiles", "len": 46.0, "guns": [["pylon", 0.0, 24.0], ["pod", -7.0, 8.0],
 			["pod", 7.0, 8.0], ["pod", -4.0, 20.0], ["pod", 4.0, 20.0]]},
-		{"name": "LANCE ARRAY", "kind": "lances", "len": 42.0, "guns": [["mast", -6.0, 12.0], ["mast", 0.0, 16.0],
-			["mast", 6.0, 12.0], ["twin", -3.5, 6.0], ["twin", 3.5, 6.0]]},
+		{"name": "STARBOARD LANCES", "kind": "battery", "route": "right", "y": -4.0, "len": 42.0, "guns": [["mast", 2.5, 10.0],
+			["twin", -3.0, 16.0], ["mast", 2.5, 24.0], ["twin", -3.0, 30.0]]},
 		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", 0.0, 11.0, 23.0], ["pod", -6.0, 6.0, 12.0],
 			["pod", 6.0, 6.0, 12.0], ["mast", 0.0, 10.5, 10.0]]},
 		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# the biggest: six engines, a hangar, a gun deck, missile banks and the bridge
-	"leviathan": {"name": "Leviathan", "title": "Leviathan super-dreadnought", "hull": "slab",
-		"paint": "olive", "accent": Color8(0xff, 0xd8, 0x40), "drones": 6.5, "sections": [
-		{"name": "ENGINES", "kind": "engines", "len": 44.0, "guns": [["nozzle", -8.0, -5.0, 0.0], ["nozzle", -4.0, -8.0, 0.0],
-			["nozzle", 0.0, -5.0, 0.0], ["nozzle", 4.0, -8.0, 0.0], ["nozzle", 8.0, -5.0, 0.0], ["twin", 0.0, 9.0]]},
-		{"name": "HANGAR DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 10.0], ["hatch", 5.0, 10.0],
-			["quad", -8.0, 22.0], ["quad", 8.0, 22.0]]},
-		{"name": "GUN DECK", "kind": "guns", "len": 44.0, "guns": [["twin", -7.0, 8.0], ["twin", 7.0, 8.0],
-			["twin", 0.0, 14.0], ["quad", -5.0, 24.0], ["quad", 5.0, 24.0]]},
-		{"name": "MISSILE BANKS", "kind": "missiles", "len": 42.0, "guns": [["pylon", 0.0, 22.0], ["pod", -7.0, 8.0],
-			["pod", 7.0, 8.0], ["mast", -4.0, 18.0], ["mast", 4.0, 18.0]]},
-		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
-			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
+	# Iron Sprawl
+	# a flying wing: a body blended into two swept wings, fought over one wing, under the other
+	"manta": {"name": "Manta", "title": "Manta flying wing", "paint": "graphite",
+		"accent": Color8(0x5a, 0xe8, 0xff), "drones": 6.0, "bodies": [
+		{"y": -6.0, "w": 11.0, "t": 6.0, "b": 6.0, "n": 2.4, "tail": 20.0, "tip": 0.5, "nose": 50.0, "nose_tip": 0.12},
+		{"x": -30.0, "y": -4.5, "w": 20.0, "t": 1.6, "b": 2.0, "n": 2.0, "from": 4.0, "to": -40.0, "sweep": 0.09, "tail": 18.0, "tip": 0.3, "nose": 70.0, "nose_tip": 0.05, "role": "wing"},
+		{"x": 30.0, "y": -4.5, "w": 20.0, "t": 1.6, "b": 2.0, "n": 2.0, "from": 4.0, "to": -40.0, "sweep": 0.09, "tail": 18.0, "tip": 0.3, "nose": 70.0, "nose_tip": 0.05, "role": "wing"},
+	], "sections": [
+		{"name": "PORT WING", "kind": "battery", "route": "top", "x": -28.0, "len": 44.0, "guns": [["twin", -6.0, 14.0],
+			["twin", 5.0, 14.0], ["quad", -1.0, 24.0], ["pod", -6.0, 32.0], ["pod", 5.0, 32.0]]},
+		{"name": "STARBOARD WING", "kind": "bays", "route": "under", "x": 25.0, "len": 44.0, "guns": [["twin", -5.0, 10.0],
+			["twin", 5.0, 10.0], ["hatch", 0.0, 22.0], ["quad", -5.0, 32.0], ["quad", 5.0, 32.0]]},
+		{"name": "BELLY", "kind": "bays", "route": "under", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["twin", -5.0, 10.0],
+			["twin", 5.0, 10.0], ["quad", -6.0, 32.0], ["quad", 6.0, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["mast", 0.0, 10.5, 10.0]]},
 		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
-	# a fast raider: a wedge hull, flak and lances, three engines
+	# a sky carrier: a round-bellied hull, a flight deck and hangars opening under its belly
+	"zephyr": {"name": "Zephyr", "title": "Zephyr sky carrier", "hull": "round",
+		"paint": "ivory", "accent": Color8(0x4c, 0xe0, 0xa8), "drones": 5.0, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 40.0, "guns": [["nozzle", -6.0, -6.0, 0.0], ["nozzle", 0.0, -6.0, 0.0],
+			["nozzle", 6.0, -6.0, 0.0], ["quad", -7.0, 9.0], ["quad", 7.0, 9.0]]},
+		{"name": "FLIGHT DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 8.0], ["hatch", 5.0, 8.0],
+			["hatch", 0.0, 20.0], ["twin", -8.0, 24.0], ["twin", 8.0, 24.0]]},
+		{"name": "BELLY HANGARS", "kind": "bays", "route": "under", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["hatch", -5.0, 8.0],
+			["hatch", 5.0, 8.0], ["quad", -6.0, 32.0], ["quad", 6.0, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["quad", 0.0, 5.6, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# a trimaran: a centre hull and two outriggers on cross wings, fought down both channels
+	"trident": {"name": "Trident", "title": "Trident trimaran battleship", "paint": "crimson",
+		"accent": Color8(0xff, 0xe0, 0x6a), "drones": 6.5, "bodies": [
+		{"y": -8.0, "w": 11.0, "t": 8.0, "b": 10.0, "n": 3.0, "tail": 8.0, "tip": 0.7, "nose": 56.0, "nose_tip": 0.04, "nose_p": 1.4},
+		{"x": -37.0, "y": -6.0, "w": 5.5, "t": 5.0, "b": 6.0, "n": 2.5, "from": 30.0, "to": -44.0, "tail": 16.0, "tip": 0.25, "nose": 30.0, "nose_tip": 0.1, "role": "pod"},
+		{"x": 37.0, "y": -6.0, "w": 5.5, "t": 5.0, "b": 6.0, "n": 2.5, "from": 30.0, "to": -44.0, "tail": 16.0, "tip": 0.25, "nose": 30.0, "nose_tip": 0.1, "role": "pod"},
+		{"x": -22.0, "y": -10.5, "w": 15.0, "t": 1.0, "b": 1.2, "n": 2.0, "from": 58.0, "to": 100.0, "tail": 4.0, "tip": 0.6, "nose": 4.0, "nose_tip": 0.6, "role": "wing"},
+		{"x": 22.0, "y": -10.5, "w": 15.0, "t": 1.0, "b": 1.2, "n": 2.0, "from": 58.0, "to": 100.0, "tail": 4.0, "tip": 0.6, "nose": 4.0, "nose_tip": 0.6, "role": "wing"},
+		{"x": -22.0, "y": -10.5, "w": 15.0, "t": 1.0, "b": 1.2, "n": 2.0, "from": 150.0, "to": 182.0, "tail": 4.0, "tip": 0.6, "nose": 4.0, "nose_tip": 0.6, "role": "wing"},
+		{"x": 22.0, "y": -10.5, "w": 15.0, "t": 1.0, "b": 1.2, "n": 2.0, "from": 150.0, "to": 182.0, "tail": 4.0, "tip": 0.6, "nose": 4.0, "nose_tip": 0.6, "role": "wing"},
+	], "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 40.0, "guns": [["nozzle", -4.5, -7.0, 0.0], ["nozzle", 4.5, -7.0, 0.0],
+			["twin", -5.0, 10.0], ["twin", 5.0, 10.0]]},
+		{"name": "PORT CHANNEL", "kind": "battery", "route": "gap", "x": -21.5, "y": -3.0, "len": 44.0, "guns": [["twin", 1, -3.0, 10.0],
+			["twin", -1, -3.0, 14.0], ["quad", 1, -6.0, 22.0], ["pod", -1, -2.0, 26.0], ["twin", 1, -2.0, 31.0], ["twin", -1, -6.0, 32.0]]},
+		{"name": "STARBOARD CHANNEL", "kind": "battery", "route": "gap", "x": 21.5, "y": -3.0, "len": 44.0, "guns": [["twin", -1, -3.0, 10.0],
+			["twin", 1, -3.0, 14.0], ["quad", -1, -6.0, 22.0], ["pod", 1, -2.0, 26.0], ["twin", -1, -2.0, 31.0], ["twin", 1, -6.0, 32.0]]},
+		{"name": "SPINE", "kind": "battery", "len": 42.0, "guns": [["mast", -4.0, 12.0], ["mast", 4.0, 12.0],
+			["twin", -3.0, 22.0], ["twin", 3.0, 22.0], ["pylon", 0.0, 30.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", 0.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# Frost Shelf
+	# an icebreaker: a wedge hull grown over with crystal, a spiral tusk at its bow
+	"narwhal": {"name": "Narwhal", "title": "Narwhal icebreaker", "hull": "wedge", "paint": "frost",
+		"accent": Color8(0x3a, 0xc8, 0xff), "drones": 6.5, "extras": ["tusk", "spires"], "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 40.0, "guns": [["nozzle", -6.0, -6.0, 0.0], ["nozzle", 0.0, -7.5, 0.0],
+			["nozzle", 6.0, -6.0, 0.0], ["twin", 0.0, 9.0]]},
+		{"name": "CRYSTAL DECK", "kind": "spires", "len": 44.0, "guns": [["pylon", 0.0, 22.0], ["mast", -6.0, 12.0],
+			["mast", 6.0, 12.0], ["twin", -4.0, 30.0], ["twin", 4.0, 30.0]]},
+		{"name": "PORT CASEMATES", "kind": "battery", "route": "left", "y": -4.0, "len": 44.0, "guns": [["quad", -1.0, 10.0],
+			["twin", -2.5, 17.0], ["twin", -1.0, 24.0], ["pod", -2.0, 31.0]]},
+		{"name": "KEEL GUNS", "kind": "bays", "route": "under", "len": 44.0, "guns": [["twin", -2.5, 10.0], ["twin", 2.5, 10.0],
+			["quad", 0.0, 22.0], ["pod", -2.5, 32.0], ["pod", 2.5, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["twin", -6.5, 5.7, 12.0],
+			["twin", 6.5, 5.7, 12.0], ["quad", 0.0, 5.6, 10.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# a fast raider: a wedge hull, flak and lances down its flank, three engines
 	"wyvern": {"name": "Wyvern", "title": "Wyvern battle raider", "hull": "wedge",
 		"paint": "cobalt", "accent": Color8(0xb4, 0x80, 0xff), "drones": 6.0, "sections": [
 		{"name": "ENGINES", "kind": "engines", "len": 38.0, "guns": [["nozzle", -6.0, -5.5, 0.0], ["nozzle", 0.0, -7.5, 0.0],
 			["nozzle", 6.0, -5.5, 0.0], ["mast", -6.0, 10.0], ["mast", 6.0, 10.0]]},
 		{"name": "FLAK DECK", "kind": "guns", "len": 44.0, "guns": [["quad", -6.0, 8.0], ["quad", 6.0, 8.0],
 			["quad", 0.0, 16.0], ["twin", -7.5, 22.0], ["twin", 7.5, 22.0]]},
-		{"name": "LANCE ARRAY", "kind": "lances", "len": 42.0, "guns": [["pylon", 0.0, 22.0], ["mast", -6.0, 10.0],
-			["mast", 0.0, 12.0], ["mast", 6.0, 10.0]]},
+		{"name": "PORT LANCES", "kind": "battery", "route": "left", "y": -4.0, "len": 42.0, "guns": [["pylon", -7.0, 31.0],
+			["mast", 2.5, 10.0], ["twin", -3.0, 16.0], ["mast", 2.5, 24.0]]},
 		{"name": "BRIDGE", "kind": "bridge", "len": 44.0, "guns": [["dish", -3.5, 11.0, 23.0], ["dish", 3.5, 11.0, 23.0],
 			["twin", -6.0, 5.7, 12.0], ["twin", 6.0, 5.7, 12.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# a string of pods on a slender spine, flown round: over, to port, under, to starboard, over
+	"aurora": {"name": "Aurora", "title": "Aurora pod chain", "paint": "violet",
+		"accent": Color8(0x6a, 0xff, 0xc8), "drones": 6.0, "extras": ["rings"], "bodies": [
+		{"y": -4.0, "w": 2.4, "t": 2.4, "b": 2.4, "n": 2.0, "tail": 2.0, "tip": 0.6, "nose": 6.0, "nose_tip": 0.4, "role": "keel"},
+		{"from": 2.0, "to": 42.0, "y": -10.0, "w": 12.0, "t": 10.0, "b": 10.0, "n": 2.3, "tail": 14.0, "tip": 0.3, "nose": 14.0, "nose_tip": 0.3, "role": "pod"},
+		{"from": 47.0, "to": 85.0, "y": -10.0, "w": 12.0, "t": 10.0, "b": 10.0, "n": 2.3, "tail": 14.0, "tip": 0.3, "nose": 14.0, "nose_tip": 0.3, "role": "pod"},
+		{"from": 91.0, "to": 129.0, "y": -10.0, "w": 12.0, "t": 10.0, "b": 10.0, "n": 2.3, "tail": 14.0, "tip": 0.3, "nose": 14.0, "nose_tip": 0.3, "role": "pod"},
+		{"from": 135.0, "to": 173.0, "y": -10.0, "w": 12.0, "t": 10.0, "b": 10.0, "n": 2.3, "tail": 14.0, "tip": 0.3, "nose": 14.0, "nose_tip": 0.3, "role": "pod"},
+		{"from": 179.0, "to": -1.0, "y": -10.0, "w": 16.0, "t": 10.0, "b": 10.0, "n": 2.8, "tail": 12.0, "tip": 0.3, "nose": 36.0, "nose_tip": 0.05},
+	], "sections": [
+		{"name": "FIRST POD", "kind": "battery", "len": 44.0, "guns": [["twin", -5.0, 12.0], ["twin", 5.0, 12.0],
+			["dish", 0.0, 22.0], ["quad", -5.0, 30.0], ["quad", 5.0, 30.0]]},
+		{"name": "PORT POD", "kind": "battery", "route": "left", "y": -10.0, "len": 44.0, "guns": [["twin", -7.0, 14.0],
+			["quad", -12.0, 20.0], ["twin", -7.0, 28.0], ["pod", -12.5, 31.0]]},
+		{"name": "KEEL POD", "kind": "bays", "route": "under", "len": 44.0, "guns": [["twin", -5.0, 14.0], ["twin", 5.0, 14.0],
+			["hatch", 0.0, 22.0], ["quad", -5.0, 28.0], ["quad", 5.0, 28.0]]},
+		{"name": "STARBOARD POD", "kind": "battery", "route": "right", "y": -10.0, "len": 44.0, "guns": [["twin", -7.0, 14.0],
+			["pod", -12.5, 20.0], ["twin", -7.0, 28.0], ["quad", -12.0, 31.0]]},
+		{"name": "CROWN POD", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", 0.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# Cinder Reach
+	# a serpent: a long body winding through the sky, spined, its reactor in its throat
+	"basilisk": {"name": "Basilisk", "title": "Basilisk serpent ship", "paint": "basalt",
+		"accent": Color8(0xff, 0x7a, 0x2a), "drones": 6.0, "extras": ["spines", "horns"], "bodies": [
+		{"y": -8.0, "w": 10.0, "t": 8.0, "b": 8.0, "n": 2.3, "wave": [11.0, 176.0, -0.785], "tail": 56.0, "tip": 0.12, "nose": 14.0, "nose_tip": 0.7},
+		{"from": -48.0, "y": -7.5, "w": 13.0, "t": 7.5, "b": 7.5, "n": 2.4, "wave": [11.0, 176.0, -0.785], "tail": 12.0, "tip": 0.75, "nose": 20.0, "nose_tip": 0.25},
+	], "sections": [
+		{"name": "TAIL", "kind": "battery", "len": 44.0, "guns": [["twin", -3.5, 16.0], ["twin", 3.5, 16.0],
+			["quad", 0.0, 24.0], ["twin", -4.0, 32.0], ["twin", 4.0, 32.0]]},
+		{"name": "COILS", "kind": "battery", "route": "right", "y": -8.0, "len": 44.0, "guns": [["twin", -5.0, 12.0],
+			["quad", -9.0, 18.0], ["twin", -6.0, 25.0], ["pod", -10.0, 32.0]]},
+		{"name": "BELLY SCALES", "kind": "bays", "route": "under", "len": 44.0, "guns": [["twin", -4.0, 12.0], ["twin", 4.0, 12.0],
+			["pylon", 0.0, 22.0], ["quad", -4.0, 32.0], ["quad", 4.0, 32.0]]},
+		{"name": "DORSAL SPINES", "kind": "battery", "route": "left", "y": -8.0, "len": 44.0, "guns": [["mast", -1.0, 12.0],
+			["twin", -8.0, 19.0], ["mast", -1.0, 26.0], ["quad", -10.0, 32.0]]},
+		{"name": "THROAT", "kind": "gondola", "route": "under", "len": 46.0, "guns": [["twin", -5.0, 8.0], ["twin", 5.0, 8.0],
+			["quad", -6.0, 28.0], ["quad", 6.0, 28.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# the biggest: six engines, a hangar, a ventral battery, missile banks down its flank, the bridge
+	"leviathan": {"name": "Leviathan", "title": "Leviathan super-dreadnought", "hull": "slab",
+		"paint": "olive", "accent": Color8(0xff, 0xd8, 0x40), "drones": 6.5, "sections": [
+		{"name": "ENGINES", "kind": "engines", "len": 44.0, "guns": [["nozzle", -8.0, -5.0, 0.0], ["nozzle", -4.0, -8.0, 0.0],
+			["nozzle", 0.0, -5.0, 0.0], ["nozzle", 4.0, -8.0, 0.0], ["nozzle", 8.0, -5.0, 0.0], ["twin", 0.0, 9.0]]},
+		{"name": "HANGAR DECK", "kind": "hangar", "len": 44.0, "guns": [["hatch", -5.0, 10.0], ["hatch", 5.0, 10.0],
+			["quad", -8.0, 22.0], ["quad", 8.0, 22.0]]},
+		{"name": "VENTRAL GUNS", "kind": "bays", "route": "under", "len": 44.0, "guns": [["twin", -5.0, 10.0], ["twin", 5.0, 10.0],
+			["twin", 0.0, 18.0], ["quad", -5.0, 28.0], ["quad", 5.0, 28.0]]},
+		{"name": "PORT MISSILES", "kind": "battery", "route": "left", "y": -4.0, "len": 42.0, "guns": [["pylon", -10.0, 30.0],
+			["pod", -2.0, 10.0], ["pod", -6.0, 20.0], ["mast", 2.5, 14.0], ["pod", -2.0, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
+		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
+	]},
+	# the last: a vast hull between two engine nacelles on pylon wings, fought all the way round
+	"behemoth": {"name": "Behemoth", "title": "Behemoth sky citadel", "paint": "graphite",
+		"accent": Color8(0xff, 0x4a, 0x3a), "drones": 5.5, "bodies": [
+		{"y": -11.0, "w": 17.0, "t": 11.0, "b": 13.0, "n": 2.9, "tail": 10.0, "tip": 0.7, "nose": 50.0, "nose_tip": 0.08, "nose_p": 1.5},
+		{"x": -45.0, "y": -12.0, "w": 6.5, "t": 6.5, "b": 6.5, "n": 2.1, "from": 24.0, "to": -70.0, "tail": 10.0, "tip": 0.55, "nose": 22.0, "nose_tip": 0.2, "role": "pod"},
+		{"x": 45.0, "y": -12.0, "w": 6.5, "t": 6.5, "b": 6.5, "n": 2.1, "from": 24.0, "to": -70.0, "tail": 10.0, "tip": 0.55, "nose": 22.0, "nose_tip": 0.2, "role": "pod"},
+		{"x": -31.0, "y": -13.0, "w": 15.0, "t": 1.3, "b": 1.6, "n": 2.0, "from": 40.0, "to": -90.0, "tail": 6.0, "tip": 0.5, "nose": 6.0, "nose_tip": 0.5, "role": "wing"},
+		{"x": 31.0, "y": -13.0, "w": 15.0, "t": 1.3, "b": 1.6, "n": 2.0, "from": 40.0, "to": -90.0, "tail": 6.0, "tip": 0.5, "nose": 6.0, "nose_tip": 0.5, "role": "wing"},
+	], "sections": [
+		{"name": "ENGINES", "kind": "engines", "route": "stern", "y": -6.0, "len": 40.0, "guns": [["nozzle", -7.0, -9.0, 0.0],
+			["nozzle", 0.0, -12.0, 0.0], ["nozzle", 7.0, -9.0, 0.0], ["twin", -6.0, 9.0], ["twin", 6.0, 9.0]]},
+		{"name": "PORT NACELLE", "kind": "battery", "route": "gap", "x": -28.0, "y": -4.0, "len": 42.0, "guns": [["twin", 1, -4.0, 10.0],
+			["twin", -1, -4.0, 12.0], ["quad", 1, -8.0, 20.0], ["pod", -1, -6.0, 22.0], ["twin", 1, -2.0, 32.0], ["mast", -1, -6.0, 31.0]]},
+		{"name": "VENTRAL BATTERY", "kind": "bays", "route": "under", "len": 42.0, "guns": [["pylon", 0.0, 20.0], ["twin", -6.0, 10.0],
+			["twin", 6.0, 10.0], ["quad", -6.0, 30.0], ["quad", 6.0, 30.0], ["hatch", 0.0, 32.0]]},
+		{"name": "STARBOARD NACELLE", "kind": "battery", "route": "gap", "x": 28.0, "y": -4.0, "len": 42.0, "guns": [["twin", -1, -4.0, 10.0],
+			["twin", 1, -4.0, 12.0], ["quad", -1, -8.0, 20.0], ["pod", 1, -6.0, 22.0], ["twin", -1, -2.0, 32.0], ["mast", 1, -6.0, 31.0]]},
+		{"name": "DORSAL BATTERIES", "kind": "guns", "len": 42.0, "guns": [["pylon", 0.0, 22.0], ["twin", -7.0, 10.0],
+			["twin", 7.0, 10.0], ["quad", -5.0, 26.0], ["quad", 5.0, 26.0], ["dish", 0.0, 32.0]]},
+		{"name": "BRIDGE", "kind": "bridge", "len": 46.0, "guns": [["dish", 0.0, 11.0, 23.0], ["mast", -6.5, 10.5, 13.0],
+			["mast", 6.5, 10.5, 13.0], ["twin", -3.0, 5.7, 11.0], ["twin", 3.0, 5.7, 11.0]]},
 		{"name": "REACTOR", "kind": "core", "len": 0.0, "guns": []},
 	]},
 }
@@ -163,25 +369,29 @@ static func fortress_len(id: String) -> float:
 	return section_at(id, 99) + BOW_LEN
 
 
-## A gun's place on the ship's model: x, height and z (the stern at 0, the bow towards -z).
+## A gun's place on the ship's model: x, height and z (the stern at 0, the bow towards -z). Guns
+## sit on the hull's surface where their section's route meets it (`Capital.mount`).
 static func gun_at(id: String, i: int, g: Array) -> Vector3:
-	var at := section_at(id, i)
-	if g.size() >= 4:
-		return Vector3(float(g[1]), float(g[2]), -(at + float(g[3])))
-	return Vector3(float(g[1]), float(GUN_H[g[0]]), -(at + float(g[2])))
+	return Capital.mount(id, i, g).at
 
 
 ## Where the ship flies while fighting section i: [distance ahead of the stern (negative: behind
-## it), height above the deck]. The engines are fought from behind the stern, level with them.
+## it), height above the deck]; across, `Capital.lane(id, i).x`. The engines are fought from
+## behind the stern, level with them; a flank from beside it, the belly from beneath.
 static func station(id: String, i: int) -> Vector2:
-	var secs: Array = FORTRESSES[id].sections
-	i = mini(i, secs.size() - 1)
-	if secs[i].kind == "core":
-		i -= 1
-	var fly := FLY
-	if secs[i].kind == "engines":
-		fly = -0.5
-	return Vector2(section_at(id, i) - LEAD - (10.0 if secs[i].kind == "engines" else 0.0), fly)
+	var l := Capital.lane(id, i)
+	return Vector2(l.along, l.y)
+
+
+## How high the deck flies in the chase: `CHASE_DECK`, or higher for a ship fought from beneath,
+## so the ship never comes within `LOW` m of the ground.
+const LOW := 12.0
+static func deck_of(id: String) -> float:
+	var low := 0.0
+	for i in FORTRESSES[id].sections.size():
+		var l := Capital.lane(id, i)
+		low = minf(low, l.y + l.reach.z)
+	return maxf(CHASE_DECK, LOW - low)
 
 
 ## The chase (third person, outside): how far the ship may move from its line (x either side, y up;
@@ -200,7 +410,11 @@ const SLOW_RESUME := 0.25
 const APPROACH := 2.8
 const AIM_AHEAD := 32.0
 const AIM_DIP := 0.12
-const AIM_ASSIST := 3.4
+## The aim assist only nudges the guns onto a target almost lined up (Guillaume, 2026-11-24: the
+## bosses were too easy, "there is some form of auto aim"): you have to fly onto your target.
+const AIM_ASSIST := 1.0
+## The fortress's fire is quicker than the stage's (Guillaume wanted a real challenge).
+const BOSS_FIRE := 1.15
 ## The ship's end (Guillaume, 2026-11-23: "die in the air and drift out of screen, not into the
 ## ground"): the reactor blows, a chain of blasts runs aft along the spine, and the hull breaks
 ## apart at its section seams, bow first. The pieces burn, spread apart, turn a little and sink a
@@ -346,16 +560,16 @@ const FOES := {
 	"drone": {"hp": 4.0, "r": 0.9, "score": 150, "scrap": 10},
 	"sentry": {"hp": 16.0, "r": 1.4, "score": 400, "scrap": 25},
 	"orb": {"hp": 1.0, "r": 0.35, "score": 10, "scrap": 0},
-	"panel": {"hp": 14.0, "r": 1.5, "score": 300, "scrap": 20},
-	"core": {"hp": 45.0, "r": 2.3, "score": 3000, "scrap": 200},
-	"nozzle": {"hp": 34.0, "r": 2.4, "score": 500, "scrap": 25},
-	"twin": {"hp": 26.0, "r": 1.8, "score": 400, "scrap": 20},
-	"quad": {"hp": 28.0, "r": 1.8, "score": 400, "scrap": 20},
-	"pod": {"hp": 26.0, "r": 1.8, "score": 450, "scrap": 20},
-	"mast": {"hp": 22.0, "r": 1.7, "score": 450, "scrap": 20},
-	"dish": {"hp": 34.0, "r": 2.2, "score": 600, "scrap": 30},
-	"pylon": {"hp": 20.0, "r": 1.7, "score": 500, "scrap": 25},
-	"hatch": {"hp": 30.0, "r": 2.3, "score": 450, "scrap": 20},
+	"panel": {"hp": 22.0, "r": 1.5, "score": 300, "scrap": 20},
+	"core": {"hp": 70.0, "r": 2.3, "score": 3000, "scrap": 200},
+	"nozzle": {"hp": 48.0, "r": 2.4, "score": 500, "scrap": 25},
+	"twin": {"hp": 38.0, "r": 1.8, "score": 400, "scrap": 20},
+	"quad": {"hp": 40.0, "r": 1.8, "score": 400, "scrap": 20},
+	"pod": {"hp": 38.0, "r": 1.8, "score": 450, "scrap": 20},
+	"mast": {"hp": 32.0, "r": 1.7, "score": 450, "scrap": 20},
+	"dish": {"hp": 48.0, "r": 2.2, "score": 600, "scrap": 30},
+	"pylon": {"hp": 30.0, "r": 1.7, "score": 500, "scrap": 25},
+	"hatch": {"hp": 42.0, "r": 2.3, "score": 450, "scrap": 20},
 	# landmarks on the coast (Models.marks): they don't fire, and don't count as kills
 	"lighthouse": {"hp": 70.0, "r": 2.0, "score": 500, "scrap": 25},
 	"house": {"hp": 30.0, "r": 2.2, "score": 150, "scrap": 10},

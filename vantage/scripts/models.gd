@@ -41,38 +41,85 @@ static func mat() -> StandardMaterial3D:
 
 
 ## The terrain material: matte, no rim, so the ground stays calm under the action. Where a vertex
-## is flagged as bare rock (alpha below 1: steep faces, see `ground_chunk`), it shows strata,
-## bands that follow the height, so canyon walls and cliffs read as layered rock.
-static func ground_mat() -> Material:
-	if not _cache.has("ground"):
-		var sh := Shader.new()
-		sh.code = """
+## is flagged as bare rock (alpha below 1: steep faces, see `ground_chunk`), it shows strata, bands
+## that follow the height, so canyon walls and cliffs read as layered rock. Where the
+## ground lies at the water line (`SEA_Y`, flat), it turns liquid by the theme (`LIQUIDS`): open water
+## gets a glossy sun highlight and slow drifting glints, lava glows and churns.
+const GROUND_SHADER := """
 shader_type spatial;
-render_mode diffuse_burley, specular_schlick_ggx;
-varying vec3 wp;
-void vertex() {
-	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+render_mode cull_back;
+uniform float sea_y = -0.4;
+uniform float water = 1.0;
+uniform float lava = 0.0;
+uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
+varying vec3 wpos;
+varying float flat_up;
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), c * (1.0 / 12.92), lessThan(c, vec3(0.04045)));
 }
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	flat_up = (MODEL_MATRIX * vec4(NORMAL, 0.0)).y;
+	// vertex colours are sRGB (as `vertex_color_is_srgb` does it)
+	if (!OUTPUT_IS_SRGB) {
+		COLOR.rgb = to_linear(COLOR.rgb);
+	}
+}
+
 void fragment() {
-	vec3 c = COLOR.rgb;
+	vec3 col = COLOR.rgb;
 	float rock = 1.0 - COLOR.a;
 	if (rock > 0.01) {
-		float y = wp.y + 0.35 * sin(wp.x * 0.23 + wp.z * 0.17) + 0.15 * sin(wp.z * 0.61);
+		float y = wpos.y + 0.35 * sin(wpos.x * 0.23 + wpos.z * 0.17) + 0.15 * sin(wpos.z * 0.61);
 		float band = fract(y * 0.62);
 		float k = mix(0.78, 1.1, smoothstep(0.1, 0.2, band)) * mix(1.0, 0.86, smoothstep(0.62, 0.7, band) * (1.0 - smoothstep(0.82, 0.9, band)));
 		// thicker beds of warmer and cooler rock
 		float bed = smoothstep(0.4, 0.5, fract(y * 0.23 + 0.3)) * (1.0 - smoothstep(0.75, 0.85, fract(y * 0.23 + 0.3)));
 		vec3 kc = vec3(k) * mix(vec3(1.0), vec3(1.07, 0.93, 0.82), bed);
-		c *= mix(vec3(1.0), kc, rock);
+		col *= mix(vec3(1.0), kc, rock);
 	}
-	ALBEDO = c;
-	ROUGHNESS = 0.95;
-	SPECULAR = 0.2;
+	float wet = (1.0 - smoothstep(sea_y + 0.01, sea_y + 0.12, wpos.y)) * smoothstep(0.92, 0.99, flat_up);
+	float t = TIME;
+	vec2 p = wpos.xz;
+	// two slow swells crossing, and finer ripples on them
+	float w1 = sin(p.x * 0.35 + p.y * 0.21 + t * 0.9) + sin(p.x * -0.18 + p.y * 0.42 - t * 0.7);
+	float w2 = sin(p.x * 1.7 - p.y * 1.1 + t * 2.3) * sin(p.x * 0.9 + p.y * 1.9 - t * 1.9);
+	vec3 n = normalize(vec3(cos(p.x * 0.35 + p.y * 0.21 + t * 0.9) * 0.06 + w2 * 0.05, 1.0,
+		cos(p.x * -0.18 + p.y * 0.42 - t * 0.7) * 0.06 + w2 * 0.04));
+	float aw = wet * water;
+	// crest glints: short thin streaks along the swell, where the ripples peak on it
+	float line = smoothstep(0.86, 1.0, sin(p.x * 0.31 + p.y * 0.62 + t * 0.8 + w2 * 0.6));
+	float crest = line * smoothstep(0.2, 0.9, w2 * 0.5 + 0.5) * smoothstep(-0.5, 1.5, w1);
+	col += glint * crest * 0.07 * aw;
+	ALBEDO = col;
+	NORMAL = mix(NORMAL, normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz), aw);
+	ROUGHNESS = mix(0.95, 0.32, aw);
+	SPECULAR = mix(0.2, 0.6, aw);
+	// lava: a dark crust broken by hot veins that crawl and pulse, glowing in the dark
+	float al = wet * lava;
+	float vein = smoothstep(0.55, 0.95, abs(sin(p.x * 0.45 + w1 * 0.9 + t * 0.25) * sin(p.y * 0.38 - w2 * 0.7 - t * 0.2)));
+	ALBEDO = mix(ALBEDO, col * mix(0.35, 1.1, vein), al);
+	EMISSION = col * al * (0.25 + vein * (1.3 + 0.3 * sin(t * 2.0 + p.x * 0.3)));
 }
 """
+const SEA_Y := -0.4
+## Each theme's liquid at the water line: water gloss and glints, or lava glow.
+const LIQUIDS := {"coast": [1.0, 0.0], "dunes": [0.0, 0.0], "city": [0.55, 0.0], "ice": [0.9, 0.0], "volcano": [0.0, 1.0]}
+
+
+static func ground_mat() -> ShaderMaterial:
+	if not _cache.has("ground"):
+		var sh := Shader.new()
+		sh.code = GROUND_SHADER
 		var m := ShaderMaterial.new()
 		m.shader = sh
+		m.set_shader_parameter("sea_y", SEA_Y)
 		_cache["ground"] = m
+	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
+	_cache["ground"].set_shader_parameter("water", lq[0])
+	_cache["ground"].set_shader_parameter("lava", lq[1])
 	return _cache["ground"]
 
 
@@ -170,6 +217,12 @@ static func blob(r: float, n: int, seed: float) -> PackedVector2Array:
 		out.append(Vector2(cos(a), sin(a)) * r * (0.72 + 0.5 * hash2(seed * 9.1 + i, i * 1.3)))
 	return out
 
+## Baked occlusion (`Builder.ao`): how dark a placed prop gets at its very base, how high (m) the
+## darkening reaches, and how tall a part must stand to shade the ground round it.
+const AO_BASE := 0.5
+const AO_H := 1.4
+const AO_TALL := 0.75
+const AO_FLAT := 0.15
 
 ## Collects coloured triangles from many parts into one flat-shaded mesh.
 class Builder:
@@ -177,7 +230,27 @@ class Builder:
 	var n := 0
 	## Where parts go: everything added is moved by this (scenery is built round its own origin,
 	## then turned and placed).
-	var xf := Transform3D.IDENTITY
+	var xf := Transform3D.IDENTITY:
+		set(v):
+			if ao > 0.0:
+				close_spot()
+			xf = v
+			ao = 0.0
+	## Baked ambient occlusion for things standing on the ground (`Models.place` turns it on):
+	## vertices darken towards the placement's base over `ao` metres, so walls, trunks and rocks
+	## sit in the ground instead of floating on it. Any new `xf` turns it off.
+	var ao := 0.0
+	## The footprint of each placement with `ao` on, seen from above, where it stands taller than
+	## `AO_TALL`: [origin at its base, height, (x, z) min, (x, z) max]. `Models.ao_blobs` turns them
+	## into soft dark patches on the ground (`take_spots`).
+	var spots: Array = []
+	# the open placement's footprint, kept in plain floats (this runs for every vertex)
+	var _oy := 0.0
+	var _top := 0.0
+	var _lx := INF
+	var _lz := INF
+	var _hx := -INF
+	var _hz := -INF
 	## False for things that sit on the ground: their bottom faces are never seen.
 	var bottoms := true
 	## False skips prism's bevelled top edge (small parts, built by the thousand, don't need it).
@@ -228,6 +301,61 @@ class Builder:
 			for k in r.size():
 				tri(mids[e[1]], r[k], r[(k + 1) % r.size()], colf.call(r[k]), o2)
 
+	## Starts occlusion for a placement at `xf` (`h`: how high the darkening reaches, metres).
+	func occlude(h: float) -> void:
+		ao = h
+		_oy = xf.origin.y
+		_top = 0.0
+		_lx = INF
+		_lz = INF
+		_hx = -INF
+		_hz = -INF
+
+	func close_spot() -> void:
+		if _lx <= _hx:
+			spots.append([Vector3(xf.origin.x, _oy, xf.origin.z), _top, Vector2(_lx, _lz), Vector2(_hx, _hz)])
+		_lx = INF
+		_hx = -INF
+
+	## The footprints so far (closing the open one).
+	func take_spots() -> Array:
+		if ao > 0.0:
+			close_spot()
+			ao = 0.0
+		return spots
+
+	func grow(p: Vector3) -> void:
+		var up := p.y - _oy
+		if up > AO_TALL:
+			_lx = minf(_lx, p.x)
+			_lz = minf(_lz, p.z)
+			_hx = maxf(_hx, p.x)
+			_hz = maxf(_hz, p.z)
+			_top = maxf(_top, up)
+
+	## Whether a triangle needs darkening: not if it lies flat on the ground (foam rings, paths,
+	## garden beds) or stands clear above `ao`. It also grows the footprint.
+	func occluded(a: Vector3, b: Vector3, c: Vector3) -> bool:
+		grow(a)
+		grow(b)
+		grow(c)
+		var lo := minf(a.y, minf(b.y, c.y)) - _oy
+		var hi := maxf(a.y, maxf(b.y, c.y)) - _oy
+		return lo < ao and hi > AO_FLAT
+
+	## A vertex colour darkened by how close the (world) point is to its placement's base, less so
+	## on faces open to the sky (`open`).
+	func shade(p: Vector3, col: Color, open := 0.0) -> Color:
+		var k := lerpf(AO_BASE, 1.0, maxf(smoothstep(-0.1, ao, p.y - _oy), open))
+		return Color(col.r * k, col.g * k, col.b * k, col.a)
+
+	## How open to the sky a face is (tops of rocks and roofs stay lit; walls darken at the base).
+	func sky(a: Vector3, b: Vector3, c: Vector3, out: Vector3) -> float:
+		var fn := (b - a).cross(c - a)
+		if fn.dot(out) < 0.0:
+			fn = -fn
+		return smoothstep(0.5, 0.95, fn.y / maxf(fn.length(), 1e-9))
+
 	## One triangle; `out` is roughly the direction its front faces.
 	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, out: Vector3) -> void:
 		a = xf * a
@@ -238,10 +366,19 @@ class Builder:
 			var t := b
 			b = c
 			c = t
-		st.set_color(col)
-		st.add_vertex(a)
-		st.add_vertex(c)
-		st.add_vertex(b)
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			st.set_color(shade(a, col, o))
+			st.add_vertex(a)
+			st.set_color(shade(c, col, o))
+			st.add_vertex(c)
+			st.set_color(shade(b, col, o))
+			st.add_vertex(b)
+		else:
+			st.set_color(col)
+			st.add_vertex(a)
+			st.add_vertex(c)
+			st.add_vertex(b)
 		n += 3
 
 	## A triangle with a colour per corner.
@@ -257,6 +394,11 @@ class Builder:
 			var u := cb
 			cb = cc
 			cc = u
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			ca = shade(a, ca, o)
+			cb = shade(b, cb, o)
+			cc = shade(c, cc, o)
 		st.set_color(ca)
 		st.add_vertex(a)
 		st.set_color(cc)
@@ -341,12 +483,102 @@ class Builder:
 		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 		st.set_color(col)
 		for i in idx.size():
-			st.add_vertex(xf * (at * v[idx[i]]))
+			var q := xf * (at * v[idx[i]])
+			if ao > 0.0:
+				grow(q)
+				st.set_color(shade(q, col))
+			st.add_vertex(q)
 		n += idx.size()
 
 	func commit() -> ArrayMesh:
 		st.generate_normals()
 		return st.commit()
+
+
+## Baked ambient occlusion for a model (ships, foes, bosses, landmarks): the mesh is dropped into
+## a coarse grid of cells (`AO_CELLS` along its longest side), then from each vertex a few rays go
+## out over its hemisphere; the sooner they hit the model itself, the darker the vertex, down to
+## `1 - AO_STRENGTH`. Creases, the feet of turrets and bridges, gun wells and the gaps between
+## parts darken; open plating stays as it was. Runs once per cached mesh (`cached`).
+const AO_CELLS := 44.0
+const AO_STRENGTH := 0.6
+const AO_STEPS := [0.8, 1.8, 3.2, 5.5]
+## The ray directions round +y (a hemisphere, slightly favouring the normal).
+const AO_DIRS := [Vector3(0, 1, 0), Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7),
+	Vector3(0, 0.7, -0.7), Vector3(0.9, 0.3, 0.3), Vector3(-0.9, 0.3, -0.3), Vector3(0.3, 0.3, -0.9),
+	Vector3(-0.3, 0.3, 0.9)]
+
+
+static func bake_ao(m: Mesh) -> Mesh:
+	if not (m is ArrayMesh) or m.get_surface_count() == 0:
+		return m
+	var aabb := m.get_aabb()
+	var cell := maxf(aabb.get_longest_axis_size() / AO_CELLS, 0.02)
+	var org := aabb.position - Vector3.ONE * cell * 2.0
+	var dim := Vector3i((aabb.size / cell).ceil()) + Vector3i(5, 5, 5)
+	var grid := PackedByteArray()
+	grid.resize(dim.x * dim.y * dim.z)
+	var surfs := []
+	for si in m.get_surface_count():
+		surfs.append(m.surface_get_arrays(si))
+	# the surface, rasterised by sampling each triangle finer than a cell
+	for arr: Array in surfs:
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var nt := idx.size() / 3 if idx.size() > 0 else vs.size() / 3
+		for t in nt:
+			var a := vs[idx[t * 3] if idx.size() > 0 else t * 3]
+			var b := vs[idx[t * 3 + 1] if idx.size() > 0 else t * 3 + 1]
+			var c := vs[idx[t * 3 + 2] if idx.size() > 0 else t * 3 + 2]
+			var steps := ceili(maxf((b - a).length(), (c - a).length()) / (cell * 0.7)) + 1
+			for i in steps + 1:
+				for j in steps + 1 - i:
+					var q := a + (b - a) * (float(i) / steps) + (c - a) * (float(j) / steps)
+					var g := Vector3i(((q - org) / cell).floor())
+					grid[(g.z * dim.y + g.y) * dim.x + g.x] = 1
+	var out := ArrayMesh.new()
+	for si in surfs.size():
+		var arr: Array = surfs[si]
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		if arr[Mesh.ARRAY_COLOR] == null or ns.is_empty():
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		var seen := {}
+		for v in vs.size():
+			var key := Vector3i(((vs[v] - org) / (cell * 0.25)).round()) * 8 + Vector3i((ns[v] * 3.0).round())
+			var k: float = seen.get(key, -1.0)
+			if k < 0.0:
+				k = 1.0 - AO_STRENGTH * occlusion(grid, dim, org, cell, vs[v], ns[v])
+				seen[key] = k
+			cs[v] = Color(cs[v].r * k, cs[v].g * k, cs[v].b * k, cs[v].a)
+		arr[Mesh.ARRAY_COLOR] = cs
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		var mt := m.surface_get_material(si)
+		if mt:
+			out.surface_set_material(si, mt)
+	return out
+
+
+## How shut in a point is (0 open, 1 buried): the share of rays from it that hit the grid, nearer
+## hits counting more.
+static func occlusion(grid: PackedByteArray, dim: Vector3i, org: Vector3, cell: float, p: Vector3, n: Vector3) -> float:
+	var basis := Basis.looking_at(n, Vector3.UP if absf(n.y) < 0.95 else Vector3.RIGHT)
+	# looking_at points -z along n: map the table's +y onto n
+	var occ := 0.0
+	for d: Vector3 in AO_DIRS:
+		var dir := (basis * Vector3(d.x, d.z, -d.y)).normalized()
+		var w := 1.0
+		for st: float in AO_STEPS:
+			var g := Vector3i(((p + n * cell * 1.01 + dir * st * cell - org) / cell).floor())
+			if g.x < 0 or g.y < 0 or g.z < 0 or g.x >= dim.x or g.y >= dim.y or g.z >= dim.z:
+				break
+			if grid[(g.z * dim.y + g.y) * dim.x + g.x] == 1:
+				occ += w
+				break
+			w *= 0.75
+	return occ / AO_DIRS.size()
 
 
 static func ngon(r: float, n: int, rot := 0.0) -> PackedVector2Array:
@@ -444,8 +676,16 @@ static func shadow_plane_mat(mask: Texture2D) -> ShaderMaterial:
 
 static func cached(key: String, f: Callable) -> Mesh:
 	if not _cache.has(key):
-		_cache[key] = f.call()
+		var m: Mesh = f.call()
+		# every solid model gets its occlusion baked in; glowing things (shots, lights) don't need it
+		if not NO_AO.any(func(p: String) -> bool: return key.begins_with(p)):
+			m = bake_ao(m)
+		_cache[key] = m
 	return _cache[key]
+
+
+## Cached meshes left without baked occlusion: unshaded glows and effects.
+const NO_AO := ["halo", "shot", "ring", "scrap", "cap_glow", "cap_lights", "cap_bubble", "contact"]
 
 
 # ---------------------------------------------------------------- the player's ship
@@ -915,6 +1155,15 @@ const PAINTS := {
 	"iron": [Color8(0x4c, 0x4a, 0x4c), Color8(0x34, 0x32, 0x34), Color8(0x1e, 0x1c, 0x1e)],
 	"olive": [Color8(0x86, 0x8e, 0x58), Color8(0x5a, 0x62, 0x3c), Color8(0x36, 0x3a, 0x26)],
 	"cobalt": [Color8(0x3a, 0x5a, 0x8e), Color8(0x26, 0x38, 0x5c), Color8(0x16, 0x20, 0x34)],
+	"pearl": [Color8(0xd8, 0xe2, 0xea), Color8(0xa8, 0xb8, 0xc6), Color8(0x4c, 0x5a, 0x68)],
+	"teal": [Color8(0x4e, 0x8c, 0x90), Color8(0x2e, 0x5e, 0x66), Color8(0x1a, 0x34, 0x3a)],
+	"sand": [Color8(0xc8, 0xa8, 0x78), Color8(0x8e, 0x6c, 0x48), Color8(0x4a, 0x36, 0x26)],
+	"bronze": [Color8(0x9a, 0x7a, 0x4a), Color8(0x5e, 0x4c, 0x36), Color8(0x2e, 0x26, 0x1e)],
+	"graphite": [Color8(0x5e, 0x62, 0x6a), Color8(0x3c, 0x40, 0x48), Color8(0x22, 0x24, 0x2a)],
+	"crimson": [Color8(0x9a, 0x3c, 0x3a), Color8(0x62, 0x26, 0x28), Color8(0x2e, 0x16, 0x18)],
+	"frost": [Color8(0xe6, 0xf0, 0xf6), Color8(0x9c, 0xb6, 0xcc), Color8(0x4a, 0x5e, 0x74)],
+	"violet": [Color8(0x6a, 0x5a, 0x9a), Color8(0x44, 0x3a, 0x6a), Color8(0x24, 0x1e, 0x3a)],
+	"basalt": [Color8(0x48, 0x42, 0x40), Color8(0x30, 0x2a, 0x2a), Color8(0x18, 0x14, 0x14)],
 }
 const HULL_N := 32
 const WING_N := 14
@@ -1288,6 +1537,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
+	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = gv
@@ -1295,6 +1545,83 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	arr[Mesh.ARRAY_COLOR] = gc
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+
+## The last `ground_chunk`'s contact shadows (`ao_blobs`), for `Game.update_chunks` to hang under it.
+static var ao_mesh: Mesh
+
+
+## Baked contact occlusion: a soft dark disc on the ground under each placed prop, as wide as
+## what stands on it and darker the taller it is, following the ground's height (`ground_h`).
+## One see-through mesh a chunk, drawn with `ao_mat`.
+static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	for sp: Array in spots:
+		var lo: Vector2 = sp[2]
+		var hi: Vector2 = sp[3]
+		var base: Vector3 = sp[0]
+		var c := (lo + hi) * 0.5
+		var r := maxf(hi.x - lo.x, hi.y - lo.y) * 0.5 * AO_SPREAD + 0.3
+		var a := clampf(0.2 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		var on_ground := func(x: float, z: float) -> Vector3:
+			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
+		# a soft falloff: an inner ring at 55% of the radius still holds 60% of the shade
+		var mid: Vector3 = on_ground.call(c.x, c.y)
+		var inner := []
+		var ring := []
+		for k in AO_SEG:
+			var ang := TAU * k / AO_SEG
+			inner.append(on_ground.call(c.x + cos(ang) * r * 0.55, c.y + sin(ang) * r * 0.55))
+			ring.append(on_ground.call(c.x + cos(ang) * r, c.y + sin(ang) * r))
+		var dark := Color(0, 0, 0, a)
+		var half := Color(0, 0, 0, a * 0.6)
+		var clear := Color(0, 0, 0, 0)
+		for k in AO_SEG:
+			var k1 := (k + 1) % AO_SEG
+			for t: Array in [[mid, dark, inner[k], half, inner[k1], half],
+					[inner[k], half, ring[k], clear, ring[k1], clear],
+					[inner[k], half, ring[k1], clear, inner[k1], half]]:
+				for v in 3:
+					st.set_color(t[v * 2 + 1])
+					st.add_vertex(t[v * 2])
+			n += 9
+	if n == 0:
+		return null
+	return st.commit()
+
+
+## A contact shadow for a model standing on something else (a gun on a fortress's deck): a soft disc
+## on y = 0 as wide as the model seen from above, cached by `key`.
+static func contact(key: String, m: Mesh) -> Mesh:
+	return cached("contact_" + key, func() -> Mesh:
+		var bx := m.get_aabb()
+		var lo := Vector2(bx.position.x, bx.position.z)
+		var hi := lo + Vector2(bx.size.x, bx.size.z)
+		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0))
+
+
+const AO_SEG := 10
+## Contact shadows: how far past the prop's own footprint they spread, their darkest, their lift
+## off the ground (above the low poly ground's facets).
+const AO_SPREAD := 1.35
+const AO_DARK := 0.42
+const AO_LIFT := 0.1
+
+
+## The contact shadows' material: black, see-through by vertex alpha, fogged like the ground.
+static func ao_mat() -> StandardMaterial3D:
+	if not _cache.has("ao"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.vertex_color_use_as_albedo = true
+		m.albedo_color = Color.WHITE
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		m.render_priority = -10
+		_cache["ao"] = m
+	return _cache["ao"]
 
 
 # ---------------------------------------------------------------- scenery
@@ -1427,6 +1754,7 @@ static func ruin(kind: String) -> Mesh:
 
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
 	b.xf = Transform3D(Basis(Vector3.UP, ang) * Basis.from_scale(Vector3(PROP_SCALE, PROP_V, PROP_SCALE)), pos)
+	b.occlude(AO_H)
 
 
 ## What grows or stands on one terrain cell, from the noise heights at its corners `h`;

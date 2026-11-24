@@ -21,11 +21,23 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss: a capital ship
   (Guillaume, 2026-11-23, after rejecting the flying fortress as "a glorified transport with the same useless
   tunnel": "a huge fortress class ship, you clear it sections per sections as you advance along the ship").
-  Five designs (`Rules.FORTRESSES`: Goliath dreadnought, Zephyr sky carrier, Talon missile cruiser,
-  Leviathan super-dreadnought, Wyvern raider), 200-250 m long and wider than the screen (`FORTRESS_HW`), each
-  with its hull look (`hull`: slab, wedge, round), paint, accent, drone rate and its own list of sections from
-  stern to bow: `engines` (nozzles on the stern's face, fought from behind it), `hangar`, `guns`, `missiles`,
-  `lances`, then the `bridge`, whose armour breaks off to show the reactor (`core`, behind four shield panels).
+  One for each level (Guillaume, 2026-11-24: "I want a different boss per level. You can advance over it, on
+  the sides..."; `Campaign.FORTRESS_ORDER`), 15 in `Rules.FORTRESSES`, 200-290 m long: plated-deck ships
+  (`hull`: slab, wedge, round, keel: Goliath, Zephyr, Talon, Leviathan, Wyvern, Sirocco galleon, Narwhal
+  icebreaker) and ships of smooth lofted `bodies` (`Capital.body_at`: Albatross airship, Marlin catamaran,
+  Scarab beetle, Manta flying wing, Trident trimaran, Aurora pod chain, Basilisk serpent, Behemoth with
+  nacelles), with `extras` (fins, masts and sails, tusk, crystals, legs and horn, spines, rings). No blocky
+  shapes, no tunnels. Each section has a `route`, the lane the ship takes past it (`Capital.lane`): `stern`
+  (behind it), `top`, `left`/`right` (along a flank, `FLANK` out from its widest), `under` (`UNDER` below it,
+  guns slung upside down, the lane's guns dip up) or `gap` (between two hulls); `x`/`y` place it. Guns are
+  given by route and stand on the hull where the lane meets it (`Capital.mount`: on the top with a ring, on a
+  sponson in one line out from a flank, hung under the belly). Between sections the ship glides the shortest
+  way round that stays `GLIDE_M` clear of the hull (`Capital.glide`: straight, across first, over the top,
+  round a flank; longer ways take longer), the camera and the guns' dip blend to the next lane, and the reach
+  is drawn in on the way. The deck flies higher for ships fought from beneath (`Rules.deck_of`), so the ship
+  stays `Rules.LOW` m off the ground. Sections from stern to bow: `engines`, `hangar`, `guns`, `missiles`,
+  `lances`, `battery`, `bays`, `spires`, then the heart: the `bridge` (on top) or a `gondola` (the reactor
+  slung under the hull), whose armour breaks off to show the reactor (`core`, behind four shield panels).
   Each section lists its guns (`Rules.SHIP_GUNS`: nozzle, twin, quad, pod, mast, dish, pylon, hatch; looks in
   `Capital.gun`, patterns in `Game.think_gun`); a `pylon` shields the rest of its section until it falls
   (`Game.fort_guarded`), a `hatch` launches drones. Only the current section's guns fire, take hits and get
@@ -46,6 +58,9 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
+- The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
+  fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
+  to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
 
 ## Pull requests
 
@@ -76,12 +91,14 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
+godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
+godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
 godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
 ```
 
@@ -95,7 +112,8 @@ Every mid-boss as it arrives and after its first section: same command with `too
 The final boss alone, without playing the stage (arrival, swoop, each section and the glide to it, overviews
 with no fog, the break-up): same command with `tools/fortress_shots.gd -- /tmp/fortress [id]`. Every fortress
 side by side (from above, behind its stern, an overview, over its second and third sections):
-`tools/fortress_lineup.gd -- /tmp/fortresses`.
+`tools/fortress_lineup.gd -- /tmp/fortresses [id]` (from above, the chase, overviews from above and below, each
+section from its lane).
 
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
@@ -125,8 +143,8 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   Clearing a level opens and selects the next. Old saves with a clear start in world 2.
 - The hangar's timeline (`Hud.build_campaign`): ‹ world › and the world's three levels; selecting one
   shows its world behind the menu. `Game.launch(lv)` plays a level (default: the selected one).
-- Each level also has its own fortress (`fortress_of`, `FORTRESS_ORDER`: three different ones per world,
-  and no two levels with the same pair of bosses); 1-3 keeps the Goliath.
+- Each level also has its own fortress (`fortress_of`, `FORTRESS_ORDER`: fifteen, one a level); 1-3 keeps the
+  Goliath.
 - Foes (Guillaume, 2026-11-23: "I keep meeting the same enemies", then "staggered types", added on
   top of the first ones, never replacing them): `scripts/foes.gd` (`Foes`). Each level debuts one new kind
   (`Foes.INTRO`, a world's three are its own: seaplanes, gyrocopters and pillboxes on the coast; scarab
@@ -282,7 +300,11 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
 - The mid-boss and its guns are never culled (`Game.gone`): it spawns far above the top on a tall phone, and
   a culled gun left its section unbeatable (Guillaume stuck on 2-1, tested).
 - Hits flash: `Obj.hit` puts `Models.hit_mat()` over the foe's mesh for a moment.
-- Every fortress gun must be within the chase's reach from its section's station (tested in `aiming`).
+- Every fortress gun must be within the chase's reach from its section's lane (tested in `aiming`), every lane
+  and glide clear of the hull, and no gun may hide a shield pylon from the lane (tests/bosses_test.gd).
+- Bosses are a real challenge (Guillaume, 2026-11-24: "I can shoot down their bullets, there is some form of
+  auto aim"): the fortress's shots can't be shot down (only rockets, 3 hits), the aim assist is only
+  `Rules.AIM_ASSIST` (1 m), its guns are tougher and fire faster (`BOSS_FIRE`).
 - No shadow maps. With `shadow_enabled` on the sun, the Compatibility renderer ignores
   `vertex_color_is_srgb` in the shadowed light pass and every colour washes out to cyan (and shadow
   maps cost on phones). Models get silhouette shadows instead: `Game.cast_shadow_of` adds a flattened
@@ -298,6 +320,26 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   soft (Guillaume found hard facets too triangular): normals are 80% the land's broad shape (from the
   height field, so chunks meet seamlessly) and 20% facet, colours blend per vertex in narrow bands,
   hollows are darkened. No random per-facet shade.
+- Baked occlusion (Guillaume, 2026-11-24: "keep improving the graphics, like baked AO"): no SSAO in
+  the Compatibility renderer, so it is baked into the meshes. `Models.place` (and `City.Ctx.at` for
+  buildings) calls `Builder.occlude`: until the next `xf`, vertex colours darken towards the
+  placement's base over `AO_H` m (down to `AO_BASE`), except faces open to the sky and parts lying
+  flat on the ground (foam rings, paths). Unplaced models (ships, bosses, landmarks) are untouched.
+  Each placement's footprint (what stands over `AO_TALL`) becomes a soft see-through disc on the
+  ground (`Models.ao_blobs`, one mesh a chunk, the chunk's `ao` child). Costs ~10% of a chunk's build.
+- Models are baked too: every mesh built through `Models.cached` (ships, foes, boss hulls and pieces,
+  fortress segments and guns, towers, landmarks) goes through `Models.bake_ao`, a coarse voxel grid
+  (`AO_CELLS` along its longest side) and a few short rays per vertex over its hemisphere; creases and
+  feet of parts darken by up to `AO_STRENGTH`. Glows and effects are skipped (`NO_AO`). It costs ~5-35 ms
+  a mesh on desktop, once; the fortress is built at `launch`. Separate meshes don't shade each other,
+  so a fortress deck gun gets a contact disc on the deck (`Models.contact`, the gun's `ao` child).
+- Per-world colour grading (`adjustment_color_correction`, split toning) was tried on 2026-11-24 and
+  dropped: in the Compatibility renderer it lifted the blacks and washed every world out.
+- The ground is a shader (`Models.GROUND_SHADER`): where it lies flat at the water line (`SEA_Y`) it
+  turns liquid by world (`LIQUIDS`): glossy water with drifting crest glints, or crusted, glowing
+  lava. The dunes' dry washes sit at the same height and stay dry. Vertex colours are converted from
+  sRGB in `vertex()` only when `!OUTPUT_IS_SRGB` (as the standard material does), or the colours go dark.
+- A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
   spine, the seams part bow first (`SEAM_GAP`), each segment drifts apart, turns, sinks a little, scorched and

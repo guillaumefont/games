@@ -20,9 +20,10 @@ const BOSS_HP := [0.75, 0.9, 1.0]
 ## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a
 ## world's three levels have three different ones and each world starts on a new one.
 const MIDBOSS_ORDER := ["mantis", "halo", "bastion", "twin", "hammer"]
-## The fortresses' order (`Rules.FORTRESSES`): level k of world w gets the (w + 2k)th, so a world's
-## three levels end on three different fortresses, and no two levels have the same pair of bosses.
-const FORTRESS_ORDER := ["talon", "wyvern", "zephyr", "leviathan", "goliath"]
+## The fortresses, one for each level in order (Guillaume, 2026-11-24: "a different boss per
+## level"); 1-3, the hand-made sector, keeps the Goliath.
+const FORTRESS_ORDER := ["albatross", "marlin", "goliath", "sirocco", "scarab", "talon", "manta", "zephyr", "trident",
+	"narwhal", "wyvern", "aurora", "basilisk", "leviathan", "behemoth"]
 
 ## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
 ## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
@@ -65,7 +66,7 @@ static func midboss(lv: int) -> Dictionary:
 
 ## The level's fortress id (a key of `Rules.FORTRESSES`).
 static func fortress_of(lv: int) -> String:
-	return FORTRESS_ORDER[(lv / PER_WORLD + 2 * (lv % PER_WORLD)) % FORTRESS_ORDER.size()]
+	return FORTRESS_ORDER[clampi(lv, 0, FORTRESS_ORDER.size() - 1)]
 
 
 static func fortress(lv: int) -> Dictionary:
