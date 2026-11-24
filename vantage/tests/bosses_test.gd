@@ -276,10 +276,39 @@ func fight() -> void:
 	await process_frame
 
 
+## Guillaume: "I don't want the ship to be hit during fortress transitions".
+func transits() -> void:
+	print("no hits between sections")
+	var g := make_game()
+	await process_frame
+	to_chase(g, Campaign.FORTRESS_ORDER.find("albatross"))
+	check(not g.transit(), "at its first section, the ship can be hit")
+	g.inv = 0.0
+	var hp0: int = g.hp
+	for p in g.fort_parts.duplicate():
+		g.damage(p, 99999.0)
+	g.step(DT)
+	var gliding: bool = g.transit()
+	var shot3 := g.shoot(g.ppos, Vector3(0, 0, 1), 0.0)
+	g.collide(DT)
+	g.hurt()
+	check(gliding and g.hp == hp0 and not shot3.dead, "gliding on to the next section, shots pass through the ship")
+	shot3.dead = true
+	while g.transit():
+		g.step(DT)
+	var shot4 := g.shoot(g.ppos, Vector3(0, 0, 1), 0.0)
+	g.collide(DT)
+	check(g.hp == hp0 - 1 and shot4.dead, "once there, they hit again")
+	g.hp = hp0
+	g.queue_free()
+	await process_frame
+
+
 func _initialize() -> void:
 	print("Vantage bosses test")
 	roster()
 	lanes()
 	await fight()
+	await transits()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

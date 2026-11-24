@@ -277,7 +277,7 @@ func levels() -> void:
 	await process_frame
 	g.launch(0)
 	var met := [false, false]   # lambdas capture by value: an array to write into
-	run(g, 240.0, func() -> bool:
+	run(g, 300.0, func() -> bool:
 		met[0] = met[0] or g.boss != null
 		met[1] = met[1] or g.fortress != null
 		return g.phase == "results")

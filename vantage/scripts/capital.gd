@@ -670,6 +670,8 @@ const GLIDE_V := 44.0
 static var _loops := {}
 static var _lanes := {}
 static var _mounts := {}
+static var _rigging := {}
+static var _crest := {}
 
 
 static func lofted(id: String) -> bool:
@@ -795,8 +797,16 @@ static func bottom_y(id: String, d: float, x: float) -> float:
 	return -300.0 + t if t < INF else INF
 
 
-## Whether p (x, y) is in the hull at d, or within `margin` of it.
+## Whether p (x, y) is in the hull at d or its rigging, or within `margin` of it.
 static func inside(id: String, d: float, p: Vector2, margin: float) -> bool:
+	for bx: AABB in rigging(id):
+		if bx.grow(margin).has_point(Vector3(p.x, p.y, d)):
+			return true
+	return in_hull(id, d, p, margin)
+
+
+## Whether p is in the hull itself (not its rigging; shots fly through sails), or within `margin`.
+static func in_hull(id: String, d: float, p: Vector2, margin: float) -> bool:
 	for loop: PackedVector2Array in loops(id, d):
 		if Geometry2D.is_point_in_polygon(p, loop):
 			return true
@@ -807,12 +817,65 @@ static func inside(id: String, d: float, p: Vector2, margin: float) -> bool:
 	return false
 
 
+## What stands up off the hull that the ship must keep clear of besides the hull itself: a
+## galleon's masts and their fin sails (`extras`), as boxes (x, y, d m from the stern).
+static func rigging(id: String) -> Array:
+	if _rigging.has(id):
+		return _rigging[id]
+	var out: Array = []
+	for z: float in mast_spots(id):
+		for sx: float in [-1.0, 1.0]:
+			var x0 := MAST_X - 1.5 if sx > 0.0 else -MAST_X - 8.5
+			out.append(AABB(Vector3(x0, 0.0, z - 9.5), Vector3(10.0, 31.0, 11.0)))
+	_rigging[id] = out
+	return out
+
+
+## Where a galleon's masts stand (m from the stern), and how far out either side.
+const MAST_X := 15.0
+static func mast_spots(id: String) -> Array:
+	if "masts" not in fort(id).get("extras", []):
+		return []
+	var L := Rules.fortress_len(id)
+	return [L * 0.48, L * 0.63]
+
+
+## The highest the ship's meshes stand over its middle (|x| < `CREST_X`: the bridge's mast) or
+## its rigging stands anywhere.
+const CREST_X := 14.0
+static func crest(id: String) -> float:
+	if _crest.has(id):
+		return _crest[id]
+	var top := 0.0
+	for k in hull_count(id):
+		var m := segment(id, k)
+		for sf in m.get_surface_count():
+			for v: Vector3 in m.surface_get_arrays(sf)[Mesh.ARRAY_VERTEX]:
+				if absf(v.x) < CREST_X:
+					top = maxf(top, v.y)
+	# and the masts beside it, which lean in over the middle as the wreck rolls
+	for bx: AABB in rigging(id):
+		top = maxf(top, bx.end.y)
+	_crest[id] = top
+	return top
+
+
+## How far out the hull reaches either side anywhere along it.
+static func widest(id: String) -> float:
+	var e := 0.0
+	var d := 0.0
+	while d <= Rules.fortress_len(id):
+		e = maxf(e, extent(id, d))
+		d += 2.0
+	return e
+
+
 ## Whether the hull leaves a clear line between two points of the model (a gun and the ship):
 ## guns don't fire through their own ship.
 static func sees(id: String, a: Vector3, b: Vector3) -> bool:
 	for k in range(1, 10):
 		var p := a.lerp(b, 0.08 + 0.09 * k)
-		if inside(id, -p.z, Vector2(p.x, p.y), 0.0):
+		if in_hull(id, -p.z, Vector2(p.x, p.y), 0.0):
 			return false
 	return true
 
@@ -1017,6 +1080,10 @@ static func glide(id: String, a: Vector3, b: Vector3) -> PackedVector2Array:
 			high = maxf(high, top_y(id, d, xx) + GLIDE_M + 4.0)
 			xx += 4.0
 		d += 4.0
+	# over the masts and sails too
+	for bx: AABB in rigging(id):
+		if bx.position.z < maxf(a.z, b.z) + 10.0 and bx.end.z > minf(a.z, b.z) - 10.0:
+			high = maxf(high, bx.end.y + GLIDE_M)
 	var cands: Array = [
 		PackedVector2Array([A, Bp]),
 		PackedVector2Array([A, Vector2(Bp.x, A.y), Bp]),
@@ -1340,11 +1407,13 @@ static func extras(b: B, id: String, i: int) -> void:
 						b.prism(Vector3.ZERO, poly([[15.5, -1.2], [17.6, -1.0], [18.0, -9.0], [16.6, -9.6]]), -0.5, 0.5, accent)
 						b.xf = keep
 			"masts":
-				# a galleon's masts, yards and fin sails, leaning out over the rails
-				if not last:
-					var z := (r.x + r.y) * 0.5 + 4.0
+				# a galleon's masts, yards and fin sails over the rails, forward by the bridge where the
+				# ship's way round the hull never crosses them (`rigging`)
+				for z: float in mast_spots(id):
+					if z < r.x or z >= r.y:
+						continue
 					for sx: float in [-1.0, 1.0]:
-						var x := sx * 14.0
+						var x := sx * MAST_X
 						b.prism(Vector3(x, 0, -z), Models.ngon(0.7, 8), 0.0, 30.0, (pt[2] as Color).lightened(0.1), Vector2(0.45, 0.45))
 						b.prism(Vector3(x, 0, -z), Models.ngon(1.4, 8), 0.0, 1.0, pt[2])
 						b.box(Vector3(x, 26.0, -z), Vector3(1.0, 0.4, 10.0), pt[2])

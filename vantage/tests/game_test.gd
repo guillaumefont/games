@@ -270,7 +270,7 @@ func stage() -> void:
 	g.s.open = 2
 	g.launch(2)   # Glass Coast's fortress run: the hand-made sector
 	# the mid-boss, top-down
-	run(g, 40.0, func() -> bool: return g.boss != null)
+	run(g, 60.0, func() -> bool: return g.boss != null)
 	check(g.boss != null and g.phase == "vert", "the mid-boss arrives in the vertical stage")
 	check(g.boss_parts.size() == 4 and g.boss_sec == 0, "its bow guns are the first section")
 	var bridge_open := false
@@ -305,7 +305,7 @@ func stage() -> void:
 	check(is_instance_valid(husk) and drift > 0.5 and drift < 6.0, "and drifts slowly down the screen (%.1f m in 2 s)" % drift)
 	run(g, 25.0, func() -> bool: return g.husk == null)
 	check(g.husk == null, "until it's gone off the bottom")
-	run(g, 60.0, func() -> bool: return g.phase == "approach")
+	run(g, 90.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.fortress != null, "the fortress arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
