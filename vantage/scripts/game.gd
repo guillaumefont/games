@@ -328,6 +328,8 @@ void sky() {
 	blasts.cam = cam
 	add_child(blasts)
 	add_vignette()
+	fit_render_scale()
+	get_viewport().size_changed.connect(fit_render_scale)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = Hud.new()
@@ -628,6 +630,35 @@ func _process(delta: float) -> void:
 	if driven:
 		return
 	tick(minf(delta, 0.05))
+	Engine.max_fps = fps_cap()
+
+
+# ---------------------------------------------------------------- battery
+
+## Frames a second in flight. Without a cap a phone with a 90 or 120 Hz screen draws every
+## refresh, up to twice the frames (and the power) for no visible gain in this game.
+const PLAY_FPS := 60
+## Frames a second where little moves: the hangar, the results and a full pause.
+const IDLE_FPS := 30
+## The 3D view is drawn at most this many pixels wide, then scaled up to the screen: a
+## 1440 px phone screen would otherwise shade 1.8 times the pixels of a 1080 px one, for a
+## low poly world that looks the same. 1080 px wide screens and smaller draw at full size.
+const MAX_3D_W := 1080.0
+
+
+func fps_cap() -> int:
+	return IDLE_FPS if phase in ["hangar", "results"] or paused() else PLAY_FPS
+
+
+## The share of the screen's width the 3D view is drawn at.
+static func render_scale(screen_w: float) -> float:
+	return clampf(MAX_3D_W / maxf(screen_w, 1.0), 0.5, 1.0)
+
+
+func fit_render_scale() -> void:
+	var vp := get_viewport()
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = render_scale(get_window().size.x)
 
 
 ## One frame of real time: the keys, then the world at the slow-motion rate. Fully paused, the
@@ -840,12 +871,12 @@ func run_waves() -> void:
 			continue
 		for i in int(w.n):
 			queue.append({"at": stage_t + i * float(w.gap), "kind": w.kind, "x": float(w.x), "i": i, "n": int(w.n),
-				"from": w.get("from", "top")})
+				"from": w.get("from", "top"), "form": w.get("form", "")})
 		wave_i += 1
 	var rest := []
 	for q: Dictionary in queue:
 		if stage_t >= q.at:
-			spawn_vert(q.kind, q.x, q.i, q.n, q.from)
+			spawn_vert(q.kind, q.x, q.i, q.n, q.from, q.get("form", ""))
 		else:
 			rest.append(q)
 	queue = rest
@@ -885,7 +916,7 @@ func new_foe(kind: String, mesh: Mesh) -> Obj:
 	return f
 
 
-func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
+func spawn_vert(kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
 	var top := frame_z + minf(view_top, Rules.Z_TOP) - 2.5
 	match kind:
 		"dart":
@@ -905,6 +936,8 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 					# overtake from behind, up a lane at the side, then fire back down
 					var lane := x + (i % 2) * 1.2
 					f.pos = Vector3(lane, Rules.PY, frame_z + maxf(view_bot, Rules.Z_BOT) + 2.0)
+					# its place in the line they hold in, spread across the screen
+					f.x0 = (i - (n - 1) * 0.5) * minf(2.4, 11.0 / maxf(n - 1, 1))
 					f.vel = Vector3(0, 0, -14.0)
 					f.fire_t = 1.6 + 0.1 * i
 		"swing":
@@ -942,7 +975,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			sound.play("warning")
 			sound.music("carrier")
 		_:
-			Foes.spawn(self, kind, x, i, n, from)
+			Foes.spawn(self, kind, x, i, n, from, form)
 			# each level brings in a new kind of foe: announced the first time it shows
 			if kind == Campaign.debut(level) and not debuted:
 				debuted = true
@@ -1228,18 +1261,24 @@ func think(f: Obj, dt: float) -> void:
 			if f.vel.z < 0.0 or f.hold >= 0.0:
 				# from behind: overtake up a side lane, brake and hold in the upper screen
 				# (weaving, firing), then climb away off the top
-				var hz := hold_z(8.0) + (f.idx % 3) * 1.6
+				var hz := hold_z(8.0) + (f.idx % 2) * 1.6
+				if f.hold < 0.0 and z < view_mid:
+					# up past the ship: start across to its place in the line
+					f.vel.x = (f.x0 - f.pos.x) * 1.2
 				if f.hold < 0.0 and z <= hz + 3.5:   # brake early: it overshoots a little
 					f.hold = f.t   # time it reached its hold
 				if f.hold >= 0.0:
 					var held := f.t - f.hold
 					var vz := -0.6 if held < 3.5 else -9.0
 					f.vel.z = lerpf(f.vel.z, vz, minf(1.0, dt * 3.0))
-					f.vel.x = cos(held * 1.8 + f.idx) * 2.2
+					# slide out to its place in the line, then weave in step with the rest
+					f.vel.x = (f.x0 - f.pos.x) * 1.5 + cos(held * 1.8) * 1.2
 					if held > 0.6 and f.t >= f.fire_t and f.fire_t > 0:
 						f.fire_t = f.t + 1.6
 						aimed(f.pos, 9.5)
 			f.pos += f.vel * dt
+			if f.vel.z < 0.0 or f.hold >= 0.0:
+				Foes.keep_apart(self, f, 2.0, dt)
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), 0)
 			if f.vel.z >= 0.0 and f.hold < 0.0:
 				# from a side: a slow sweep across with a gentle dip
