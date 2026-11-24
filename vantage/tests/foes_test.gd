@@ -137,6 +137,54 @@ func each_kind() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-24): foes that fly in and hold stopped "much too far from the ship" near the
+## top of tall screens. They hold a few metres above the screen's centre, and come in from a side
+## when the way down from the top edge is too long.
+func holds() -> void:
+	print("holders stop near the screen's centre, from a side on tall screens")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	for tall in [false, true]:
+		for kind: String in ["rotor", "scarab", "lancer", "prism", "heavy", "gunship"]:
+			g.clear_all()
+			g.queue.clear()
+			g.wave_i = g.waves.size()
+			g.update_view()
+			if tall:
+				# a 9:20 phone: the top edge far above the ship
+				g.view_top = -29.0
+				g.view_hw_top = 12.6
+			var mid := g.view_mid
+			g.spawn_vert(kind, 2.0, 0, 2, "top")
+			var f: Game.Obj = g.foes[g.foes.size() - 1]
+			f.hp = 1e6
+			var start := f.pos - Vector3(0, 0, g.frame_z)
+			var from_side := absf(start.x) > g.view_hw(start.z) + 1.0
+			if tall:
+				check(from_side or kind == "heavy" and absf(start.x) > 9.0, "%s: in from a side on a tall screen (x %.1f)" % [kind, start.x])
+			else:
+				check(not g.side_entry(f.goal.z) or from_side, "%s: from the top only when the way down is short" % kind)
+			var t := 0.0
+			var near := 1e9
+			while t < 2.6:
+				g.hp = 5
+				g.inv = 1.0
+				g.step(DT)
+				t += DT
+				if tall:
+					g.view_top = -29.0
+					g.view_hw_top = 12.6
+			var z := f.pos.z - g.frame_z
+			near = z - mid
+			check(near > -10.0 and near < 4.0 and absf(f.pos.x) < 8.0,
+				"%s: holds near the screen's centre (%.1f m off it, ship %.1f m below)" % [kind, near, g.prel.y - z])
+	g.queue_free()
+	await process_frame
+
+
 func extras() -> void:
 	print("announced, shells burst, borers hide")
 	var g := make_game()
@@ -231,6 +279,7 @@ func _initialize() -> void:
 	roster()
 	await towers()
 	await each_kind()
+	await holds()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)
