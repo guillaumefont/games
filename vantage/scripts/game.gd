@@ -476,6 +476,15 @@ func buy(key: String) -> bool:
 	return ok
 
 
+## Wipes the save back to a new pilot: no scrap, no upgrades, only 1-1 open, no grades, no best
+## score. Asked for to replay the difficulty curve from scratch (Guillaume, 2026-11-24).
+func reset_progress() -> void:
+	s = Rules.fresh()
+	Rules.save_game(s, save_path)
+	pick_level(0)
+	sound.play("tap")
+
+
 func end_run(cleared: bool) -> void:
 	run.cleared = cleared
 	run.total = Campaign.foes_in(level)
