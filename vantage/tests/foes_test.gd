@@ -24,7 +24,8 @@ func roster() -> void:
 	for k: String in Foes.INTRO:
 		check(not seen.has(k) and Rules.FOES.has(k) and Foes.NAMES.has(k) and Foes.mesh(k) != null, "%s: stats, a name and a model" % k)
 		seen[k] = true
-		check((k in Rules.RAMMABLE) != Foes.is_ground(k), "%s: %s" % [k, "on the ground, passes under the ship" if Foes.is_ground(k) else "in the air, can be rammed"])
+		check((k in Rules.RAMMABLE) != (Foes.is_ground(k) or k in Foes.HARMLESS), "%s: %s" % [k, "on the ground, passes under the ship" if Foes.is_ground(k)
+			else ("harmless, the ship flies through it" if k in Foes.HARMLESS else "in the air, can be rammed")])
 	for lv in Campaign.count():
 		var ws: Array = Campaign.waves(lv)
 		var kinds := {}
@@ -115,6 +116,8 @@ func each_kind() -> void:
 		check(shown >= 1.5, "%s: shows on screen (%.1f s)" % [kind, shown])
 		if kind == "seeker":
 			check(closest < 2.5, "%s: flies at the ship (%.1f m)" % [kind, closest])
+		elif kind in Foes.HARMLESS:
+			check(fired == 0, "%s: harmless, never fires (%d shots)" % [kind, fired])
 		else:
 			check(fired > 0, "%s: fires (%d shots)" % [kind, fired])
 		# hit flash on the body and its moving parts, then down
@@ -185,20 +188,52 @@ func holds() -> void:
 	await process_frame
 
 
-## Guillaume (2026-11-24): "hydroplanes cluster together too close, how about keeping them in
-## formations?" Flights keep their spacing all the way, swarms and holding lines don't stack.
+## Guillaume (2026-11-24): "Hydro planes should be a collateral damage, not an enemy. It should
+## stroll by (alone) waiting to be shot." Swarms and holding lines still don't stack.
 func formations() -> void:
-	print("flights keep formation, swarms keep apart")
+	print("seaplanes stroll by alone and harmless, swarms keep apart")
+	for lv in Campaign.count():
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind == "gull":
+				check(int(w.n) == 1, "%s: seaplanes come one at a time (%d)" % [Campaign.code(lv), int(w.n)])
 	var g := make_game()
 	await process_frame
 	g.s.open = Campaign.count() - 1
 	g.launch(0)
 	g.step(DT)
-	var groups := []
-	for form: String in Foes.FORMS:
-		groups.append(["gull", 4, form, "top", 0.0])
-	groups.append(["seeker", 6, "", "top", 0.3])
-	groups.append(["dart", 6, "", "back", 0.3])
+	for from: String in ["left", "right"]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		g.spawn_vert("gull", 0.0, 0, 1, from)
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hp = 1e6
+		var hp0 := g.hp
+		var shown := 0.0
+		var x0 := f.pos.x
+		var fired := false
+		var t := 0.0
+		while t < 14.0 and f in g.foes:
+			g.inv = 0.0
+			# the ship sits right in its path
+			g.prel = Vector2(clampf(f.pos.x, -5.0, 5.0), f.pos.z - g.frame_z)
+			g.step(DT)
+			t += DT
+			fired = fired or g.bullets.size() > 0
+			if f in g.foes and g.on_screen(f):
+				shown += DT
+		check(signf(x0) == (-1.0 if from == "left" else 1.0) and (f not in g.foes or signf(f.pos.x) != signf(x0)),
+			"from the %s: crosses the screen (%.1f m to %.1f m)" % [from, x0, f.pos.x])
+		check(shown > 4.0, "from the %s: lazy, on screen %.1f s" % [from, shown])
+		check(not fired and g.hp == hp0, "from the %s: never fires, flying into it costs nothing" % from)
+	g.queue_free()
+	await process_frame
+	g = make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	var groups := [["seeker", 6, "top", 0.3], ["dart", 6, "back", 0.3]]
 	for grp: Array in groups:
 		g.clear_all()
 		g.queue.clear()
@@ -210,8 +245,8 @@ func formations() -> void:
 		var next := 0
 		var closest := 1e9
 		while t < 6.0:
-			while next < n and t >= next * float(grp[4]):
-				g.spawn_vert(kind, 4.5 if grp[3] == "back" else 0.0, next, n, grp[3], grp[2])
+			while next < n and t >= next * float(grp[3]):
+				g.spawn_vert(kind, 4.5 if grp[2] == "back" else 0.0, next, n, grp[2])
 				var f: Game.Obj = g.foes[g.foes.size() - 1]
 				f.hp = 1e6
 				mine.append(f)
@@ -226,8 +261,7 @@ func formations() -> void:
 					if mine[a] in g.foes and mine[b] in g.foes and g.on_screen(mine[a]) and g.on_screen(mine[b]):
 						var d := Vector2(mine[a].pos.x - mine[b].pos.x, mine[a].pos.z - mine[b].pos.z).length()
 						closest = minf(closest, d)
-		var want := 2.0 if kind == "gull" else 1.4
-		check(closest >= want and closest < 1e8, "%s %s: never closer than %.1f m on screen (%.1f)" % [kind, grp[2] if grp[2] != "" else grp[3], want, closest])
+		check(closest >= 1.4 and closest < 1e8, "%s %s: never closer than 1.4 m on screen (%.1f)" % [kind, grp[2], closest])
 	g.queue_free()
 	await process_frame
 

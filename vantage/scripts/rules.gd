@@ -20,9 +20,9 @@ const PLAYER_R := 0.42
 ## units/s (easing off at KNOCK_EASE/s). Small foes break up; others take RAM_DMG. Foes are
 ## touched within RAM_R of their radius. Ground targets, scenery and the fortress (flown over, clear
 ## of the ship) can't be rammed; the Bastion's hull is a wall (Game.boss_rammed).
-const RAMMABLE := ["dart", "swing", "heavy", "drone", "gull", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
+const RAMMABLE := ["dart", "swing", "heavy", "drone", "rotor", "scarab", "seeker", "gunship", "lancer", "prism",
 	"ember", "wyrm"]
-const RAM_KILLS := ["dart", "swing", "drone", "gull", "rotor", "scarab", "seeker", "lancer", "wyrm"]
+const RAM_KILLS := ["dart", "swing", "drone", "rotor", "scarab", "seeker", "lancer", "wyrm"]
 const RAM_DMG := 12.0
 const RAM_R := 0.7
 const KNOCK := 9.0

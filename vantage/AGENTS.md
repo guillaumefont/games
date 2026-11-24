@@ -75,10 +75,12 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (2026-11-24) couldn't tell a flak tower from a flying foe. A tower only stands where its whole footing
   (`FOOT_R`) is on level ground (`Foes.dry_x`/`footed`): firm land first, then a dry canyon floor, then a
   level riverbed; never hanging over a rim. Flying foes that could pass for a tower from above must spin.
-- Groups keep their spacing (Guillaume, 2026-11-24: "hydroplanes cluster together too close"): seaplane
-  flights come in together in a formation (`Foes.FORMS`: V, line abreast, echelon; `Foes.slot`) and line up
-  on the ship each in its place; seekers and darts from behind keep apart (`Foes.keep_apart`), and the
-  darts hold in a line across the screen.
+- Seaplanes (`gull`) are collateral, not foes (Guillaume, 2026-11-24: "Hydro planes should be a collateral
+  damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
+  upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
+  still pays its score and scrap when shot down. No formations.
+- Groups keep their spacing: seekers and darts from behind keep apart (`Foes.keep_apart`), and the darts
+  hold in a line across the screen.
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was
@@ -280,6 +282,11 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
+  Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
+  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Ember Dunes is a desert:
+  no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
+  crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
+  set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
 - Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
   like structure with small houses around it"; then "on top of the existing evolutions, like cliffs in glass coast"):
   `scripts/towns.gd` (`Towns`). Each world's town crowns one of its set pieces (`Relief.TOWN_HOST`: the coast's sea
