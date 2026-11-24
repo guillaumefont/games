@@ -29,6 +29,15 @@ const NAMES := {
 const HARMLESS := ["gull"]
 ## How fast a seaplane strolls across the screen (m/s).
 const GULL_SPEED := 2.4
+## Hacked civilians (Guillaume, 2026-11-24: "civil characters can be enemies if they are clearly
+## hacked: a lighthouse that opens to show a turret, a hydro plane that unveils a minigun"). The
+## chance a seaplane is hacked, after the level's opening (its first seaplane is always real), and
+## how long a hacked one gives itself away (blinking, sparks) before its gun comes out.
+const HACK_P := 0.35
+const HACK_AFTER := 12.0
+const HACK_TELL := 0.9
+## How long the gun takes to come out once the tell is over.
+const HACK_UNVEIL := 0.35
 
 ## On the ground (ramming passes under them; they stay with the land).
 const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
@@ -89,6 +98,8 @@ static func part_mesh(name: String) -> Mesh:
 		"gun": return aa_guns()
 		"fan": return fan()
 		"core": return magma_core()
+		"minigun": return minigun()
+		"hacked turret": return Models.turret()
 	return null
 
 
@@ -123,6 +134,21 @@ static func gull() -> Mesh:
 		b.prism(Vector3(0, 0, -1.25), Models.pts([Vector2(-0.04, -0.25), Vector2(0.04, -0.25), Vector2(0.04, 0.25),
 			Vector2(-0.04, 0.25)]), 0.15, 0.7, Models.FOE_D, Vector2(1, 0.5), Vector2(0, -0.2))
 		b.prism(Vector3(0, 0, 1.38), Models.ngon(0.1, 6), -0.1, 0.1, Models.AMBER)
+		return b.commit())
+
+
+## A hacked seaplane's minigun, popped up on a mount over its wing (seen from above): six
+## barrels round a dark drum, pointing +z.
+static func minigun() -> Mesh:
+	return Models.cached("f_minigun", func() -> Mesh:
+		var b := Models.Builder.new()
+		b.box(Vector3(0, -0.2, -0.05), Vector3(0.14, 0.3, 0.14), Models.HULL_D)
+		b.box(Vector3(0, 0, -0.1), Vector3(0.5, 0.36, 0.7), Models.HULL_D)
+		b.box(Vector3(0, 0.19, -0.1), Vector3(0.3, 0.04, 0.5), Color8(0xff, 0x30, 0x40))
+		for k in 6:
+			var a := TAU * k / 6.0
+			b.box(Vector3(cos(a) * 0.13, sin(a) * 0.13, 0.6), Vector3(0.07, 0.07, 1.0), Models.STEEL_D)
+		b.prism(Vector3(0, 0, 1.12), Models.ngon(0.2, 6), -0.05, 0.05, Models.AMBER)
 		return b.commit())
 
 
@@ -556,6 +582,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 			f.goal = Vector3(0, 0, z)
 			f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
 			f.vel = Vector3(-s * GULL_SPEED, 0, 0)
+			f.hacked = g.stage_t > HACK_AFTER and g.rng.randf() < HACK_P
 		"rotor":
 			var gx := clampf(f.x0 + spread * 4.2, -6.0, 6.0)
 			f.goal = Vector3(gx, 0, g.hold_z(7.5 - (i % 2) * 1.8))   # z: above the screen's centre
@@ -651,6 +678,31 @@ static func at_of(g: Game, f: Game.Obj) -> Vector3:
 	return Vector3(at.x, Rules.PY, at.z)
 
 
+## A hacked civilian giving itself away (from `hold`, set when it starts): it blinks and throws
+## red sparks for HACK_TELL s, then its gun (part `name`, at `at`) unfolds out of it. Returns
+## whether the gun is out and may fire.
+static func unveil(g: Game, f: Game.Obj, name: String, at: Vector3) -> bool:
+	if f.hold < 0.0:
+		return false
+	var k := f.t - f.hold
+	if k < HACK_TELL:
+		if fmod(k, 0.22) < 0.11:
+			f.hit = maxf(f.hit, 0.05)
+		if fmod(k, 0.3) < 0.02:
+			g.pop(f.pos + Vector3(0, 0.6, 0), 0.5, Color8(0xff, 0x30, 0x40), f.ground)
+		return false
+	if not f.node.has_node(name):
+		var mi := add_part(g, f, name, at)
+		mi.scale = Vector3.ONE * 0.01
+		g.pop(f.pos + at, 0.8, Color8(0xff, 0x30, 0x40), f.ground)
+		g.sound.play("pop")
+		f.fire_t = f.t + HACK_UNVEIL + 0.25
+		f.burst = 6 if name == "minigun" else 3
+	var gun := f.node.get_node(name) as Node3D
+	gun.scale = Vector3.ONE * clampf((k - HACK_TELL) / HACK_UNVEIL, 0.01, 1.0)
+	return k >= HACK_TELL + HACK_UNVEIL
+
+
 ## Whether a foe is far enough onto the screen to open fire.
 static func in_play(g: Game, f: Game.Obj) -> bool:
 	var at := g.seen(f.pos)
@@ -676,6 +728,41 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			f.pos.z = g.frame_z + f.goal.z + sin(f.t * 0.8) * 0.9
 			var dz := cos(f.t * 0.8) * 0.72
 			f.node.rotation = Vector3(0, atan2(f.vel.x, dz), sin(f.t * 0.8) * 0.18 * -f.x0)
+			if f.hacked:
+				var z := f.pos.z - g.frame_z
+				if f.hold < 0.0 and in_play(g, f) and absf(f.pos.x) < g.view_hw(z) - 2.5:
+					f.hold = f.t
+				if unveil(g, f, "minigun", Vector3(0, 0.78, 0.1)):
+					# slows to hose the ship with short bursts, nose round to face it
+					f.vel.x = move_toward(f.vel.x, -f.x0 * GULL_SPEED * 0.45, dt * 2.0)
+					var to := g.ppos - f.pos
+					var gun := f.node.get_node("minigun") as Node3D
+					gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
+					if f.t >= f.fire_t and in_play(g, f):
+						g.aimed(f.pos + to.normalized() * 0.9, 11.0)
+						f.burst -= 1
+						f.fire_t = f.t + (0.09 if f.burst > 0 else 1.5)
+						if f.burst <= 0:
+							f.burst = 6
+		"lighthouse":
+			# a hacked lighthouse: once well in view, its lantern blinks and sparks, then a
+			# turret rises out of the top and fires aimed bursts
+			if not f.hacked:
+				return
+			if f.hold < 0.0 and g.well_in_view(f) and in_play(g, f):
+				f.hold = f.t
+			var top := ((f.node as MeshInstance3D).mesh.get_aabb().end.y + 0.1) if f.node is MeshInstance3D else 1.0
+			if unveil(g, f, "hacked turret", Vector3(0, top, 0)):
+				var at := at_of(g, f)
+				var to := g.ppos - at
+				var gun := f.node.get_node("hacked turret") as Node3D
+				gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
+				if f.t >= f.fire_t and in_play(g, f):
+					g.aimed(at, 10.0)
+					f.burst -= 1
+					f.fire_t = f.t + (0.15 if f.burst > 0 else 1.9)
+					if f.burst <= 0:
+						f.burst = 3
 		"rotor":
 			# drops into the upper screen, hovers firing rings, then sinks away down the screen
 			var bl := f.node.get_node("blades") as Node3D

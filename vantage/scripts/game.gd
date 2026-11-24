@@ -49,6 +49,8 @@ class Obj:
 	var goal := Vector3.ZERO
 	var burst := 0
 	var under := false
+	## A civilian (`Rules.CIVILIANS`) that is really a foe in disguise: it unveils a gun (`Foes`).
+	var hacked := false
 
 const CHUNK := 40.0
 ## The vertical stage's camera: height, distance behind the frame's centre, horizontal fov.
@@ -1047,7 +1049,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1658,7 +1660,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
+			if f.dead or f.kind == "orb" or shy(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1795,8 +1797,14 @@ func damage(f: Obj, d: float) -> void:
 func kill(f: Obj) -> void:
 	f.dead = true
 	var info: Dictionary = Rules.FOES[f.kind]
-	run.score += int(info.score)
-	if f.kind not in ["orb", "boss"] and not landmark(f):
+	var civil := civilian(f)
+	var pay := Rules.HACK_PAY if f.hacked else 1.0
+	if civil:
+		run.score = maxi(0, run.score - Rules.CIVIL_COST)
+		say("CIVILIAN DOWN", "-%d" % Rules.CIVIL_COST, 1.2)
+	else:
+		run.score += roundi(int(info.score) * pay)
+	if f.kind not in ["orb", "boss"] and not landmark(f) and not civil:
 		run.kills += 1
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
@@ -1816,8 +1824,10 @@ func kill(f: Obj) -> void:
 		return
 	sound.play("boom" if big >= 2.0 else "pop")
 	shake = maxf(shake, 0.12 * big)
-	var scrap := roundi(int(info.scrap) * float(world.scrap))
-	if pov_mode():
+	var scrap := 0 if civil else roundi(int(info.scrap) * float(world.scrap) * pay)
+	if scrap <= 0:
+		pass
+	elif pov_mode():
 		run.scrap += scrap
 		if scrap > 0:
 			hud.ping_scrap()
@@ -2087,6 +2097,7 @@ func spawn_marks() -> void:
 			f.node = node
 			f.pos = node.position
 			f.anchor = Vector3(0, 0, m.chunk)   # its chunk, for the ruin
+			f.hacked = f.kind == "lighthouse" and rng.randf() < Rules.HACK_LIGHTHOUSE
 			foes.append(f)
 
 
@@ -2098,6 +2109,17 @@ func well_in_view(f: Obj) -> bool:
 
 func landmark(f: Obj) -> bool:
 	return f.kind in Rules.LANDMARKS
+
+
+## A real civilian, not a hacked one: shooting it down costs points (`Rules.CIVILIANS`).
+func civilian(f: Obj) -> bool:
+	return f.kind in Rules.CIVILIANS and not f.hacked
+
+
+## Not locked onto by missiles or the guns' assist: scenery and civilians, until a hacked one
+## has given itself away (`hold`: when it did).
+func shy(f: Obj) -> bool:
+	return (landmark(f) or f.kind in Rules.CIVILIANS) and not (f.hacked and f.hold >= 0.0)
 
 
 ## A landmark leaves the foes without its node going: the node belongs to the ground chunk.
@@ -2707,7 +2729,7 @@ func fire_pov(dt: float) -> void:
 ## Whether the ship's guns can lock onto a foe: not a shielded one, and on the ship only the
 ## section being fought (the others' guns can't be hit yet either: shots fly past them).
 func lockable(f: Obj) -> bool:
-	if f.dead or landmark(f) or f.kind == "orb" and f.homing <= 0.0:
+	if f.dead or shy(f) or f.kind == "orb" and f.homing <= 0.0:
 		return false
 	if (f.kind == "core" and shielded()) or fort_guarded(f):
 		return false

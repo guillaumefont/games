@@ -606,6 +606,14 @@ const FOES := {
 ## How far inside the top of the screen a landmark must be before shots hurt it.
 const LANDMARK_IN := 4.0
 const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tower", "snowman", "stone head"]
+## Civilians (Guillaume, 2026-11-24): shooting a real one down costs CIVIL_COST points and drops no
+## scrap, and it doesn't count towards the kill rate. A hacked one (`Game.Obj.hacked`) unveils a gun:
+## a seaplane a minigun, a lighthouse a turret. It's a foe then, and pays HACK_PAY times its due.
+const CIVILIANS := ["gull", "boat", "house", "lighthouse"]
+const CIVIL_COST := 200
+const HACK_PAY := 2.0
+## Chance a lighthouse is hacked (a seaplane's: `Foes.HACK_P`).
+const HACK_LIGHTHOUSE := 0.4
 
 ## The vertical stage, Sector 1 (Glass Coast): waves by stage time (seconds of vertical play).
 ## The mid-boss (the Bastion, top-down) holds the clock until it's down; the final boss is the
