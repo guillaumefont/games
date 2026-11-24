@@ -57,6 +57,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
   dodge; guns fire ahead and a little down (`AIM_DIP`) with aim assist (`Game.aim_point`). Orbs inherit the
   rail speed and can be shot; a pod's rockets home in for a while (`Obj.homing`).
+- Foes that fly in and hold (rotor, scarab, lancer, prism, heavy, gunship, darts) stop a few metres above
+  the **centre of the screen** (`Game.hold_z`, from `view_mid`), not below the top edge: Guillaume
+  (2026-11-24) found they stopped "much too far from the ship" on tall phones. When the way down from the
+  top edge to the hold is longer than `Game.SIDE_ENTRY`, they come in from a side, level with their hold
+  (`Game.enter_toward`).
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
