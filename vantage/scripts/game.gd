@@ -90,6 +90,11 @@ var ppos := Vector3(0, Rules.PY, 5)
 var prel := Vector2(0, 5)
 var pvel := Vector2.ZERO
 var hp := 3
+## In-level power (`Rules.POWER_MAX` steps): the spread of the cannon, built up from power cores
+## picked up in play and lost a step a hit. Every level starts at 0.
+var power := 0
+## Kills towards the next power core (`Rules.POWER_EVERY`).
+var core_kills := 0
 var inv := 0.0
 ## Push from ramming something (world units/s, x and z in the stage, x and y in the chase); eases off.
 var knock := Vector2.ZERO
@@ -459,6 +464,8 @@ func launch(lv := -1) -> void:
 	prel = Vector2(0, 6)
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	hp = Rules.max_hp(s)
+	power = 0
+	core_kills = 0
 	inv = 0.0
 	knock = Vector2.ZERO
 	fire_cd = 0.0
@@ -943,7 +950,7 @@ func ground_y(x: float, z: float) -> float:
 
 func fire_vert(dt: float) -> void:
 	fire_cd -= dt
-	var gun := Rules.cannon(Rules.level(s, "cannon"))
+	var gun := Rules.cannon(power, Rules.level(s, "cannon"))
 	if fire_cd <= 0.0:
 		fire_cd += gun.period
 		for sh: Array in gun.shots:
@@ -1422,6 +1429,8 @@ func part_down(f: Obj) -> void:
 	if not boss_parts.is_empty():
 		return
 	var sec: Dictionary = mid.sections[boss_sec]
+	if boss_sec < mid.sections.size() - 1:
+		drop_core(boss.pos + Vector3(0, 0, 3.0))
 	var name: String = sec.piece
 	if name != "" and boss.node.has_node(name):
 		boss.node.get_node(name).visible = false
@@ -1614,9 +1623,12 @@ func collide(_dt: float) -> void:
 	for p in picks:
 		if not p.dead and flat_dist(p.pos, ppos) < Rules.PICK_R:
 			p.dead = true
-			run.scrap += int(p.dmg)
-			sound.play("scrap")
-			hud.ping_scrap()
+			if p.kind == "power":
+				power_up()
+			else:
+				run.scrap += int(p.dmg)
+				sound.play("scrap")
+				hud.ping_scrap()
 
 
 ## The ship flew into a foe: the ship takes a hit and is thrown back, small foes break up, big
@@ -1689,6 +1701,8 @@ func kill(f: Obj) -> void:
 	run.score += int(info.score)
 	if f.kind not in ["orb", "boss"] and not landmark(f):
 		run.kills += 1
+		if not f.on_fort and f not in boss_parts:
+			count_core(f.pos)
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
 		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
@@ -1751,11 +1765,53 @@ func drop(at: Vector3, value: float) -> Obj:
 	return p
 
 
+## A foe of the vertical stage went down: every `Rules.POWER_EVERY` of them leaves a power core.
+func count_core(at: Vector3) -> void:
+	core_kills += 1
+	if core_kills >= Rules.POWER_EVERY:
+		core_kills = 0
+		drop_core(at)
+
+
+## A power core, the in-level pickup that widens the spread (`power`). In the chase there is
+## nothing to pick up: the step is given at once.
+func drop_core(at: Vector3) -> void:
+	if power >= Rules.POWER_MAX:
+		return
+	if pov_mode():
+		power_up()
+		return
+	var p := Obj.new()
+	p.kind = "power"
+	p.rel = true
+	p.pos = Vector3(at.x, Rules.PY, at.z)
+	p.vel = Vector3(rng.randf_range(-1.5, 1.5), 0, -2.0)
+	p.node = Models.instance(Models.cached("power core", func() -> Mesh:
+		var b := Models.Builder.new()
+		b.octa(Vector3.ZERO, 0.7, Color8(0x5a, 0xf0, 0xff), Vector3(1, 1.6, 1))
+		b.octa(Vector3.ZERO, 0.46, Color8(0xff, 0xff, 0xff), Vector3(1.6, 0.6, 1.6))
+		return b.commit()), Models.glow(Color8(0x6a, 0xf4, 0xff)))
+	add_child(p.node)
+	picks.append(p)
+
+
+func power_up() -> void:
+	sound.play("buy")
+	if power >= Rules.POWER_MAX:
+		run.score += 500
+		return
+	power += 1
+	hud.ping_power()
+
+
 func hurt() -> void:
 	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
 		return
 	hp -= 1
 	run.hits += 1
+	if power > 0 and hp > 0:
+		power -= 1
+		hud.ping_power()
 	inv = 1.6
 	shake = 0.5
 	hud.flash_hurt()
@@ -2075,6 +2131,9 @@ func begin_approach() -> void:
 	for p in picks:
 		if not p.dead:
 			p.dead = true
+			if p.kind == "power":
+				power_up()
+				continue
 			left += int(p.dmg)
 			pop(p.pos, 0.4, Models.AMBER)
 	if left > 0:
@@ -2513,7 +2572,7 @@ func aim_dir() -> Vector3:
 
 func fire_pov(dt: float) -> void:
 	fire_cd -= dt
-	var gun := Rules.cannon(Rules.level(s, "cannon"))
+	var gun := Rules.cannon(power, Rules.level(s, "cannon"))
 	if fire_cd <= 0.0 and phase != "escape":
 		fire_cd += gun.period
 		var target := aim_point()
