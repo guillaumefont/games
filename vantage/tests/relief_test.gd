@@ -47,7 +47,7 @@ func course() -> void:
 			var all := true
 			for f: String in Relief.FEATURES[theme]:
 				all = all and seen.has(f)
-			check(all and seen.has("stream") and seen.has("town") and repeats == 0, "%s level %d: every set piece, no two alike in a row %s" % [theme, lv, seen.keys()])
+			check(all and seen.has("stream") and repeats == 0, "%s level %d: every set piece, no two alike in a row %s" % [theme, lv, seen.keys()])
 		# the land the hangar shows is the same for every level, so picking one never rebuilds it
 		var same := true
 		for n in Relief.LEVEL_FROM:
@@ -150,10 +150,18 @@ func towns(g: Game) -> void:
 		Models.theme = theme
 		var n := -1
 		for k in 10:
-			if Relief.kind_of(k) == "town":
+			if Relief.has_town(k):
 				n = k
 				break
-		check(n >= 0 and n < 5, "%s: a town early in every level (stretch %d)" % [theme, n])
+		check(n >= 0 and n < 4 and Relief.kind_of(n) == Relief.TOWN_HOST[theme], "%s: a town early in every level, on its %s (stretch %d)" % [theme, Relief.TOWN_HOST[theme], n])
+		# it stands high over its set piece: the land drops away round the plateau
+		var c0 := Relief.town_c(n)
+		var below := INF
+		for i in 16:
+			var a := i * TAU / 16.0
+			var q := c0 + Vector2(cos(a), sin(a)) * (Towns.FLAT + 9.0)
+			below = minf(below, Relief.y_at(g.noise, q.x, q.y))
+		check(below < -4.0, "%s: the town looks down on its %s (%.1f m below)" % [theme, Relief.TOWN_HOST[theme], below])
 		var c := Relief.town_c(n)
 		var worst := 0.0
 		for i in 9:
@@ -164,7 +172,7 @@ func towns(g: Game) -> void:
 		check(worst < 0.05, "%s: the town stands on level ground (off by %.2f)" % [theme, worst])
 		Models.scenery.clear()
 		Models.marks.clear()
-		var z0 := floorf((c.y + 40.0) / Game.CHUNK) * Game.CHUNK
+		var z0 := ceilf((c.y + 40.0) / Game.CHUNK) * Game.CHUNK
 		for k in 3:
 			Models.ground_chunk(g.noise, z0 - k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 		var kinds := {}

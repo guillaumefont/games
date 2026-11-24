@@ -20,7 +20,7 @@ func _initialize() -> void:
 		g.apply_theme(theme)
 		var n := -1
 		for k in 10:
-			if Relief.kind_of(k) == "town":
+			if Relief.has_town(k):
 				n = k
 				break
 		var c := Relief.town_c(n)
@@ -31,7 +31,7 @@ func _initialize() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("%s/%s_top.png" % [out, theme])
 		var at := Vector3(c.x, 0, c.y)
-		g.cam.global_transform = Transform3D(Basis(), at + Vector3(0, 14.0, 30.0)).looking_at(at, Vector3.UP)
+		g.cam.global_transform = Transform3D(Basis(), at + Vector3(0, 16.0, 44.0)).looking_at(at, Vector3.UP)
 		g.cam.fov = 55.0
 		await process_frame
 		await RenderingServer.frame_post_draw

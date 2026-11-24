@@ -1,9 +1,9 @@
 class_name Towns
 extends RefCounted
-## Composed towns, one a world (Guillaume, 2026-11-24: "the landscape is too sparse, elements
+## Composed towns, one a world, each on top of one of its world's set pieces (Relief.TOWN_HOST) (Guillaume, 2026-11-24: "the landscape is too sparse, elements
 ## scattered without real character... a pyramid in a city like structure with small houses around
 ## it"). A `town` stretch of the course (`Relief`) levels a platform and lays a town on it round a
-## centrepiece: a paved square, an avenue running down towards the player as they fly in, blocks of
+## centrepiece (a causeway carries the avenue down off the plateau): a paved square, an avenue running down towards the player as they fly in, blocks of
 ## houses on a grid facing the square, a wall or hedges round it and its world's furniture.
 ## - dunes: a temple city: the stepped pyramid on its square, flat-roofed mud-brick houses, palms
 ##   down the avenue, obelisks, market stalls, a sandstone wall with towers.
@@ -12,7 +12,7 @@ extends RefCounted
 ## - ice: a polar village: the giant snowman on a skating rink, igloos and snow-roofed huts, lamp
 ##   posts, a radio mast, pines down the avenue.
 ## - volcano: a basalt temple: a stepped altar with a fire on top, stone heads down the avenue, dark
-##   huts glowing inside, a basalt wall and a moat of lava (Relief) bridged at the gate.
+##   huts glowing inside, a basalt wall, high over the lava below.
 ## Everything is placed in world metres; each chunk builds the pieces whose spot it holds.
 
 ## The levelled platform: flat within FLAT m of the centre, back to the land by EDGE.
@@ -134,7 +134,7 @@ static func build(b: Models.Builder, z_near: float, z_far: float) -> void:
 	var n0 := Relief.stretch_of(z_near)
 	var n1 := Relief.stretch_of(z_far - 0.01)
 	for n in range(maxi(n0, 0), n1 + 1):
-		if Relief.kind_of(n) != "town":
+		if not Relief.has_town(n):
 			continue
 		for e: Dictionary in layout(n):
 			var p: Vector3 = e.p
