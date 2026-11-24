@@ -106,6 +106,9 @@ var last_touch := Vector2.ZERO
 ## Slow-motion pause: 1 while a finger is down, eases to 0 (paused) once it's lifted.
 ## `time_speed()` is the eased rate the world runs at.
 var time_k := 1.0
+## False from a level's launch until the first touch: the stage waits on "Touch to start", not
+## the pause screen (no dimming, no Main menu).
+var started := false
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
@@ -472,8 +475,9 @@ func launch(lv := -1) -> void:
 	miss_cd = 0.5
 	run = {"score": 0, "scrap": 0, "kills": 0, "hits": 0, "cleared": false}
 	ship.visible = true
-	# the launch tap is lifted already: wait, paused, for the finger that flies the ship
+	# the launch tap is lifted already: wait, still, for the finger that flies the ship
 	time_k = 0.0
+	started = false
 	set_cam("top", 0.0)
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
@@ -650,13 +654,17 @@ func holding() -> bool:
 
 ## Moves `time_k` towards 1 (held, or out of flight) or 0 (lifted) over real time `dt`.
 func slow_down(dt: float) -> void:
+	if holding() and pausable():
+		started = true
 	var want := 1.0 if holding() or not pausable() else 0.0
 	var rate := 1.0 / Rules.SLOW_STOP if want < time_k else 1.0 / Rules.SLOW_RESUME
 	time_k = move_toward(time_k, want, dt * rate)
 
 
+## Cubic in `time_k`, which falls linearly once the finger lifts: time drops a lot at once, then
+## eases gently down to the stop (Guillaume, 2026-11-24). Touching again climbs back the same curve.
 func time_speed() -> float:
-	return smoothstep(0.0, 1.0, time_k)
+	return time_k * time_k * time_k
 
 
 func paused() -> bool:
@@ -877,7 +885,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 				"left", "right":
 					# sweep across the upper screen from beyond the side edge
 					var side := -1.0 if from == "left" else 1.0
-					var z := lerpf(view_top, Rules.Z_TOP + 4.0, 0.5) + x
+					var z := hold_z(9.0) + x * 0.5
 					f.pos = Vector3(side * (view_hw(z) + 2.0), Rules.PY, frame_z + z)
 					f.vel = Vector3(-side * 5.5, 0, 1.2)
 				"back":
@@ -898,6 +906,8 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			f.rel = true
 			f.x0 = x * 1.25
 			f.pos = Vector3(f.x0, Rules.PY, top - 2.0)
+			f.goal = Vector3(f.x0, 0, hold_z(9.0))
+			enter_toward(f, f.x0, f.goal.z, signf(f.x0) if f.x0 != 0.0 else (-1.0 if i % 2 == 0 else 1.0))
 			f.fire_t = 2.0
 		"boss":
 			var f := new_foe("boss", Models.midboss_hull(mid_id))
@@ -1025,6 +1035,9 @@ var view_top := Rules.Z_TOP
 var view_bot := Rules.Z_BOT
 var view_hw_top := Rules.HALF_W + 1.0
 var view_hw_bot := Rules.HALF_W + 1.0
+## The centre of the screen on the flight plane (z), where foes that hold place themselves
+## (Guillaume, 2026-11-24: they stopped "much too far from the ship" near the top of tall screens).
+var view_mid := (Rules.Z_TOP + Rules.Z_BOT) * 0.5
 ## The top edge on the ground, where ground turrets roll in.
 var view_ground_top := Rules.Z_TOP - 6.0
 
@@ -1043,9 +1056,40 @@ func update_view() -> void:
 	var bl: Vector3 = at.call(Vector2(0, vs.y), Rules.PY)
 	view_top = tl.z - frame_z
 	view_bot = bl.z - frame_z
+	view_mid = (at.call(vs * 0.5, Rules.PY) as Vector3).z - frame_z
 	view_hw_top = absf(tl.x)
 	view_hw_bot = absf(bl.x)
 	view_ground_top = (at.call(Vector2(vs.x * 0.5, 0), 0.0) as Vector3).z - frame_z
+
+
+## Foes come in from a side instead of the top when the way down from the top edge to where they
+## hold is longer than this (m): on a tall phone the top edge is far above the ship.
+const SIDE_ENTRY := 18.0
+
+
+## Where a foe that flies in and holds stops (z relative to the frame): `up` metres above the
+## centre of the screen, which sits a few metres ahead of the ship whatever the screen's shape,
+## and never closer than 3 m to the top edge (a short screen).
+func hold_z(up: float) -> float:
+	return maxf(view_mid - up, view_top + 3.0)
+
+
+## Whether a foe holding at z (relative to the frame) comes in from a side: the way down from
+## the top edge would be too long.
+func side_entry(z: float) -> bool:
+	return z - (minf(view_top, Rules.Z_TOP) - 2.5) > SIDE_ENTRY
+
+
+## Puts a foe that will hold at (x, z) (z relative to the frame) where it comes in from: past the
+## top edge above it, or, when that is too far, past the side edge level with it (`s`: the side,
+## -1 left, 1 right). Returns whether it comes from the side.
+func enter_toward(f: Obj, x: float, z: float, s: float) -> bool:
+	if side_entry(z):
+		f.pos.x = s * (view_hw(z) + 2.5)
+		f.pos.z = frame_z + z
+		return true
+	f.pos.x = x
+	return false
 
 
 ## The screen's half width on the flight plane at depth z (relative to the frame).
@@ -1171,8 +1215,8 @@ func think(f: Obj, dt: float) -> void:
 			if f.vel.z < 0.0 or f.hold >= 0.0:
 				# from behind: overtake up a side lane, brake and hold in the upper screen
 				# (weaving, firing), then climb away off the top
-				var hold_z := lerpf(view_top, view_bot, 0.22) + (f.idx % 3) * 1.6
-				if f.hold < 0.0 and z <= hold_z + 3.5:   # brake early: it overshoots a little
+				var hz := hold_z(8.0) + (f.idx % 3) * 1.6
+				if f.hold < 0.0 and z <= hz + 3.5:   # brake early: it overshoots a little
 					f.hold = f.t   # time it reached its hold
 				if f.hold >= 0.0:
 					var held := f.t - f.hold
@@ -1209,7 +1253,8 @@ func think(f: Obj, dt: float) -> void:
 		"heavy":
 			var z := f.pos.z - frame_z
 			if f.t < 2.2:
-				f.pos.z += (Rules.Z_TOP + 5.0 + frame_z - f.pos.z) * minf(1.0, dt * 2.0)
+				f.pos.z += (f.goal.z + frame_z - f.pos.z) * minf(1.0, dt * 2.0)
+				f.pos.x = lerpf(f.pos.x, f.x0, minf(1.0, dt * 2.0))
 			elif f.t < 10.0:
 				f.pos.x = lerpf(f.pos.x, f.x0 + sin(f.t * 0.7) * 2.0, minf(1.0, dt * 2.0))
 				if f.t >= f.fire_t:

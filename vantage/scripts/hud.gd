@@ -541,7 +541,7 @@ func sync() -> void:
 	scrap_t = maxf(0.0, scrap_t - dt)
 	power_t = maxf(0.0, power_t - dt)
 	var playing := game.phase not in ["hangar", "results"]
-	quit_btn.visible = game.paused()
+	quit_btn.visible = game.paused() and game.started
 	if not quit_btn.visible and quit_armed:
 		quit_armed = false
 		refresh_quit()
@@ -601,12 +601,20 @@ func _draw() -> void:
 	draw_pause(v)
 
 
-## The finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
+## Before the first touch of a level, "Touch to start". Then, the finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
 func draw_pause(v: Vector2) -> void:
 	if not game.pausable():
 		return
 	var still := 1.0 - game.time_speed()
 	if still <= 0.0:
+		return
+	if not game.started:
+		# a level waiting for its first touch: not a pause, just the prompt
+		# under the level banner, with a shadow so it reads on any ground
+		var a := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.004)
+		var p := Vector2(0, v.y * 0.62)
+		draw_string(FONT, p + Vector2(0, 3), "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(0, 0, 0, 0.45 * a))
+		draw_string(FONT, p, "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(INK, a))
 		return
 	draw_rect(Rect2(Vector2.ZERO, v), Color(0.02, 0.04, 0.08, 0.35 * still))
 	var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)

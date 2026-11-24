@@ -161,8 +161,10 @@ func slow_pause() -> void:
 		var d := g.stage_t - before
 		slowing = slowing and d <= last + 1e-6
 		last = d
+		if i == int(0.25 / DT):
+			check(g.time_speed() < 0.75, "a quarter second after lifting, time has already dropped a lot (%.2f)" % g.time_speed())
 		if i == int(1.0 / DT):
-			check(g.time_speed() > 0.3 and not g.paused(), "a second after lifting, time still runs (%.2f): the slowdown is gradual" % g.time_speed())
+			check(g.time_speed() > 0.05 and not g.paused(), "a second after lifting, time still runs (%.2f): then it eases to the stop" % g.time_speed())
 	check(slowing, "lifting the finger slows time steadily")
 	check(g.paused(), "until the game is paused (after %.1f s)" % Rules.SLOW_STOP)
 	var x0 := g.prel.x
@@ -193,9 +195,13 @@ func pause_menu() -> void:
 	var g := make_game()
 	await process_frame
 	g.launch()
+	g.tick(DT)
+	check(g.paused() and not g.started, "a level waits for its first touch")
+	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
 	g.touching = true
 	for i in 30:
 		g.tick(DT)
+	check(g.started, "the first touch starts it")
 	check(not g.hud.quit_btn.visible, "no main menu button while flying")
 	g.run.scrap = 7
 	var scrap0: int = g.s.scrap
