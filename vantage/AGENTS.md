@@ -68,6 +68,10 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   (2026-11-24) couldn't tell a flak tower from a flying foe. A tower only stands where its whole footing
   (`FOOT_R`) is on level ground (`Foes.dry_x`/`footed`): firm land first, then a dry canyon floor, then a
   level riverbed; never hanging over a rim. Flying foes that could pass for a tower from above must spin.
+- Groups keep their spacing (Guillaume, 2026-11-24: "hydroplanes cluster together too close"): seaplane
+  flights come in together in a formation (`Foes.FORMS`: V, line abreast, echelon; `Foes.slot`) and line up
+  on the ship each in its place; seekers and darts from behind keep apart (`Foes.keep_apart`), and the
+  darts hold in a line across the screen.
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to

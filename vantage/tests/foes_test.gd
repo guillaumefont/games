@@ -185,6 +185,53 @@ func holds() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-24): "hydroplanes cluster together too close, how about keeping them in
+## formations?" Flights keep their spacing all the way, swarms and holding lines don't stack.
+func formations() -> void:
+	print("flights keep formation, swarms keep apart")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	var groups := []
+	for form: String in Foes.FORMS:
+		groups.append(["gull", 4, form, "top", 0.0])
+	groups.append(["seeker", 6, "", "top", 0.3])
+	groups.append(["dart", 6, "", "back", 0.3])
+	for grp: Array in groups:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		var kind: String = grp[0]
+		var n: int = grp[1]
+		var mine: Array[Game.Obj] = []
+		var t := 0.0
+		var next := 0
+		var closest := 1e9
+		while t < 6.0:
+			while next < n and t >= next * float(grp[4]):
+				g.spawn_vert(kind, 4.5 if grp[3] == "back" else 0.0, next, n, grp[3], grp[2])
+				var f: Game.Obj = g.foes[g.foes.size() - 1]
+				f.hp = 1e6
+				mine.append(f)
+				next += 1
+			g.hp = 5
+			g.inv = 1.0
+			g.prel.x = sin(t * 0.9) * 3.0
+			g.step(DT)
+			t += DT
+			for a in mine.size():
+				for b in range(a + 1, mine.size()):
+					if mine[a] in g.foes and mine[b] in g.foes and g.on_screen(mine[a]) and g.on_screen(mine[b]):
+						var d := Vector2(mine[a].pos.x - mine[b].pos.x, mine[a].pos.z - mine[b].pos.z).length()
+						closest = minf(closest, d)
+		var want := 2.0 if kind == "gull" else 1.4
+		check(closest >= want and closest < 1e8, "%s %s: never closer than %.1f m on screen (%.1f)" % [kind, grp[2] if grp[2] != "" else grp[3], want, closest])
+	g.queue_free()
+	await process_frame
+
+
 func extras() -> void:
 	print("announced, shells burst, borers hide")
 	var g := make_game()
@@ -299,6 +346,7 @@ func _initialize() -> void:
 	await towers()
 	await each_kind()
 	await holds()
+	await formations()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

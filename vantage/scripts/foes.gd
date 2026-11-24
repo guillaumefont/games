@@ -23,6 +23,11 @@ const NAMES := {
 	"lancer": "Lancer interceptor", "hover": "Floe hovercraft", "prism": "Rime crystal",
 	"ember": "Magma drone", "mortar": "Cinder walker", "wyrm": "Ash wyrm",
 }
+## Formations a flight can fly in (`slot`): an arrowhead, abreast, or a diagonal echelon.
+const FORMS := ["v", "line", "echelon"]
+## Room between two foes of a formation (m).
+const FORM_GAP := 3.2
+
 ## On the ground (ramming passes under them; they stay with the land).
 const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
 ## Those that stand on dry land (the hovercraft rides the water too; the tank drives on).
@@ -517,7 +522,26 @@ static func clear(g: Game, x: float, z: float, me: Game.Obj) -> bool:
 
 
 ## Spawns foe i of n of a wave of `kind` entering at x (from `from`), past the screen's edge.
-static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top") -> void:
+## Foe i's place in a formation of n (x across, z along the flight: negative is further back,
+## up the screen), relative to the formation's centre across and its leader along.
+static func slot(form: String, i: int, n: int) -> Vector2:
+	var at := Vector2.ZERO
+	match form:
+		"v":
+			var k := (i + 1) / 2
+			at = Vector2((-1.0 if i % 2 == 1 else 1.0) * k * FORM_GAP, -k * FORM_GAP * 0.8)
+		"line":
+			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP * 1.15, 0.0)
+		"echelon":
+			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP, -i * FORM_GAP * 0.75)
+		_:
+			at = Vector2((i - (n - 1) * 0.5) * 1.4, 0.0)
+	if form == "v" and n % 2 == 0:
+		at.x += FORM_GAP * 0.5   # the left wing is the longer one: centre the V
+	return at
+
+
+static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
 	var top := g.frame_z + minf(g.view_top, Rules.Z_TOP) - 2.5
 	var gz := g.frame_z + minf(g.view_ground_top, top - g.frame_z - 3.0) - 2.0
 	var spread := (i - (n - 1) * 0.5)
@@ -542,7 +566,14 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	var side := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if (x < 0.0 or x == 0.0 and i % 2 == 0) else 1.0))
 	match kind:
 		"gull":
-			f.pos.x = clampf(f.x0 + spread * 1.4, -6.5, 6.5)
+			# in formation: goal.x its place across, goal.z how far behind the leader
+			var at := slot(form, i, n)
+			var half := 0.0   # (y) the formation's half width, to keep it all on screen
+			for k in n:
+				half = maxf(half, absf(slot(form, k, n).x))
+			f.goal = Vector3(at.x, half, at.y)
+			f.pos.x = clampf(f.x0, -maxf(0.0, 6.5 - half), maxf(0.0, 6.5 - half)) + at.x
+			f.pos.z = top + at.y
 			f.vel = Vector3(0, 0, 11.0)
 			f.fire_t = 1.0
 		"rotor":
@@ -618,6 +649,22 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 
 # ---------------------------------------------------------------- behaviour
 
+## Nudges a foe away from others of its kind closer than r on the flight plane, so a group keeps
+## its spacing instead of stacking into one blob.
+static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float) -> void:
+	for o: Game.Obj in g.foes:
+		if o == f or o.kind != f.kind or o.dead:
+			continue
+		var away := Vector2(f.pos.x - o.pos.x, f.pos.z - o.pos.z)
+		var d := away.length()
+		if d < r:
+			if d < 0.001:
+				away = Vector2(1.0 if f.idx > o.idx else -1.0, 0.0)
+				d = 1.0
+			var push := away / d * (r - d) * minf(1.0, dt * 6.0)
+			f.pos.x += push.x
+			f.pos.z += push.y
+
 ## Where a foe shows on the flight plane (ground foes are seen at an angle).
 static func at_of(g: Game, f: Game.Obj) -> Vector3:
 	var at := g.seen(f.pos)
@@ -646,8 +693,11 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		"gull":
 			# dives at the ship, fires at the bottom of its dive, pulls up and climbs away
 			if f.hold < 0.0:
-				f.vel.x = clampf((g.ppos.x - f.pos.x) * 1.4, -4.5, 4.5)
-				if f.pos.z > g.ppos.z - 8.5 or f.t > 2.6:
+				# the flight lines up on the ship, each in its place, and pulls up as one
+				var room := maxf(0.0, 6.5 - f.goal.y)
+				var want := clampf(g.ppos.x, -room, room) + f.goal.x
+				f.vel.x = clampf((want - f.pos.x) * 1.4, -4.5, 4.5)
+				if f.pos.z - f.goal.z > g.ppos.z - 8.5 or f.t > 2.6:
 					f.hold = f.t
 			else:
 				f.vel.z = move_toward(f.vel.z, -12.0, 20.0 * dt)
@@ -732,6 +782,7 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			else:
 				f.vel.x += (1.0 if f.pos.x > 0.0 else -1.0) * 14.0 * dt
 			f.pos += f.vel * dt
+			keep_apart(g, f, 2.0, dt)   # a swarm, not one blob
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), sin(f.t * 9.0) * 0.12)
 			(f.node.get_node("quad") as Node3D).rotation.y += dt * 30.0
 		"aa":
