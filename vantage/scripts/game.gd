@@ -407,6 +407,15 @@ func pick_level(lv: int) -> void:
 	mid = Rules.MIDBOSSES[mid_id]
 	fort_id = Campaign.fortress_of(lv)
 	fort = Rules.FORTRESSES[fort_id]
+	if Relief.level != lv:
+		# each level lays out its set pieces in its own order past the land the hangar shows; any
+		# chunk built that far ahead is rebuilt
+		Relief.level = lv
+		for k in chunks.keys():
+			if -k * CHUNK - CHUNK < Relief.START - Relief.LEVEL_FROM * Relief.SEG:
+				chunks[k].queue_free()
+				chunks.erase(k)
+				ruined.erase(k)
 	apply_theme(world.theme)
 
 
@@ -918,14 +927,26 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 				say("NEW FOE", Foes.NAMES[kind], 2.4)
 
 
-## The land's noise value at (x, z): below zero is the sea (or a canal).
+## The land's noise value at (x, z): below zero is the sea (or a canal), and where a ground foe
+## can't stand (a river, lava, a cliff, a canyon floor: see `Relief.firm`).
 func land(x: float, z: float) -> float:
-	return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + Models.lift()
+	var h := Relief.raw(noise, x, z)
+	if Models.theme == "city":
+		return h
+	var v := Relief.at(x, z, h)
+	if v.y > 0.0 and not Relief.firm(noise, x, z):
+		return -0.1
+	return v.y
 
 
+## The ground's height at (x, z), as the chunks show it (the open sea counts as 0).
 func ground_y(x: float, z: float) -> float:
-	var h := noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + Models.lift()
-	return maxf(0.0, minf(h, 0.8) * 1.6)
+	var h := Relief.raw(noise, x, z)
+	if Models.theme == "city":
+		return maxf(0.0, minf(h, 0.8) * 1.6)
+	var v := Relief.at(x, z, h)
+	# the open sea at its usual level counts as 0, as it always has
+	return 0.0 if v.y < 0.0 and absf(v.x + 0.4) < 0.01 else v.x
 
 
 func fire_vert(dt: float) -> void:
@@ -1874,8 +1895,9 @@ func update_chunks() -> void:
 				var aoi := Models.instance(Models.ao_mesh, Models.ao_mat())
 				aoi.name = "ao"
 				mi.add_child(aoi)
-			# the city's fires and smoke, animated in their shaders
-			var fx := City.fx_mesh() if Models.theme == "city" else null
+			# the city's fires and smoke, or the land's moving set pieces (falls, lava, eruptions...),
+			# animated in their shaders
+			var fx := City.fx_mesh() if Models.theme == "city" else Relief.fx_mesh(noise)
 			if fx:
 				var fxi := MeshInstance3D.new()
 				fxi.mesh = fx

@@ -101,6 +101,7 @@ godot --headless --path . --script tests/icon_test.gd   # project icon and Andro
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
 godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
 godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
+godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
 ```
 
 Screenshots (needs a display; one per key moment of a full run):
@@ -223,6 +224,20 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   `City.fx_mesh` turns the list into one mesh a chunk, which `update_chunks` hangs under the chunk.
   It has two surfaces animated in their shaders, flickering flame tongues and smoke puffs that rise to
   `SMOKE_TOP` and loop, with no particles and no per-frame script.
+- The land's relief (Guillaume, 2026-11-24: "the ground is mostly flat and uneventful"): `scripts/relief.gd`
+  (`Relief`). The course is cut into `Relief.SEG` m stretches, each a set piece (`FEATURES` per world, then a
+  `stream` stretch, in a level's own `course()` order past the hangar's two stretches): winding canyons/gorges
+  with terraced walls, a river (lava in the cinders) and a horseshoe head with a fall; a rift across the course;
+  `cliffs`/`shelf` (the sea or lava drops ~7 m, every shore a cliff, tabular icebergs); desert `mesas` (the floor
+  sinks round buttes); a `crater` (meteorite in the dunes, sinkhole lake on the ice, erupting caldera in the
+  cinders). Land can't rise (props must stay under the ship), so the drama goes down, to ~9 m below the plain.
+  `Relief.at(x, z, h)` gives every ground height (`ground_chunk`, `Game.ground_y`, `Game.land`); the city keeps its
+  flat ground. Steep faces are flagged in vertex alpha and get strata in the ground shader (`Models.ground_mat`).
+  Rivers and lava are an animated surface over the ground; falls (draped curtains), lava bombs, fountains, smoke,
+  steam, spray, geysers, avalanches and dust devils are shader "movers" (`Relief.MOVERS`, capped under the ship),
+  one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
+  (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
+  (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
