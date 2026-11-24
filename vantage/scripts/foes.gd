@@ -23,6 +23,11 @@ const NAMES := {
 	"lancer": "Lancer interceptor", "hover": "Floe hovercraft", "prism": "Rime crystal",
 	"ember": "Magma drone", "mortar": "Cinder walker", "wyrm": "Ash wyrm",
 }
+## Formations a flight can fly in (`slot`): an arrowhead, abreast, or a diagonal echelon.
+const FORMS := ["v", "line", "echelon"]
+## Room between two foes of a formation (m).
+const FORM_GAP := 3.2
+
 ## On the ground (ramming passes under them; they stay with the land).
 const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
 ## Those that stand on dry land (the hovercraft rides the water too; the tank drives on).
@@ -466,16 +471,46 @@ static func add_part(g: Game, f: Game.Obj, name: String, at: Vector3, material: 
 
 ## The spot nearest (x, z), across the field and then further ahead, where the land is dry, or
 ## (x, z) if there is none (all sea).
-static func dry_x(g: Game, x: float, z: float, me: Game.Obj) -> Vector2:
-	for dz in [0.0, -4.0, -8.0, -12.0]:
-		for k in 15:
-			var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
-			var tx := clampf(x + d, -6.5, 6.5)
-			var tz: float = z + dz
-			if g.land(tx, tz) > 0.06 and g.land(tx + 0.9, tz) > 0.0 and g.land(tx - 0.9, tz) > 0.0 \
-					and g.land(tx, tz + 0.9) > 0.0 and g.land(tx, tz - 0.9) > 0.0 and clear(g, tx, tz, me):
-				return Vector2(tx, tz)
+## A tower (`foot` past 0.9) that finds no firm ground (a canyon runs the whole width) settles for
+## any dry, level floor (down in the canyon beside its river), else for a level riverbed (it stands
+## in the water like a pier); never over a rim.
+static func dry_x(g: Game, x: float, z: float, me: Game.Obj, foot := 0.9) -> Vector2:
+	var tower := foot > 0.9
+	var dzs := [0.0, -4.0, -8.0, -12.0, -16.0, -20.0, -24.0] if tower else [0.0, -4.0, -8.0, -12.0]
+	for pass_i in (3 if tower else 1):
+		for dz in dzs:
+			for k in 15:
+				var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
+				var tx := clampf(x + d, -6.5, 6.5)
+				var tz: float = z + dz
+				var ok := g.land(tx, tz) > 0.06 if pass_i == 0 else (dry(g, tx, tz) if pass_i == 1 else true)
+				if ok and footed(g, tx, tz, foot, pass_i == 0, pass_i < 2) and clear(g, tx, tz, me):
+					return Vector2(tx, tz)
 	return Vector2(x, z)
+
+
+## Whether everything within `foot` m of (x, z) is firm land (or, not `firm`, any dry ground), and
+## for a tower about level with its centre: its footing never hangs over a rim or a bank.
+static func footed(g: Game, x: float, z: float, foot: float, firm := true, dry_only := true) -> bool:
+	var y := g.ground_y(x, z)
+	var n := 4 if foot <= 0.9 else 8
+	for k in n:
+		var a := TAU * k / n
+		var px := x + sin(a) * foot
+		var pz := z + cos(a) * foot
+		if dry_only and ((g.land(px, pz) <= 0.0) if firm else not dry(g, px, pz)):
+			return false
+		if foot > 0.9 and absf(g.ground_y(px, pz) - y) > 0.5:
+			return false
+	return true
+
+
+## No water or lava at (x, z) (a canyon floor counts).
+static func dry(g: Game, x: float, z: float) -> bool:
+	if Models.theme == "city":
+		return g.land(x, z) > 0.0
+	var v := Relief.at(x, z, Relief.raw(g.noise, x, z))
+	return v.z == 0.0 and v.y > 0.0
 
 
 ## No other ground foe (but `me`) stands within 3.5 m of (x, z).
@@ -487,7 +522,26 @@ static func clear(g: Game, x: float, z: float, me: Game.Obj) -> bool:
 
 
 ## Spawns foe i of n of a wave of `kind` entering at x (from `from`), past the screen's edge.
-static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top") -> void:
+## Foe i's place in a formation of n (x across, z along the flight: negative is further back,
+## up the screen), relative to the formation's centre across and its leader along.
+static func slot(form: String, i: int, n: int) -> Vector2:
+	var at := Vector2.ZERO
+	match form:
+		"v":
+			var k := (i + 1) / 2
+			at = Vector2((-1.0 if i % 2 == 1 else 1.0) * k * FORM_GAP, -k * FORM_GAP * 0.8)
+		"line":
+			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP * 1.15, 0.0)
+		"echelon":
+			at = Vector2((i - (n - 1) * 0.5) * FORM_GAP, -i * FORM_GAP * 0.75)
+		_:
+			at = Vector2((i - (n - 1) * 0.5) * 1.4, 0.0)
+	if form == "v" and n % 2 == 0:
+		at.x += FORM_GAP * 0.5   # the left wing is the longer one: centre the V
+	return at
+
+
+static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top", form := "") -> void:
 	var top := g.frame_z + minf(g.view_top, Rules.Z_TOP) - 2.5
 	var gz := g.frame_z + minf(g.view_ground_top, top - g.frame_z - 3.0) - 2.0
 	var spread := (i - (n - 1) * 0.5)
@@ -496,7 +550,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	if is_ground(kind):
 		f.ground = true
 		var sx := clampf(x * 1.25 + spread * 4.0, -6.5, 6.5)
-		var at := dry_x(g, sx, gz, f) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
+		var at := dry_x(g, sx, gz, f, Towers.FOOT_R if Towers.is_tower(kind) else 0.9) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
 		f.pos = Vector3(at.x, g.ground_y(at.x, at.y), at.y)
 		sx = at.x
 		f.x0 = sx
@@ -508,22 +562,33 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 		f.fire_t = 1.5 + 0.4 * i
 		Towers.build(g, f)
 		return
+	# the side a foe that holds comes in from when the top edge is too far (`Game.enter_toward`)
+	var side := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if (x < 0.0 or x == 0.0 and i % 2 == 0) else 1.0))
 	match kind:
 		"gull":
-			f.pos.x = clampf(f.x0 + spread * 1.4, -6.5, 6.5)
+			# in formation: goal.x its place across, goal.z how far behind the leader
+			var at := slot(form, i, n)
+			var half := 0.0   # (y) the formation's half width, to keep it all on screen
+			for k in n:
+				half = maxf(half, absf(slot(form, k, n).x))
+			f.goal = Vector3(at.x, half, at.y)
+			f.pos.x = clampf(f.x0, -maxf(0.0, 6.5 - half), maxf(0.0, 6.5 - half)) + at.x
+			f.pos.z = top + at.y
 			f.vel = Vector3(0, 0, 11.0)
 			f.fire_t = 1.0
 		"rotor":
-			f.pos.x = clampf(f.x0 + spread * 4.2, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.8 + (i % 2) * 1.8)   # z: below the screen's top edge
+			var gx := clampf(f.x0 + spread * 4.2, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.5 - (i % 2) * 1.8))   # z: above the screen's centre
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.fire_t = 2.0
 			add_part(g, f, "blades", Vector3(0, 0.55, 0.05))
 		"pillbox":
 			f.fire_t = 1.2
 			f.burst = 4
 		"scarab":
-			f.pos.x = clampf(f.x0 + spread * 2.0, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.0)
+			var gx := clampf(f.x0 + spread * 2.0, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.0))
+			g.enter_toward(f, gx, f.goal.z, side)
 			f.fire_t = 0.0
 		"tank":
 			# drives in from one side, up the land, across the screen
@@ -547,15 +612,16 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 			add_part(g, f, "gun", Vector3(0, 0.3, 0))
 		"gunship":
 			var s := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0))
-			var z := lerpf(g.view_top, g.view_bot, 0.2) + i * 3.0
+			var z := g.hold_z(8.0) + i * 3.0
 			f.x0 = s
 			f.pos = Vector3(s * (g.view_hw(z) + 4.0), Rules.PY, g.frame_z + z)
 			f.goal = Vector3(s * 2.8, 0, z)
 			f.fire_t = 2.0
 			add_part(g, f, "rotor", Vector3(0, 0.78, 0))
 		"lancer":
-			f.pos.x = clampf(f.x0 + spread * 3.0, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.6 + (i % 2) * 1.6)
+			var gx := clampf(f.x0 + spread * 3.0, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.0 - (i % 2) * 1.6))
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.burst = 3
 		"hover":
 			f.pos.z = gz - i * 3.0
@@ -564,8 +630,9 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 				var fan := add_part(g, f, "fan", Vector3(0.5 * sx, 1.05, -1.25))
 				fan.name = "fan_l" if sx < 0.0 else "fan_r"
 		"prism":
-			f.pos.x = clampf(f.x0 + spread * 5.0, -5.5, 5.5)
-			f.goal = Vector3(f.pos.x, 0, 5.0 + (i % 2) * 2.0)
+			var gx := clampf(f.x0 + spread * 5.0, -5.5, 5.5)
+			f.goal = Vector3(gx, 0, g.hold_z(6.0 - (i % 2) * 2.0))
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.fire_t = 2.0
 		"ember":
 			f.pos.x = clampf(f.x0 + spread * 2.4, -6.0, 6.0)
@@ -581,6 +648,22 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 
 
 # ---------------------------------------------------------------- behaviour
+
+## Nudges a foe away from others of its kind closer than r on the flight plane, so a group keeps
+## its spacing instead of stacking into one blob.
+static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float) -> void:
+	for o: Game.Obj in g.foes:
+		if o == f or o.kind != f.kind or o.dead:
+			continue
+		var away := Vector2(f.pos.x - o.pos.x, f.pos.z - o.pos.z)
+		var d := away.length()
+		if d < r:
+			if d < 0.001:
+				away = Vector2(1.0 if f.idx > o.idx else -1.0, 0.0)
+				d = 1.0
+			var push := away / d * (r - d) * minf(1.0, dt * 6.0)
+			f.pos.x += push.x
+			f.pos.z += push.y
 
 ## Where a foe shows on the flight plane (ground foes are seen at an angle).
 static func at_of(g: Game, f: Game.Obj) -> Vector3:
@@ -610,8 +693,11 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		"gull":
 			# dives at the ship, fires at the bottom of its dive, pulls up and climbs away
 			if f.hold < 0.0:
-				f.vel.x = clampf((g.ppos.x - f.pos.x) * 1.4, -4.5, 4.5)
-				if f.pos.z > g.ppos.z - 8.5 or f.t > 2.6:
+				# the flight lines up on the ship, each in its place, and pulls up as one
+				var room := maxf(0.0, 6.5 - f.goal.y)
+				var want := clampf(g.ppos.x, -room, room) + f.goal.x
+				f.vel.x = clampf((want - f.pos.x) * 1.4, -4.5, 4.5)
+				if f.pos.z - f.goal.z > g.ppos.z - 8.5 or f.t > 2.6:
 					f.hold = f.t
 			else:
 				f.vel.z = move_toward(f.vel.z, -12.0, 20.0 * dt)
@@ -626,7 +712,7 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			var bl := f.node.get_node("blades") as Node3D
 			bl.rotation.y += dt * 22.0
 			if f.t < 7.0:
-				f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, minf(1.0, dt * 1.8))
+				f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, minf(1.0, dt * 1.8))
 				f.pos.x = lerpf(f.pos.x, f.goal.x + sin(f.t * 1.1 + f.idx) * 1.2, minf(1.0, dt * 2.0))
 				if f.t >= f.fire_t and in_play(g, f):
 					f.fire_t = f.t + 1.7
@@ -654,14 +740,14 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 				f.size_y = 0.0   # not fired yet on this dash
 				f.fire_t = f.t + 1.2
 				if f.burst > 5:
-					f.goal = Vector3(f.pos.x, 0, maxf(g.view_bot, Rules.Z_BOT) + 8.0 - g.view_top)
+					f.goal = Vector3(f.pos.x, 0, maxf(g.view_bot, Rules.Z_BOT) + 8.0)
 				else:
 					var s := -1.0 if (f.burst + f.idx) % 2 == 0 else 1.0
-					f.goal = Vector3(s * g.rng.randf_range(1.5, 5.5), 0, 3.0 + f.burst * 2.2)
+					f.goal = Vector3(s * g.rng.randf_range(1.5, 5.5), 0, g.hold_z(7.0) + f.burst * 2.2)
 			var k := minf(1.0, dt * 5.0)
 			var was := f.pos
 			f.pos.x = lerpf(f.pos.x, f.goal.x, k)
-			f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, k)
+			f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, k)
 			f.node.rotation.z = clampf(-(f.pos.x - was.x) / maxf(dt, 1e-4) * 0.05, -0.5, 0.5)
 			if f.burst <= 5 and f.size_y == 0.0 and f.t - f.hold > 0.5 and in_play(g, f):
 				f.size_y = 1.0
@@ -696,6 +782,7 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			else:
 				f.vel.x += (1.0 if f.pos.x > 0.0 else -1.0) * 14.0 * dt
 			f.pos += f.vel * dt
+			keep_apart(g, f, 2.0, dt)   # a swarm, not one blob
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), sin(f.t * 9.0) * 0.12)
 			(f.node.get_node("quad") as Node3D).rotation.y += dt * 30.0
 		"aa":
@@ -757,7 +844,8 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			# drifts in, spins out a two-armed spiral, then sinks away
 			f.node.rotation.y += dt * (1.0 if f.t < 2.0 else 4.0)
 			if f.t < 6.0:
-				f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, minf(1.0, dt * 1.5))
+				f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, minf(1.0, dt * 1.5))
+				f.pos.x = lerpf(f.pos.x, f.goal.x, minf(1.0, dt * 1.5))
 				if f.t >= f.fire_t and in_play(g, f):
 					f.fire_t = f.t + 0.14
 					var a := f.t * 2.4 + f.idx * 0.9
@@ -848,7 +936,7 @@ static func think_borer(g: Game, f: Game.Obj, dt: float) -> void:
 static func think_lancer(g: Game, f: Game.Obj, dt: float) -> void:
 	var k := minf(1.0, dt * 4.5)
 	f.pos.x = lerpf(f.pos.x, f.goal.x, k)
-	f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, k)
+	f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, k)
 	f.node.rotation.z = clampf((f.goal.x - f.pos.x) * -0.25, -0.7, 0.7)
 	f.size = 1.0
 	if f.burst <= 0:

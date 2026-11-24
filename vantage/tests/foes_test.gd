@@ -137,6 +137,101 @@ func each_kind() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-24): foes that fly in and hold stopped "much too far from the ship" near the
+## top of tall screens. They hold a few metres above the screen's centre, and come in from a side
+## when the way down from the top edge is too long.
+func holds() -> void:
+	print("holders stop near the screen's centre, from a side on tall screens")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	for tall in [false, true]:
+		for kind: String in ["rotor", "scarab", "lancer", "prism", "heavy", "gunship"]:
+			g.clear_all()
+			g.queue.clear()
+			g.wave_i = g.waves.size()
+			g.update_view()
+			if tall:
+				# a 9:20 phone: the top edge far above the ship
+				g.view_top = -29.0
+				g.view_hw_top = 12.6
+			var mid := g.view_mid
+			g.spawn_vert(kind, 2.0, 0, 2, "top")
+			var f: Game.Obj = g.foes[g.foes.size() - 1]
+			f.hp = 1e6
+			var start := f.pos - Vector3(0, 0, g.frame_z)
+			var from_side := absf(start.x) > g.view_hw(start.z) + 1.0
+			if tall:
+				check(from_side or kind == "heavy" and absf(start.x) > 9.0, "%s: in from a side on a tall screen (x %.1f)" % [kind, start.x])
+			else:
+				check(not g.side_entry(f.goal.z) or from_side, "%s: from the top only when the way down is short" % kind)
+			var t := 0.0
+			var near := 1e9
+			while t < 2.6:
+				g.hp = 5
+				g.inv = 1.0
+				g.step(DT)
+				t += DT
+				if tall:
+					g.view_top = -29.0
+					g.view_hw_top = 12.6
+			var z := f.pos.z - g.frame_z
+			near = z - mid
+			check(near > -10.0 and near < 4.0 and absf(f.pos.x) < 8.0,
+				"%s: holds near the screen's centre (%.1f m off it, ship %.1f m below)" % [kind, near, g.prel.y - z])
+	g.queue_free()
+	await process_frame
+
+
+## Guillaume (2026-11-24): "hydroplanes cluster together too close, how about keeping them in
+## formations?" Flights keep their spacing all the way, swarms and holding lines don't stack.
+func formations() -> void:
+	print("flights keep formation, swarms keep apart")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	var groups := []
+	for form: String in Foes.FORMS:
+		groups.append(["gull", 4, form, "top", 0.0])
+	groups.append(["seeker", 6, "", "top", 0.3])
+	groups.append(["dart", 6, "", "back", 0.3])
+	for grp: Array in groups:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		var kind: String = grp[0]
+		var n: int = grp[1]
+		var mine: Array[Game.Obj] = []
+		var t := 0.0
+		var next := 0
+		var closest := 1e9
+		while t < 6.0:
+			while next < n and t >= next * float(grp[4]):
+				g.spawn_vert(kind, 4.5 if grp[3] == "back" else 0.0, next, n, grp[3], grp[2])
+				var f: Game.Obj = g.foes[g.foes.size() - 1]
+				f.hp = 1e6
+				mine.append(f)
+				next += 1
+			g.hp = 5
+			g.inv = 1.0
+			g.prel.x = sin(t * 0.9) * 3.0
+			g.step(DT)
+			t += DT
+			for a in mine.size():
+				for b in range(a + 1, mine.size()):
+					if mine[a] in g.foes and mine[b] in g.foes and g.on_screen(mine[a]) and g.on_screen(mine[b]):
+						var d := Vector2(mine[a].pos.x - mine[b].pos.x, mine[a].pos.z - mine[b].pos.z).length()
+						closest = minf(closest, d)
+		var want := 2.0 if kind == "gull" else 1.4
+		check(closest >= want and closest < 1e8, "%s %s: never closer than %.1f m on screen (%.1f)" % [kind, grp[2] if grp[2] != "" else grp[3], want, closest])
+	g.queue_free()
+	await process_frame
+
+
 func extras() -> void:
 	print("announced, shells burst, borers hide")
 	var g := make_game()
@@ -200,6 +295,7 @@ func towers() -> void:
 			var gy := g.ground_y(f.pos.x, f.pos.z)
 			check(f.ground and f.node.mesh == Towers.base(theme) and f.node.has_node("top") and is_equal_approx(f.pos.y, gy + Towers.height(theme)),
 				"%s: a %s on its world's footing, its gun %.1f m up" % [theme, t, Towers.height(theme)])
+			check(Towers.pole(theme) >= 0.8, "%s: the %s's gun stands on a pole, so it reads as a tower, not a flyer" % [theme, t])
 			f.hp = 1e6
 			var fired := 0
 			var big := false
@@ -221,6 +317,24 @@ func towers() -> void:
 			var top := f.node.get_node("top") as MeshInstance3D
 			check(f.node.material_overlay != null and top.material_overlay != null, "%s: the %s flashes, gun and all" % [theme, t])
 	check(all.size() == Towers.TYPES.size(), "every type of tower is fielded somewhere")
+	# down every level's course, a tower's whole footing stands on level ground, never over a rim
+	for lv in Campaign.count():
+		g.launch(lv)
+		g.step(DT)
+		g.clear_all()
+		var bad := 0
+		var dry_ok := 0
+		var n := 0
+		for z in range(0, 1500, 23):
+			for x in [-4.0, 0.0, 4.0]:
+				var at := Foes.dry_x(g, x, -float(z), null, Towers.FOOT_R)
+				n += 1
+				if not Foes.footed(g, at.x, at.y, Towers.FOOT_R, false, false):
+					bad += 1
+				if Foes.dry(g, at.x, at.y):
+					dry_ok += 1
+		check(bad <= n / 100, "level %d: towers stand level, not over a rim (%d of %d spots)" % [lv + 1, n - bad, n])
+		check(dry_ok >= n * 0.8, "level %d: towers mostly stand out of the water (where the sea or a river fills the width they stand in it, level, like a pier) (%d of %d spots)" % [lv + 1, dry_ok, n])
 	check(Towers.height("city") + 1.6 < Rules.PY, "a tower on a building stays under the flight altitude")
 	g.queue_free()
 	await process_frame
@@ -231,6 +345,8 @@ func _initialize() -> void:
 	roster()
 	await towers()
 	await each_kind()
+	await holds()
+	await formations()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)
