@@ -145,6 +145,30 @@ static func crater_c(n: int) -> Vector2:
 	return Vector2((h1(n, 4.0) - 0.5) * 8.0, START - n * SEG - SEG * 0.5)
 
 
+## Each world's town (Towns) stands on top of one of its set pieces (Guillaume, 2026-11-24: "on top of
+## the existing evolutions, like cliffs in glass coast"): a headland above the sea cliffs, a great
+## mesa above the sunken desert, an ice shelf above the cold sea, a basalt plateau above the lava.
+const TOWN_HOST := {"coast": "cliffs", "dunes": "mesas", "ice": "shelf", "volcano": "cliffs"}
+
+
+static func has_town(n: int) -> bool:
+	return n >= 0 and kind_of(n) == TOWN_HOST.get(Models.theme, "")
+
+
+## True inside a town's wall and just round it, where the land's own props keep out.
+static func in_town(x: float, z: float) -> bool:
+	var n := stretch_of(z)
+	if not has_town(n):
+		return false
+	var c := town_c(n)
+	return maxf(absf(x - c.x), absf(z - c.y)) < Towns.WALL + 6.0
+
+
+## Where stretch n's town stands (its square's centre).
+static func town_c(n: int) -> Vector2:
+	return Vector2((h1(n, 20.0) - 0.5) * 4.0, START - n * SEG - SEG * 0.52)
+
+
 const CRATER_R := 15.0
 const CRATER_FLOOR := 5.0
 
@@ -152,6 +176,27 @@ const CRATER_FLOOR := 5.0
 ## The ground at (x, z) for the noise value h: Vector4(y, h for colours and props, liquid, flow).
 ## liquid: 0 dry, 1 water, 2 lava. flow: 0 still, 1 along +z, 2 along +x.
 static func at(x: float, z: float, h: float) -> Vector4:
+	var v := shape(x, z, h)
+	var n := stretch_of(z)
+	if not has_town(n):
+		return v
+	# the town's plateau: level, its edge a cliff down to the set piece round it, and a causeway
+	# carrying the avenue down to the land where it leaves the gate
+	var c := town_c(n)
+	var o := Vector2(x - c.x, z - c.y)
+	var d := maxf(absf(o.x), absf(o.y)) * 0.8 + o.length() * 0.2 + wob(x, z) * 0.6
+	var w := smoothstep(Towns.FLAT + 2.5, Towns.FLAT, d)
+	if absf(o.x) < Towns.AVENUE + 1.2 + wob(x, z) * 0.3 and o.y > 0.0:
+		w = maxf(w, smoothstep(Towns.AVENUE_TO + 8.0, Towns.AVENUE_TO, o.y))
+	w *= ease_in_out(local(z, n), 20.0)
+	if w <= 0.0:
+		return v
+	var hc: float = Towns.GROUND_H[Models.theme]
+	return Vector4(lerpf(v.x, Towns.GROUND_Y, w), lerpf(v.y, hc, w) if w < 0.99 else hc, v.z if w < 0.5 else 0.0, v.w if w < 0.5 else 0.0)
+
+
+## The set piece's own shape at (x, z), before any town on it.
+static func shape(x: float, z: float, h: float) -> Vector4:
 	var n := stretch_of(z)
 	var kind := kind_of(n)
 	var lava := 2.0 if Models.theme == "volcano" else 1.0
