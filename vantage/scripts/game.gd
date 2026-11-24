@@ -1718,6 +1718,10 @@ func collide(_dt: float) -> void:
 		if f.dead or f.ground:
 			continue
 		if pov:
+			# gliding on between the fortress's sections, nothing touches the ship: shots and
+			# drones pass through
+			if transit():
+				continue
 			if f.kind == "orb" and f.pos.distance_to(ppos) < f.r + Rules.PLAYER_R + 0.2:
 				f.dead = true
 				pop(f.pos, 0.6, Color8(0xff, 0x4d, 0x8d))
@@ -1969,8 +1973,15 @@ func power_up() -> void:
 	hud.ping_power()
 
 
+## Whether the ship is on its way between the fortress's sections (the swoop in, a glide on to the
+## next section, the climb away from the wreck): it can't be hit then (Guillaume, 2026-11-24: "I
+## don't want the ship to be hit during fortress transitions").
+func transit() -> bool:
+	return phase in ["approach", "escape"] or (phase in ["pov", "core"] and adv_t < adv_dur)
+
+
 func hurt() -> void:
-	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"]:
+	if inv > 0.0 or phase not in ["vert", "approach", "pov", "core", "escape"] or transit():
 		return
 	hp -= 1
 	run.hits += 1

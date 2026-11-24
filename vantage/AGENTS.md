@@ -57,7 +57,8 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   of a galleon's masts and sails (`Capital.rigging`, in `inside`; shots and sight pass through sails,
   `in_hull`). After the kill the ship climbs over the tallest thing on the hull (`Capital.crest`) and
   only comes down to its cruise once the wreck has slid back past it (`esc_down`); beneath, it slips out
-  past the hull's widest (`Capital.widest`). `tests/clearance_test.gd` flies every whole fight and checks
+  past the hull's widest (`Capital.widest`). The ship can't be hit on its way between sections (the swoop, a glide, the climb away;
+  `Game.transit`; Guillaume, 2026-11-24): shots and drones pass through. `tests/clearance_test.gd` flies every whole fight and checks
   the ship never passes through any mesh and neither it nor the camera jumps. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
   and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
