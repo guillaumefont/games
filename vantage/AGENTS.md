@@ -301,6 +301,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
   crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
   set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
+- Baked shadows (Guillaume, 2026-11-24: "bake shadows, ao... even for moving objects"): no shadow maps (they cost on
+  phones and wash out vertex colours on the web). The ground bakes the sun's shadow into its vertex colours: each
+  vertex below the plain marches toward the sun (`Models.sun_shade`, `sun_slide` from Game's sun) and darkens under
+  cliffs, canyon walls, rims and mesas (`shade_col`). The land never rises past `LAND_TOP`, so vertices near the plain
+  skip the test (that keeps chunk builds cheap). Props' contact discs (`ao_blobs`) stretch away from the sun as far as
+  the prop is tall (`CAST`). Moving things keep their silhouette shadows, now flattened onto the real ground under the
+  sun's ray (`Game.land_shadow_y`, looked up every few frames on a remembered 1 m grid), so a shadow in a canyon lands
+  on its floor. Tested in `relief_test.gd`.
 - The city is a calm backdrop (Guillaume, 2026-11-24: "too messy... not very easy to see the enemies"): every
   colour of a city chunk goes through `City.calm` (desaturated, drawn in towards one mid grey; `Builder.tone`), with
   few fires, cars and road markings, and no helipads. Foes keep their own colours. Tested in `relief_test.gd`;

@@ -242,6 +242,45 @@ func city(g: Game) -> void:
 	check(fires > 0 and fires <= 80, "city: a few fires, not everywhere (%d in 10 chunks)" % fires)
 
 
+## Baked shadows (Guillaume, 2026-11-24: "bake shadows... even for moving objects"): the land
+## shades the ground below its cliffs and rims, never the open plain; a shadow cast into a canyon
+## lands on its floor.
+func shadows(g: Game) -> void:
+	print("shadows")
+	for theme: String in ["dunes", "volcano"]:
+		g.apply_theme(theme)
+		var gh := func(x: float, z: float) -> float: return Relief.y_at(g.noise, x, z)
+		var shaded := 0
+		var plain := 0
+		var deep := INF
+		for k in 30:
+			for i in 30:
+				var x := -28.0 + i * 2.0
+				var z := -k * Game.CHUNK - 10.0
+				var y: float = gh.call(x, z)
+				var sh := Models.sun_shade(gh, Vector3(x, y, z))
+				if sh > 0.5:
+					shaded += 1
+				if y > -0.1 and sh > 0.0:
+					plain += 1
+				if y < deep:
+					deep = y
+		check(shaded > 5 and plain == 0, "%s: the land shades the ground under its walls (%d spots), never the plain (%d)" % [theme, shaded, plain])
+		# a ground foe down in the deepest place casts its shadow on that floor, not up on the plain
+		var lowest := Vector2.ZERO
+		var lo := INF
+		for k in 40:
+			for i in 20:
+				var p := Vector2(-15.0 + i * 1.5, -k * 7.0 - 20.0)
+				var y := Relief.y_at(g.noise, p.x, p.y)
+				if y < lo:
+					lo = y
+					lowest = p
+		var src := Vector3(lowest.x, lo + 0.6, lowest.y)
+		var land := g.land_shadow_y(src)
+		check(land < -3.0 and absf(land - lo) < 1.5, "%s: a shadow cast into the depths lands on the floor (%.1f m, floor %.1f m)" % [theme, land, lo])
+
+
 func _initialize() -> void:
 	print("Vantage relief test")
 	var g := make_game()
@@ -251,6 +290,7 @@ func _initialize() -> void:
 	depth(g)
 	footing(g)
 	city(g)
+	shadows(g)
 	towns(g)
 	Models.theme = "coast"
 	g.queue_free()

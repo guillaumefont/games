@@ -194,6 +194,7 @@ var drone_n := 0
 const SHADOW_Y := 1.45
 const SHADOW_LAYER := 1 << 19
 var shadows: Array[MeshInstance3D] = []
+var shadow_tick := 0
 var shadow_view: SubViewport
 var shadow_cam: Camera3D
 var shadow_plane: MeshInstance3D
@@ -302,6 +303,7 @@ void sky() {
 	# on phones): models drop soft silhouette shadows instead, see cast_shadow_of()
 	var d := -sun.basis.z
 	sun_slide = Vector2(d.x, d.z) / maxf(-d.y, 0.1)
+	Models.sun_slide = sun_slide   # the land bakes its shadows along the same sun
 	# a cool fill from the opposite side keeps the shaded faces from going flat grey
 	fill = DirectionalLight3D.new()
 	fill.rotation = Vector3(deg_to_rad(-30), deg_to_rad(150), 0)
@@ -417,6 +419,7 @@ func hangar_ship_z() -> float:
 func pick_level(lv: int) -> void:
 	if not Campaign.is_open(s, lv):
 		return
+	_shadow_ground.clear()
 	level = lv
 	s.sel = lv
 	world = Campaign.world_of(lv)
@@ -439,6 +442,7 @@ func pick_level(lv: int) -> void:
 
 ## The world's look: terrain colours and props (the ground is rebuilt), sky, fog and light.
 func apply_theme(theme: String) -> void:
+	_shadow_ground.clear()
 	var th: Dictionary = Models.THEMES[theme]
 	var sk: Array = th.sky
 	for k in 4:
@@ -2097,6 +2101,7 @@ func update_shadows() -> void:
 	# flatten onto y = SHADOW_Y along the sun: x' = x + (y - Y) * slide.x, z' likewise
 	var flat := Transform3D(Basis(Vector3(1, 0, 0), Vector3(sun_slide.x, 0.0005, sun_slide.y), Vector3(0, 0, 1)),
 		Vector3(-SHADOW_Y * sun_slide.x, SHADOW_Y, -SHADOW_Y * sun_slide.y))
+	shadow_tick += 1
 	for i in range(shadows.size() - 1, -1, -1):
 		var sh := shadows[i]
 		if not is_instance_valid(sh) or sh.is_queued_for_deletion():
@@ -2105,7 +2110,43 @@ func update_shadows() -> void:
 		var src: MeshInstance3D = sh.get_meta("src")
 		if not sh.is_inside_tree():
 			continue
-		sh.global_transform = flat * src.global_transform
+		# the shadow lands on the ground where it really is: down in a canyon or a crater too
+		# (looked up every few frames: the ground under a shadow changes slowly)
+		var y: float = sh.get_meta("land_y", SHADOW_Y)
+		if (shadow_tick + i) % 6 == 0 or not sh.has_meta("land_y"):
+			y = land_shadow_y(src.global_position)
+			sh.set_meta("land_y", y)
+		var on := Transform3D(Basis(Vector3(1, 0, 0), Vector3(sun_slide.x, 0.0005, sun_slide.y), Vector3(0, 0, 1)),
+			Vector3(-y * sun_slide.x, y, -y * sun_slide.y))
+		sh.global_transform = on * src.global_transform if y < SHADOW_Y - 0.05 else flat * src.global_transform
+
+
+## The height a shadow cast from p lands at: the ground where the sun's ray from p meets it (two
+## steps along the ray), never above the usual shadow plane. The mask is drawn in screen space,
+## so a shadow flattened onto a canyon's floor shows on that floor.
+func land_shadow_y(p: Vector3) -> float:
+	if Models.theme == "city":
+		return SHADOW_Y
+	var y := shadow_ground(p.x, p.z)
+	for k in 2:
+		var d := maxf(p.y - y, 0.0)
+		y = shadow_ground(p.x + d * sun_slide.x, p.z + d * sun_slide.y)
+	return minf(y + 0.05, SHADOW_Y)
+
+
+## ground_y on a 1 m grid, remembered (shadows ask about the same few spots frame after frame).
+var _shadow_ground := {}
+
+
+func shadow_ground(x: float, z: float) -> float:
+	var k := Vector2i(roundi(x), roundi(z))
+	if _shadow_ground.has(k):
+		return _shadow_ground[k]
+	if _shadow_ground.size() > 4000:
+		_shadow_ground.clear()
+	var y := ground_y(k.x, k.y)
+	_shadow_ground[k] = y
+	return y
 
 
 func update_chunks() -> void:

@@ -1305,6 +1305,9 @@ static func airfoil(b: Builder, root: Vector3, span: Vector3, c0: float, c1: flo
 ## The terrain theme of the current world (`Campaign.WORLDS`): "coast", "dunes", "city", "ice"
 ## or "volcano". `ground_chunk` colours the land and picks its props by it.
 static var theme := "coast"
+## Where the sun throws a shadow: a point h above the ground shades the ground h * sun_slide
+## away (x, z). Game sets it from its sun; this is the same sun's.
+static var sun_slide := Vector2(0.4016, -0.5736)
 
 ## Each theme's sky (top, middle, horizon, below), fog, ambient light and sun.
 const THEMES := {
@@ -1389,6 +1392,36 @@ static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32
 		cols.append(-right[i])
 	cols.append_array(right)
 	return cols
+
+
+## How deep in the land's own shadow the ground at p lies, 0 (in the sun) to 1: the ground
+## between p and the sun stands above the sun's ray through p. Soft at the shadow's edge.
+const SUN_STEPS := [1.0, 2.2, 3.6, 5.2, 7.2]
+const SHADE := 0.55
+## The highest the land rises (the plain's top, `Relief.base_y`).
+const LAND_TOP := 1.3
+
+
+static func sun_shade(ground_h: Callable, p: Vector3) -> float:
+	var l := sun_slide.length()
+	if l < 0.01:
+		return 0.0
+	var to_sun := -sun_slide / l
+	var worst := 0.0
+	for s: float in SUN_STEPS:
+		# the land never rises past LAND_TOP, so past where the ray clears it nothing can shade p
+		# (and most of the land, near the plain, is never tested at all)
+		if p.y + s / l > LAND_TOP + 0.7:
+			break
+		var q := Vector2(p.x, p.z) + to_sun * s
+		var above: float = float(ground_h.call(q.x, q.y)) - (p.y + s / l)
+		worst = maxf(worst, above)
+	return smoothstep(0.0, 0.45, worst)
+
+
+## A colour in the land's shadow: darker and a little cooler (lit by the sky, not the sun).
+static func shade_col(c: Color) -> Color:
+	return Color(c.r * (1.0 - SHADE) * 0.94, c.g * (1.0 - SHADE) * 0.97, c.b * (1.0 - SHADE * 0.75), c.a)
 
 
 ## How much wider than the core strip the city is built (half on each side).
@@ -1485,6 +1518,12 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					c.a = 1.0 - steep
 				if y < -0.6:
 					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
+				# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
+				# them (Guillaume, 2026-11-24: "bake shadows" on the landscape)
+				if shaped:
+					var sh := sun_shade(ground_h, vs[i][j])
+					if sh > 0.0:
+						c = Color(c.lerp(shade_col(c), sh), c.a)
 			cr.append(c)
 		cs.append(cr)
 	var gv := PackedVector3Array()
@@ -1580,7 +1619,7 @@ static var ao_mesh: Mesh
 ## Baked contact occlusion: a soft dark disc on the ground under each placed prop, as wide as
 ## what stands on it and darker the taller it is, following the ground's height (`ground_h`).
 ## One see-through mesh a chunk, drawn with `ao_mat`.
-static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
+static func ao_blobs(spots: Array, ground_h: Callable, cast := true) -> Mesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := 0
@@ -1590,7 +1629,13 @@ static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
 		var base: Vector3 = sp[0]
 		var c := (lo + hi) * 0.5
 		var r := maxf(hi.x - lo.x, hi.y - lo.y) * 0.5 * AO_SPREAD + 0.3
-		var a := clampf(0.2 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		var a := clampf(0.3 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		# baked cast shadow: the disc stretches away from the sun as far as the prop is tall
+		var lean: Vector2 = sun_slide * float(sp[1]) * CAST if cast else Vector2.ZERO
+		var u := lean.normalized() if lean.length() > 0.01 else Vector2(1, 0)
+		var w := Vector2(-u.y, u.x)
+		var ru := r + lean.length() * 0.5
+		c += lean * 0.5
 		var on_ground := func(x: float, z: float) -> Vector3:
 			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
 		# a soft falloff: an inner ring at 55% of the radius still holds 60% of the shade
@@ -1599,8 +1644,9 @@ static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
 		var ring := []
 		for k in AO_SEG:
 			var ang := TAU * k / AO_SEG
-			inner.append(on_ground.call(c.x + cos(ang) * r * 0.55, c.y + sin(ang) * r * 0.55))
-			ring.append(on_ground.call(c.x + cos(ang) * r, c.y + sin(ang) * r))
+			var o := u * cos(ang) * ru + w * sin(ang) * r
+			inner.append(on_ground.call(c.x + o.x * 0.55, c.y + o.y * 0.55))
+			ring.append(on_ground.call(c.x + o.x, c.y + o.y))
 		var dark := Color(0, 0, 0, a)
 		var half := Color(0, 0, 0, a * 0.6)
 		var clear := Color(0, 0, 0, 0)
@@ -1625,7 +1671,7 @@ static func contact(key: String, m: Mesh) -> Mesh:
 		var bx := m.get_aabb()
 		var lo := Vector2(bx.position.x, bx.position.z)
 		var hi := lo + Vector2(bx.size.x, bx.size.z)
-		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0))
+		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0, false))
 
 
 const AO_SEG := 10
@@ -1634,6 +1680,8 @@ const AO_SEG := 10
 const AO_SPREAD := 1.35
 const AO_DARK := 0.42
 const AO_LIFT := 0.1
+## How far a prop's baked shadow reaches along the sun, as a share of its full sun shadow.
+const CAST := 1.6
 
 
 ## The contact shadows' material: black, see-through by vertex alpha, fogged like the ground.
