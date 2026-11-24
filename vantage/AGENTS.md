@@ -46,6 +46,9 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
+- The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
+  fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
+  to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
 
 ## Pull requests
 
@@ -76,7 +79,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
