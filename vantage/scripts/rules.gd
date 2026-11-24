@@ -428,8 +428,10 @@ const SEAM_GAP := 0.4
 ## The wreck's slowing (m/s per s per s: it drifts back by DRIFT * t^3 / 3) and its pieces' sink.
 const DRIFT := 2.2
 const SINK := 1.1
-## Meanwhile the ship climbs away from the blast, so the pieces pass beneath it.
-const CLIMB := 16.0
+## Meanwhile the ship climbs a little away from the blast, but no higher than `CRUISE_Y` above
+## the ground: from higher up the camera would see the edges of the land.
+const CLIMB := 5.0
+const CRUISE_Y := 32.0
 
 # ---------------------------------------------------------------- upgrades
 const ORDER := ["cannon", "missile", "hull", "magnet"]

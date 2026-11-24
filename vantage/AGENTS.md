@@ -333,7 +333,8 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
   spine, the seams part bow first (`SEAM_GAP`), each segment drifts apart, turns, sinks a little, scorched and
   burning, while the wreck loses way (`DRIFT`) and slides back under the ship, which climbs away (`CLIMB`) with
-  the camera. No piece comes near the ground and all are off the screen by the end (tested).
+  the camera, but no higher than `CRUISE_Y` (Guillaume: from high up "you can see the limited decor"; the
+  city is also built `Models.CITY_MORE` wider than the core strip for that). No piece comes near the ground and all are off the screen by the end (tested).
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
   (`Game.pov_drag`), so the ship gets from one side of the fortress's guns to the other in one move.
 - The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per

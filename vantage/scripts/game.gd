@@ -2190,7 +2190,10 @@ func step_pov(dt: float) -> void:
 		# the hull first, if it was beneath it)
 		var out := esc_from != esc_to
 		line_x = lerpf(esc_from, esc_to, smoothstep(0.0, 1.4, phase_t))
-		chase_y = fort_deck + fly + Rules.CLIMB * smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t)
+		# and settles at a low cruise, where the land fills the view to the fog (Guillaume: high up
+		# "you can see the limited decor")
+		var cruise := minf(fort_deck + fly + Rules.CLIMB, Rules.CRUISE_Y)
+		chase_y = lerpf(fort_deck + fly, cruise, smoothstep(1.0 if out else 0.0, 2.5 if not out else 3.2, phase_t))
 	else:
 		adv_t += dt
 		k = clampf(adv_t / adv_dur, 0.0, 1.0)
@@ -2602,8 +2605,8 @@ func pose(mode: String) -> Array:
 		var c: Vector4 = lane_now().cam if fortress or phase == "escape" else Vector4(4.2, -0.5, 0, 0)
 		c = c.lerp(Vector4(4.2, -0.5, 0, 0), rise)
 		var ox := ppos.x - line_x
-		var at := Vector3(line_x + ox * 0.78 + c.z, chase_y + (ppos.y - chase_y) * 0.75 + c.x + rise * 9.0, ppos.z + 8.5 + rise * 18.0)
-		var look := Vector3(line_x + ox * 0.55 + c.w, chase_y + (ppos.y - chase_y) * 0.6 + c.y - rise * 16.0, ppos.z - 40.0 + rise * 6.0)
+		var at := Vector3(line_x + ox * 0.78 + c.z, chase_y + (ppos.y - chase_y) * 0.75 + c.x + rise * 2.5, ppos.z + 8.5 + rise * 8.0)
+		var look := Vector3(line_x + ox * 0.55 + c.w, chase_y + (ppos.y - chase_y) * 0.6 + c.y - rise * 4.0, ppos.z - 40.0)
 		var xf := Transform3D(Basis(), at).looking_at(look, Vector3.UP)
 		xf.basis = xf.basis.rotated(xf.basis.z, clampf(-pvel.x * 0.006, -0.08, 0.08))
 		return [xf, 62.0]

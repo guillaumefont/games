@@ -197,6 +197,7 @@ func fight() -> void:
 	var lowest := 1e9
 	var max_dip := 0.0
 	var held_up := true
+	var cruise := 0.0
 	var min_dip := 1.0
 	for i in int(400.0 / DT):
 		g.hp = maxi(g.hp, 2)
@@ -218,6 +219,7 @@ func fight() -> void:
 			g.touching = false
 			g.slow_down(0.5)
 			held_up = held_up and not g.paused() and g.time_speed() > 0.99
+			cruise = g.chase_y
 		if g.phase == "results" or g.phase == "clear":
 			break
 	check(g.phase in ["clear", "results"], "the Basilisk taken apart, its reactor down from beneath its throat")
@@ -225,6 +227,8 @@ func fight() -> void:
 		"over it, along both flanks and beneath it (%s)" % [routes.keys()])
 	check(min_dip < 0.0 and max_dip > 0.0, "the guns aim up from beneath, down from above")
 	check(held_up, "lifting the finger doesn't pause the break-up")
+	# Guillaume: high up after the kill "you can see the limited decor"
+	check(cruise > 0.0 and cruise <= Rules.CRUISE_Y + 0.01, "the ship flies on low after the kill (%.1f m)" % cruise)
 	check(lowest > 4.0, "it breaks up in the air (lowest piece %.1f m up)" % lowest)
 	g.queue_free()
 	await process_frame
