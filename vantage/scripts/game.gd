@@ -618,9 +618,11 @@ func _notification(what: int) -> void:
 		touching = false
 
 
-## In flight the world only runs while the player holds a finger (or a direction key) down.
+## In flight the world only runs while the player holds a finger (or a direction key) down. Once
+## the fortress is destroyed its break-up plays through, finger or not (Guillaume: "don't pause
+## when I lift up my finger after the fortress is destroyed").
 func pausable() -> bool:
-	return phase in ["vert", "approach", "pov", "core", "escape"]
+	return phase in ["vert", "approach", "pov", "core"]
 
 
 func holding() -> bool:
@@ -958,7 +960,7 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (f.sec != fort_sec or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not landmark(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1528,7 +1530,7 @@ func steer_missile(m: Obj, dt: float) -> void:
 		m.target = null
 		var best := 1e9
 		for f in foes:
-			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and f.sec != fort_sec):
+			if f.dead or f.kind == "orb" or landmark(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
@@ -1550,7 +1552,7 @@ func collide(_dt: float) -> void:
 		if o.dead:
 			continue
 		for f in foes:
-			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or f.sec != fort_sec)):
+			if f.dead or f.kind == "boss" or f.under or (f.on_fort and (not pov or not live_sec(f))):
 				continue
 			# the bosses' fire can't be shot down (Guillaume: too easy); only rockets can
 			if f.kind == "orb" and f.homing <= 0.0:
@@ -2417,9 +2419,12 @@ func think_gun(f: Obj, dt: float) -> void:
 		bub.queue_free()
 		if pov_mode():
 			pop(f.pos, 1.2, Models.CYAN)
-	var active := phase == "pov" and f.sec == fort_sec and adv_t > adv_dur * 0.7
+	# the section being cleared fires from the moment it opens (even while the ship glides on to
+	# it), and the next one already joins in
+	var active := phase == "pov" and live_sec(f)
 	if not active or f.t < f.fire_t:
 		return
+	var ahead := f.sec != fort_sec
 	var dist := ppos.z - f.pos.z
 	if dist < 5.0 or dist > 70.0:
 		return
@@ -2475,6 +2480,8 @@ func think_gun(f: Obj, dt: float) -> void:
 			# a pair of drones up out of the hangar
 			f.fire_t = f.t + 5.5
 			spawn_pov({"kind": "drone", "n": 2, "from": f.pos + Vector3(0, 1.0, 0)})
+	if ahead:
+		f.fire_t = f.t + (f.fire_t - f.t) * Rules.AHEAD_FIRE
 
 
 ## An orb fired along `dir` at `speed` (in the frame that flies with the ship).
@@ -2511,7 +2518,14 @@ func lockable(f: Obj) -> bool:
 		return false
 	if (f.kind == "core" and shielded()) or fort_guarded(f):
 		return false
-	return not f.on_fort or f.sec == fort_sec
+	return not f.on_fort or live_sec(f)
+
+
+## The sections in the fight: the one being cleared and the next, already in view (Guillaume:
+## "more compact, even if sections kind of overlap: you already see the next section, receive its
+## bullets"). Its guns fire, a little slower, and can be shot down ahead of time.
+func live_sec(f: Obj) -> bool:
+	return f.sec == fort_sec or f.sec == fort_sec + 1
 
 
 ## Where the guns converge: ahead along `aim_dir`, or the foe closest to that line (aim assist).

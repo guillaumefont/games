@@ -40,8 +40,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   slung under the hull), whose armour breaks off to show the reactor (`core`, behind four shield panels).
   Each section lists its guns (`Rules.SHIP_GUNS`: nozzle, twin, quad, pod, mast, dish, pylon, hatch; looks in
   `Capital.gun`, patterns in `Game.think_gun`); a `pylon` shields the rest of its section until it falls
-  (`Game.fort_guarded`), a `hatch` launches drones. Only the current section's guns fire, take hits and get
-  brackets. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
+  (`Game.fort_guarded`), a `hatch` launches drones. The ships are compact and the sections overlap
+  (Guillaume, 2026-11-24: "you already see the next section, receive its bullets"; no dead time on the
+  sides): the current section and the next (`Game.live_sec`) fire, take hits and get brackets, the next one
+  `Rules.AHEAD_FIRE` times slower, and the current one fires during the glide onto it too. From every lane
+  the next section's guns are within 62 m (tested); the other sections' guns hold fire. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
   and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
@@ -264,7 +267,8 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   pooled and past `Blasts.CAP` live pieces a blast is only its flash. Blasts are carried
   (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
   or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
-- Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`) time eases to a stop over
+- Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`; not once the fortress is
+  destroyed: its break-up plays through, Guillaume 2026-11-24) time eases to a stop over
   `Rules.SLOW_STOP` s (2 s, gradual: Guillaume asked for a slower slowdown) once no finger (or direction key) is down, and back up over `SLOW_RESUME` s on touch.
   `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
   paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already

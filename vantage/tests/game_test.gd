@@ -252,7 +252,7 @@ func stage() -> void:
 	# Guillaume (2026-11-23): a huge fortress-class ship, no tunnel: a capital ship far longer and
 	# wider than the screen, cut into sections along its length
 	var L := Rules.fortress_len(g.fort_id)
-	check(L > 200.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
+	check(L > 140.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
 	var vs := g.view_size()
 	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, 0, -10.0)))
 	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, 0, -10.0)))
