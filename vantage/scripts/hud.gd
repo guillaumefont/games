@@ -30,6 +30,9 @@ var version_btn: Button
 var reset_btn: Button
 var reset_armed := false
 const RESET_ARM := 4.0
+## On the pause screen: quits the run back to the hangar, with the same two-tap confirmation.
+var quit_btn: Button
+var quit_armed := false
 ## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
 var version_note := ""
 var rows := {}
@@ -64,6 +67,7 @@ func _ready() -> void:
 	place(sub_l, Rect2(0, 0.3, 1, 0), Rect2(0, 32, 0, 40))
 	build_hangar()
 	build_results()
+	build_quit()
 	get_viewport().size_changed.connect(fit_hangar)
 	hangar_panel.resized.connect(fit_hangar)
 	fit_hangar()
@@ -473,6 +477,47 @@ func show_results() -> void:
 	res_body.text = "\n".join(lines)
 
 
+# ---------------------------------------------------------------- pause menu
+
+## "Main menu" above the pause title, away from where the thumb rests to fly. Only shown once time has stopped, so a finger coming back
+## down to fly never lands on it; the button takes its tap, so pressing it doesn't resume.
+func build_quit() -> void:
+	quit_btn = Button.new()
+	quit_btn.focus_mode = Control.FOCUS_NONE
+	quit_btn.add_theme_font_size_override("font_size", 28)
+	var sb := glass(24)
+	sb.set_content_margin_all(18)
+	for st in ["normal", "hover", "pressed"]:
+		quit_btn.add_theme_stylebox_override(st, sb)
+	place(quit_btn, Rect2(0.5, 0.42, 0, 0), Rect2(-170, -190, 340, 76))
+	quit_btn.pressed.connect(quit_tap)
+	add_child(quit_btn)
+	quit_btn.visible = false
+	refresh_quit()
+
+
+## First tap arms it ("Tap again to quit"), a second within RESET_ARM seconds ends the run.
+func quit_tap() -> void:
+	if not quit_armed:
+		quit_armed = true
+		game.sound.play("tap")
+		refresh_quit()
+		get_tree().create_timer(RESET_ARM).timeout.connect(func() -> void:
+			if quit_armed:
+				quit_armed = false
+				refresh_quit())
+		return
+	quit_armed = false
+	refresh_quit()
+	game.quit_run()
+
+
+func refresh_quit() -> void:
+	quit_btn.text = "Tap again to quit" if quit_armed else "Main menu"
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		quit_btn.add_theme_color_override(c, RED if quit_armed else INK)
+
+
 # ---------------------------------------------------------------- in flight
 
 func ping_scrap() -> void:
@@ -488,6 +533,10 @@ func sync() -> void:
 	hurt_t = maxf(0.0, hurt_t - dt)
 	scrap_t = maxf(0.0, scrap_t - dt)
 	var playing := game.phase not in ["hangar", "results"]
+	quit_btn.visible = game.paused()
+	if not quit_btn.visible and quit_armed:
+		quit_armed = false
+		refresh_quit()
 	score_l.visible = playing
 	scrap_l.visible = playing
 	if playing:
