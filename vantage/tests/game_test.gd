@@ -156,6 +156,8 @@ func pause_menu() -> void:
 	g.tick(DT)
 	check(g.paused() and not g.started, "a level waits for its first touch")
 	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
+	check(g.ship.visible and g.ship.position.is_equal_approx(g.ppos), "the ship waits on touch to start where it will fly from")
+	check(g.cam.is_position_in_frustum(g.ship.global_position), "the waiting ship is in view")
 	g.touching = true
 	for i in 30:
 		g.tick(DT)
