@@ -135,7 +135,7 @@ func each_kind() -> void:
 		check(mi.material_overlay != null and parts_flash, "%s: flashes when hit" % kind)
 		var kills: int = g.run.kills
 		g.damage(f, 1e6)
-		check(f.dead and g.run.kills == kills + 1, "%s: goes down" % kind)
+		check(f.dead and g.run.kills == kills + (0 if g.civilian(f) else 1), "%s: goes down%s" % [kind, ", not a kill (a civilian)" if g.civilian(f) else ""])
 	g.queue_free()
 	await process_frame
 
@@ -266,6 +266,99 @@ func formations() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-24): "civil characters can be enemies if they are clearly hacked: a lighthouse
+## that opens to show a turret, a hydro plane that unveils a minigun... should we give bad points
+## when shooting down a real civil target?" Hacked ones give themselves away before they fire,
+## real ones cost points.
+func hacked() -> void:
+	print("hacked civilians unveil a gun, real ones cost points")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	g.launch(0)
+	g.step(DT)
+	for lv in Campaign.count():
+		var real := 0
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind in Rules.CIVILIANS:
+				real += int(w.n)
+		var all := 0
+		for w: Dictionary in Campaign.waves(lv):
+			if w.kind == "boss":
+				all += Rules.boss_parts(Campaign.midboss_of(lv))
+			elif w.kind == "fortress":
+				all += Rules.fortress_parts(Campaign.fortress_of(lv))
+			elif w.kind != "end":
+				all += int(w.n)
+		check(Campaign.foes_in(lv) == all - real, "%s: the %d civilians aren't in the kill total" % [Campaign.code(lv), real])
+	# a hacked seaplane and a hacked lighthouse: a tell, then the gun, then fire
+	for kind: String in ["gull", "lighthouse"]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		var f: Game.Obj
+		if kind == "gull":
+			g.spawn_vert("gull", 0.0, 0, 1, "left")
+			f = g.foes[g.foes.size() - 1]
+		else:
+			f = Game.Obj.new()
+			f.kind = "lighthouse"
+			f.ground = true
+			f.rel = true
+			f.hp = 1e6
+			f.max_hp = 1e6
+			f.r = 2.0
+			f.node = Models.instance(Models.landmark("lighthouse", 1.0))
+			g.add_child(f.node)
+			f.pos = Vector3(3.0, 0.0, g.frame_z + g.view_top + 9.0)
+			g.foes.append(f)
+		f.hacked = true
+		f.hp = 1e6
+		check(g.shy(f), "%s: hacked but still hidden, nothing locks onto it" % kind)
+		var told := -1.0
+		var first := -1.0
+		var t := 0.0
+		while t < 9.0 and f in g.foes and first < 0.0:
+			g.hp = 5
+			g.inv = 1.0
+			var before := g.bullets.size()
+			g.step(DT)
+			t += DT
+			if told < 0.0 and f.hold >= 0.0:
+				told = t
+			if g.bullets.size() > before:
+				first = t
+		var gun := "minigun" if kind == "gull" else "hacked turret"
+		check(told >= 0.0 and first > 0.0 and first - told >= Foes.HACK_TELL, "%s: gives itself away %.1f s before it fires (%.1f s)" % [kind, Foes.HACK_TELL, first - told])
+		check(f.node.has_node(gun), "%s: unveils its %s" % [kind, gun])
+		check(not g.shy(f), "%s: once unveiled, missiles and the guns' assist go for it" % kind)
+	# shooting down: a real civilian costs points and drops nothing, a hacked one pays double
+	for hack: bool in [false, true]:
+		g.clear_all()
+		g.queue.clear()
+		g.wave_i = g.waves.size()
+		g.spawn_vert("gull", 0.0, 0, 1, "left")
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hacked = hack
+		g.run.score = 1000
+		var kills: int = g.run.kills
+		var drops := g.picks.size()
+		g.kill(f)
+		var due: int = Rules.FOES.gull.score
+		if hack:
+			check(g.run.score == 1000 + roundi(due * Rules.HACK_PAY) and g.run.kills == kills + 1 and g.picks.size() > drops,
+				"a hacked seaplane pays double and counts as a kill (%d)" % g.run.score)
+		else:
+			check(g.run.score == 1000 - Rules.CIVIL_COST and g.run.kills == kills and g.picks.size() == drops,
+				"a real seaplane costs %d points, drops no scrap and isn't a kill (%d)" % [Rules.CIVIL_COST, g.run.score])
+	g.run.score = 50
+	g.spawn_vert("gull", 0.0, 0, 1, "left")
+	g.kill(g.foes[g.foes.size() - 1])
+	check(g.run.score == 0, "the score never goes below zero (%d)" % g.run.score)
+	g.queue_free()
+	await process_frame
+
+
 func extras() -> void:
 	print("announced, shells burst, borers hide")
 	var g := make_game()
@@ -381,6 +474,7 @@ func _initialize() -> void:
 	await each_kind()
 	await holds()
 	await formations()
+	await hacked()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

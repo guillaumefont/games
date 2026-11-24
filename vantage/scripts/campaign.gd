@@ -226,7 +226,7 @@ static func foes_in(lv: int) -> int:
 			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
 			n += Rules.fortress_parts(fortress_of(lv))
-		elif w.kind != "end":
+		elif w.kind != "end" and w.kind not in Rules.CIVILIANS:
 			n += int(w.n)
 	return n
 
