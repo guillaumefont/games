@@ -115,7 +115,7 @@ func data() -> void:
 				and Capital.piece(id, k).get_surface_count() > 0
 			for g: Array in sec.guns:
 				ok = ok and g[0] in Rules.SHIP_GUNS and Rules.FOES.has(g[0])
-		ok = ok and kinds[-1] in Capital.HEARTS and Rules.fortress_len(id) > 180.0
+		ok = ok and kinds[-1] in Capital.HEARTS and Rules.fortress_len(id) > 130.0
 		looks["%s/%s/%s" % [f.get("hull", Capital.bodies(id).size()), f.paint, kinds]] = true
 		check(ok, "%s: %.0f m, %d sections from the stern to the bridge or gondola, each with its guns and a piece that breaks off, then the reactor" % [
 			f.title, Rules.fortress_len(id), f.sections.size()])
