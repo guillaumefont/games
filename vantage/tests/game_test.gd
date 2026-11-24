@@ -145,6 +145,34 @@ func slow_pause() -> void:
 	await process_frame
 
 
+## Paused, a "Main menu" button quits the run back to the hangar after a confirming second tap.
+func pause_menu() -> void:
+	print("pause menu")
+	var g := make_game()
+	await process_frame
+	g.launch()
+	g.touching = true
+	for i in 30:
+		g.tick(DT)
+	check(not g.hud.quit_btn.visible, "no main menu button while flying")
+	g.run.scrap = 7
+	var scrap0: int = g.s.scrap
+	g.touching = false
+	for i in int(Rules.SLOW_STOP / DT) + 2:
+		g.tick(DT)
+	check(g.paused() and g.hud.quit_btn.visible, "paused, the main menu button shows")
+	g.hud.quit_tap()
+	check(g.phase == "vert" and g.hud.quit_armed, "one tap only arms it")
+	g.hud.quit_tap()
+	check(g.phase == "hangar" and g.hud.hangar.visible, "a second tap quits to the hangar")
+	check(g.s.scrap == scrap0 + 7, "the scrap picked up is kept (%d)" % g.s.scrap)
+	check(int(g.s.runs) == 0, "a quit run isn't counted")
+	g.tick(DT)
+	check(not g.hud.quit_btn.visible and g.time_k == 1.0, "the hangar shows no pause menu")
+	g.queue_free()
+	await process_frame
+
+
 func controls() -> void:
 	print("controls")
 	var g := make_game()
@@ -769,6 +797,7 @@ func _initialize() -> void:
 	await shadows()
 	await controls()
 	await slow_pause()
+	await pause_menu()
 	await aiming()
 	await ramming()
 	await swipe()

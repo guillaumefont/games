@@ -327,6 +327,7 @@ func to_hangar() -> void:
 	phase = "hangar"
 	phase_t = 0.0
 	frame_z = 0.0
+	time_k = 1.0   # quit from the pause screen: the hangar runs at full speed at once
 	for k in ruined:
 		if chunks.has(k):
 			chunks[k].queue_free()
@@ -506,6 +507,14 @@ func reset_progress() -> void:
 	Rules.save_game(s, save_path)
 	pick_level(0)
 	sound.play("tap")
+
+
+## Quits the run from the pause screen, straight back to the hangar. Like being shot down, the
+## scrap picked up so far is kept; nothing else counts (no clear, no score, no run).
+func quit_run() -> void:
+	s.scrap += run.get("scrap", 0)
+	Rules.save_game(s, save_path)
+	to_hangar()
 
 
 func end_run(cleared: bool) -> void:
