@@ -411,7 +411,8 @@ static func firm(noise: FastNoiseLite, x: float, z: float) -> bool:
 
 
 # ---------------------------------------------------------------- set pieces that move
-## Stretch n's falls: [lip, foot, width] each (lip and foot on the ground plan, y 0).
+## Stretch n's falls: [lip, foot, width] each (lip and foot on the ground plan, y 0). The foot lies
+## well inside the floor's river, whatever the wobble of the walls, so it lands on the water.
 static func fall_lines(n: int) -> Array:
 	var z0 := START - n * SEG
 	match kind_of(n):
@@ -421,13 +422,13 @@ static func fall_lines(n: int) -> Array:
 			var dims := canyon_dims()
 			var hz := z0 - HEAD
 			var cx := canyon_x(hz, n)
-			return [[Vector3(cx, 0, hz - dims.x - 1.5), Vector3(cx, 0, hz - dims.y + 0.5), 3.2]]
+			return [[Vector3(cx, 0, hz - dims.x - 1.5), Vector3(cx, 0, hz - dims.y + 1.5), FALL_W]]
 		"rift":
 			var out := []
 			for k in 2:
 				var xx := (-5.0 if k == 0 else 4.5) + (h1(n, k + 7.0) - 0.5) * 3.0
 				var rz := rift_z(xx, n)
-				out.append([Vector3(xx, 0, rz - 8.5), Vector3(xx, 0, rz - 1.4), 2.6])
+				out.append([Vector3(xx, 0, rz - 8.5), Vector3(xx, 0, rz - 0.4), FALL_W])
 			return out
 	return []
 
@@ -460,8 +461,12 @@ static func near_fall(x: float, z: float) -> bool:
 const POOL_R := 5.5
 ## How far behind the lip the pool's centre lies.
 const POOL_BACK := 11.0
-## The stream's half width on its flat bed (the fall's curtain is 3.2 m at most).
-const FEED_W := 2.0
+## The stream's half width on its flat bed: the fall's curtain is just as wide, so the stream pours
+## over the lip whole.
+const FEED_W := 1.6
+const FALL_W := FEED_W * 2.0
+## The flat, dry bank either side of the stream, at the water's level.
+const BANK := 1.4
 ## The water's level in the pool and stream, below the plain.
 const FEED_Y := -0.5
 ## How far past the lip the stream's notch runs into the wall.
@@ -485,6 +490,7 @@ static func fed(x: float, z: float, v: Vector4) -> Vector4:
 	# 0 on the dry land round them, 1 on their flat bed
 	var f := 0.0
 	var fs := 0.0
+	var fp := 0.0
 	for line: Array in lines:
 		var lip: Vector3 = line[0]
 		var foot: Vector3 = line[1]
@@ -492,17 +498,20 @@ static func fed(x: float, z: float, v: Vector4) -> Vector4:
 		var dl := Vector2(lip.x, lip.z)
 		var end := dl + (Vector2(foot.x, foot.z) - dl).normalized() * FEED_ON
 		var ds := Geometry2D.get_closest_point_to_segment(q, src, end).distance_to(q) + wb * 0.4
-		fs = maxf(fs, clampf((FEED_W + 1.2 - ds) / 1.2, 0.0, 1.0))
-		f = maxf(f, fs)
+		# the bed runs a cell wider than the water, so the coarse ground grid never shuts the
+		# stream's sheet (`pool_tris`) in its banks
+		fs = maxf(fs, clampf((FEED_W - ds) * 8.0 + 1.0, 0.0, 1.0))
+		f = maxf(f, clampf((FEED_W + BANK + 1.2 - ds) / 1.2, 0.0, 1.0))
 		var dp := src.distance_to(q) + wb * 1.4
-		f = maxf(f, clampf((POOL_R + 1.6 - dp) / 1.6, 0.0, 1.0))
+		fp = maxf(fp, clampf((POOL_R + 1.6 - dp) / 1.6, 0.0, 1.0))
+		f = maxf(f, fp)
 	if f <= 0.0:
 		return v
 	var y := lerpf(v.x, FEED_Y, smoothstep(0.0, 1.0, f))
 	if y >= v.x:
 		return v
 	var liq := 2.0 if Models.theme == "volcano" else 1.0
-	var wet := liq if f >= 1.0 else 0.0
+	var wet := liq if (fs >= 1.0 or fp >= 1.0) else 0.0
 	# the stream runs towards the lip (+z); the pool lies still
 	return Vector4(y, maxf(v.y, 0.06), wet, 1.0 if wet > 0.0 and fs >= 1.0 else 0.0)
 
@@ -557,7 +566,8 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 				var line: Array = fall_lines(n)[0]
 				var lip: Vector3 = line[0]
 				var foot: Vector3 = line[1]
-				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, 3.2), "w": 3.2, "lava": lava})
+				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, FALL_W), "w": FALL_W, "lava": lava})
+				out.append(sheet(line, 0.9 - dims.z, Vector2(0, 1)))
 				var fy := y_at(noise, foot.x, foot.z) + 0.2
 				# steam rolls in big puffs; spray is a cloud of fine white drops, not stones
 				out.append({"t": "puffs", "m": "steam" if lava else "spray", "at": Vector3(foot.x, fy, foot.z + 1.0), "n": 16 if lava else 22,
@@ -574,7 +584,8 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 			for line: Array in fall_lines(n):
 				var lip: Vector3 = line[0]
 				var foot: Vector3 = line[1]
-				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, 2.6), "w": 2.6, "lava": false})
+				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, FALL_W), "w": FALL_W, "lava": false})
+				out.append(sheet(line, 0.9 - DEEP, Vector2(1, 0)))
 				out.append({"t": "puffs", "m": "spray", "at": Vector3(foot.x, y_at(noise, foot.x, foot.z) + 0.2, foot.z + 1.0),
 					"n": 22, "dir": 0.0, "col": foam, "r": 0.26, "phase": 0.0})
 		"crater":
@@ -619,6 +630,49 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 	return out
 
 
+## The water a fall pours from and into, laid over the ground grid (which is too coarse to
+## draw a 3 m stream true): the pool behind the lip, the stream from it to the lip as wide as
+## the curtain, and a plunge pool where it lands on the floor (`floor_y`, the river there flowing
+## `flow`). The ground's own wet cells lie under these, so they only ever show the same water.
+## How far the sheets lie over the ground's own water (a hair over it would flicker).
+const SHEET_UP := 0.12
+
+
+static func sheet(line: Array, floor_y: float, flow: Vector2) -> Dictionary:
+	return {"t": "pool", "at": line[1], "lip": line[0], "foot": line[1], "floor": floor_y, "flow": flow}
+
+
+## Triangles of a pool/stream sheet (see `sheet`) into `dst` [vertices, flow].
+static func pool_tris(dst: Array, e: Dictionary) -> void:
+	var lip: Vector3 = e.lip
+	var foot: Vector3 = e.foot
+	var src := pool_c(lip)
+	var top := FEED_Y + SHEET_UP
+	# the pool lies a hair under its stream, so where they overlap the stream shows whole
+	disc(dst, Vector3(src.x, top - 0.03, src.y), POOL_R + 0.5, Vector2.ZERO)
+	# the stream: from the pool's edge to the lip, as wide as the curtain there
+	var b := Vector3(lip.x, top, lip.z)
+	var a := Vector3(src.x, top, src.y)
+	a += (b - a).normalized() * (POOL_R - 0.5)
+	var side := Vector3(b.z - a.z, 0, -(b.x - a.x)).normalized() * (FEED_W + 0.15)
+	var q := [a - side, a + side, b + side, b - side]
+	for t: Array in [[0, 2, 1], [0, 3, 2]]:
+		for k: int in t:
+			dst[0].append(q[k])
+			dst[1].append(Vector2(0, 1))
+	disc(dst, Vector3(foot.x, e.floor + SHEET_UP, foot.z + 0.6), FEED_W + 0.9, e.flow)
+
+
+static func disc(dst: Array, c: Vector3, r: float, flow: Vector2) -> void:
+	var k := 12
+	for i in k:
+		var a0 := TAU * i / k
+		var a1 := TAU * (i + 1) / k
+		for p: Vector3 in [c, c + Vector3(cos(a1), 0, sin(a1)) * r, c + Vector3(cos(a0), 0, sin(a0)) * r]:
+			dst[0].append(p)
+			dst[1].append(flow)
+
+
 ## A fall's path from `a` down to `b` (x, z), `k` steps: it pours over the rock's outline (the
 ## upper hull of the ground under the whole curtain, `w` wide), so it never runs into a ledge,
 ## and leaps clear of the steps on its way down.
@@ -649,6 +703,7 @@ static func drape(noise: FastNoiseLite, a: Vector3, b: Vector3, k: int, w := 3.2
 		hull.append(p)
 	var out := PackedVector3Array()
 	var j := 0
+	var top := hull[0].y
 	for i in k + 1:
 		var d := len * float(i) / k
 		while j < hull.size() - 2 and hull[j + 1].x < d:
@@ -657,7 +712,9 @@ static func drape(noise: FastNoiseLite, a: Vector3, b: Vector3, k: int, w := 3.2
 		var h1 := hull[j + 1]
 		var y := lerpf(h0.y, h1.y, clampf((d - h0.x) / maxf(h1.x - h0.x, 0.001), 0.0, 1.0))
 		var p := a.lerp(b, float(i) / k)
-		p.y = y + 0.3
+		# it leaves the lip at the stream's own level and lands on the water below; in between
+		# it leaps clear of the rock
+		p.y = y + (SHEET_UP if i == k else lerpf(SHEET_UP, 0.3, smoothstep(0.0, 0.8, top - y)))
 		out.append(p)
 	return out
 
@@ -682,11 +739,15 @@ const TOP_Y := 5.2
 ## The chunk's moving set pieces and liquid surfaces as one mesh (a surface per material), or null.
 static func fx_mesh(noise: FastNoiseLite) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
-	if not liquid.is_empty():
+	var wet := [liquid.duplicate(), liquid_flow.duplicate()]
+	for e: Dictionary in fx:
+		if e.t == "pool":
+			pool_tris(wet, e)
+	if not wet[0].is_empty():
 		var arr := []
 		arr.resize(Mesh.ARRAY_MAX)
-		arr[Mesh.ARRAY_VERTEX] = liquid
-		arr[Mesh.ARRAY_TEX_UV] = liquid_flow
+		arr[Mesh.ARRAY_VERTEX] = wet[0]
+		arr[Mesh.ARRAY_TEX_UV] = wet[1]
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 		mesh.surface_set_material(0, lava_mat() if Models.theme == "volcano" else water_mat())
 	var falls := {}

@@ -107,7 +107,7 @@ func depth(g: Game) -> void:
 				if e.t == "fall":
 					falls += 1
 					buried = maxf(buried, fall_buried(g, e))
-					if not fed(g, e):
+					if not fed(g, e) or not sheeted(e):
 						unfed += 1
 		check(lo < -6.0, "%s: the land drops far below the plain (%.1f m)" % [theme, lo])
 		check(hi < Rules.PY - 3.0, "%s: and never rises near the ship (%.1f m)" % [theme, hi])
@@ -122,7 +122,7 @@ func depth(g: Game) -> void:
 			check(falls == 0 and liquid == 0, "dunes: a desert, no falls and no water (%d falls, %d wet vertices)" % [falls, liquid])
 		elif theme != "ice":
 			check(falls > 0 and buried < 0.05, "%s: its %d falls pour clear of the rock, never through a ledge (%.2f m under)" % [theme, falls, buried])
-			check(unfed == 0, "%s: every fall is fed by a pool and a stream behind its lip (%d of %d dry)" % [theme, unfed, falls])
+			check(unfed == 0, "%s: every fall is fed by a pool and a stream as wide as it, behind its lip, and lands in a plunge pool (%d of %d off)" % [theme, unfed, falls])
 		check(theme in ["ice", "dunes"] or liquid > 0, "%s: rivers, lakes or lava flow (%d vertices)" % [theme, liquid])
 	for key: String in Relief.MOVERS:
 		check(Relief.mover_mat(key).shader.code.contains("min(p.y, %f" % Relief.TOP_Y), "%s: capped under the ship" % key)
@@ -146,7 +146,29 @@ func fed(g: Game, e: Dictionary) -> bool:
 			return false
 		run += 1
 	var level := Relief.y_at(g.noise, lip.x, lip.z)
-	return wet and run > 0 and absf(lip.y - 0.3 - level) < 0.3
+	return wet and run > 0 and absf(lip.y - Relief.SHEET_UP - level) < 0.1
+
+
+## True when the fall's water is laid out whole round it (Guillaume, 2026-11-25: "waterfall is not
+## aligned"): a stream sheet as wide as the curtain running into its top, at its level, and a
+## plunge pool under its foot.
+func sheeted(e: Dictionary) -> bool:
+	var path: PackedVector3Array = e.path
+	for o: Dictionary in Relief.fx:
+		if o.t == "pool" and (o.lip as Vector3).is_equal_approx(Vector3(path[0].x, 0, path[0].z)):
+			var dst := [PackedVector3Array(), PackedVector2Array()]
+			Relief.pool_tris(dst, o)
+			var top := path[0]
+			var foot := path[path.size() - 1]
+			var at_lip := 0
+			var under := false
+			for v: Vector3 in dst[0]:
+				if Vector2(v.x - top.x, v.z - top.z).length() < e.w * 0.5 + 0.3 and absf(v.y - top.y) < 0.01:
+					at_lip += 1
+				if absf(v.y - foot.y) < 0.01 and Vector2(v.x - foot.x, v.z - foot.z).length() < 1.0:
+					under = true
+			return at_lip >= 2 and under and e.w >= Relief.FEED_W * 2.0
+	return false
 
 
 ## How far a fall's curtain goes under the ground anywhere across it (Guillaume, 2026-11-24:
