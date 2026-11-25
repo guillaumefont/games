@@ -89,6 +89,7 @@ func depth(g: Game) -> void:
 		var fx := {}
 		var falls := 0
 		var buried := 0.0
+		var unfed := 0
 		for k in 30:
 			var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 			var arr := m.surface_get_arrays(m.get_surface_count() - 1)
@@ -106,6 +107,8 @@ func depth(g: Game) -> void:
 				if e.t == "fall":
 					falls += 1
 					buried = maxf(buried, fall_buried(g, e))
+					if not fed(g, e):
+						unfed += 1
 		check(lo < -6.0, "%s: the land drops far below the plain (%.1f m)" % [theme, lo])
 		check(hi < Rules.PY - 3.0, "%s: and never rises near the ship (%.1f m)" % [theme, hi])
 		check(steep > 200, "%s: steep faces are bare, layered rock (%d vertices)" % [theme, steep])
@@ -119,9 +122,31 @@ func depth(g: Game) -> void:
 			check(falls == 0 and liquid == 0, "dunes: a desert, no falls and no water (%d falls, %d wet vertices)" % [falls, liquid])
 		elif theme != "ice":
 			check(falls > 0 and buried < 0.05, "%s: its %d falls pour clear of the rock, never through a ledge (%.2f m under)" % [theme, falls, buried])
+			check(unfed == 0, "%s: every fall is fed by a pool and a stream behind its lip (%d of %d dry)" % [theme, unfed, falls])
 		check(theme in ["ice", "dunes"] or liquid > 0, "%s: rivers, lakes or lava flow (%d vertices)" % [theme, liquid])
 	for key: String in Relief.MOVERS:
 		check(Relief.mover_mat(key).shader.code.contains("min(p.y, %f" % Relief.TOP_Y), "%s: capped under the ship" % key)
+
+
+## True when the water (or lava) runs unbroken from a pool behind the fall's lip to the lip, and
+## the curtain starts at its level (Guillaume, 2026-11-25: "there should not be any waterfall
+## without a water body where it can come from").
+func fed(g: Game, e: Dictionary) -> bool:
+	var path: PackedVector3Array = e.path
+	var lip := path[0]
+	var src := Relief.pool_c(lip)
+	var wet := Relief.at(src.x, src.y, Relief.raw(g.noise, src.x, src.y)).z > 0.0
+	var run := 0
+	var from := Vector2(lip.x, lip.z)
+	var steps := int(from.distance_to(src) / 0.5)
+	for i in steps + 1:
+		var q := from.lerp(src, float(i) / steps)
+		var v := Relief.at(q.x, q.y, Relief.raw(g.noise, q.x, q.y))
+		if v.z <= 0.0:
+			return false
+		run += 1
+	var level := Relief.y_at(g.noise, lip.x, lip.z)
+	return wet and run > 0 and absf(lip.y - 0.3 - level) < 0.3
 
 
 ## How far a fall's curtain goes under the ground anywhere across it (Guillaume, 2026-11-24:

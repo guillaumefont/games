@@ -303,7 +303,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
   Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
-  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Ember Dunes is a desert:
+  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Every fall is fed
+  (Guillaume: "no waterfall without a water body where it can come from"): a pool behind its lip and a stream
+  notched over the rim (`Relief.fed`), so the fall starts at the water's level (tested). Ember Dunes is a desert:
   no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
   crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
   set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.

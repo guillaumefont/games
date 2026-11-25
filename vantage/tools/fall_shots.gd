@@ -24,15 +24,15 @@ func _initialize() -> void:
 				if e.t != "fall" or shot >= 2:
 					continue
 				var foot: Vector3 = e.at
-				g.frame_z = foot.z + 6.0
+				g.frame_z = foot.z - 2.0
 				for i in 3:
 					g.step(1.0 / 60.0)
 				g.ship.visible = false
 				await process_frame
 				await RenderingServer.frame_post_draw
 				root.get_texture().get_image().save_png("%s/%s_%d_top.png" % [out, theme, shot])
-				var at := foot + Vector3(0, -2.0, -3.0)
-				g.cam.global_transform = Transform3D(Basis(), at + Vector3(10.0, 5.0, 14.0)).looking_at(at, Vector3.UP)
+				var at := foot + Vector3(0, -1.0, -10.0)
+				g.cam.global_transform = Transform3D(Basis(), at + Vector3(12.0, 9.0, 20.0)).looking_at(at, Vector3.UP)
 				g.cam.fov = 60.0
 				await process_frame
 				await RenderingServer.frame_post_draw
