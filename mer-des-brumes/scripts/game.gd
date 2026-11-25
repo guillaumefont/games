@@ -33,6 +33,8 @@ class Boat:
 	var ai_t := 0.0
 	var ai_h := 0.0
 	var ai_s := 0.0
+	var up := {}
+	var fighters := []     # its crew and captain, for a boarding
 
 	func pos() -> Vector3:
 		return node.position
@@ -85,6 +87,15 @@ var _puff_mesh := Models.ball(1.0, 5, 3)
 var _chip_mesh := Models.box(1, 1, 1)
 var _lit := {}
 var aim_mark: Node3D
+var hook_mark: Node3D
+var _hook_line: MeshInstance3D
+var _hook_ring: MeshInstance3D
+const HOOK_PURPLE := Color8(0xa0, 0x5c, 0xe0)
+## Grapples in flight: {n, rope, from: Boat, to: Vector3, boat, t, dur}
+var hooks := []
+var hook_cd := 0.0
+var _rope: MeshInstance3D
+var _clash_t := 0.0
 var _aim_line: MeshInstance3D
 var _aim_ring: MeshInstance3D
 const AIM_RED := Color8(0xe2, 0x3b, 0x2e)
@@ -176,6 +187,21 @@ func _build_aim_mark() -> void:
 	_aim_ring = Models.instance(tm, Models.flat_mat(AIM_RED, 0.9), false)
 	_aim_ring.scale = Vector3(1, 0.15, 1)
 	aim_mark.add_child(_aim_ring)
+	# the purple grapple line, the same way
+	hook_mark = Node3D.new()
+	hook_mark.visible = false
+	add_child(hook_mark)
+	_hook_line = Models.instance(bm, Models.flat_mat(HOOK_PURPLE, 0.9), false)
+	hook_mark.add_child(_hook_line)
+	_hook_ring = Models.instance(tm, Models.flat_mat(HOOK_PURPLE, 0.9), false)
+	_hook_ring.scale = Vector3(1, 0.15, 1)
+	hook_mark.add_child(_hook_ring)
+	# the rope between two ships at a boarding (and behind a flying grapple)
+	var rm := BoxMesh.new()
+	rm.size = Vector3(0.12, 0.12, 1.0)
+	_rope = Models.instance(rm, _lit_mat(Color8(0x6b, 0x55, 0x3c)), false)
+	_rope.visible = false
+	add_child(_rope)
 
 
 func _on_resize() -> void:
@@ -233,8 +259,13 @@ func spawn_enemy(far: bool) -> Boat:
 	e.hk = bd.hull
 	e.st = bd.st
 	var crew := []
+	var counts := {}
 	for i in 2 + e.lvl * 2:
-		crew.append(Rules.CREW[mini(3, int(rng.randf() * e.lvl))].color)
+		var c: Dictionary = Rules.CREW[mini(3, int(rng.randf() * e.lvl))]
+		crew.append(c.color)
+		counts[c.k] = int(counts.get(c.k, 0)) + 1
+	e.up = bd.up
+	e.fighters = Rules.fighters(counts, int(bd.up.get("capitaine", 0)))
 	var dark := Color8(0x1d, 0x1f, 0x21)
 	e.node = Models.ship(Models.ship_cfg(e.hk, bd.up, crew, {"hull": Color8(0x4f, 0x3a, 0x2c),
 		"sail": Color8(0x9b, 0x9a, 0x92) if e.offline else Color8(0x3c, 0x42, 0x46), "trim": dark, "flag": dark}))
@@ -360,7 +391,16 @@ func shoot_batteries(me: Boat, foe: Boat, dt: float, ammo := Callable()) -> Arra
 
 ## The player can aim while connected, alive, at sea and fighting.
 func can_aim() -> bool:
-	return connected and alive and not hud.port_open() and combat and combat.e.state != "sink"
+	return connected and alive and not hud.port_open() and combat and combat.e.state != "sink" and not combat.has("board")
+
+
+## The purple grapple stick shows with the green one.
+func can_grapple() -> bool:
+	return can_aim()
+
+
+func hooking() -> bool:
+	return hud.hook_active and hud.hook_mag > Hud.AIM_DEAD and can_grapple()
 
 
 ## Where the ray from (o) along (d) first enters a circle (c, r), or INF.
@@ -378,14 +418,14 @@ static func _ray_circle(o: Vector2, d: Vector2, c: Vector2, r: float) -> float:
 
 ## The red line: from the ship in the green stick's direction until the first ship or island.
 ## {dist, point, boat (or null), isle (bool)}; nothing in the way: dist = LINE_LEN.
-func aim_ray() -> Dictionary:
+func aim_ray(dir := Vector2.INF) -> Dictionary:
 	var o := P.xz()
-	var d := hud.aim_vec.normalized()
+	var d := (hud.aim_vec if dir == Vector2.INF else dir).normalized()
 	var best := {"dist": LINE_LEN, "boat": null, "isle": false}
 	if d == Vector2.ZERO:
 		d = Vector2(sin(P.h), cos(P.h))
 	for e in enemies:
-		if e.state == "sink":
+		if e.state == "sink" or e.state == "taken":
 			continue
 		var t := _ray_circle(o, d, e.xz(), HIT_R)
 		if t < best.dist:
@@ -486,6 +526,211 @@ func _update_aim_mark() -> void:
 		_aim_ring.position = Vector3(at.x, 0.6, at.z) if ray.boat else Vector3(end.x, 0.6, end.z)
 
 
+## The purple line: like the red one, from the ship along the purple stick to the first ship
+## or island; a purple ring when a ship is in the grapple's reach.
+func _update_hook_mark() -> void:
+	var on := hooking()
+	hook_mark.visible = on
+	if not on:
+		return
+	var pp := P.pos()
+	var ray := aim_ray(hud.hook_vec)
+	var end: Vector3 = ray.point
+	var len := maxf(0.1, Vector2(end.x - pp.x, end.z - pp.z).length())
+	_hook_line.position = Vector3((pp.x + end.x) / 2, 0.62, (pp.z + end.z) / 2)
+	_hook_line.rotation = Vector3(0, atan2(end.x - pp.x, end.z - pp.z), 0)
+	_hook_line.scale = Vector3(1, 1, len)
+	_hook_ring.visible = ray.boat != null
+	if ray.boat:
+		var bp: Vector3 = ray.boat.pos()
+		var ok: bool = float(ray.dist) <= float(P.st.grapple)
+		_hook_ring.material_override = Models.flat_mat(HOOK_PURPLE, 0.9 if ok else 0.35)
+		_hook_ring.position = Vector3(bp.x, 0.62, bp.z)
+
+
+## The purple stick was released: the grapple flies along the purple line. It catches the
+## first ship there if that ship is within reach; then the boarding starts.
+func throw_grapple() -> bool:
+	if not can_grapple():
+		return false
+	if hook_cd > 0 or not hooks.is_empty():
+		hud.toast("Le grappin n'est pas encore prêt.")
+		return false
+	var ray := aim_ray(hud.hook_vec)
+	var reach: float = P.st.grapple
+	var hit: Boat = ray.boat if ray.boat and float(ray.dist) <= reach else null
+	var d := hud.hook_vec.normalized()
+	var pp := P.pos()
+	var to: Vector3
+	if hit:
+		to = Vector3(hit.pos().x, 0, hit.pos().z)
+	else:
+		var r := minf(reach, float(ray.dist))
+		to = Vector3(pp.x + d.x * r, 0, pp.z + d.y * r)
+	var mi := Models.instance(_ball_mesh, _lit_mat(Color8(0x3a, 0x3a, 0x40)))
+	add_child(mi)
+	var dist := Vector2(to.x - pp.x, to.z - pp.z).length()
+	hooks.append({"n": mi, "from": pp, "to": to, "boat": hit, "t": 0.0, "dur": dist / 40.0 + 0.12})
+	hook_cd = 2.0
+	if ray.boat and not hit:
+		hud.toast("Trop loin pour le grappin (%d m) : approchez-vous." % int(reach))
+	return hit != null
+
+
+func _update_hooks(dt: float) -> void:
+	hook_cd = maxf(0, hook_cd - dt)
+	for i in range(hooks.size() - 1, -1, -1):
+		var h: Dictionary = hooks[i]
+		h.t += dt
+		var k := minf(1.0, h.t / h.dur)
+		var from := P.pos()
+		var p: Vector3 = from.lerp(h.to, k)
+		p.y = 1.6 + sin(PI * k) * 2.0
+		h.n.position = p
+		_set_rope(from + Vector3(0, 1.4, 0), p)
+		if k >= 1:
+			h.n.queue_free()
+			hooks.remove_at(i)
+			_rope.visible = false
+			var b: Boat = h.boat
+			if b and alive and enemies.has(b) and b.state != "sink" and b.state != "taken" and b.xz().distance_to(P.xz()) <= float(P.st.grapple) + 4:
+				start_boarding(b, true)
+			else:
+				splash(h.to)
+				hud.toast("Le grappin tombe à l'eau.")
+
+
+func _set_rope(a: Vector3, b: Vector3) -> void:
+	var len := a.distance_to(b)
+	_rope.visible = len > 0.2
+	if not _rope.visible:
+		return
+	_rope.position = (a + b) / 2
+	_rope.look_at_from_position(_rope.position, b, Vector3.UP if absf((b - a).normalized().y) < 0.99 else Vector3.RIGHT)
+	_rope.scale = Vector3(1, 1, len)
+
+
+# ---------------------------------------------------------------- boarding
+
+## Grappled: the two ships are pulled side by side, guns fall silent, and the crews and
+## captains fight until one side has nobody left standing.
+func start_boarding(e: Boat, by_player: bool) -> void:
+	if combat.is_empty() or combat.e != e:
+		if combat:
+			end_combat()
+		start_combat(e, "fight")
+	combat.mode = "fight"
+	combat.board = {"mine": Rules.fighters(s.crew, int(s.up.capitaine)), "theirs": e.fighters, "by": by_player}
+	hud.hide_prompt()
+	hud.cancel_sticks()
+	auto_flee = false
+	throttle = 0
+	hud.toast("À l'abordage ! Votre équipage saute sur %s." % e.name if by_player else "%s vous aborde ! Votre équipage se défend." % e.name, "bad" if not by_player else "")
+
+
+func _update_boarding(e: Boat, dt: float) -> void:
+	var bd: Dictionary = combat.board
+	# pull the foe alongside, parallel to us
+	var side := Vector3(cos(P.h), 0, -sin(P.h))
+	var off := e.pos() - P.pos()
+	if off.dot(side) < 0:
+		side = -side
+	var want := P.pos() + side * (HIT_R * 1.6)
+	e.node.position.x = lerpf(e.node.position.x, want.x, 1 - exp(-3 * dt))
+	e.node.position.z = lerpf(e.node.position.z, want.z, 1 - exp(-3 * dt))
+	e.h += clampf(Rules.wrap_a(P.h - e.h), -dt, dt)
+	e.v = 0
+	_set_rope(P.pos() + Vector3(0, 1.4, 0), e.pos() + Vector3(0, 1.4, 0))
+	Rules.melee(bd.mine, bd.theirs, dt)
+	_clash_t -= dt
+	if _clash_t <= 0:
+		_clash_t = 0.35
+		var mid := (P.pos() + e.pos()) / 2
+		puff(Vector3(mid.x + rng.randf_range(-1.5, 1.5), 1.8, mid.z + rng.randf_range(-1.5, 1.5)), Color8(0xe8, 0xe2, 0xd0), 2, 0.35, 0.8, 1.2, 0.6)
+	if Rules.alive_count(bd.theirs) == 0:
+		boarding_won(e)
+	elif Rules.alive_count(bd.mine) == 0:
+		boarding_lost(e)
+
+
+## Cutting the ropes ends the boarding (the guns can speak again).
+func cut_ropes() -> void:
+	if combat.has("board"):
+		var bd: Dictionary = combat.board
+		s.crew = Rules.survivors(bd.mine)
+		combat.erase("board")
+		_rope.visible = false
+		hook_cd = 4.0
+		rebuild_player()
+		hud.toast("On coupe les cordes !")
+
+
+## Everybody over there is down: the ship is yours. Its treasure counts twice; keep the ship
+## or send it down.
+func boarding_won(e: Boat) -> void:
+	var bd: Dictionary = combat.board
+	s.crew = Rules.survivors(bd.mine)
+	combat = {}
+	_hide_arcs()
+	_rope.visible = false
+	e.state = "taken"
+	e.v = 0
+	var gold := e.coins * 2
+	s.coins += gold
+	var map := rng.randf() < minf(1.0, Rules.map_chance(e.lvl) * 2)
+	if map:
+		s.maps += 1
+	rebuild_player()
+	save()
+	var hk := e.hk
+	var mine: String = Rules.HULLS[s.ship].name
+	var theirs: String = Rules.HULLS[hk].name
+	hud.show_prompt("%s est à vous !" % e.name, "Trésor ×2 : +%s pièces%s. Prendre ce bateau (%s) ? Vous laisserez le vôtre (%s)." % [
+		Rules.fmt(gold), " et une carte au trésor" if map else "", theirs, mine], [
+		["Prendre le bateau", keep_prize.bind(e), true],
+		["Le couler", sink_prize.bind(e), false]])
+	hud.toast("Abordage réussi ! +%s pièces" % Rules.fmt(gold), "gold")
+
+
+func keep_prize(e: Boat) -> void:
+	if e.state != "taken":
+		return
+	var hp := e.hp
+	var ratio := clampf(e.hp / e.max_hp, 0.3, 1.0)
+	Rules.take_hull(s, e.hk, e.up)
+	P.node.position = e.node.position
+	P.h = e.h
+	P.node.rotation.y = e.h
+	rebuild_player()
+	P.hp = maxf(hp, P.max_hp * ratio)
+	e.node.queue_free()
+	enemies.erase(e)
+	spawn_timers.append(15.0)
+	hud.hide_prompt()
+	save()
+	hud.toast("Vous naviguez sur %s, votre nouveau %s." % [e.name, Rules.HULLS[e.hk].name], "gold")
+
+
+func sink_prize(e: Boat) -> void:
+	if e.state != "taken":
+		return
+	e.state = "sink"
+	e.sink_t = 0
+	debris(Vector3(e.pos().x, 1, e.pos().z), 14)
+	spawn_timers.append(15.0)
+	hud.hide_prompt()
+
+
+## Our whole crew and captain fell: the ship is lost.
+func boarding_lost(e: Boat) -> void:
+	s.crew = Rules.survivors(combat.board.mine)
+	combat.erase("board")
+	_rope.visible = false
+	rebuild_player()
+	hud.toast("%s a vaincu tout votre équipage." % e.name, "bad")
+	player_defeated()
+
+
 ## Leaving the game (app in the background, window left) disconnects the player: from then
 ## on the ship defends itself. Coming back hands the guns back.
 func set_connected(on: bool) -> void:
@@ -554,7 +799,7 @@ func hurt(t: Boat, d: float, by_player: bool) -> void:
 		if P.hp <= 0:
 			player_defeated()
 	else:
-		if t.state == "sink":
+		if t.state == "sink" or t.state == "taken":
 			return
 		t.hp -= d
 		if t.offline and by_player and t.state == "wander":
@@ -838,8 +1083,11 @@ func step(dt: float) -> void:
 		last_input = time
 		auto_flee = false
 	var foe: Boat = combat.e if combat and combat.e.state != "sink" else null
+	var boarding: bool = combat.has("board")
 	if alive:
-		if using_kb:
+		if boarding:
+			throttle = 0
+		elif using_kb:
 			if kb.l:
 				P.h += st.turn * dt
 			if kb.r:
@@ -874,7 +1122,9 @@ func step(dt: float) -> void:
 	pp = P.pos()
 
 	# the player's guns: each battery fires when the foe is in its arc
-	if combat and alive and foe:
+	if combat and alive and foe and boarding:
+		_update_boarding(foe, dt)
+	elif combat and alive and foe:
 		var e := foe
 		var ep := e.pos()
 		var d := Vector2(ep.x - pp.x, ep.z - pp.z).length()
@@ -902,8 +1152,6 @@ func step(dt: float) -> void:
 					if d <= st.range:
 						bearing.append(b.k)
 				Models.set_arcs(P.arcs, bearing, Color8(0xf3, 0xf6, 0xf3))
-		if d < st.board and d < e.st.board + 4:
-			hurt(e, st.crew_dps * dt, true)
 		if combat and combat.mode == "flee" and d > 48:
 			end_combat("Vous avez semé %s." % e.name)
 		elif combat and not e.offline and near_base and s.base.defense > 0:
@@ -915,6 +1163,11 @@ func step(dt: float) -> void:
 	for i in range(enemies.size() - 1, -1, -1):
 		var e := enemies[i]
 		var ep := e.pos()
+		if e.state == "taken":
+			# a prize waiting for your choice: it lies still
+			move_boat(e, 0, dt)
+			anim_boat(e, time, dt)
+			continue
 		if e.state == "sink":
 			e.sink_t += dt
 			e.node.position.y -= dt * 1.1
@@ -927,13 +1180,16 @@ func step(dt: float) -> void:
 		var target := 0.0
 		e.aggro_cd -= dt
 		var fighting: bool = combat and combat.e == e and alive
-		if fighting:
+		if fighting and combat.has("board"):
+			target = 0.0
+		elif fighting:
 			target = ai_maneuver(e, P, dt, 0.6 if e.offline else 1.0)
 			if combat.mode != "pending" or not e.offline:
 				var bearing := shoot_batteries(e, P, dt)
 				Models.set_arcs(e.arcs, bearing, Models.RUST)
-			if d < e.st.board:
-				hurt(P, e.st.crew_dps * dt * 0.6, false)
+			# an attacker close enough throws its grapple (never one that only defends)
+			if not e.offline and combat.mode != "pending" and hooks.is_empty() and d < float(e.st.grapple) and rng.randf() < dt * 0.3:
+				start_boarding(e, false)
 		else:
 			e.state = "wander"
 			if e.tgt == Vector2.INF or e.tgt.distance_to(e.xz()) < 4 or e.xz().length() < 45:
@@ -964,7 +1220,7 @@ func step(dt: float) -> void:
 		tower_t -= dt
 		if tower_t <= 0:
 			for e in enemies:
-				if e.state != "sink" and e.xz().length() < 40:
+				if e.state != "sink" and e.state != "taken" and e.xz().length() < 40:
 					fire(Vector3(0, 8, -6), e, s.base.defense, 6, true)
 					tower_t = 2.2
 					break
@@ -977,6 +1233,8 @@ func step(dt: float) -> void:
 	_update_balls(dt)
 	_update_parts(dt)
 	_update_aim_mark()
+	_update_hook_mark()
+	_update_hooks(dt)
 	hud.set_actions(_actions(paused, near_base))
 
 	# camera, sea
@@ -1016,7 +1274,7 @@ func _actions(paused: bool, near_base: bool) -> Array:
 		var best: Boat = null
 		var bd := 28.0
 		for e in enemies:
-			if e.state == "sink":
+			if e.state == "sink" or e.state == "taken":
 				continue
 			var dd := e.xz().distance_to(P.xz())
 			if dd < bd:
@@ -1027,6 +1285,8 @@ func _actions(paused: bool, near_base: bool) -> Array:
 		if near_base:
 			acts.append({"label": "Entrer au port", "primary": best == null, "fn": open_port})
 		acts.append({"label": "Carte au trésor (%d)" % s.maps, "disabled": s.maps <= 0 or not treasure.is_empty(), "fn": use_map})
+	elif combat.has("board"):
+		acts.append({"label": "Couper les cordes", "fn": cut_ropes})
 	elif combat.mode == "fight":
 		acts.append({"label": "Fuir", "fn": func(): combat.mode = "flee"; auto_flee = true; hud.toast("On fuit !")})
 	elif combat.mode == "flee":

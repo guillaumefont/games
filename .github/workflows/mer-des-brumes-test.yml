@@ -27,7 +27,7 @@ jobs:
           mv Godot_v4.7.2-stable_linux.x86_64 godot
       - name: Import project
         run: ./godot --headless --path . --import
-      - name: The game (rules, joystick, aim stick, defending when disconnected, broadsides, AI, sinking, treasure, port)
+      - name: The game (rules, joystick, aim and grapple sticks, boarding, defending when disconnected, broadsides, AI, sinking, treasure, port)
         run: ./godot --headless --path . --script tests/game_test.gd
       - name: Self-update (game pack download, checks, APK offer)
         run: ./godot --headless --path . --script tests/update_test.gd
