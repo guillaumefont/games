@@ -13,8 +13,9 @@ extends RefCounted
 ## built from their world's mix by `waves()`, the same every time (seeded by the level).
 
 const PER_WORLD := 3
-## Seconds of waves before the mid-boss and after it, by level in the world.
-const LENGTHS := [[12.0, 10.0], [15.0, 14.0], [17.0, 17.0]]
+## Seconds of waves before the mid-boss and after it, by level in the world (Guillaume,
+## 2026-11-24: "the journey between two bosses should be longer": about twice what it was).
+const LENGTHS := [[25.0, 22.0], [30.0, 28.0], [35.0, 35.0]]
 ## The mid-bosses' hull (hp of their parts), by level in the world: the first is a little quicker.
 const BOSS_HP := [0.75, 0.9, 1.0]
 ## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a
@@ -226,7 +227,7 @@ static func foes_in(lv: int) -> int:
 			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
 			n += Rules.fortress_parts(fortress_of(lv))
-		elif w.kind != "end":
+		elif w.kind != "end" and w.kind not in Rules.CIVILIANS:
 			n += int(w.n)
 	return n
 
@@ -236,7 +237,8 @@ static func new_wave(kind: String, rng: RandomNumberGenerator, side: float) -> D
 	var x := snappedf(rng.randf_range(-3.0, 3.0), 0.5)
 	match kind:
 		"gull":
-			return {"kind": kind, "n": 4, "x": x, "gap": 0.45}
+			# collateral, not a threat (Guillaume, 2026-11-24): one seaplane strolls across alone
+			return {"kind": kind, "n": 1, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
 		"rotor":
 			return {"kind": kind, "n": rng.randi_range(2, 3), "x": 0.0, "gap": 0.5}
 		"pillbox", "aa", "mortar":

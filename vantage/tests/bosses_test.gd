@@ -113,11 +113,65 @@ func lanes() -> void:
 						open = false
 						print("    pylon hidden: ", id, " ", f.sections[i].name, " by ", ga)
 		check(open, "%s: its shield pylons can be shot" % f.name)
+		# compact (Guillaume: "you already see the next section, receive its bullets"; then "do the
+		# opposite approach: start by designing a fortress, then choose a path that would clear it by
+		# sections"): from each section's lane the next section's guns are in range and in sight
+		# round the hull (guns don't fire through it), and the sections overlap along the hull
+		var near := true
+		for i in f.sections.size() - 2:
+			var l := Capital.lane(id, i)
+			var seen := 0
+			for g: Array in f.sections[i + 1].guns:
+				var at := Rules.gun_at(id, i + 1, g)
+				var dist: float = -at.z - float(l.along)
+				if dist > 5.0 and dist <= 62.0 and in_sight(id, l, at):
+					seen += 1
+			if seen == 0:
+				near = false
+				print("    next section out of sight: ", id, " ", f.sections[i].name)
+		check(near, "%s: the next section's guns already in range and in sight from each lane" % f.name)
+		var own := true
+		for i in f.sections.size() - 1:
+			var l := Capital.lane(id, i)
+			for g: Array in f.sections[i].guns:
+				if not in_sight(id, l, Rules.gun_at(id, i, g)):
+					own = false
+					print("    gun out of sight of its lane: ", id, " ", f.sections[i].name, " ", g)
+		check(own, "%s: every gun in sight of its section's lane" % f.name)
+		var L := Rules.fortress_len(id)
+		var span := 0.0
+		for i in f.sections.size() - 1:
+			span += float(f.sections[i].len)
+		var steps := true
+		for i in range(1, f.sections.size() - 1):
+			steps = steps and Rules.section_at(id, i) - Rules.section_at(id, i - 1) <= 20.0
+		check(L <= 125.0 and span > L and steps, "%s: %.0f m, its sections overlapping (%.0f m of sections), each starting within 20 m of the last" % [f.name, L, span])
+		# no two guns in each other's way
+		var apart := true
+		var pos: Array[Vector3] = []
+		for i in f.sections.size():
+			for g: Array in f.sections[i].guns:
+				var at := Rules.gun_at(id, i, g)
+				for p in pos:
+					if p.distance_to(at) < 3.0:
+						apart = false
+						print("    guns on top of each other: ", id, " ", f.sections[i].name, " ", g)
+				pos.append(at)
+		check(apart, "%s: no two guns on top of each other" % f.name)
 		var low := 1e9
 		for i in f.sections.size():
 			var l := Capital.lane(id, i)
 			low = minf(low, Rules.deck_of(id) + float(l.y) + (l.reach as Vector4).z)
 		check(low >= Rules.LOW - 0.01, "%s: the ship never comes within %.0f m of the ground (%.1f)" % [f.name, Rules.LOW, low])
+
+
+## Whether a point on the ship is in sight of the ship anywhere the drag takes it in a lane.
+func in_sight(id: String, l: Dictionary, at: Vector3) -> bool:
+	var r: Vector4 = l.reach
+	for p: Vector2 in [Vector2.ZERO, Vector2(r.x, 0), Vector2(r.y, 0), Vector2(0, r.z), Vector2(0, r.w)]:
+		if Capital.sees(id, at, Vector3(l.x + p.x, l.y + p.y, -float(l.along))):
+			return true
+	return false
 
 
 func make_game() -> Game:
@@ -175,10 +229,17 @@ func fight() -> void:
 		if Capital.route_of(g.fort_id, f.sec) == "under" and absf(f.node.rotation.z - PI) < 0.01:
 			hung += 1
 	check(hung > 0, "guns slung under the hull hang upside down (%d)" % hung)
+	var ahead := 0
+	for f in g.fort_guns:
+		if f.sec == g.fort_sec + 1 and g.lockable(f):
+			ahead += 1
+	check(ahead > 0, "the next section's guns are already in the fight (%d)" % ahead)
 	# the whole fight, the ship lined up with each gun in turn
 	var routes := {}
 	var lowest := 1e9
 	var max_dip := 0.0
+	var held_up := true
+	var cruise := 0.0
 	var min_dip := 1.0
 	for i in int(400.0 / DT):
 		g.hp = maxi(g.hp, 2)
@@ -197,13 +258,48 @@ func fight() -> void:
 		if g.phase == "escape" and g.fortress != null:
 			for seg in g.segs:
 				lowest = minf(lowest, seg.global_position.y - 14.0)
+			g.touching = false
+			g.slow_down(0.5)
+			held_up = held_up and not g.paused() and g.time_speed() > 0.99
+			cruise = g.chase_y
 		if g.phase == "results" or g.phase == "clear":
 			break
 	check(g.phase in ["clear", "results"], "the Basilisk taken apart, its reactor down from beneath its throat")
 	check(routes.has("top") and routes.has("left") and routes.has("right") and routes.has("under"),
 		"over it, along both flanks and beneath it (%s)" % [routes.keys()])
 	check(min_dip < 0.0 and max_dip > 0.0, "the guns aim up from beneath, down from above")
+	check(held_up, "lifting the finger doesn't pause the break-up")
+	# Guillaume: high up after the kill "you can see the limited decor"
+	check(cruise > 0.0 and cruise <= Rules.CRUISE_Y + 0.01, "the ship flies on low after the kill (%.1f m)" % cruise)
 	check(lowest > 4.0, "it breaks up in the air (lowest piece %.1f m up)" % lowest)
+	g.queue_free()
+	await process_frame
+
+
+## Guillaume: "I don't want the ship to be hit during fortress transitions".
+func transits() -> void:
+	print("no hits between sections")
+	var g := make_game()
+	await process_frame
+	to_chase(g, Campaign.FORTRESS_ORDER.find("albatross"))
+	check(not g.transit(), "at its first section, the ship can be hit")
+	g.inv = 0.0
+	var hp0: int = g.hp
+	for p in g.fort_parts.duplicate():
+		g.damage(p, 99999.0)
+	g.step(DT)
+	var gliding: bool = g.transit()
+	var shot3 := g.shoot(g.ppos, Vector3(0, 0, 1), 0.0)
+	g.collide(DT)
+	g.hurt()
+	check(gliding and g.hp == hp0 and not shot3.dead, "gliding on to the next section, shots pass through the ship")
+	shot3.dead = true
+	while g.transit():
+		g.step(DT)
+	var shot4 := g.shoot(g.ppos, Vector3(0, 0, 1), 0.0)
+	g.collide(DT)
+	check(g.hp == hp0 - 1 and shot4.dead, "once there, they hit again")
+	g.hp = hp0
 	g.queue_free()
 	await process_frame
 
@@ -213,5 +309,6 @@ func _initialize() -> void:
 	roster()
 	lanes()
 	await fight()
+	await transits()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

@@ -23,6 +23,22 @@ const NAMES := {
 	"lancer": "Lancer interceptor", "hover": "Floe hovercraft", "prism": "Rime crystal",
 	"ember": "Magma drone", "mortar": "Cinder walker", "wyrm": "Ash wyrm",
 }
+## Collateral targets, not threats (Guillaume, 2026-11-24: "Hydro planes should be a collateral
+## damage, not an enemy. It should stroll by (alone) waiting to be shot"): they never fire and the
+## ship flies through them unharmed (not in `Rules.RAMMABLE`).
+const HARMLESS := ["gull"]
+## How fast a seaplane strolls across the screen (m/s).
+const GULL_SPEED := 2.4
+## Hacked civilians (Guillaume, 2026-11-24: "civil characters can be enemies if they are clearly
+## hacked: a lighthouse that opens to show a turret, a hydro plane that unveils a minigun"). The
+## chance a seaplane is hacked, after the level's opening (its first seaplane is always real), and
+## how long a hacked one gives itself away (blinking, sparks) before its gun comes out.
+const HACK_P := 0.35
+const HACK_AFTER := 12.0
+const HACK_TELL := 0.9
+## How long the gun takes to come out once the tell is over.
+const HACK_UNVEIL := 0.35
+
 ## On the ground (ramming passes under them; they stay with the land).
 const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
 ## Those that stand on dry land (the hovercraft rides the water too; the tank drives on).
@@ -82,6 +98,8 @@ static func part_mesh(name: String) -> Mesh:
 		"gun": return aa_guns()
 		"fan": return fan()
 		"core": return magma_core()
+		"minigun": return minigun()
+		"hacked turret": return Models.turret()
 	return null
 
 
@@ -116,6 +134,44 @@ static func gull() -> Mesh:
 		b.prism(Vector3(0, 0, -1.25), Models.pts([Vector2(-0.04, -0.25), Vector2(0.04, -0.25), Vector2(0.04, 0.25),
 			Vector2(-0.04, 0.25)]), 0.15, 0.7, Models.FOE_D, Vector2(1, 0.5), Vector2(0, -0.2))
 		b.prism(Vector3(0, 0, 1.38), Models.ngon(0.1, 6), -0.1, 0.1, Models.AMBER)
+		return b.commit())
+
+
+## A seaplane pilot under a parachute (`Blasts.chute`): a round canopy of red and white panels
+## over the pilot (the origin), seen from above, with its rigging lines.
+static func chute() -> Mesh:
+	return Models.cached("f_chute", func() -> Mesh:
+		var b := Models.Builder.new()
+		var n := 10
+		for k in n:
+			var a0 := TAU * k / n
+			var a1 := TAU * (k + 1) / n
+			var col := Models.FOE if k % 2 == 0 else Models.IVORY
+			# a panel: from the crown out to the rim, which hangs a little lower
+			b.prism(Vector3(0, 1.55, 0), Models.pts([Vector2.ZERO, Vector2(cos(a1), sin(a1)) * 0.95,
+				Vector2(cos(a0), sin(a0)) * 0.95]), 0.0, 0.14, col)
+			b.prism(Vector3(0, 1.35, 0), Models.pts([Vector2(cos(a0), sin(a0)) * 0.7, Vector2(cos(a1), sin(a1)) * 0.7,
+				Vector2(cos(a1), sin(a1)) * 1.12, Vector2(cos(a0), sin(a0)) * 1.12]), 0.0, 0.12, col.darkened(0.08))
+		for k in 4:
+			var a := TAU * k / 4 + PI / 4
+			b.box(Vector3(cos(a) * 0.45, 0.75, sin(a) * 0.45), Vector3(0.03, 1.2, 0.03), Models.IVORY_D)
+		b.box(Vector3(0, 0, 0), Vector3(0.26, 0.36, 0.2), Models.NAVY)
+		b.octa(Vector3(0, 0.3, 0), 0.13, Color8(0xf0, 0xc8, 0x9a))
+		return b.commit())
+
+
+## A hacked seaplane's minigun, popped up on a mount over its wing (seen from above): six
+## barrels round a dark drum, pointing +z.
+static func minigun() -> Mesh:
+	return Models.cached("f_minigun", func() -> Mesh:
+		var b := Models.Builder.new()
+		b.box(Vector3(0, -0.2, -0.05), Vector3(0.14, 0.3, 0.14), Models.HULL_D)
+		b.box(Vector3(0, 0, -0.1), Vector3(0.5, 0.36, 0.7), Models.HULL_D)
+		b.box(Vector3(0, 0.19, -0.1), Vector3(0.3, 0.04, 0.5), Color8(0xff, 0x30, 0x40))
+		for k in 6:
+			var a := TAU * k / 6.0
+			b.box(Vector3(cos(a) * 0.13, sin(a) * 0.13, 0.6), Vector3(0.07, 0.07, 1.0), Models.STEEL_D)
+		b.prism(Vector3(0, 0, 1.12), Models.ngon(0.2, 6), -0.05, 0.05, Models.AMBER)
 		return b.commit())
 
 
@@ -466,16 +522,46 @@ static func add_part(g: Game, f: Game.Obj, name: String, at: Vector3, material: 
 
 ## The spot nearest (x, z), across the field and then further ahead, where the land is dry, or
 ## (x, z) if there is none (all sea).
-static func dry_x(g: Game, x: float, z: float, me: Game.Obj) -> Vector2:
-	for dz in [0.0, -4.0, -8.0, -12.0]:
-		for k in 15:
-			var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
-			var tx := clampf(x + d, -6.5, 6.5)
-			var tz: float = z + dz
-			if g.land(tx, tz) > 0.06 and g.land(tx + 0.9, tz) > 0.0 and g.land(tx - 0.9, tz) > 0.0 \
-					and g.land(tx, tz + 0.9) > 0.0 and g.land(tx, tz - 0.9) > 0.0 and clear(g, tx, tz, me):
-				return Vector2(tx, tz)
+## A tower (`foot` past 0.9) that finds no firm ground (a canyon runs the whole width) settles for
+## any dry, level floor (down in the canyon beside its river), else for a level riverbed (it stands
+## in the water like a pier); never over a rim.
+static func dry_x(g: Game, x: float, z: float, me: Game.Obj, foot := 0.9) -> Vector2:
+	var tower := foot > 0.9
+	var dzs := [0.0, -4.0, -8.0, -12.0, -16.0, -20.0, -24.0] if tower else [0.0, -4.0, -8.0, -12.0]
+	for pass_i in (3 if tower else 1):
+		for dz in dzs:
+			for k in 15:
+				var d := float((k + 1) / 2) * (1.0 if k % 2 == 0 else -1.0)
+				var tx := clampf(x + d, -6.5, 6.5)
+				var tz: float = z + dz
+				var ok := g.land(tx, tz) > 0.06 if pass_i == 0 else (dry(g, tx, tz) if pass_i == 1 else true)
+				if ok and footed(g, tx, tz, foot, pass_i == 0, pass_i < 2) and clear(g, tx, tz, me):
+					return Vector2(tx, tz)
 	return Vector2(x, z)
+
+
+## Whether everything within `foot` m of (x, z) is firm land (or, not `firm`, any dry ground), and
+## for a tower about level with its centre: its footing never hangs over a rim or a bank.
+static func footed(g: Game, x: float, z: float, foot: float, firm := true, dry_only := true) -> bool:
+	var y := g.ground_y(x, z)
+	var n := 4 if foot <= 0.9 else 8
+	for k in n:
+		var a := TAU * k / n
+		var px := x + sin(a) * foot
+		var pz := z + cos(a) * foot
+		if dry_only and ((g.land(px, pz) <= 0.0) if firm else not dry(g, px, pz)):
+			return false
+		if foot > 0.9 and absf(g.ground_y(px, pz) - y) > 0.5:
+			return false
+	return true
+
+
+## No water or lava at (x, z) (a canyon floor counts).
+static func dry(g: Game, x: float, z: float) -> bool:
+	if Models.theme == "city":
+		return g.land(x, z) > 0.0
+	var v := Relief.at(x, z, Relief.raw(g.noise, x, z))
+	return v.z == 0.0 and v.y > 0.0
 
 
 ## No other ground foe (but `me`) stands within 3.5 m of (x, z).
@@ -496,7 +582,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	if is_ground(kind):
 		f.ground = true
 		var sx := clampf(x * 1.25 + spread * 4.0, -6.5, 6.5)
-		var at := dry_x(g, sx, gz, f) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
+		var at := dry_x(g, sx, gz, f, Towers.FOOT_R if Towers.is_tower(kind) else 0.9) if kind in DRY or Towers.is_tower(kind) else Vector2(sx, gz)
 		f.pos = Vector3(at.x, g.ground_y(at.x, at.y), at.y)
 		sx = at.x
 		f.x0 = sx
@@ -508,22 +594,31 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 		f.fire_t = 1.5 + 0.4 * i
 		Towers.build(g, f)
 		return
+	# the side a foe that holds comes in from when the top edge is too far (`Game.enter_toward`)
+	var side := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if (x < 0.0 or x == 0.0 and i % 2 == 0) else 1.0))
 	match kind:
 		"gull":
-			f.pos.x = clampf(f.x0 + spread * 1.4, -6.5, 6.5)
-			f.vel = Vector3(0, 0, 11.0)
-			f.fire_t = 1.0
+			# a lone seaplane out for a stroll: crosses the upper screen from one side to the other
+			var s := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0))
+			var z := g.hold_z(6.5)
+			f.x0 = s
+			f.goal = Vector3(0, 0, z)
+			f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
+			f.vel = Vector3(-s * GULL_SPEED, 0, 0)
+			f.hacked = g.stage_t > HACK_AFTER and g.rng.randf() < HACK_P
 		"rotor":
-			f.pos.x = clampf(f.x0 + spread * 4.2, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.8 + (i % 2) * 1.8)   # z: below the screen's top edge
+			var gx := clampf(f.x0 + spread * 4.2, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.5 - (i % 2) * 1.8))   # z: above the screen's centre
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.fire_t = 2.0
 			add_part(g, f, "blades", Vector3(0, 0.55, 0.05))
 		"pillbox":
 			f.fire_t = 1.2
 			f.burst = 4
 		"scarab":
-			f.pos.x = clampf(f.x0 + spread * 2.0, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.0)
+			var gx := clampf(f.x0 + spread * 3.0, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.0))
+			g.enter_toward(f, gx, f.goal.z, side)
 			f.fire_t = 0.0
 		"tank":
 			# drives in from one side, up the land, across the screen
@@ -547,15 +642,16 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 			add_part(g, f, "gun", Vector3(0, 0.3, 0))
 		"gunship":
 			var s := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0))
-			var z := lerpf(g.view_top, g.view_bot, 0.2) + i * 3.0
+			var z := g.hold_z(8.0) + i * 3.0
 			f.x0 = s
 			f.pos = Vector3(s * (g.view_hw(z) + 4.0), Rules.PY, g.frame_z + z)
 			f.goal = Vector3(s * 2.8, 0, z)
 			f.fire_t = 2.0
 			add_part(g, f, "rotor", Vector3(0, 0.78, 0))
 		"lancer":
-			f.pos.x = clampf(f.x0 + spread * 3.0, -6.0, 6.0)
-			f.goal = Vector3(f.pos.x, 0, 3.6 + (i % 2) * 1.6)
+			var gx := clampf(f.x0 + spread * 3.0, -6.0, 6.0)
+			f.goal = Vector3(gx, 0, g.hold_z(7.0 - (i % 2) * 1.6))
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.burst = 3
 		"hover":
 			f.pos.z = gz - i * 3.0
@@ -564,8 +660,9 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 				var fan := add_part(g, f, "fan", Vector3(0.5 * sx, 1.05, -1.25))
 				fan.name = "fan_l" if sx < 0.0 else "fan_r"
 		"prism":
-			f.pos.x = clampf(f.x0 + spread * 5.0, -5.5, 5.5)
-			f.goal = Vector3(f.pos.x, 0, 5.0 + (i % 2) * 2.0)
+			var gx := clampf(f.x0 + spread * 5.0, -5.5, 5.5)
+			f.goal = Vector3(gx, 0, g.hold_z(6.0 - (i % 2) * 2.0))
+			g.enter_toward(f, gx, f.goal.z, signf(gx) if gx != 0.0 else side)
 			f.fire_t = 2.0
 		"ember":
 			f.pos.x = clampf(f.x0 + spread * 2.4, -6.0, 6.0)
@@ -582,10 +679,88 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 
 # ---------------------------------------------------------------- behaviour
 
+## The room left between the hulls of foes flying in a group (m). Guillaume (2026-11-25): "give a
+## little space between enemies when they are in a row"; rows from the top and the sides bunched up.
+const ROW_GAP := 1.0
+## Air foes that come in as a row, a line or a swarm and keep ROW_GAP between them (`space`). Not
+## the wyrm: its segments are one creature.
+const ROWS := ["dart", "swing", "rotor", "scarab", "lancer", "prism", "seeker", "ember"]
+## Of those, the ones that fly to a goal: the goal moves with the nudge, or they would close up again.
+const TO_GOAL := ["rotor", "scarab", "lancer", "prism"]
+
+
+## A random x on side s (between lo and hi metres out) for foe f to dart to at z, as far as it can
+## from where the others of its kind are going, so two of a group never pick the same spot.
+static func clear_x(g: Game, f: Game.Obj, s: float, lo: float, hi: float, z: float) -> float:
+	var best := s * g.rng.randf_range(lo, hi)
+	var room := -1.0
+	for k in 6:
+		var x := s * g.rng.randf_range(lo, hi)
+		var near := 1e9
+		for o: Game.Obj in g.foes:
+			if o != f and o.kind == f.kind and not o.dead:
+				near = minf(near, Vector2(o.goal.x - x, o.goal.z - z).length())
+		if near > room:
+			room = near
+			best = x
+		if room >= f.r * 2.0 + ROW_GAP + 1.0:
+			break
+	return best
+
+
+## Keeps a foe of a group ROW_GAP clear of the others of its kind, whichever way they came in.
+static func space(g: Game, f: Game.Obj, dt: float) -> void:
+	keep_apart(g, f, f.r * 2.0 + ROW_GAP, dt, f.kind in TO_GOAL)
+
+
+## Nudges a foe away from others of its kind closer than r on the flight plane, so a group keeps
+## its spacing instead of stacking into one blob (`goal`: its goal moves with it).
+static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float, goal := false) -> void:
+	for o: Game.Obj in g.foes:
+		if o == f or o.kind != f.kind or o.dead:
+			continue
+		var away := Vector2(f.pos.x - o.pos.x, f.pos.z - o.pos.z)
+		var d := away.length()
+		if d < r:
+			if d < 0.001:
+				away = Vector2(1.0 if f.idx > o.idx else -1.0, 0.0)
+				d = 1.0
+			var push := away / d * (r - d) * minf(1.0, dt * 10.0)
+			f.pos.x += push.x
+			f.pos.z += push.y
+			if goal:
+				f.goal.x = clampf(f.goal.x + push.x, -6.5, 6.5)
+				f.goal.z += push.y
+
 ## Where a foe shows on the flight plane (ground foes are seen at an angle).
 static func at_of(g: Game, f: Game.Obj) -> Vector3:
 	var at := g.seen(f.pos)
 	return Vector3(at.x, Rules.PY, at.z)
+
+
+## A hacked civilian giving itself away (from `hold`, set when it starts): it blinks and throws
+## red sparks for HACK_TELL s, then its gun (part `name`, at `at`) unfolds out of it. Returns
+## whether the gun is out and may fire.
+static func unveil(g: Game, f: Game.Obj, name: String, at: Vector3) -> bool:
+	if f.hold < 0.0:
+		return false
+	var k := f.t - f.hold
+	if k < HACK_TELL:
+		if fmod(k, 0.22) < 0.11:
+			f.hit = maxf(f.hit, 0.05)
+		if fmod(k, 0.3) < 0.02:
+			g.pop(f.pos + Vector3(0, 0.6, 0), 0.5, Color8(0xff, 0x30, 0x40), f.ground)
+		return false
+	if not f.node.has_node(name):
+		var mi := add_part(g, f, name, at)
+		mi.scale = Vector3.ONE * 0.01
+		g.pop(f.pos + at, 0.8, Color8(0xff, 0x30, 0x40), f.ground)
+		g.sound.play("pop")
+		f.fire_t = f.t + HACK_UNVEIL + 0.25
+		f.burst = 6 if name == "minigun" else 3
+	var gun := f.node.get_node(name) as Node3D
+	gun.scale = Vector3.ONE * clampf((k - HACK_TELL) / HACK_UNVEIL, 0.01, 1.0)
+	return k >= HACK_TELL + HACK_UNVEIL
 
 
 ## Whether a foe is far enough onto the screen to open fire.
@@ -608,25 +783,52 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		return
 	match f.kind:
 		"gull":
-			# dives at the ship, fires at the bottom of its dive, pulls up and climbs away
-			if f.hold < 0.0:
-				f.vel.x = clampf((g.ppos.x - f.pos.x) * 1.4, -4.5, 4.5)
-				if f.pos.z > g.ppos.z - 8.5 or f.t > 2.6:
+			# strolls across in a lazy wave, never fires: it's only there to be shot down
+			f.pos.x += f.vel.x * dt
+			f.pos.z = g.frame_z + f.goal.z + sin(f.t * 0.8) * 0.9
+			var dz := cos(f.t * 0.8) * 0.72
+			f.node.rotation = Vector3(0, atan2(f.vel.x, dz), sin(f.t * 0.8) * 0.18 * -f.x0)
+			if f.hacked:
+				var z := f.pos.z - g.frame_z
+				if f.hold < 0.0 and in_play(g, f) and absf(f.pos.x) < g.view_hw(z) - 2.5:
 					f.hold = f.t
-			else:
-				f.vel.z = move_toward(f.vel.z, -12.0, 20.0 * dt)
-				f.vel.x *= 1.0 - minf(1.0, dt * 1.5)
-				if f.fire_t > 0.0 and f.vel.z < 3.0 and in_play(g, f):
-					f.fire_t = -1.0
-					g.fan(f.pos + Vector3(0, 0, 0.8), 3, 0.4, 10.5)
-			f.pos += f.vel * dt
-			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), clampf(-f.vel.x * 0.08, -0.6, 0.6))
+				if unveil(g, f, "minigun", Vector3(0, 0.78, 0.1)):
+					# slows to hose the ship with short bursts, nose round to face it
+					f.vel.x = move_toward(f.vel.x, -f.x0 * GULL_SPEED * 0.45, dt * 2.0)
+					var to := g.ppos - f.pos
+					var gun := f.node.get_node("minigun") as Node3D
+					gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
+					if f.t >= f.fire_t and in_play(g, f):
+						g.aimed(f.pos + to.normalized() * 0.9, 11.0)
+						f.burst -= 1
+						f.fire_t = f.t + (0.09 if f.burst > 0 else 1.5)
+						if f.burst <= 0:
+							f.burst = 6
+		"lighthouse":
+			# a hacked lighthouse: once well in view, its lantern blinks and sparks, then a
+			# turret rises out of the top and fires aimed bursts
+			if not f.hacked:
+				return
+			if f.hold < 0.0 and g.well_in_view(f) and in_play(g, f):
+				f.hold = f.t
+			var top := ((f.node as MeshInstance3D).mesh.get_aabb().end.y + 0.1) if f.node is MeshInstance3D else 1.0
+			if unveil(g, f, "hacked turret", Vector3(0, top, 0)):
+				var at := at_of(g, f)
+				var to := g.ppos - at
+				var gun := f.node.get_node("hacked turret") as Node3D
+				gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
+				if f.t >= f.fire_t and in_play(g, f):
+					g.aimed(at, 10.0)
+					f.burst -= 1
+					f.fire_t = f.t + (0.15 if f.burst > 0 else 1.9)
+					if f.burst <= 0:
+						f.burst = 3
 		"rotor":
 			# drops into the upper screen, hovers firing rings, then sinks away down the screen
 			var bl := f.node.get_node("blades") as Node3D
 			bl.rotation.y += dt * 22.0
 			if f.t < 7.0:
-				f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, minf(1.0, dt * 1.8))
+				f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, minf(1.0, dt * 1.8))
 				f.pos.x = lerpf(f.pos.x, f.goal.x + sin(f.t * 1.1 + f.idx) * 1.2, minf(1.0, dt * 2.0))
 				if f.t >= f.fire_t and in_play(g, f):
 					f.fire_t = f.t + 1.7
@@ -654,14 +856,16 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 				f.size_y = 0.0   # not fired yet on this dash
 				f.fire_t = f.t + 1.2
 				if f.burst > 5:
-					f.goal = Vector3(f.pos.x, 0, maxf(g.view_bot, Rules.Z_BOT) + 8.0 - g.view_top)
+					f.goal = Vector3(f.pos.x, 0, maxf(g.view_bot, Rules.Z_BOT) + 8.0)
 				else:
 					var s := -1.0 if (f.burst + f.idx) % 2 == 0 else 1.0
-					f.goal = Vector3(s * g.rng.randf_range(1.5, 5.5), 0, 3.0 + f.burst * 2.2)
+					# every other one a row lower, so the two rows dash past each other, not into
+					var gz := g.hold_z(7.0) + f.burst * 2.2 + (f.idx % 2) * 2.8
+					f.goal = Vector3(clear_x(g, f, s, 1.5, 5.5, gz), 0, gz)
 			var k := minf(1.0, dt * 5.0)
 			var was := f.pos
 			f.pos.x = lerpf(f.pos.x, f.goal.x, k)
-			f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, k)
+			f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, k)
 			f.node.rotation.z = clampf(-(f.pos.x - was.x) / maxf(dt, 1e-4) * 0.05, -0.5, 0.5)
 			if f.burst <= 5 and f.size_y == 0.0 and f.t - f.hold > 0.5 and in_play(g, f):
 				f.size_y = 1.0
@@ -757,7 +961,8 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			# drifts in, spins out a two-armed spiral, then sinks away
 			f.node.rotation.y += dt * (1.0 if f.t < 2.0 else 4.0)
 			if f.t < 6.0:
-				f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, minf(1.0, dt * 1.5))
+				f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, minf(1.0, dt * 1.5))
+				f.pos.x = lerpf(f.pos.x, f.goal.x, minf(1.0, dt * 1.5))
 				if f.t >= f.fire_t and in_play(g, f):
 					f.fire_t = f.t + 0.14
 					var a := f.t * 2.4 + f.idx * 0.9
@@ -848,7 +1053,7 @@ static func think_borer(g: Game, f: Game.Obj, dt: float) -> void:
 static func think_lancer(g: Game, f: Game.Obj, dt: float) -> void:
 	var k := minf(1.0, dt * 4.5)
 	f.pos.x = lerpf(f.pos.x, f.goal.x, k)
-	f.pos.z = lerpf(f.pos.z, g.frame_z + g.view_top + f.goal.z, k)
+	f.pos.z = lerpf(f.pos.z, g.frame_z + f.goal.z, k)
 	f.node.rotation.z = clampf((f.goal.x - f.pos.x) * -0.25, -0.7, 0.7)
 	f.size = 1.0
 	if f.burst <= 0:
@@ -868,7 +1073,7 @@ static func think_lancer(g: Game, f: Game.Obj, dt: float) -> void:
 			f.fire_t = -1.0
 			f.burst -= 1
 			var s := -1.0 if f.pos.x > 0.0 else 1.0
-			f.goal = Vector3(s * g.rng.randf_range(2.0, 5.5), 0, f.goal.z + 1.5)
+			f.goal = Vector3(clear_x(g, f, s, 2.0, 5.5, f.goal.z + 1.5), 0, f.goal.z + 1.5)
 		elif f.fire_t < 0.0 and since > 1.5:
 			f.fire_t = 0.0
 			f.hold = f.t

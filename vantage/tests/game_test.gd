@@ -30,8 +30,14 @@ func rules() -> void:
 		Rules.buy(s, "hull")
 	check(Rules.level(s, "hull") == 3 and Rules.cost(s, "hull") == -1, "upgrades stop at their max")
 	check(Rules.max_hp(s) == 6, "each hull level is one more hit")
-	check(Rules.cannon(0).shots.size() == 2 and Rules.cannon(5).shots.size() == 7, "the cannon grows from 2 to 7 guns")
-	check(Rules.cannon(5).period < Rules.cannon(0).period and Rules.cannon(5).dmg > Rules.cannon(0).dmg, "and fires faster and harder")
+	check(Rules.cannon(0).shots.size() == 2 and Rules.cannon(Rules.POWER_MAX).shots.size() == 7, "power grows the cannon from 2 to 7 guns")
+	check(Rules.cannon(Rules.POWER_MAX).period < Rules.cannon(0).period, "and fires faster at full power")
+	check(Rules.cannon(0, 5).shots.size() == 2 and Rules.cannon(0, 5).dmg > Rules.cannon(0, 0).dmg, "the Cannon upgrade hits harder, but never widens the spread")
+	# the upgrade can't take a run's start anywhere near full power (Guillaume: it got too easy)
+	var top := Rules.cannon(Rules.POWER_MAX, 0)
+	var bought := Rules.cannon(0, 5)
+	check(bought.shots.size() * bought.dmg / bought.period < 0.5 * top.shots.size() * top.dmg / top.period,
+		"a maxed Cannon at the start of a level has under half the fire of a bare ship at full power")
 	check(Rules.missile_period(0) == 0.0 and Rules.missile_period(4) < Rules.missile_period(1), "missiles only once bought")
 	var m := Rules.migrate({"scrap": -5, "up": {"cannon": 99, "magnet": 2}})
 	check(m.scrap == 0 and m.up.cannon == 5 and m.up.magnet == 2 and m.up.hull == 0, "saves are clamped")
@@ -56,6 +62,55 @@ func make_game() -> Game:
 	root.add_child(g)
 	g.rng.seed = 3
 	return g
+
+
+## In-level power (Guillaume, 2026-11-24: "how about keeping an in level progress"): every level
+## starts on the twin gun, cores dropped by foes widen it, a hit costs a step.
+func power() -> void:
+	print("in-level power")
+	var g := make_game()
+	await process_frame
+	g.s.up.cannon = 5
+	g.launch(0)
+	g.time_k = 1.0
+	check(g.power == 0, "a level starts at power 0, whatever was bought")
+	g.step(0.2)
+	check(g.shots.size() == 2, "on the twin gun")
+	for i in Rules.kills_for(0) - 1:
+		g.count_core(g.ppos + Vector3(0, 0, -4))
+	check(g.picks.filter(func(p: Game.Obj) -> bool: return p.kind == "power").is_empty(), "no core before %d kills" % Rules.kills_for(0))
+	g.count_core(g.ppos + Vector3(0, 0, -4))
+	var cores := g.picks.filter(func(p: Game.Obj) -> bool: return p.kind == "power")
+	check(cores.size() == 1, "%d kills leave the first power core" % Rules.kills_for(0))
+	# Guillaume (2026-11-24): "you go too quickly from 0 to the max": each step takes more kills
+	var total := 0
+	for k in Rules.POWER_MAX:
+		total += Rules.kills_for(k)
+		if k > 0:
+			check(Rules.kills_for(k) > Rules.kills_for(k - 1), "step %d takes more kills than the one before" % (k + 1))
+	check(total >= 110, "full power takes %d kills, more than a short level holds" % total)
+	cores[0].pos = g.ppos
+	g.step(DT)
+	check(g.power == 1, "picking it up is a power step")
+	for i in 10:
+		g.power_up()
+	check(g.power == Rules.POWER_MAX, "power stops at its max")
+	g.clear_all()
+	g.fire_cd = 0.0
+	g.step(DT)
+	check(g.shots.size() == 7, "at full power the whole spread fires")
+	g.inv = 0.0
+	g.hurt()
+	check(g.power == Rules.POWER_MAX - 1 and g.hp == Rules.max_hp(g.s) - 1, "a hit costs a power step and a hull pip")
+	g.core_kills = 5
+	g.inv = 0.0
+	g.hurt()
+	check(g.core_kills == 0, "and the kills towards the next core")
+	g.to_hangar()
+	g.launch(0)
+	check(g.power == 0, "the next level starts over")
+	g.queue_free()
+	await process_frame
 
 
 ## Steps the game; in the chase the autopilot lines up with the nearest foe it can hurt.
@@ -119,8 +174,10 @@ func slow_pause() -> void:
 		var d := g.stage_t - before
 		slowing = slowing and d <= last + 1e-6
 		last = d
+		if i == int(0.25 / DT):
+			check(g.time_speed() < 0.75, "a quarter second after lifting, time has already dropped a lot (%.2f)" % g.time_speed())
 		if i == int(1.0 / DT):
-			check(g.time_speed() > 0.3 and not g.paused(), "a second after lifting, time still runs (%.2f): the slowdown is gradual" % g.time_speed())
+			check(g.time_speed() > 0.05 and not g.paused(), "a second after lifting, time still runs (%.2f): then it eases to the stop" % g.time_speed())
 	check(slowing, "lifting the finger slows time steadily")
 	check(g.paused(), "until the game is paused (after %.1f s)" % Rules.SLOW_STOP)
 	var x0 := g.prel.x
@@ -151,9 +208,15 @@ func pause_menu() -> void:
 	var g := make_game()
 	await process_frame
 	g.launch()
+	g.tick(DT)
+	check(g.paused() and not g.started, "a level waits for its first touch")
+	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
+	check(g.ship.visible and g.ship.position.is_equal_approx(g.ppos), "the ship waits on touch to start where it will fly from")
+	check(g.cam.is_position_in_frustum(g.ship.global_position), "the waiting ship is in view")
 	g.touching = true
 	for i in 30:
 		g.tick(DT)
+	check(g.started, "the first touch starts it")
 	check(not g.hud.quit_btn.visible, "no main menu button while flying")
 	g.run.scrap = 7
 	var scrap0: int = g.s.scrap
@@ -186,6 +249,13 @@ func controls() -> void:
 	check(moved > 0.5 and moved < 3.0, "dragging moves the ship (%.2f m for 100 px)" % moved)
 	g.drag_by(Vector2(99999, -99999))
 	check(g.prel.x == Rules.HALF_W and g.prel.y == Rules.Z_TOP + 3.0, "the ship stays on the field")
+	var vb := g.view_bot
+	g.view_bot = 16.6  # a 9:16 phone's bottom edge on the flight plane
+	g.drag_by(Vector2(0, 99999))
+	check(is_equal_approx(g.prel.y, 16.6 - g.BOT_MARGIN),
+		"the ship can be dragged down to just above the screen's bottom edge (%.1f m)" % g.prel.y)
+	g.view_bot = vb
+	g.drag_by(Vector2(0, -99999))
 	# real pointer events (touch is emulated as mouse)
 	g.driven = false
 	var p := InputEventMouseButton.new()
@@ -213,7 +283,7 @@ func stage() -> void:
 	g.s.open = 2
 	g.launch(2)   # Glass Coast's fortress run: the hand-made sector
 	# the mid-boss, top-down
-	run(g, 40.0, func() -> bool: return g.boss != null)
+	run(g, 60.0, func() -> bool: return g.boss != null)
 	check(g.boss != null and g.phase == "vert", "the mid-boss arrives in the vertical stage")
 	check(g.boss_parts.size() == 4 and g.boss_sec == 0, "its bow guns are the first section")
 	var bridge_open := false
@@ -239,7 +309,16 @@ func stage() -> void:
 	check(froms.has("left") and froms.has("right") and froms.has("back") and froms.has("top"), "from every edge: top, left, right and back")
 	# the final boss: the fortress, chased in third person
 	check(g.vacuum_t > 0.0 or g.picks.is_empty(), "its scrap flies to the ship")
-	run(g, 60.0, func() -> bool: return g.phase == "approach")
+	# Guillaume: "it should not just vanish in the explosion. The husk of the ship should slowly drift away"
+	var husk := g.husk
+	var hz0 := husk.position.z - g.frame_z if husk else 0.0
+	check(husk != null and husk.visible and husk.is_inside_tree(), "its husk stays on")
+	run(g, 2.0)
+	var drift := husk.position.z - g.frame_z - hz0 if is_instance_valid(husk) else 0.0
+	check(is_instance_valid(husk) and drift > 0.5 and drift < 6.0, "and drifts slowly down the screen (%.1f m in 2 s)" % drift)
+	run(g, 25.0, func() -> bool: return g.husk == null)
+	check(g.husk == null, "until it's gone off the bottom")
+	run(g, 90.0, func() -> bool: return g.phase == "approach")
 	check(g.phase == "approach" and g.fortress != null, "the fortress arrives and the swoop begins")
 	check(g.cam_mode == "chase", "the camera comes down behind the ship")
 	run(g, 5.0, func() -> bool: return g.phase == "pov")
@@ -250,9 +329,10 @@ func stage() -> void:
 	check(g.fort_sec == 0 and g.fort_parts.size() == Rules.FORTRESS_SECTIONS[0].guns.size(), "its engines are the first section")
 	check(g.fort_s == 1.0 and g.deck_y > Rules.CHASE_DECK - 0.5, "the fortress grew during the swoop and climbed to its height")
 	# Guillaume (2026-11-23): a huge fortress-class ship, no tunnel: a capital ship far longer and
-	# wider than the screen, cut into sections along its length
+	# wider than the screen; then (2026-11-24) far more compact, designed first, its sections close
 	var L := Rules.fortress_len(g.fort_id)
-	check(L > 200.0 and g.segs.size() == Rules.FORTRESS_SECTIONS.size() - 1, "a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
+	check(L > 90.0 and L <= 125.0 and g.segs.size() == Capital.hull_count(g.fort_id) and g.segs.size() >= 3,
+		"a %.0f m capital ship in %d hull segments" % [L, g.segs.size()])
 	var vs := g.view_size()
 	var left := g.cam.unproject_position(g.fort_point(Vector3(-Rules.FORTRESS_HW, 0, -10.0)))
 	var right := g.cam.unproject_position(g.fort_point(Vector3(Rules.FORTRESS_HW, 0, -10.0)))
@@ -291,7 +371,7 @@ func stage() -> void:
 	check(g.fort_sec == 1 and not g.fort_piece(0).visible, "engines down: their housings break off, the hangar deck opens")
 	run(g, Rules.ADVANCE + 0.1)
 	var st1 := Rules.station(g.fort_id, 1)
-	check(absf(g.along - st1.x) < 0.5 and g.along > along0 + 40.0 and absf(g.fly - Rules.FLY) < 0.1,
+	check(absf(g.along - st1.x) < 0.5 and g.along > along0 + 12.0 and absf(g.fly - Rules.FLY) < 0.1,
 		"the ship glides on along the hull, over the deck (%.0f m on)" % (g.along - along0))
 	check(g.ppos.y > g.deck_y + 3.0 and g.ppos.z < g.stern_z, "now flying over the deck")
 	# the gun deck's shield pylon guards its guns until it falls
@@ -312,7 +392,7 @@ func stage() -> void:
 		check(not g.fort_guarded(guarded) and g.lockable(guarded), "the pylon down, its guns can be hit")
 	run(g, 90.0, func() -> bool: return g.phase == "core")
 	check(g.phase == "core" and g.core != null and g.shielded(), "bridge guns down: its armour breaks off, the reactor shows, shielded by its panels")
-	check(not g.fort_piece(g.segs.size() - 1).visible, "(the bridge's armour is gone)")
+	check(not g.fort_piece(Capital.real_sections(g.fort_id) - 1).visible, "(the bridge's armour is gone)")
 	check(g.run.kills > kills, "foes shot down in the chase")
 	var hp: float = g.core.hp
 	g.damage(g.core, 10.0)
@@ -681,6 +761,22 @@ func hangar_fits() -> void:
 			"%s: the hangar panel fits (%.0f to %.0f of %.0f)" % [res, top, bottom, vp.y])
 		var sy := g.cam.unproject_position(g.ppos).y
 		check(sy > Hud.HANGAR_TOP and sy < top - 40.0, "%s: the ship idles above the panel (y %.0f)" % [res, sy])
+		# Guillaume (2026-11-24, again): a long upgrade line pushed the panel off the right edge.
+		# Its widest content (every world's level names, a big scrap count, the armed reset
+		# button, every upgrade line) must fit the screen's width.
+		g.s.open = Campaign.WORLDS.size() * Campaign.PER_WORLD - 1
+		g.s.scrap = 9999999
+		g.hud.reset_btn.text = "Tap again to wipe all"
+		var widest := 0.0
+		for lv in Campaign.WORLDS.size() * Campaign.PER_WORLD:
+			g.level = lv
+			g.hud.refresh_hangar()
+			g.hud.reset_btn.text = "Tap again to wipe all"
+			widest = maxf(widest, p.get_combined_minimum_size().x)
+		await process_frame
+		r = p.get_global_rect()
+		check(widest <= vp.x - 48.0 + 0.5 and r.position.x >= 0.0 and r.end.x <= vp.x + 0.5,
+			"%s: the hangar panel fits the width (needs %.0f, %.0f to %.0f of %.0f)" % [res, widest, r.position.x, r.end.x, vp.x])
 		sv.free()
 
 
@@ -692,7 +788,7 @@ func scenery() -> void:
 	var g := make_game()
 	await process_frame
 	var want := {"coast": ["house", "rocks", "sea rocks", "palm", "driftwood", "boat", "lighthouse", "broadleaf", "conifer", "bush", "duck"],
-		"dunes": ["boulder", "cactus", "adobe", "pyramid", "meteorite"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "helipad", "fire", "ruin", "crater", "wreck", "rubble"], "ice": ["pine", "snowman"],
+		"dunes": ["boulder", "cactus", "adobe", "pyramid", "meteorite"], "city": ["building", "duck", "water tower", "car", "bridge", "expressway", "park", "roof slab", "fire", "ruin", "crater", "wreck", "rubble"], "ice": ["pine", "snowman"],
 		"volcano": ["spire", "stone head"]}
 	var before := Models.theme
 	for theme: String in want:
@@ -763,8 +859,13 @@ func landmarks() -> void:
 	g.damage(found, 1.0)
 	check(not found.dead and found.hit > 0.0, "a hit landmark flashes")
 	g.damage(found, 999.0)
-	check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
-	check(g.picks.size() > picks, "it drops scrap")
+	if g.civilian(found):
+		# Guillaume (2026-11-24): a real civilian costs points and pays nothing
+		check(found.dead and g.run.score == score and g.run.kills == kills and g.banner != "CIVILIAN DOWN", "shooting a civilian (%s) down neither scores nor costs, isn't a kill and isn't announced" % found.kind)
+		check(g.picks.size() == picks, "it drops no scrap")
+	else:
+		check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")
+		check(g.picks.size() > picks, "it drops scrap")
 	check(parent.get_child_count() == children + 1 and g.ruined.size() == 1, "a ruin is left where it stood")
 	# the chase lets standing landmarks go without blowing them up
 	g.step(DT)
@@ -805,6 +906,7 @@ func _initialize() -> void:
 	await scenery()
 	await landmarks()
 	await stage()
+	await power()
 	await death()
 	await readable_fire()
 	await world_edges()

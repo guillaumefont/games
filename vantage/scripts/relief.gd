@@ -5,7 +5,7 @@ extends RefCounted
 ## in turn, then a gentler `stream` stretch (a shallow valley with a stream, or lava, winding down
 ## it) where the villages and landmarks have room:
 ## - `gorge` / `canyon`: a winding canyon along the course, terraced walls, a river (water, or lava
-##   in the cinders) on its floor, ending in a horseshoe head with a waterfall (sand or lava fall).
+##   in the cinders) on its floor, ending in a horseshoe head with a waterfall (or a lava fall); the desert's canyon is a dry wadi.
 ## - `rift`: a chasm across the course, waterfalls pouring down its far wall.
 ## - `cliffs` / `shelf`: the sea (or lava) drops far below the land, so every shore is a cliff.
 ## - `mesas`: the desert floor sinks and leaves flat-topped buttes standing.
@@ -145,6 +145,30 @@ static func crater_c(n: int) -> Vector2:
 	return Vector2((h1(n, 4.0) - 0.5) * 8.0, START - n * SEG - SEG * 0.5)
 
 
+## Each world's town (Towns) stands on top of one of its set pieces (Guillaume, 2026-11-24: "on top of
+## the existing evolutions, like cliffs in glass coast"): a headland above the sea cliffs, a great
+## mesa above the sunken desert, an ice shelf above the cold sea, a basalt plateau above the lava.
+const TOWN_HOST := {"coast": "cliffs", "dunes": "mesas", "ice": "shelf", "volcano": "cliffs"}
+
+
+static func has_town(n: int) -> bool:
+	return n >= 0 and kind_of(n) == TOWN_HOST.get(Models.theme, "")
+
+
+## True inside a town's wall and just round it, where the land's own props keep out.
+static func in_town(x: float, z: float) -> bool:
+	var n := stretch_of(z)
+	if not has_town(n):
+		return false
+	var c := town_c(n)
+	return maxf(absf(x - c.x), absf(z - c.y)) < Towns.WALL + 6.0
+
+
+## Where stretch n's town stands (its square's centre).
+static func town_c(n: int) -> Vector2:
+	return Vector2((h1(n, 20.0) - 0.5) * 4.0, START - n * SEG - SEG * 0.52)
+
+
 const CRATER_R := 15.0
 const CRATER_FLOOR := 5.0
 
@@ -152,9 +176,112 @@ const CRATER_FLOOR := 5.0
 ## The ground at (x, z) for the noise value h: Vector4(y, h for colours and props, liquid, flow).
 ## liquid: 0 dry, 1 water, 2 lava. flow: 0 still, 1 along +z, 2 along +x.
 static func at(x: float, z: float, h: float) -> Vector4:
+	var v := shape(x, z, h)
+	var n := stretch_of(z)
+	if not has_town(n):
+		return v
+	# the town's plateau: level, its edge a cliff down to the set piece round it, and a causeway
+	# carrying the avenue down to the land where it leaves the gate
+	var c := town_c(n)
+	var o := Vector2(x - c.x, z - c.y)
+	var d := maxf(absf(o.x), absf(o.y)) * 0.8 + o.length() * 0.2 + wob(x, z) * 0.6
+	var w := smoothstep(Towns.FLAT + 2.5, Towns.FLAT, d)
+	if absf(o.x) < Towns.AVENUE + 1.2 + wob(x, z) * 0.3 and o.y > 0.0:
+		w = maxf(w, smoothstep(Towns.AVENUE_TO + 8.0, Towns.AVENUE_TO, o.y))
+	w *= ease_in_out(local(z, n), 20.0)
+	if w <= 0.0:
+		return v
+	var hc: float = Towns.GROUND_H[Models.theme]
+	return Vector4(lerpf(v.x, Towns.GROUND_Y, w), lerpf(v.y, hc, w) if w < 0.99 else hc, v.z if w < 0.5 else 0.0, v.w if w < 0.5 else 0.0)
+
+
+## The set piece's own shape at (x, z), before any town on it: the stretch's set piece, with the
+## crags carved into Glass Coast's rocky heights wherever the land is still at its plain.
+static func shape(x: float, z: float, h: float) -> Vector4:
+	var v := piece(x, z, h)
+	if Models.theme != "coast" or h < CRAG_FROM or v.z > 0.0:
+		return v
+	var w := 1.0 - smoothstep(0.05, 0.6, absf(v.x - base_y(h)))
+	if w <= 0.0:
+		return v
+	var c := crag(x, z, h)
+	var wet := 1.0 if c.y > 0.0 and w > 0.95 else 0.0
+	return Vector4(v.x + c.x * w, v.y, wet, 0.0)
+
+
+## The plain the set pieces start from, crags and all: what the land is at a stretch's ends.
+static func plain(x: float, z: float, h: float) -> float:
+	if Models.theme != "coast" or h < CRAG_FROM:
+		return base_y(h)
+	return base_y(h) + crag(x, z, h).x
+
+
+# ---------------------------------------------------------------- Glass Coast's crags
+## Guillaume, 2026-11-24: "in the glass coast there are rocky areas that are still bland". Where
+## the land turns to bare rock it breaks into crags: blocks of rock (cells of a jittered grid)
+## standing at different heights with ledged faces, deep gullies along the joints between
+## them, and now and then a block hollowed into a tarn. All of it cut down into the land, never
+## up towards the ship.
+const CRAG_FROM := 0.47
+const CRAG_CELL := 11.0
+const CRAG_GULLY := 3.4
+const TARN_Y := -1.1
+
+
+## (how far the crags lower the ground there, 1 in a tarn's water else 0)
+static func crag(x: float, z: float, h: float) -> Vector2:
+	var k := smoothstep(CRAG_FROM, CRAG_FROM + 0.09, h)
+	if k <= 0.0:
+		return Vector2.ZERO
+	var g := CRAG_CELL
+	var q := Vector2(x, z) / g
+	var cx := floori(q.x)
+	var cz := floori(q.y)
+	var f1 := INF
+	var f2 := INF
+	var own := Vector2i.ZERO
+	for i in range(-1, 2):
+		for j in range(-1, 2):
+			var gx := cx + i
+			var gz := cz + j
+			var p := Vector2(gx + 0.15 + 0.7 * Models.hash2(gx * 1.9, gz * 0.7), gz + 0.15 + 0.7 * Models.hash2(gz * 2.3, gx * 1.1)) * g
+			var d := p.distance_to(Vector2(x, z))
+			if d < f1:
+				f2 = f1
+				f1 = d
+				own = Vector2i(gx, gz)
+			elif d < f2:
+				f2 = d
+	var edge := (f2 - f1) * 0.5 + wob(x, z) * 0.35
+	var r := Models.hash2(own.x * 3.7 + 0.5, own.y * 1.3 - 0.5)
+	# each block's top sits on its own ledge, stepped down from the heights
+	var top := -floorf(r * 4.0) * 0.4
+	# the joints between blocks are gullies, steep-sided with a narrow floor
+	var gully := (1.0 - smoothstep(0.5, 2.6, edge)) * CRAG_GULLY
+	# the block's own face is a ledge or two down to the gully
+	var y := top - gully - (1.0 - smoothstep(1.4, 2.6, edge)) * 0.5
+	var wet := 0.0
+	if r > 0.88 and f1 < 6.0:
+		# a tarn: still water in a hollow of the block, a rim of rock round it
+		var bowl := 1.0 - smoothstep(2.6, 4.2, f1 + wob(x, z) * 0.6)
+		var floor_y := TARN_Y - base_y(h)
+		y = minf(y, lerpf(top, floor_y, bowl))
+		wet = 1.0 if bowl >= 1.0 else 0.0
+	return Vector2(y * k, wet if k >= 1.0 else 0.0)
+
+
+## The set piece's own shape at (x, z), before the crags: its cut, and the pools feeding its falls.
+static func piece(x: float, z: float, h: float) -> Vector4:
+	return fed(x, z, cut(x, z, h))
+
+
+## The set piece's cut into the land at (x, z).
+static func cut(x: float, z: float, h: float) -> Vector4:
 	var n := stretch_of(z)
 	var kind := kind_of(n)
-	var lava := 2.0 if Models.theme == "volcano" else 1.0
+	# what runs on a floor: lava in the cinders, water, and nothing in the desert (Guillaume,
+	# 2026-11-24: "no waterfall in the sandy dunes, it's a desert after all"): dry wadis there
+	var lava := 2.0 if Models.theme == "volcano" else (0.0 if Models.theme == "dunes" else 1.0)
 	if kind == "open":
 		return Vector4(base_y(h), h, lava if (h < 0.0 and lava == 2.0) else 0.0, 0.0)
 	var zl := local(z, n)
@@ -284,6 +411,111 @@ static func firm(noise: FastNoiseLite, x: float, z: float) -> bool:
 
 
 # ---------------------------------------------------------------- set pieces that move
+## Stretch n's falls: [lip, foot, width] each (lip and foot on the ground plan, y 0). The foot lies
+## well inside the floor's river, whatever the wobble of the walls, so it lands on the water.
+static func fall_lines(n: int) -> Array:
+	var z0 := START - n * SEG
+	match kind_of(n):
+		"gorge", "canyon":
+			if Models.theme in ["ice", "dunes"]:
+				return []
+			var dims := canyon_dims()
+			var hz := z0 - HEAD
+			var cx := canyon_x(hz, n)
+			return [[Vector3(cx, 0, hz - dims.x - 1.5), Vector3(cx, 0, hz - dims.y + 1.5), FALL_W]]
+		"rift":
+			var out := []
+			for k in 2:
+				var xx := (-5.0 if k == 0 else 4.5) + (h1(n, k + 7.0) - 0.5) * 3.0
+				var rz := rift_z(xx, n)
+				out.append([Vector3(xx, 0, rz - 8.5), Vector3(xx, 0, rz - 0.4), FALL_W])
+			return out
+	return []
+
+
+## True on and round a fall's course and the pool and stream feeding it, where no rock or tree
+## may stand in the water.
+static func near_fall(x: float, z: float) -> bool:
+	var n := stretch_of(z)
+	if n < 0:
+		return false
+	var q := Vector2(x, z)
+	for line: Array in fall_lines(n):
+		var a: Vector3 = line[0]
+		var b: Vector3 = line[1]
+		var p := Geometry2D.get_closest_point_to_segment(q, Vector2(a.x, a.z), Vector2(b.x, b.z))
+		if p.distance_to(q) < line[2] * 0.5 + 4.5:
+			return true
+		var src := pool_c(a)
+		p = Geometry2D.get_closest_point_to_segment(q, src, Vector2(a.x, a.z))
+		if p.distance_to(q) < FEED_W + 3.5 or src.distance_to(q) < POOL_R + 4.0:
+			return true
+	return false
+
+
+# ---------------------------------------------------------------- where the falls come from
+## Guillaume, 2026-11-25: "there should not be any waterfall without a water body where it can
+## come from". Every fall is fed: a pool (a lake, or a lava pool in the cinders) lies on the land
+## behind its lip, and a stream runs from it over the lip, cut into the rim so the fall starts at
+## the water's own level.
+const POOL_R := 5.5
+## How far behind the lip the pool's centre lies.
+const POOL_BACK := 11.0
+## The stream's half width on its flat bed: the fall's curtain is just as wide, so the stream pours
+## over the lip whole.
+const FEED_W := 1.6
+const FALL_W := FEED_W * 2.0
+## The flat, dry bank either side of the stream, at the water's level.
+const BANK := 0.8
+## The water's level in the pool and stream, below the plain.
+const FEED_Y := -0.5
+## How far past the lip the stream's notch runs into the wall.
+const FEED_ON := 4.0
+
+
+static func pool_c(lip: Vector3) -> Vector2:
+	return Vector2(lip.x + 1.5 * signf(lip.x + 0.01), lip.z - POOL_BACK)
+
+
+## The ground v at (x, z) with the pools and streams feeding stretch n's falls cut into it.
+static func fed(x: float, z: float, v: Vector4) -> Vector4:
+	var n := stretch_of(z)
+	if n < 0 or not kind_of(n) in ["gorge", "canyon", "rift"]:
+		return v
+	var lines := fall_lines(n)
+	if lines.is_empty():
+		return v
+	var q := Vector2(x, z)
+	var wb := wob(x, z)
+	# 0 on the dry land round them, 1 on their flat bed
+	var f := 0.0
+	var fs := 0.0
+	var fp := 0.0
+	for line: Array in lines:
+		var lip: Vector3 = line[0]
+		var foot: Vector3 = line[1]
+		var src := pool_c(lip)
+		var dl := Vector2(lip.x, lip.z)
+		var end := dl + (Vector2(foot.x, foot.z) - dl).normalized() * FEED_ON
+		var ds := Geometry2D.get_closest_point_to_segment(q, src, end).distance_to(q) + wb * 0.4
+		# the bed runs a cell wider than the water, so the coarse ground grid never shuts the
+		# stream's sheet (`pool_tris`) in its banks
+		fs = maxf(fs, clampf((FEED_W - ds) * 8.0 + 1.0, 0.0, 1.0))
+		f = maxf(f, clampf((FEED_W + BANK + 1.2 - ds) / 1.2, 0.0, 1.0))
+		var dp := src.distance_to(q) + wb * 1.4
+		fp = maxf(fp, clampf((POOL_R + 1.6 - dp) / 1.6, 0.0, 1.0))
+		f = maxf(f, fp)
+	if f <= 0.0:
+		return v
+	var y := lerpf(v.x, FEED_Y, smoothstep(0.0, 1.0, f))
+	if y >= v.x:
+		return v
+	var liq := 2.0 if Models.theme == "volcano" else 1.0
+	var wet := liq if (fs >= 1.0 or fp >= 1.0) else 0.0
+	# the stream runs towards the lip (+z); the pool lies still
+	return Vector4(y, maxf(v.y, 0.06), wet, 1.0 if wet > 0.0 and fs >= 1.0 else 0.0)
+
+
 ## The moving parts in [z_far, z_near): for each, a dictionary. "fall": a curtain draped down a
 ## wall (`path` of points, `w` wide, `lava`); "puffs": movers (see `MOVERS`) from `at`, `n` of
 ## them, heading `dir` (radians; downhill for an avalanche), `col`, size `r`, `burst` (phases
@@ -313,30 +545,33 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 			var dims := canyon_dims()
 			var hz := z0 - HEAD
 			var cx := canyon_x(hz, n)
-			if th == "ice":
-				# avalanches spill off both rims now and then
+			if th == "ice" or th == "dunes":
+				# avalanches (snow, or sand slides in the dry canyon) spill off both rims now and then
+				var col := Color8(0xf4, 0xfa, 0xff) if th == "ice" else Color8(0xe2, 0xbc, 0x84)
 				for k in 3:
 					var zz := z0 - 50.0 - k * 26.0
 					var side := 1.0 if k % 2 == 0 else -1.0
 					var xx := canyon_x(zz, n) + side * (dims.x + 0.5)
 					var top := Vector3(xx, y_at(noise, xx, zz) + 0.3, zz)
 					out.append({"t": "puffs", "m": "avalanche", "at": top, "n": 16, "dir": PI if side > 0 else 0.0,
-						"col": Color8(0xf4, 0xfa, 0xff), "r": 0.9, "phase": h1(n, k)})
-			else:
-				# the fall at the head, and spray (or steam) where it lands
-				var lip := Vector3(cx, 0, hz - dims.x - 1.5)
-				var foot := Vector3(cx, 0, hz - dims.y + 0.5)
-				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14), "w": 3.2,
-					"lava": lava, "sand": th == "dunes"})
-				var fy := y_at(noise, foot.x, foot.z) + 0.2
-				out.append({"t": "puffs", "m": "steam" if lava else "spray", "at": Vector3(foot.x, fy, foot.z + 1.0), "n": 10,
-					"dir": 0.0, "col": steam if lava else (Color8(0xe8, 0xd0, 0x9c) if th == "dunes" else foam), "r": 0.7, "phase": 0.0})
+						"col": col, "r": 0.9, "phase": h1(n, k)})
 				if th == "dunes":
-					# a dust devil wanders on the plain beside it
+					# a dust devil wanders on the plain beside the canyon
 					var dx := cx + (9.0 if cx < 0.0 else -9.0) + 7.0 * signf(cx + 0.01) * -1.0
 					var dz := z0 - 60.0
 					out.append({"t": "puffs", "m": "devil", "at": Vector3(dx, y_at(noise, dx, dz), dz), "n": 14, "dir": 0.0,
 						"col": Color8(0xf0, 0xc8, 0x84), "r": 0.6, "phase": 0.0})
+			else:
+				# the fall at the head, and spray (or steam) where it lands
+				var line: Array = fall_lines(n)[0]
+				var lip: Vector3 = line[0]
+				var foot: Vector3 = line[1]
+				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, FALL_W), "w": FALL_W, "lava": lava})
+				out.append(sheet(line, 0.9 - dims.z, Vector2(0, 1)))
+				var fy := y_at(noise, foot.x, foot.z) + 0.2
+				# steam rolls in big puffs; spray is a cloud of fine white drops, not stones
+				out.append({"t": "puffs", "m": "steam" if lava else "spray", "at": Vector3(foot.x, fy, foot.z + 1.0), "n": 16 if lava else 22,
+					"dir": 0.0, "col": steam if lava else foam, "r": 0.42 if lava else 0.26, "phase": 0.0})
 			if lava:
 				# lava bombs out of the river now and then
 				for k in 2:
@@ -346,14 +581,13 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 						"col": Color8(0xff, 0x9a, 0x2a), "r": 0.32, "phase": h1(n, k + 5.0)})
 		"rift":
 			# two falls pour down the far wall, spray at their feet
-			for k in 2:
-				var xx := (-5.0 if k == 0 else 4.5) + (h1(n, k + 7.0) - 0.5) * 3.0
-				var rz := rift_z(xx, n)
-				var lip := Vector3(xx, 0, rz - 8.5)
-				var foot := Vector3(xx, 0, rz - 1.4)
-				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14), "w": 2.6, "lava": false, "sand": false})
+			for line: Array in fall_lines(n):
+				var lip: Vector3 = line[0]
+				var foot: Vector3 = line[1]
+				out.append({"t": "fall", "at": foot, "path": drape(noise, lip, foot, 14, FALL_W), "w": FALL_W, "lava": false})
+				out.append(sheet(line, 0.9 - DEEP, Vector2(1, 0)))
 				out.append({"t": "puffs", "m": "spray", "at": Vector3(foot.x, y_at(noise, foot.x, foot.z) + 0.2, foot.z + 1.0),
-					"n": 10, "dir": 0.0, "col": foam, "r": 0.7, "phase": 0.0})
+					"n": 22, "dir": 0.0, "col": foam, "r": 0.26, "phase": 0.0})
 		"crater":
 			var c := crater_c(n)
 			var bot := 1.0 - DEEP
@@ -396,12 +630,91 @@ static func stretch_events(n: int, noise: FastNoiseLite) -> Array:
 	return out
 
 
-## Points down the ground from `a` to `b` (x, z), just over it, `k` steps.
-static func drape(noise: FastNoiseLite, a: Vector3, b: Vector3, k: int) -> PackedVector3Array:
+## The water a fall pours from and into, laid over the ground grid (which is too coarse to
+## draw a 3 m stream true): the pool behind the lip, the stream from it to the lip as wide as
+## the curtain, and a plunge pool where it lands on the floor (`floor_y`, the river there flowing
+## `flow`). The ground's own wet cells lie under these, so they only ever show the same water.
+## How far the sheets lie over the ground's own water (a hair over it would flicker).
+const SHEET_UP := 0.12
+
+
+static func sheet(line: Array, floor_y: float, flow: Vector2) -> Dictionary:
+	return {"t": "pool", "at": line[1], "lip": line[0], "foot": line[1], "floor": floor_y, "flow": flow}
+
+
+## Triangles of a pool/stream sheet (see `sheet`) into `dst` [vertices, flow].
+static func pool_tris(dst: Array, e: Dictionary) -> void:
+	var lip: Vector3 = e.lip
+	var foot: Vector3 = e.foot
+	var src := pool_c(lip)
+	var top := FEED_Y + SHEET_UP
+	# the pool lies a hair under its stream, so where they overlap the stream shows whole
+	disc(dst, Vector3(src.x, top - 0.03, src.y), POOL_R + 0.5, Vector2.ZERO)
+	# the stream: from the pool's edge to the lip, as wide as the curtain there
+	var b := Vector3(lip.x, top, lip.z)
+	var a := Vector3(src.x, top, src.y)
+	a += (b - a).normalized() * (POOL_R - 0.5)
+	var side := Vector3(b.z - a.z, 0, -(b.x - a.x)).normalized() * (FEED_W + 0.15)
+	var q := [a - side, a + side, b + side, b - side]
+	for t: Array in [[0, 2, 1], [0, 3, 2]]:
+		for k: int in t:
+			dst[0].append(q[k])
+			dst[1].append(Vector2(0, 1))
+	disc(dst, Vector3(foot.x, e.floor + SHEET_UP, foot.z + 0.6), FEED_W + 0.9, e.flow)
+
+
+static func disc(dst: Array, c: Vector3, r: float, flow: Vector2) -> void:
+	var k := 12
+	for i in k:
+		var a0 := TAU * i / k
+		var a1 := TAU * (i + 1) / k
+		for p: Vector3 in [c, c + Vector3(cos(a1), 0, sin(a1)) * r, c + Vector3(cos(a0), 0, sin(a0)) * r]:
+			dst[0].append(p)
+			dst[1].append(flow)
+
+
+## A fall's path from `a` down to `b` (x, z), `k` steps: it pours over the rock's outline (the
+## upper hull of the ground under the whole curtain, `w` wide), so it never runs into a ledge,
+## and leaps clear of the steps on its way down.
+static func drape(noise: FastNoiseLite, a: Vector3, b: Vector3, k: int, w := 3.2) -> PackedVector3Array:
+	var dir := Vector2(b.x - a.x, b.z - a.z)
+	var len := dir.length()
+	var side := Vector2(-dir.y, dir.x).normalized() * w * 0.55
+	var dense := maxi(k * 6, int(len / 0.25))
+	var prof := PackedVector2Array()
+	for i in dense + 1:
+		var t := float(i) / dense
+		var c := Vector2(a.x, a.z).lerp(Vector2(b.x, b.z), t)
+		var y := -INF
+		for s in [-1.0, -0.5, 0.0, 0.5, 1.0]:
+			var q: Vector2 = c + side * s
+			y = maxf(y, y_at(noise, q.x, q.y))
+		prof.append(Vector2(t * len, y))
+	# the upper hull, lip to foot
+	var hull := PackedVector2Array()
+	for p in prof:
+		while hull.size() >= 2:
+			var o := hull[hull.size() - 2]
+			var m := hull[hull.size() - 1]
+			if (m.x - o.x) * (p.y - o.y) - (m.y - o.y) * (p.x - o.x) >= 0.0:
+				hull.remove_at(hull.size() - 1)
+			else:
+				break
+		hull.append(p)
 	var out := PackedVector3Array()
+	var j := 0
+	var top := hull[0].y
 	for i in k + 1:
+		var d := len * float(i) / k
+		while j < hull.size() - 2 and hull[j + 1].x < d:
+			j += 1
+		var h0 := hull[j]
+		var h1 := hull[j + 1]
+		var y := lerpf(h0.y, h1.y, clampf((d - h0.x) / maxf(h1.x - h0.x, 0.001), 0.0, 1.0))
 		var p := a.lerp(b, float(i) / k)
-		p.y = y_at(noise, p.x, p.z) + 0.25
+		# it leaves the lip at the stream's own level and lands on the water below; in between
+		# it leaps clear of the rock
+		p.y = y + (SHEET_UP if i == k else lerpf(SHEET_UP, 0.3, smoothstep(0.0, 0.8, top - y)))
 		out.append(p)
 	return out
 
@@ -413,7 +726,7 @@ const MOVERS := {
 	"fountain": {"period": 1.0, "duty": 1.0, "grav": 16.0, "up": 7.5, "out": 1.2, "burst": false, "glow": true, "grow": 0.0},
 	"smoke": {"period": 6.0, "duty": 1.0, "grav": -0.1, "up": 1.8, "out": 0.5, "burst": false, "glow": false, "grow": 1.0},
 	"steam": {"period": 3.0, "duty": 1.0, "grav": 0.0, "up": 1.6, "out": 0.6, "burst": false, "glow": false, "grow": 1.4},
-	"spray": {"period": 1.6, "duty": 1.0, "grav": 2.5, "up": 2.4, "out": 1.2, "burst": false, "glow": false, "grow": 0.8},
+	"spray": {"period": 1.2, "duty": 1.0, "grav": 4.0, "up": 2.8, "out": 1.8, "burst": false, "glow": true, "grow": 0.3},
 	"geyser": {"period": 6.0, "duty": 0.4, "grav": 11.0, "up": 10.0, "out": 0.5, "burst": true, "glow": false, "grow": 0.9},
 	"avalanche": {"period": 9.0, "duty": 0.45, "grav": 0.0, "up": -2.6, "out": 1.8, "burst": true, "glow": false, "grow": 1.6},
 	"devil": {"period": 2.6, "duty": 1.0, "grav": 0.0, "up": 1.5, "out": 0.0, "burst": false, "glow": false, "grow": 0.5, "spin": 4.0},
@@ -426,18 +739,22 @@ const TOP_Y := 5.2
 ## The chunk's moving set pieces and liquid surfaces as one mesh (a surface per material), or null.
 static func fx_mesh(noise: FastNoiseLite) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
-	if not liquid.is_empty():
+	var wet := [liquid.duplicate(), liquid_flow.duplicate()]
+	for e: Dictionary in fx:
+		if e.t == "pool":
+			pool_tris(wet, e)
+	if not wet[0].is_empty():
 		var arr := []
 		arr.resize(Mesh.ARRAY_MAX)
-		arr[Mesh.ARRAY_VERTEX] = liquid
-		arr[Mesh.ARRAY_TEX_UV] = liquid_flow
+		arr[Mesh.ARRAY_VERTEX] = wet[0]
+		arr[Mesh.ARRAY_TEX_UV] = wet[1]
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 		mesh.surface_set_material(0, lava_mat() if Models.theme == "volcano" else water_mat())
 	var falls := {}
 	var movers := {}
 	for e: Dictionary in fx:
 		if e.t == "fall":
-			var key := "lava" if e.lava else ("sand" if e.sand else "water")
+			var key := "lava" if e.lava else "water"
 			if not falls.has(key):
 				falls[key] = [PackedVector3Array(), PackedVector2Array()]
 			curtain(falls[key], e.path, e.w)
@@ -598,8 +915,8 @@ void fragment() {
 
 ## A fall: bands rushing down (UV.y is metres down), fraying at the sides.
 static func fall_mat(key: String) -> ShaderMaterial:
-	var a: String = {"water": "vec3(0.55, 0.80, 0.92)", "lava": "vec3(1.0, 0.36, 0.05)", "sand": "vec3(0.80, 0.62, 0.38)"}[key]
-	var b: String = {"water": "vec3(0.95, 0.99, 1.0)", "lava": "vec3(1.0, 0.86, 0.3)", "sand": "vec3(0.95, 0.84, 0.62)"}[key]
+	var a: String = {"water": "vec3(0.55, 0.80, 0.92)", "lava": "vec3(1.0, 0.36, 0.05)"}[key]
+	var b: String = {"water": "vec3(0.95, 0.99, 1.0)", "lava": "vec3(1.0, 0.86, 0.3)"}[key]
 	return shader_mat("fall" + key, """
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled;

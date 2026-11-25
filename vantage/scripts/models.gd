@@ -51,7 +51,17 @@ render_mode cull_back;
 uniform float sea_y = -0.4;
 uniform float water = 1.0;
 uniform float lava = 0.0;
+// a small tiling noise (`ground_noise`): detail and cloud shadows read it, a few lookups a pixel
+uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
+uniform float detail = 0.3;
+// bare rock (sRGB): steep faces turn to it over a narrow band, so a cliff's rim reads crisp
+uniform vec3 rock_c : source_color = vec3(0.6, 0.58, 0.53);
+uniform float clouds = 0.2;
+uniform vec2 wind = vec2(0.6, -1.1);
 uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
+// the land's baked sun shadow (UV2.x: how deep in it the vertex lies, 0 to 1, see
+// Models.sun_shade, blended softly across each cell) and its colour (sRGB)
+uniform vec3 shade_k = vec3(0.36, 0.37, 0.53);
 varying vec3 wpos;
 varying float flat_up;
 
@@ -70,7 +80,21 @@ void vertex() {
 
 void fragment() {
 	vec3 col = COLOR.rgb;
-	float rock = 1.0 - COLOR.a;
+	float rock = smoothstep(0.3, 0.55, 1.0 - COLOR.a);
+	vec3 rc = rock_c * (1.0 - clamp(-wpos.y * 0.025, 0.0, 0.25));
+	rc *= wpos.y < -0.6 ? 1.0 - clamp(-wpos.y * 0.03, 0.0, 0.3) : 1.0;
+	col = mix(col, rc, rock);
+	float sh = clamp(UV2.x, 0.0, 1.0);
+	vec3 k = OUTPUT_IS_SRGB ? shade_k : to_linear(shade_k);
+	col *= mix(vec3(1.0), k, sh);
+	// detail: broad patches and a finer mottle, both faint, so wide flats aren't one smooth wash
+	// (low contrast on purpose: foes and shots must stay the brightest, sharpest things on screen)
+	float dn = texture(noise_tex, wpos.xz * 0.012).r * 0.5 + texture(noise_tex, wpos.xz * 0.07 + 0.37).r * 0.5;
+	col *= 1.0 + (dn - 0.5) * detail;
+	// soft cloud shadows drifting over the land with the wind
+	vec2 cp = wpos.xz * 0.009 + wind * TIME * 0.006;
+	float cl = texture(noise_tex, cp).r * 0.65 + texture(noise_tex, cp * 2.3 + 0.5).r * 0.35;
+	col *= 1.0 - clouds * smoothstep(0.55, 0.75, cl);
 	if (rock > 0.01) {
 		float y = wpos.y + 0.35 * sin(wpos.x * 0.23 + wpos.z * 0.17) + 0.15 * sin(wpos.z * 0.61);
 		float band = fract(y * 0.62);
@@ -105,6 +129,10 @@ void fragment() {
 }
 """
 const SEA_Y := -0.4
+## How much the ground's mottle varies its colour, and how much a cloud's shadow darkens it: faint, so
+## foes and shots stay the sharpest things on screen.
+const GROUND_DETAIL := 0.3
+const CLOUD_SHADE := 0.2
 ## Each theme's liquid at the water line: water gloss and glints, or lava glow.
 const LIQUIDS := {"coast": [1.0, 0.0], "dunes": [0.0, 0.0], "city": [0.55, 0.0], "ice": [0.9, 0.0], "volcano": [0.0, 1.0]}
 
@@ -116,11 +144,36 @@ static func ground_mat() -> ShaderMaterial:
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		m.set_shader_parameter("sea_y", SEA_Y)
+		m.set_shader_parameter("noise_tex", ground_noise())
+		m.set_shader_parameter("detail", GROUND_DETAIL)
+		m.set_shader_parameter("clouds", CLOUD_SHADE)
+		m.set_shader_parameter("shade_k", Vector3((1.0 - SHADE) * 0.94, (1.0 - SHADE) * 0.97, 1.0 - SHADE * 0.75))
 		_cache["ground"] = m
 	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
 	_cache["ground"].set_shader_parameter("water", lq[0])
 	_cache["ground"].set_shader_parameter("lava", lq[1])
+	_cache["ground"].set_shader_parameter("rock_c", rock_col(0.0))
 	return _cache["ground"]
+
+
+## The ground's tiling noise: 128 px, seamless, values spread over 0..1. One fetch is far cheaper
+## on a phone than hashing value noise in the shader.
+static func ground_noise() -> NoiseTexture2D:
+	if not _cache.has("ground_noise"):
+		var n := FastNoiseLite.new()
+		n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		n.frequency = 0.04
+		n.fractal_octaves = 2
+		n.seed = 7
+		var t := NoiseTexture2D.new()
+		t.width = 128
+		t.height = 128
+		t.seamless = true
+		t.normalize = true
+		t.generate_mipmaps = true
+		t.noise = n
+		_cache["ground_noise"] = t
+	return _cache["ground_noise"]
 
 
 ## A glowing unshaded material (shots, lights, engines).
@@ -490,9 +543,22 @@ class Builder:
 			st.add_vertex(q)
 		n += idx.size()
 
+	## When set (`Callable` Color -> Color), every colour goes through it at commit: the city's
+	## calming (`City.calm`).
+	var tone := Callable()
+
 	func commit() -> ArrayMesh:
 		st.generate_normals()
-		return st.commit()
+		if not tone.is_valid():
+			return st.commit()
+		var arr := st.commit_to_arrays()
+		var cols: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		for i in cols.size():
+			cols[i] = tone.call(cols[i])
+		arr[Mesh.ARRAY_COLOR] = cols
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		return m
 
 
 ## Baked ambient occlusion for a model (ships, foes, bosses, landmarks): the mesh is dropped into
@@ -1292,6 +1358,9 @@ static func airfoil(b: Builder, root: Vector3, span: Vector3, c0: float, c1: flo
 ## The terrain theme of the current world (`Campaign.WORLDS`): "coast", "dunes", "city", "ice"
 ## or "volcano". `ground_chunk` colours the land and picks its props by it.
 static var theme := "coast"
+## Where the sun throws a shadow: a point h above the ground shades the ground h * sun_slide
+## away (x, z). Game sets it from its sun; this is the same sun's.
+static var sun_slide := Vector2(0.4016, -0.5736)
 
 ## Each theme's sky (top, middle, horizon, below), fog, ambient light and sun.
 const THEMES := {
@@ -1378,6 +1447,46 @@ static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32
 	return cols
 
 
+## How deep in the land's own shadow the ground at p lies, 0 (in the sun) to 1: the ground
+## between p and the sun stands above the sun's ray through p.
+const SUN_STEPS := [0.7, 1.4, 2.1, 2.9, 3.7, 4.6, 5.6, 6.6, 7.6]
+## How dark the land's shadow is (and a little cooler: lit by the sky, not the sun), and the
+## margin (m) over which it deepens from lit to fully shaded. Soft (Guillaume, 2026-11-25: "go
+## back to soft shadows", after trying crisp edges drawn per pixel).
+const SHADE := 0.55
+const SHADE_SOFT := 0.45
+## The highest the land rises (the plain's top, `Relief.base_y`).
+const LAND_TOP := 1.3
+
+
+static func sun_shade(ground_h: Callable, p: Vector3) -> float:
+	var m := sun_margin(ground_h, p)
+	return smoothstep(0.0, SHADE_SOFT, m)
+
+
+## How far (m) the ground toward the sun stands above the sun's ray through p: above 0 in
+## shadow.
+static func sun_margin(ground_h: Callable, p: Vector3) -> float:
+	var l := sun_slide.length()
+	if l < 0.01:
+		return -1.0
+	var to_sun := -sun_slide / l
+	var worst := -1.0
+	for s: float in SUN_STEPS:
+		# the land never rises past LAND_TOP, so past where the ray clears it nothing can shade p
+		# (and most of the land, near the plain, is never tested at all)
+		if p.y + s / l > LAND_TOP + 0.05:
+			break
+		var q := Vector2(p.x, p.z) + to_sun * s
+		var above: float = float(ground_h.call(q.x, q.y)) - (p.y + s / l)
+		worst = maxf(worst, above)
+	return clampf(worst, -1.0, 3.0)
+
+
+## How much wider than the core strip the city is built (half on each side).
+const CITY_MORE := 24.0
+
+
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float, flank := 0.0) -> Mesh:
 	var b := Builder.new()
 	b.bottoms = false
@@ -1444,9 +1553,25 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		ns.append(nr)
 	# vertex colours, darkened in hollows (cheap baked occlusion) and in the depths; steep faces
 	# are bare rock, flagged in alpha for the ground shader's strata
+	# the sun-shadow test samples the ground many times a vertex: inside the chunk it reads the
+	# heights already worked out for the grid (bilinear between its nodes), and only asks
+	# Relief past the chunk's edge (it costs ~half the chunk's build time otherwise)
+	var grid_h := func(x: float, z: float) -> float:
+		var fj := (z0 - z) / cz_
+		var ii := xs.bsearch(x) - 1
+		if fj < 0.0 or fj >= nz or ii < 0 or ii >= nx:
+			return ground_h.call(x, z)
+		var jj := int(fj)
+		var tj := fj - jj
+		var ti := (x - xs[ii]) / (xs[ii + 1] - xs[ii])
+		var a0 := lerpf(vs[ii][jj].y, vs[ii + 1][jj].y, ti)
+		var a1 := lerpf(vs[ii][jj + 1].y, vs[ii + 1][jj + 1].y, ti)
+		return lerpf(a0, a1, tj)
 	var cs := []
+	var ms := []
 	for i in nx + 1:
 		var cr := []
+		var mr := []
 		for j in nz + 1:
 			var h: float = hs[i][j]
 			var c := ground_col(h)
@@ -1464,20 +1589,26 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				c = c.darkened(hollow)
 				var steep := smoothstep(0.16, 0.42, 1.0 - (ns[i][j] as Vector3).y)
 				if steep > 0.0:
-					c = c.lerp(rock_col(y), steep)
+					# the rock itself is laid by the ground shader (`rock_c`), with a crisp edge
 					c.a = 1.0 - steep
 				if y < -0.6:
 					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
 			cr.append(c)
+			# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
+			# them (Guillaume, 2026-11-24: "bake shadows"; soft, 2026-11-25); the shader darkens by it
+			mr.append(sun_shade(grid_h, vs[i][j]) if shaped else 0.0)
 		cs.append(cr)
+		ms.append(mr)
 	var gv := PackedVector3Array()
 	var gn := PackedVector3Array()
 	var gc := PackedColorArray()
+	var gm := PackedVector2Array()
 	for i in nx:
 		for j in nz:
 			var q := [vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]]
 			var qn := [ns[i][j], ns[i + 1][j], ns[i + 1][j + 1], ns[i][j + 1]]
 			var qc := [cs[i][j], cs[i + 1][j], cs[i + 1][j + 1], cs[i][j + 1]]
+			var qm := [ms[i][j], ms[i + 1][j], ms[i + 1][j + 1], ms[i][j + 1]]
 			# split along the shorter diagonal of heights so ridges read as ridges
 			var flip: bool = absf(q[0].y - q[2].y) > absf(q[1].y - q[3].y)
 			var order := [[0, 1, 3], [1, 2, 3]] if flip else [[0, 1, 2], [0, 2, 3]]
@@ -1495,6 +1626,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					gv.append(q[k])
 					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
 					gc.append(qc[k])
+					gm.append(Vector2(qm[k], 0.0))
 			# rivers, lakes and lava: a moving surface over the ground (Relief.fx_mesh)
 			var wq := [wet[i][j], wet[i + 1][j], wet[i + 1][j + 1], wet[i][j + 1]]
 			var nwet := 0
@@ -1520,6 +1652,8 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			sea_y = cy
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
+			if shaped and (Relief.in_town(cen.x, cen.z) or Relief.near_fall(cen.x, cen.z)):
+				continue
 			if theme != "coast":
 				# the other worlds' land (Glass Coast's scenery is scatter's)
 				b.xf = Transform3D.IDENTITY
@@ -1527,15 +1661,23 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				continue
 			scatter(b, hs4, cen, cy)
 	if shaped:
+		Towns.build(b, z0, z0 - size.y)
 		Relief.fx = Relief.events(z0, z0 - size.y, noise)
 		for ev: Dictionary in Relief.fx:
 			if ev.t == "rock":
 				meteorite(b, ev.at)
 	if theme == "city":
-		var roads := City.build(b, z0, size, hgt, height)
+		# the city runs on past the core strip, so from the chase its blocks don't stop short
+		var roads := City.build(b, z0, Vector2(size.x + CITY_MORE, size.y), hgt, height)
 		gv.append_array(PackedVector3Array(roads[0]))
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
+		gm.resize(gv.size())
+		# a calm, low-contrast backdrop, so foes and bullets stand out (Guillaume, 2026-11-24: "the
+		# city landscape is too messy... not very easy to see the enemies")
+		b.tone = City.calm
+		for i in gc.size():
+			gc[i] = City.calm(gc[i])
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
@@ -1543,6 +1685,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	arr[Mesh.ARRAY_VERTEX] = gv
 	arr[Mesh.ARRAY_NORMAL] = gn
 	arr[Mesh.ARRAY_COLOR] = gc
+	arr[Mesh.ARRAY_TEX_UV2] = gm
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
 
@@ -1554,7 +1697,7 @@ static var ao_mesh: Mesh
 ## Baked contact occlusion: a soft dark disc on the ground under each placed prop, as wide as
 ## what stands on it and darker the taller it is, following the ground's height (`ground_h`).
 ## One see-through mesh a chunk, drawn with `ao_mat`.
-static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
+static func ao_blobs(spots: Array, ground_h: Callable, cast := true) -> Mesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := 0
@@ -1564,17 +1707,25 @@ static func ao_blobs(spots: Array, ground_h: Callable) -> Mesh:
 		var base: Vector3 = sp[0]
 		var c := (lo + hi) * 0.5
 		var r := maxf(hi.x - lo.x, hi.y - lo.y) * 0.5 * AO_SPREAD + 0.3
-		var a := clampf(0.2 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		var a := clampf(0.3 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		# baked cast shadow: the disc stretches away from the sun as far as the prop is tall
+		var lean: Vector2 = sun_slide * float(sp[1]) * CAST if cast else Vector2.ZERO
+		var u := lean.normalized() if lean.length() > 0.01 else Vector2(1, 0)
+		var w := Vector2(-u.y, u.x)
+		var ru := r + lean.length() * 0.5
+		c += lean * 0.5
 		var on_ground := func(x: float, z: float) -> Vector3:
 			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
-		# a soft falloff: an inner ring at 55% of the radius still holds 60% of the shade
+		# a soft falloff (Guillaume, 2026-11-25: "go back to soft shadows"): an inner ring at INNER
+		# of the radius still holds 60% of the shade
 		var mid: Vector3 = on_ground.call(c.x, c.y)
 		var inner := []
 		var ring := []
 		for k in AO_SEG:
 			var ang := TAU * k / AO_SEG
-			inner.append(on_ground.call(c.x + cos(ang) * r * 0.55, c.y + sin(ang) * r * 0.55))
-			ring.append(on_ground.call(c.x + cos(ang) * r, c.y + sin(ang) * r))
+			var o := u * cos(ang) * ru + w * sin(ang) * r
+			inner.append(on_ground.call(c.x + o.x * INNER, c.y + o.y * INNER))
+			ring.append(on_ground.call(c.x + o.x, c.y + o.y))
 		var dark := Color(0, 0, 0, a)
 		var half := Color(0, 0, 0, a * 0.6)
 		var clear := Color(0, 0, 0, 0)
@@ -1599,7 +1750,7 @@ static func contact(key: String, m: Mesh) -> Mesh:
 		var bx := m.get_aabb()
 		var lo := Vector2(bx.position.x, bx.position.z)
 		var hi := lo + Vector2(bx.size.x, bx.size.z)
-		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0))
+		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0, false))
 
 
 const AO_SEG := 10
@@ -1607,7 +1758,11 @@ const AO_SEG := 10
 ## off the ground (above the low poly ground's facets).
 const AO_SPREAD := 1.35
 const AO_DARK := 0.42
+## Where a contact shadow starts fading, as a share of its radius.
+const INNER := 0.55
 const AO_LIFT := 0.1
+## How far a prop's baked shadow reaches along the sun, as a share of its full sun shadow.
+const CAST := 1.6
 
 
 ## The contact shadows' material: black, see-through by vertex alpha, fogged like the ground.
@@ -1771,12 +1926,12 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
 			mark("lighthouse", Vector3(cen.x, sea_y, cen.z), ang, r2)
-		elif r < 0.05:
-			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.32 + r * 6.0, r2, true)
+		elif r < 0.016:
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.8 + r * 30.0, r2, true)
 	elif hi < 0.0:
 		# at sea: stacks in the shallows, fishing boats further out
-		if avg > -0.14 and r < 0.012:
-			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.4 + r * 33.0, r2, true)
+		if avg > -0.14 and r < 0.008:
+			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.9 + r * 50.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
 			mark("boat", Vector3(cen.x, sea_y, cen.z), ang, r2)
 		elif avg < -0.22 and r < 0.0045:
@@ -1792,8 +1947,8 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 			place(b, at, ang)
 			b.box(Vector3(0, 0.04, 0), Vector3(1.1, 0.13, 0.13), DRIFT)
 			b.box(Vector3(0.25, 0.05, 0.16), Vector3(0.4, 0.09, 0.09), DRIFT.darkened(0.1))
-		elif r < 0.06:
-			rocks(b, at, 0.25 + (r - 0.045) * 12.0, r2, false)
+		elif r < 0.05:
+			rocks(b, at, 0.7 + (r - 0.045) * 60.0, r2, false)
 		elif r < 0.067:
 			parasol(b, at, ang, r2)
 		elif r < 0.12 and avg > 0.03:
@@ -1808,7 +1963,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
 		# one house per 8 x 8 lot at most, so the scaled-up houses and gardens don't overlap
 		var even := posmod(floori(cen.x * 0.5), 4) == 0 and posmod(floori(cen.z * 0.5), 4) == 0
-		var lot := 0.7 if village else 0.15
+		var lot := 0.7 if village else 0.03
 		if avg >= 0.11 and r < lot and even:
 			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
 			if house_kind(r2) == 1:
@@ -1828,11 +1983,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the woods, with a boulder among the pines
 		if r < 0.3:
 			conifer(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r)
-		elif r < 0.32:
-			rocks(b, at, 0.35, r2, false)
-	elif r < 0.08:
-		# bare rock on the heights
-		rocks(b, at, 0.45 + r, r2, false)
+		elif r < 0.306:
+			rocks(b, at, 0.8 + r2 * 0.4, r2, false)
+	elif r < 0.025:
+		# outcrops of bare rock on the heights
+		rocks(b, at, 1.0 + r * 16.0, r2, false)
 	b.xf = Transform3D.IDENTITY
 
 
@@ -1864,23 +2019,42 @@ static func bush(b: Builder, p: Vector3, r: float) -> void:
 
 
 ## One to three boulders round `p`, sized about `s`; `wet` ones are darker and ringed with surf.
-static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool) -> void:
+static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool, tint := Color(0, 0, 0, 0)) -> void:
+	# a natural outcrop (Guillaume, 2026-11-24: "big rocks, as big as the ship, with small ones on
+	# the sides"): one big faceted rock, a few smaller ones leaning on its sides, pebbles at its foot
 	count("sea rocks" if wet else "rocks")
 	place(b, p, r * TAU)
-	var n := 1 + int(r * 3.0)
+	var col := (STONE_WET if wet else STONE) if tint.a == 0.0 else tint
+	boulder(b, Vector3.ZERO, s, r, col)
+	var n := 3 + int(r * 4.0)
+	var reach := s
 	for k in n:
-		var sz := s * (1.0 - k * 0.3)
-		var off := Vector3(k * s * 0.85, 0, (k % 2) * s * 0.6 - s * 0.3)
-		var out := PackedVector2Array()
-		for a in 6:
-			var rr := sz * (0.75 + hash2(r * 31.0 + a, k * 7.0 + a * 3.0) * 0.5)
-			var an := TAU * a / 6.0 + r * 2.0
-			out.append(Vector2(cos(an), sin(an)) * rr)
-		var c := (STONE_WET if wet else STONE).darkened(hash2(r + k, s) * 0.15)
-		var tall := sz * (0.6 + hash2(k, r * 9.0) * 0.5) + (0.25 if wet else 0.0)
-		b.prism(off, out, -0.3, tall, c, Vector2(0.6, 0.56), Vector2(sz * 0.12, -sz * 0.08))
-		if wet:
-			b.prism(off, ngon(sz * 1.75, 8, r), -0.43, -0.37, FOAM)
+		var hk := hash2(r * 17.0 + k, k * 3.3)
+		var a := TAU * k / n + r * 5.0 + hk * 0.9
+		var sz := s * (0.22 + 0.3 * hash2(k * 1.7, r * 11.0))
+		var d := s * (0.78 + 0.3 * hk) + sz * 0.5
+		reach = maxf(reach, d + sz)
+		boulder(b, Vector3(cos(a), 0, sin(a)) * d, sz, r + k * 0.37, col.darkened(0.04 + hk * 0.1))
+	for k in 5:
+		var a := r * 9.0 + k * 1.3
+		var d := s * (1.25 + 0.4 * hash2(k, r))
+		b.octa(Vector3(cos(a) * d, -0.02, sin(a) * d), s * 0.07 + 0.03, col.darkened(0.12), Vector3(1.0, 0.6, 1.0))
+	if wet:
+		b.prism(Vector3.ZERO, ngon(reach * 1.15, 10, r), -0.43, -0.37, FOAM)
+
+
+## One rock: an irregular faceted body, a narrower cap catching the light, leaning a little.
+static func boulder(b: Builder, c: Vector3, s: float, seed: float, col: Color) -> void:
+	var out := PackedVector2Array()
+	for a in 7:
+		var rr := s * (0.7 + hash2(seed * 31.0 + a, a * 3.0 + seed) * 0.45)
+		var an := TAU * a / 7.0 + seed * 2.0
+		out.append(Vector2(cos(an), sin(an)) * rr)
+	var mid := s * (0.42 + 0.15 * hash2(seed, 5.0))
+	var lean := Vector2(hash2(seed, 7.0) - 0.5, hash2(seed, 9.0) - 0.5) * s * 0.25
+	b.prism(c, out, -0.3, mid, col.darkened(0.05), Vector2(0.9, 0.88), lean * 0.4)
+	b.prism(c + Vector3(lean.x * 0.4, 0, lean.y * 0.4), out, mid, mid + s * (0.32 + 0.2 * hash2(seed, 13.0)), col.lightened(0.06),
+		Vector2(0.45, 0.4), lean, col.darkened(0.12))
 
 
 ## A palm: a slender trunk that leans and curves, a crown of drooping fronds.
@@ -2042,58 +2216,59 @@ static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
 ## cacti, mesas and adobe in the dunes; blocks of buildings on a street grid in the city; pines,
 ## ice shards and floes on the shelf; obsidian spires and lava rocks in the cinder fields.
 static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float) -> void:
+	# things come in groups, not one by one (Guillaume, 2026-11-24: "elements scattered without
+	# real character"): groves, fields and outcrops live in some 12 m cells and not others; the
+	# landmarks and houses stand in the towns (Towns)
 	var r2 := hash2(cen.z * 0.9, cen.x * 2.1)
 	var at := Vector3(cen.x, cy, cen.z)
+	var grove := hash2(floorf(cen.x / 12.0) * 2.3 + 0.7, floorf(cen.z / 12.0) * 1.9 + 0.3)
 	match theme:
 		"dunes":
-			if avg >= 0.15 and avg < 0.6 and r < 0.0025:
-				mark("pyramid", at, snappedf(r2 * TAU, PI * 0.5), r2)
-			elif avg >= 0.8 and r < 0.035:
-				# boulders on the red rock (the land itself has the mesas now, see Relief)
+			if avg >= 0.72 and r < 0.02:
+				# outcrops of red rock on the heights
 				count("boulder")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), blob(0.35 + r * 2.0, 7, r2), 0, 0.3 + r2 * 0.3, Color8(0xb0, 0x5c, 0x3c), Vector2(0.6, 0.6))
-			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
+				rocks(b, at, 0.9 + r * 25.0, r2, false, Color8(0xb8, 0x62, 0x40))
+			elif avg >= 0.05 and avg < 0.6 and grove < 0.22 and r < 0.2:
 				count("cactus")
-				place(b, at, r2 * TAU)
-				var cg := Color8(0x5c, 0x8a, 0x4a)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, 1.4, cg, Vector2(0.85, 0.85))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r2 * TAU)
+				var cg := Color8(0x5c, 0x8a, 0x4a).darkened(r2 * 0.12)
+				var ht := 1.0 + r2 * 0.6
+				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, ht, cg, Vector2(0.85, 0.85))
 				b.prism(Vector3(0.36, 0.45, 0), ngon(0.15, 6), 0, 0.55, cg.darkened(0.06), Vector2(0.8, 0.8))
 				b.prism(Vector3(-0.32, 0.7, 0), ngon(0.13, 6), 0, 0.4, cg.darkened(0.06), Vector2(0.8, 0.8))
-			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.055:
-				count("adobe")
-				place(b, at, snappedf(r2 * TAU, PI * 0.5))
-				b.box(Vector3(0, 0.3, 0), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
-				b.box(Vector3(-0.2, 0.75, 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
+			elif avg >= 0.05 and avg < 0.6 and grove > 0.93 and r < 0.06:
+				rocks(b, at, 0.7 + r * 8.0, r2, false, Color8(0xd0, 0x9a, 0x62))
 		"city":
 			# the city itself is City.build's; the canals get the odd giant rubber duck
 			if avg < -0.05 and r < 0.012 and not City.on_road(cen.x, cen.z, 1.5):
 				mark("duck", Vector3(cen.x, sea_y, cen.z), r2 * TAU, r2)
 		"ice":
-			if avg >= 0.05 and avg < 0.28 and r < 0.004:
-				mark("snowman", at, r2 * TAU, r2)
-			elif avg >= 0.28 and avg < 0.5 and r < 0.25:
+			if avg >= 0.28 and avg < 0.5 and r < 0.25:
 				count("pine")
 				place(b, at, r * 6.0)
 				var tall := 1.3 + r2 * 0.6
 				var tc := Color8(0x2e, 0x50, 0x4c).darkened(r * 0.2)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.6, 6), 0, tall, tc, Vector2(0.05, 0.05))
 				b.prism(Vector3(0, tall * 0.55, 0), ngon(0.45, 6, 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
-			elif avg >= 0.72 and r < 0.08:
+			elif avg >= 0.6 and grove < 0.35 and r < 0.18:
+				# fields of ice shards, leaning together
 				count("ice shard")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), 0.4 + r2 * 0.5)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.25, 0.05))
+				b.prism(Vector3(0.45, -0.1, 0.3), ngon(0.28, 4, 0.4), 0, 0.6 + r * 2.0, Color8(0xc4, 0xe6, 0xf4), Vector2(0.1, 0.1), Vector2(0.15, 0.05))
 			elif avg < -0.05 and r < 0.025:
 				count("floe")
 				place(b, Vector3(cen.x, sea_y - 0.02, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
-			if avg >= 0.15 and avg < 0.6 and r < 0.004:
-				mark("stone head", at, r2 * TAU, r2)
-			elif avg >= 0.62 and r < 0.1:
+			if avg >= 0.55 and grove < 0.4 and r < 0.22:
+				# stands of basalt spires, a big one with smaller round it
 				count("spire")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				place(b, at + Vector3((r2 - 0.5), 0, 0), r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.2 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				b.prism(Vector3(0.6, -0.1, 0.25), ngon(0.3, 5, 0.5), 0, 0.5 + r * 3.0, Color8(0x30, 0x2a, 0x30), Vector2(0.2, 0.2))
+			elif avg >= 0.15 and avg < 0.55 and r < 0.012:
+				rocks(b, at, 0.9 + r * 30.0, r2, false, Color8(0x4a, 0x40, 0x42))
 			elif avg < -0.05 and r < 0.02:
 				# a raft of cooled crust drifting on the lava
 				count("lava rock")

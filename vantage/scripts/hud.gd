@@ -9,6 +9,8 @@ const DIM := Color(0.86, 0.92, 1.0, 0.7)
 const GOLD := Color8(0xff, 0xd2, 0x4a)
 const CY := Color8(0x5f, 0xe2, 0xff)
 const RED := Color8(0xff, 0x4d, 0x6d)
+## In-level power steps (the cores are the same cyan-white).
+const POWER := Color8(0x6a, 0xf4, 0xff)
 ## Below the title, tag line and version; the hangar panel and the ship stay under it.
 const HANGAR_TOP := 330.0
 ## Open sky kept between that and the hangar panel for the idling ship.
@@ -48,6 +50,7 @@ var res_body: Label
 var res_hint: Label
 var hurt_t := 0.0
 var scrap_t := 0.0
+var power_t := 0.0
 
 
 func _ready() -> void:
@@ -70,6 +73,8 @@ func _ready() -> void:
 	build_quit()
 	get_viewport().size_changed.connect(fit_hangar)
 	hangar_panel.resized.connect(fit_hangar)
+	# wrapped lines settle their height once the panel has its width: refit then
+	hangar_panel.minimum_size_changed.connect(fit_hangar)
 	fit_hangar()
 
 
@@ -199,6 +204,8 @@ func build_hangar() -> void:
 		pips.reparent(col)
 		var desc := label(20, DIM)
 		desc.text = u.desc
+		# wraps instead of widening the panel off the screen (tested in hangar_fits)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		desc.reparent(col)
 		var b := button("", GOLD, 26)
 		b.custom_minimum_size = Vector2(170, 72)
@@ -217,6 +224,7 @@ func build_hangar() -> void:
 	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_LEFT)
 	hangar_best.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hangar_best.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hangar_best.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hangar_best.reparent(foot)
 	reset_btn = Button.new()
 	reset_btn.flat = true
@@ -300,6 +308,9 @@ func build_campaign(v: VBoxContainer) -> void:
 		var b := button("", CY, 22)
 		b.custom_minimum_size = Vector2(150, 118)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# a long level name trims to "…" rather than pushing the panel off the screen
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.pressed.connect(func() -> void:
 			game.pick_level(int(game.level) / Campaign.PER_WORLD * Campaign.PER_WORLD + k)
 			game.sound.play("tap")
@@ -524,6 +535,10 @@ func ping_scrap() -> void:
 	scrap_t = 0.25
 
 
+func ping_power() -> void:
+	power_t = 0.5
+
+
 func flash_hurt() -> void:
 	hurt_t = 0.35
 
@@ -532,8 +547,9 @@ func sync() -> void:
 	var dt := get_process_delta_time()
 	hurt_t = maxf(0.0, hurt_t - dt)
 	scrap_t = maxf(0.0, scrap_t - dt)
+	power_t = maxf(0.0, power_t - dt)
 	var playing := game.phase not in ["hangar", "results"]
-	quit_btn.visible = game.paused()
+	quit_btn.visible = game.paused() and game.started
 	if not quit_btn.visible and quit_armed:
 		quit_armed = false
 		refresh_quit()
@@ -573,6 +589,13 @@ func _draw() -> void:
 			draw_rect(r, Color(1, 1, 1, 0.16), true)
 			if i < game.hp:
 				draw_rect(r.grow(-5), CY if game.hp > 1 else RED, true)
+		# power: the in-level spread, a bar of steps under the hull (pulses when it changes)
+		for i in Rules.POWER_MAX:
+			var r := Rect2(30 + i * 30, 76, 24, 12)
+			draw_rect(r.grow(power_t * 6.0), Color(1, 1, 1, 0.16 + power_t * 0.5), true)
+			if i < game.power:
+				draw_rect(r, POWER if game.power < Rules.POWER_MAX else INK, true)
+		draw_string(FONT, Vector2(36 + Rules.POWER_MAX * 30, 89), "MAX" if game.power >= Rules.POWER_MAX else "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(INK, 0.7 + power_t * 0.6))
 		# boss / reactor bar
 		var bar := game.boss_bar()
 		if not bar.is_empty():
@@ -586,12 +609,20 @@ func _draw() -> void:
 	draw_pause(v)
 
 
-## The finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
+## Before the first touch of a level, "Touch to start". Then, the finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
 func draw_pause(v: Vector2) -> void:
 	if not game.pausable():
 		return
 	var still := 1.0 - game.time_speed()
 	if still <= 0.0:
+		return
+	if not game.started:
+		# a level waiting for its first touch: not a pause, just the prompt
+		# under the level banner, with a shadow so it reads on any ground
+		var a := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.004)
+		var p := Vector2(0, v.y * 0.62)
+		draw_string(FONT, p + Vector2(0, 3), "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(0, 0, 0, 0.45 * a))
+		draw_string(FONT, p, "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(INK, a))
 		return
 	draw_rect(Rect2(Vector2.ZERO, v), Color(0.02, 0.04, 0.08, 0.35 * still))
 	var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)

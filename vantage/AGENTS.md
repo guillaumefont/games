@@ -17,12 +17,16 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   `Rules.BOSS_PART_KINDS`, patterns in `Game.think_part`) and a `piece` (`Models.midboss_piece`) that
   breaks off; the last section is the heart (`BOSS_HEARTS`), shielded until then. Each flies its own way
   (`move`, `Game.think_boss`); the hull comes down far enough that the section's deepest gun shows on a
-  short screen. Parts stay within |x| <= 7, z -5..8 (tested). The hull can't be hurt; it holds the wave
+  short screen. Parts stay within |x| <= 7, z -5..8 (tested). A boss never just vanishes (Guillaume,
+  2026-11-24): the mid-boss's scorched husk (`Game.make_husk`, `step_husk`) loses way against the scroll,
+  sinks, turns and burns until it's off the bottom of the screen; the fortress breaks up and drifts off. The hull can't be hurt; it holds the wave
   clock until it's down. Its part hp scales by `Campaign.BOSS_HP` (first level of a world quicker). Final boss: a capital ship
   (Guillaume, 2026-11-23, after rejecting the flying fortress as "a glorified transport with the same useless
   tunnel": "a huge fortress class ship, you clear it sections per sections as you advance along the ship").
   One for each level (Guillaume, 2026-11-24: "I want a different boss per level. You can advance over it, on
-  the sides..."; `Campaign.FORTRESS_ORDER`), 15 in `Rules.FORTRESSES`, 200-290 m long: plated-deck ships
+  the sides..."; `Campaign.FORTRESS_ORDER`), 15 in `Rules.FORTRESSES`, 98-124 m long (Guillaume, 2026-11-24: "start by designing a fortress, then choose a
+  path that would clear it by sections": each ship is one dense object, its sections placed on it by `at`
+  and overlapping, and their order is the path round the hull that clears it): plated-deck ships
   (`hull`: slab, wedge, round, keel: Goliath, Zephyr, Talon, Leviathan, Wyvern, Sirocco galleon, Narwhal
   icebreaker) and ships of smooth lofted `bodies` (`Capital.body_at`: Albatross airship, Marlin catamaran,
   Scarab beetle, Manta flying wing, Trident trimaran, Aurora pod chain, Basilisk serpent, Behemoth with
@@ -40,8 +44,22 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   slung under the hull), whose armour breaks off to show the reactor (`core`, behind four shield panels).
   Each section lists its guns (`Rules.SHIP_GUNS`: nozzle, twin, quad, pod, mast, dish, pylon, hatch; looks in
   `Capital.gun`, patterns in `Game.think_gun`); a `pylon` shields the rest of its section until it falls
-  (`Game.fort_guarded`), a `hatch` launches drones. Only the current section's guns fire, take hits and get
-  brackets. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
+  (`Game.fort_guarded`), a `hatch` launches drones. The ships are compact and the sections overlap
+  (Guillaume, 2026-11-24: "you already see the next section, receive its bullets"; no dead time on the
+  sides): the current section and the next (`Game.live_sec`) fire, take hits and get brackets, the next one
+  `Rules.AHEAD_FIRE` times slower, and the current one fires during the glide onto it too. From every lane
+  the next section's guns are within 62 m and in sight round the hull (tested): a path winds round the
+  hull (under, up a flank, over, down the other flank), never straight across it. No gun fires through
+  its own hull (`Capital.sees`); the other sections' guns hold fire. The hull is cut into segments at the
+  distinct section starts (`Capital.cuts`, `hull_count`); a section's guns and piece ride the segment it
+  starts on (`Capital.home`; `Game.seg_body` vs `hull_body`). `tools/fortress_plan.gd [id]` prints each
+  ship's plan (lanes, guns in sight, glides) headless. The lanes and glides keep clear of the hull and
+  of a galleon's masts and sails (`Capital.rigging`, in `inside`; shots and sight pass through sails,
+  `in_hull`). After the kill the ship climbs over the tallest thing on the hull (`Capital.crest`) and
+  only comes down to its cruise once the wreck has slid back past it (`esc_down`); beneath, it slips out
+  past the hull's widest (`Capital.widest`). The ship can't be hit on its way between sections (the swoop, a glide, the climb away;
+  `Game.transit`; Guillaume, 2026-11-24): shots and drones pass through. `tests/clearance_test.gd` flies every whole fight and checks
+  the ship never passes through any mesh and neither it nor the camera jumps. Clearing a section breaks off its superstructure (`Capital.piece`), leaves that stretch burning
   and glides the ship on to the next section's station (`Rules.station`, `ADVANCE` s). No tunnel, ever.
 - The chase is the same world as the vertical stage: the camera blends between poses (`Game.pose()`:
   `top`, `chase`) instead of switching scenes. Keep it that way, it is the game's hook. It stays
@@ -54,13 +72,57 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - In the chase the drag moves the ship across the view (`POV_REACH`, `POV_DRAG`), which is how you
   dodge; guns fire ahead and a little down (`AIM_DIP`) with aim assist (`Game.aim_point`). Orbs inherit the
   rail speed and can be shot; a pod's rockets home in for a while (`Obj.homing`).
+- Foes that fly in and hold (rotor, scarab, lancer, prism, heavy, gunship, darts) stop a few metres above
+  the **centre of the screen** (`Game.hold_z`, from `view_mid`), not below the top edge: Guillaume
+  (2026-11-24) found they stopped "much too far from the ship" on tall phones. When the way down from the
+  top edge to the hold is longer than `Game.SIDE_ENTRY`, they come in from a side, level with their hold
+  (`Game.enter_toward`).
+- Gun towers (`Towers`) stand on a pole (`Towers.POLE`) between their footing and the gun: Guillaume
+  (2026-11-24) couldn't tell a flak tower from a flying foe. A tower only stands where its whole footing
+  (`FOOT_R`) is on level ground (`Foes.dry_x`/`footed`): firm land first, then a dry canyon floor, then a
+  level riverbed; never hanging over a rim. Flying foes that could pass for a tower from above must spin.
+- Seaplanes (`gull`) are collateral, not foes (Guillaume, 2026-11-24: "Hydro planes should be a collateral
+  damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
+  upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
+  pays nothing when shot down (see civilians below). No formations.
+- Civilians (`Rules.CIVILIANS`: seaplanes, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
+  real one down scores nothing (no penalty or notice either, Guillaume, 2026-11-25: "The game is too
+  dense to be able to avoid killing them"); a downed seaplane's pilot bails out under a parachute that
+  sways off and shrinks away (`Blasts.chute`). It drops no scrap, isn't a kill and isn't in the kill total; missiles
+  and the guns' assist never lock onto them (`Game.shy`). Some are hacked (`Obj.hacked`: a seaplane after
+  the level's opening, `Foes.HACK_P`; a lighthouse, `Rules.HACK_LIGHTHOUSE`): "a lighthouse that opens to
+  show a turret, a hydro plane that unveils a minigun". A hacked one blinks and sparks red for
+  `Foes.HACK_TELL` s before its gun unfolds (`Foes.unveil`) and fires, then is a foe paying `HACK_PAY` x.
+- Groups keep their spacing: seekers and darts from behind keep apart (`Foes.keep_apart`), and the darts
+  hold in a line across the screen. Every air foe that comes in a row (`Foes.ROWS`, from the top, a side or
+  behind) keeps `Foes.ROW_GAP` (1 m) between hulls (`Foes.space`; Guillaume, 2026-11-25: rows from the
+  top and the sides bunched up). Foes flying to a goal move the goal with the nudge, and scarabs and
+  lancers pick dash spots clear of the others' (`Foes.clear_x`). A dart sweeping in from a side is never
+  taken for one from behind (they used to join the back darts' line in the middle: a clump).
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
+- In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was
+  exciting again; "how about keeping an in level progress"): every level starts on the bare twin gun
+  (`Game.power` 0). Kills in the vertical stage leave power cores (`Game.drop_core`, pick kind `power`), each step
+  taking more kills than the last (`Rules.POWER_KILLS`: 116 in all, about a whole long level), and the mid-boss leaves one as it goes down; kills in the
+  chase don't count. Each core widens the spread a step up to `Rules.POWER_MAX` (7 guns, faster fire). A hit costs
+  a power step, the kills towards the next core and hull. Guillaume found the first pace (a core every 6 kills
+  and one per mid-boss section) far too quick: max power early, then "OP and you cannot lose". Keep it slow. The hangar's Cannon upgrade only raises damage per shot (`Rules.cannon_dmg`), never the spread, so
+  bought upgrades can't make a run's start easy (tested). HUD: the power bar under the hull pips.
 - The hangar has a "Reset progress" button (two taps within `Hud.RESET_ARM` s) that wipes the save back to
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
+- Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
+  every frame: 60 in flight (`PLAY_FPS`; 90-120 Hz phones would otherwise draw every refresh), 30 in the
+  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1260) px wide
+  (`Game.render_scale`, bilinear upscale). Set these in scripts, not project.godot: a project setting
+  needs a new APK shell, a script ships in the game pack. Per-frame script time is small (about 1 ms a
+  step, `tools/perf.gd` prints it with draw calls); the cost is on the GPU, so watch fill (full-screen
+  passes, see-through layers) before adding more.
 - The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
   fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
+- A level starts on "Touch to start" (`Game.started` false until the first touch), not on the pause screen
+  (Guillaume, 2026-11-24): no dimming, no PAUSED, no Main menu.
 
 ## Pull requests
 
@@ -91,7 +153,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
+godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, in-level power, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
@@ -99,7 +161,9 @@ godot --headless --path . --script tests/icon_test.gd   # project icon and Andro
 godot --headless --path . --script tests/blasts_test.gd # explosions: pieces by size, pool, budget, chains, carry, shake
 godot --headless --path . --script tests/look_test.gd   # the look: baked occlusion, contact shadows, liquids by world, vignette
 godot --headless --path . --script tests/bosses_test.gd # final bosses: one a level, lanes and glides clear of the hull, guns on it, fire that can't be shot down, a fight from beneath
+godot --headless --path . --script tests/clearance_test.gd # every fortress's whole fight: the ship never passes through its meshes, ship and camera never jump
 godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
+godot --headless --path . --script tests/power_test.gd  # battery: frame rate cap by moment, 3D resolution cap
 ```
 
 Screenshots (needs a display; one per key moment of a full run):
@@ -118,6 +182,8 @@ section from its lane).
 Scenery close-ups with no HUD or foes (top view and a low view per stretch of coast):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
 
+In-level power (start, a core, full power): same command with `tools/power_shots.gd -- /tmp/power`.
+
 Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
 gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.
 
@@ -130,7 +196,7 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - `scripts/campaign.gd` (`Campaign`): five worlds (Glass Coast, Ember Dunes, Iron Sprawl, Frost Shelf,
   Cinder Reach) of three levels each, played in order. Guillaume (2026-11-23): "mid bosses and final
   fortresses for every level", so every level is waves, a mid-boss, waves, the fortress chase
-  (`LENGTHS`: the first level of a world shortest). Each level has its own mid-boss (`midboss_of`:
+  (`LENGTHS`: the first level of a world shortest; Guillaume, 2026-11-24, wanted longer runs between bosses, so about twice what they were). Each level has its own mid-boss (`midboss_of`:
   three different ones per world, `MIDBOSS_ORDER`); 1-3 is the hand-made `Rules.STAGE` and keeps the
   Bastion. Every other level's waves come from its world's `mix`, seeded by the level (same every time).
   The hangar's level buttons name the level's mid-boss. (`Game.level_clear` and the `end` wave remain
@@ -236,6 +302,39 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   one fx mesh a chunk like the city's fires. Ground foes avoid rivers, lava, cliffs and deep floors
   (`Relief.firm`). Stretches fade to the plain at their ends (tested). A chunk builds in ~40 ms on desktop
   (like the city's): watch it. Look at every stretch with `tools/scenery.gd` (its shots land on each stretch).
+  Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
+  and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Every fall is fed
+  (Guillaume: "no waterfall without a water body where it can come from"): a pool behind its lip and a stream
+  notched over the rim (`Relief.fed`), so the fall starts at the water's level (tested). The 2 m ground grid
+  can't draw a 3 m stream true (Guillaume, 2026-11-25: "waterfall is not aligned"), so the pool, the stream (as
+  wide as the curtain) and a plunge pool at the foot are laid as sheets over it (`Relief.sheet`, tested). Ember Dunes is a desert:
+  no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
+  crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
+  set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
+- Baked shadows (Guillaume, 2026-11-24: "bake shadows, ao... even for moving objects"): no shadow maps (they cost on
+  phones and wash out vertex colours on the web). The ground bakes the sun's shadow into its vertex colours: each
+  vertex below the plain marches toward the sun (`Models.sun_margin`, `sun_slide` from Game's sun; inside the chunk it
+  reads the grid's own heights) and carries how deep in shadow it lies (`Models.sun_shade`, UV2.x), which the ground
+  shader blends across each cell (`shade_k`): soft shadows under cliffs, canyon walls, rims and mesas. Guillaume tried
+  crisp per-pixel edges (2026-11-25: "more defined") and went back: "go back to soft shadows". The land never rises past `LAND_TOP`, so vertices near the plain
+  skip the test (that keeps chunk builds cheap). Props' contact discs (`ao_blobs`) stretch away from the sun as far as
+  the prop is tall (`CAST`). Moving things keep their silhouette shadows, now flattened onto the real ground under the
+  sun's ray (`Game.land_shadow_y`, looked up every few frames on a remembered 1 m grid), so a shadow in a canyon lands
+  on its floor. Tested in `relief_test.gd`.
+- The city is a calm backdrop (Guillaume, 2026-11-24: "too messy... not very easy to see the enemies"): every
+  colour of a city chunk goes through `City.calm` (desaturated, drawn in towards one mid grey; `Builder.tone`), with
+  few fires, cars and road markings, and no helipads. Foes keep their own colours. Tested in `relief_test.gd`;
+  `tools/city_shots.gd` shows foes over it. Keep new city props in that muted band.
+- Towns (Guillaume, 2026-11-24: "too sparse, elements scattered without real character... a pyramid in a city
+  like structure with small houses around it"; then "on top of the existing evolutions, like cliffs in glass coast"):
+  `scripts/towns.gd` (`Towns`). Each world's town crowns one of its set pieces (`Relief.TOWN_HOST`: the coast's sea
+  cliffs, the desert mesas, the ice shelf, the cinders' lava cliffs): `Relief.at` levels a plateau (`GROUND_Y`) over the
+  set piece's own shape (`Relief.shape`), its edge a cliff, with a causeway carrying the avenue down. The town: paved square and centrepiece (pyramid, church, giant snowman, fire altar), an avenue running
+  down towards the player with its furniture (palms, trees, pines, stone heads), a grid of houses facing the square
+  (adobes, cottages and tall houses, igloos and cabins, glowing huts), a wall with towers (hedges, fences). Each chunk builds the pieces whose spot it holds; landmarks go through `Models.mark`. The land's own
+  props keep out (`Relief.in_town`), and elsewhere they come in groups: groves and fields in some 12 m cells, rocks
+  as outcrops (`Models.rocks`: one big rock about the ship's size, smaller ones on its sides; Guillaume found lone
+  mid-size boulders unrealistic). Look at them with `tools/town_shots.gd -- /tmp/towns`.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
@@ -279,7 +378,8 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   pooled and past `Blasts.CAP` live pieces a blast is only its flash. Blasts are carried
   (`Game.fx_carry`): with the scroll in the stage (ground targets' stay put), with the rail in the chase,
   or they'd be left behind the camera. Shake is smooth (sines, not per-frame noise), scaled `shake^1.5`.
-- Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`) time eases to a stop over
+- Lifting the finger pauses (Guillaume, 2026-11-23): in flight (`Game.pausable()`; not once the fortress is
+  destroyed: its break-up plays through, Guillaume 2026-11-24) time eases to a stop over
   `Rules.SLOW_STOP` s (2 s, gradual: Guillaume asked for a slower slowdown) once no finger (or direction key) is down, and back up over `SLOW_RESUME` s on touch.
   `Game.tick(dt)` (called by `_process`) scales `step`'s dt by `time_speed()` and skips `step` when fully
   paused; the HUD dims and shows "PAUSED · Touch to fly". A run starts paused (the launch tap is already
@@ -339,12 +439,18 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   turns liquid by world (`LIQUIDS`): glossy water with drifting crest glints, or crusted, glowing
   lava. The dunes' dry washes sit at the same height and stay dry. Vertex colours are converted from
   sRGB in `vertex()` only when `!OUTPUT_IS_SRGB` (as the standard material does), or the colours go dark.
+- Ground detail (2026-11-25): steep faces keep their ground colour in the vertex and the ground shader lays
+  the world's rock (`rock_c`, `Models.rock_col`) over a narrow band of steepness, so cliff rims read crisp
+  instead of smearing grass or sand down the rock. A 128 px tiling noise (`Models.ground_noise`) gives the land
+  a faint mottle (`GROUND_DETAIL`) and soft cloud shadows drifting with the wind (`CLOUD_SHADE`): four texture
+  fetches a ground pixel, no extra draw call. Keep both faint: foes and shots must stay the sharpest things.
 - A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
   spine, the seams part bow first (`SEAM_GAP`), each segment drifts apart, turns, sinks a little, scorched and
   burning, while the wreck loses way (`DRIFT`) and slides back under the ship, which climbs away (`CLIMB`) with
-  the camera. No piece comes near the ground and all are off the screen by the end (tested).
+  the camera, but no higher than `CRUISE_Y` (Guillaume: from high up "you can see the limited decor"; the
+  city is also built `Models.CITY_MORE` wider than the core strip for that). No piece comes near the ground and all are off the screen by the end (tested).
 - In the chase one swipe across `Rules.POV_SWIPE` of the screen crosses the whole reach
   (`Game.pov_drag`), so the ship gets from one side of the fortress's guns to the other in one move.
 - The world has no visible edge: each ground chunk is `CHUNK_W` wide at fine cells plus `CHUNK_FLANK` per
