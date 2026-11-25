@@ -403,8 +403,9 @@ func hacked() -> void:
 
 
 ## Guillaume (2026-11-25): "There should be no seaplane in the desert. You should replace it in each
-## world with something appropriate... in the desert, that could be a camel caravan." Each world's
-## civilian keeps the seaplane's rules and has its own getaway.
+## world with something appropriate"; then "Camel and reindeer are a bad idea... You need to have simple
+## shapes to keep the realism plausible." Each world's civilian is a simple craft, keeps the seaplane's
+## rules and has its own getaway.
 func worlds() -> void:
 	print("each world has its own civilian, harmless, with its own getaway")
 	var g := make_game()
@@ -418,6 +419,7 @@ func worlds() -> void:
 		var want: String = Civilians.BY_THEME[Campaign.WORLDS[wi].theme]
 		seen[want] = true
 		check(want == "gull" if wi == 0 else want != "gull", "%s: %s" % [Campaign.WORLDS[wi].name, want])
+		check(Civilians.mesh(want).get_faces().size() / 3 < 1500, "%s: a simple low poly shape (%d triangles)" % [want, Civilians.mesh(want).get_faces().size() / 3])
 		for from: String in ["left", "right"]:
 			g.clear_all()
 			g.queue.clear()
@@ -426,7 +428,7 @@ func worlds() -> void:
 			g.spawn_vert("gull", 0.0, 0, 1, from)
 			var f: Game.Obj = g.foes[g.foes.size() - 1]
 			check(f.kind == want and not f.hacked and g.civilian(f) and g.shy(f), "%s from the %s: a real %s" % [want, from, want])
-			check(f.ground == Civilians.is_walker(want), "%s: %s" % [want, "on the ground" if f.ground else "in the air"])
+			check(not f.ground, "%s: a simple flying craft, nothing on the ground" % want)
 			check(not g.on_screen(f), "%s: comes in from off-screen" % want)
 			f.hp = 1e6
 			var hp0 := g.hp
@@ -438,14 +440,13 @@ func worlds() -> void:
 				for o in g.foes:
 					o.hacked = false   # a lighthouse along the way stays a lighthouse: this watches the civilian
 				g.inv = 0.0
-				g.prel = Vector2(clampf(f.pos.x, -5.0, 5.0), g.seen(f.pos).z - g.frame_z)
+				g.prel = Vector2(clampf(f.pos.x, -5.0, 5.0), f.pos.z - g.frame_z)
 				g.step(DT)
 				t += DT
 				fired = fired or g.bullets.size() > 0
 				if f in g.foes and g.on_screen(f):
 					shown += DT
 			var x1 := f.pos.x
-			# (a walker that found no dry ground on its side starts on the other and comes back)
 			check(signf(x1 - x0) == -signf(x0) and absf(x1 - x0) > 4.0,
 				"%s from the %s: heads across the screen (%.1f m to %.1f m)" % [want, from, x0, x1])
 			check(shown > 3.0, "%s from the %s: a while on screen (%.1f s)" % [want, from, shown])

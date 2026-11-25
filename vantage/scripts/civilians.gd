@@ -5,35 +5,26 @@ extends RefCounted
 ## camel caravan"). The campaign's waves still say "gull" (the civilian stroll, `Foes.INTRO`'s
 ## first kind); `Foes.spawn` turns it into the world's own (`BY_THEME`):
 ## - Glass Coast: the seaplane (`Foes.gull`), whose pilot bails out under a parachute.
-## - Ember Dunes: a camel caravan plodding across the sand; downed, the lead camel bolts off at a
-##   gallop with its rider clinging on, kicking up dust.
+## - Ember Dunes: a paramotor, a pilot with a fan cage on their back under a striped wing; downed, the
+##   motor coughs and dies and the pilot spirals away under the wing.
 ## - Iron Sprawl: an advertising blimp; downed, it whizzes off like a let-go party balloon.
-## - Frost Shelf: a dog sled crossing the ice; downed, the dogs bolt, towing the musher on their belly.
+## - Frost Shelf: a polar research helicopter; downed, its rotor spins off like a sycamore seed with the
+##   pilot hanging underneath.
 ## - Cinder Reach: a hot-air balloon; downed, its crew float away under a bunch of party balloons.
-## They all keep the seaplane's rules: one at a time, harmless (`Foes.HARMLESS`), nothing scored,
+## Simple low poly craft, no animals (Guillaume, 2026-11-25: "Camel and reindeer are a bad idea... You need
+## to have simple shapes to keep the realism plausible"). They all keep the seaplane's rules: one at a time, harmless (`Foes.HARMLESS`), nothing scored,
 ## and some are hacked and unveil a minigun (`Foes.HACK_P`, `MOUNT`). The escape is `Blasts.escape`.
 
-const BY_THEME := {"coast": "gull", "dunes": "caravan", "city": "blimp", "ice": "sled", "volcano": "balloon"}
-## Those that go on the ground: they walk across the land and up it a little (`WALK`, `UPHILL`).
-const WALKERS := ["caravan", "sled"]
+const BY_THEME := {"coast": "gull", "dunes": "paramotor", "city": "blimp", "ice": "heli", "volcano": "balloon"}
 ## How fast each strolls across the screen (m/s).
-const SPEED := {"gull": 2.4, "blimp": 1.9, "balloon": 1.6, "caravan": 1.5, "sled": 2.6}
-## Walkers are drawn bigger than life: from up at the flight plane a real camel or dog is a speck.
-const BIG := 1.7
-## How fast a walker goes up the land, against the scroll (m/s), so it stays a while in sight.
-const UPHILL := 1.4
-## Where a hacked one's minigun pops up (on the wing, the middle camel's hump, the sled's load,
+const SPEED := {"gull": 2.4, "paramotor": 2.0, "blimp": 1.9, "heli": 2.3, "balloon": 1.6}
+## Where a hacked one's minigun pops up (on the wing, the paraglider's wing, the helicopter's nose,
 ## the blimp's back, the balloon's crown).
-const MOUNT := {"gull": Vector3(0, 0.78, 0.1), "caravan": Vector3(0, 1.62, 0), "sled": Vector3(0, 0.78, -1.5),
+const MOUNT := {"gull": Vector3(0, 0.78, 0.1), "paramotor": Vector3(0, 1.75, 0.05), "heli": Vector3(0, 0.2, 1.25),
 	"blimp": Vector3(0, 0.9, 0.3), "balloon": Vector3(0, 1.3, 0)}
 
-const CAMEL := Color8(0x8e, 0x5e, 0x34)
-const CAMEL_D := Color8(0x5e, 0x3c, 0x22)
-const INDIGO := Color8(0x2c, 0x3c, 0x8c)
-const TEAL := Color8(0x2a, 0xa0, 0x9a)
+const ROPE := Color8(0x5e, 0x3c, 0x22)
 const SAFFRON := Color8(0xe8, 0xb0, 0x30)
-const DOG := Color8(0x4a, 0x4e, 0x56)
-const DOG_R := Color8(0xa0, 0x62, 0x34)
 const PARKA := Color8(0xe8, 0x6a, 0x2a)
 const AD := Color8(0xf4, 0xd0, 0x40)
 const SKY_BLUE := Color8(0x36, 0xb8, 0xe8)
@@ -47,14 +38,10 @@ static func of_world() -> String:
 	return BY_THEME.get(Models.theme, "gull")
 
 
-static func is_walker(kind: String) -> bool:
-	return kind in WALKERS
-
-
 static func mesh(kind: String) -> Mesh:
 	match kind:
-		"caravan": return caravan()
-		"sled": return sled()
+		"paramotor": return paramotor()
+		"heli": return heli()
 		"blimp": return blimp()
 		"balloon": return balloon()
 	return Foes.gull()
@@ -63,8 +50,8 @@ static func mesh(kind: String) -> Mesh:
 ## What bails out of a downed one (`Blasts.escape`).
 static func escape_mesh(kind: String) -> Mesh:
 	match kind:
-		"caravan": return camel_bolt()
-		"sled": return dogs_bolt()
+		"paramotor": return paraglider()
+		"heli": return heli_seed()
 		"blimp": return blimp()
 		"balloon": return party_balloons()
 	return Foes.chute()
@@ -76,41 +63,26 @@ static func escape_mesh(kind: String) -> Mesh:
 static func spawn(g: Game, f: Game.Obj, s: float) -> void:
 	f.x0 = s
 	var v: float = SPEED.get(f.kind, 2.0)
-	if is_walker(f.kind):
-		# plods in from the top of the land on one side and across to the other, up the land
-		var gz := g.frame_z + minf(g.view_ground_top, minf(g.view_top, Rules.Z_TOP) - 5.5) - 2.0
-		var at := Foes.dry_x(g, s * 3.0, gz, f)
-		f.pos = Vector3(at.x, g.ground_y(at.x, at.y), at.y)
-		# no dry ground on that side: it sets off from the other one
-		if at.x * s < 0.0:
-			s = -s
-			f.x0 = s
-		f.vel = Vector3(-s * v, 0, -UPHILL)
-		f.node.scale = Vector3.ONE * BIG
-		f.node.rotation.y = atan2(f.vel.x, f.vel.z)
-	else:
-		var z := g.hold_z(6.5)
-		f.goal = Vector3(0, 0, z)
-		f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
-		f.vel = Vector3(-s * v, 0, 0)
+	var z := g.hold_z(6.5)
+	f.goal = Vector3(0, 0, z)
+	f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
+	f.vel = Vector3(-s * v, 0, 0)
+	if f.kind == "heli":
+		Foes.add_part(g, f, "heli blades", Vector3(0, 0.66, 0.2))
 	f.hacked = g.stage_t > Foes.HACK_AFTER and g.rng.randf() < Foes.HACK_P
 
 
 static func think(g: Game, f: Game.Obj, dt: float) -> void:
-	var out := f.hacked and f.hold >= 0.0 and f.t - f.hold >= Foes.HACK_TELL + Foes.HACK_UNVEIL
-	if is_walker(f.kind):
-		walk(g, f, dt, out)
-	else:
-		fly(g, f, dt)
+	fly(g, f, dt)
 	if not f.hacked:
 		return
-	var at := Foes.at_of(g, f) if f.ground else f.pos
+	var at := f.pos
 	var z := at.z - g.frame_z
 	if f.hold < 0.0 and Foes.in_play(g, f) and absf(at.x) < g.view_hw(z) - 2.5:
 		f.hold = f.t
 	if Foes.unveil(g, f, "minigun", MOUNT.get(f.kind, Vector3(0, 0.8, 0))):
 		# slows to hose the ship with short bursts, the gun turned to face it
-		f.vel.x = move_toward(f.vel.x, -f.x0 * SPEED.get(f.kind, 2.0) * (0.0 if f.ground else 0.45), dt * 2.0)
+		f.vel.x = move_toward(f.vel.x, -f.x0 * SPEED.get(f.kind, 2.0) * 0.45, dt * 2.0)
 		var to := g.ppos - at
 		var gun := f.node.get_node("minigun") as Node3D
 		gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
@@ -134,126 +106,115 @@ static func fly(g: Game, f: Game.Obj, dt: float) -> void:
 			f.node.rotation = Vector3(sin(f.t * 1.3) * 0.06, f.t * 0.25, sin(f.t * 1.1) * 0.07)
 		"blimp":
 			f.node.rotation = Vector3(sin(f.t * 0.9) * 0.04, atan2(f.vel.x, dz * 0.5), 0)
+		"heli":
+			# nose down a little into its way, the rotor turning
+			f.node.rotation = Vector3(0.12, atan2(f.vel.x, dz * 0.5), sin(f.t * 0.7) * 0.06)
+			(f.node.get_node("heli blades") as Node3D).rotation.y += dt * 20.0
+		"paramotor":
+			# swings gently under its wing as it turns
+			f.node.rotation = Vector3(sin(f.t * 1.4) * 0.05, atan2(f.vel.x, dz), sin(f.t * w) * 0.12 * -f.x0)
 		_:
 			f.node.rotation = Vector3(0, atan2(f.vel.x, dz), sin(f.t * w) * 0.18 * -f.x0)
 
 
-## On the ground: across and up the land, sidestepping water and lava (waits on the bank).
-static func walk(g: Game, f: Game.Obj, dt: float, stop: bool) -> void:
-	var d := Vector3(0.0 if stop else f.vel.x, 0.0, f.vel.z)
-	var ahead := f.pos + Vector3(signf(d.x) * 1.4, 0, 0)
-	if d.x != 0.0 and not Foes.dry(g, ahead.x, ahead.z):
-		d.x = 0.0
-	f.pos += d * dt
-	f.pos.y = g.ground_y(f.pos.x, f.pos.z)
-	if absf(d.x) > 0.01:
-		Foes.face(f, d, dt, 3.0)
-	# a plodding gait (camels) or a scamper (dogs)
-	var k := 5.0 if f.kind == "caravan" else 11.0
-	f.node.rotation.x = sin(f.t * k) * 0.03
-	f.node.rotation.z = sin(f.t * k * 0.5) * 0.035
-
-
 # ---------------------------------------------------------------- models (nose to +z)
 
-## Dunes: one camel, its hooves at y 0. With `rider` a robed rider on the hump, else packs.
-static func camel(b: Models.Builder, c: Vector3, rider: bool, pack := TEAL) -> void:
-	b.box(c + Vector3(0, 0.95, 0), Vector3(0.48, 0.44, 1.1), CAMEL)
-	b.octa(c + Vector3(0, 1.22, -0.05), 0.34, CAMEL, Vector3(0.85, 0.75, 1.15))
-	b.prism(c + Vector3(0, 0, 0.5), Models.ngon(0.12, 4, PI / 4), 0.95, 1.42, CAMEL, Vector2.ONE, Vector2(0, 0.28))
-	b.box(c + Vector3(0, 1.5, 0.9), Vector3(0.2, 0.2, 0.4), CAMEL)
-	b.box(c + Vector3(0, 1.47, 1.1), Vector3(0.15, 0.13, 0.08), CAMEL_D)
-	for sx in [1.0, -1.0]:
-		for sz in [1.0, -1.0]:
-			b.box(c + Vector3(0.15 * sx, 0.37, 0.38 * sz), Vector3(0.1, 0.74, 0.1), CAMEL_D)
-		b.box(c + Vector3(0.07 * sx, 1.62, 0.78), Vector3(0.05, 0.1, 0.05), CAMEL_D)
-	b.box(c + Vector3(0, 0.85, -0.6), Vector3(0.05, 0.36, 0.05), CAMEL_D)
-	if rider:
-		# a striped saddle blanket, the rider in an indigo robe and a white headscarf
-		b.box(c + Vector3(0, 1.32, -0.05), Vector3(0.62, 0.08, 0.66), Models.FOE)
-		b.box(c + Vector3(0, 1.33, -0.05), Vector3(0.64, 0.07, 0.16), SAFFRON)
-		b.box(c + Vector3(0, 1.62, -0.05), Vector3(0.32, 0.42, 0.26), INDIGO)
-		b.octa(c + Vector3(0, 1.95, -0.05), 0.16, Models.IVORY)
-		b.box(c + Vector3(0, 1.62, 0.18), Vector3(0.36, 0.08, 0.14), INDIGO.darkened(0.2))
-	else:
-		# bundles slung on both flanks and a rolled rug across the hump
+## A thin line from a to b (rigging, ropes).
+static func line(b: Models.Builder, a: Vector3, to: Vector3, col: Color, w := 0.025) -> void:
+	b.prism(Vector3(a.x, 0, a.z), Models.ngon(w, 4, PI / 4), a.y, to.y, col, Vector2.ONE, Vector2(to.x - a.x, to.z - a.z))
+
+
+## Dunes: a paraglider's wing, an arc of orange and white cells over the pilot (the origin).
+static func wing(b: Models.Builder) -> void:
+	var n := 8
+	var r := 2.1
+	for i in n:
+		var a0 := lerpf(-1.05, 1.05, float(i) / n)
+		var a1 := lerpf(-1.05, 1.05, float(i + 1) / n)
+		var p0 := Vector3(sin(a0) * r, 1.75 + (cos(a0) - 1.0) * r, 0)
+		var p1 := Vector3(sin(a1) * r, 1.75 + (cos(a1) - 1.0) * r, 0)
+		var col := PARKA if i % 2 == 0 else Models.IVORY
+		var up := Vector3(-(sin(a0) + sin(a1)), cos(a0) + cos(a1), 0)
+		for side: float in [1.0, -1.0]:
+			var o := Vector3(0, 0.04 * side, 0)
+			var f0 := p0 + o + Vector3(0, 0, 0.5)
+			var f1 := p1 + o + Vector3(0, 0, 0.5)
+			var b0 := p0 + o + Vector3(0, 0, -0.45)
+			var b1 := p1 + o + Vector3(0, 0, -0.45)
+			b.tri(f0, f1, b1, col if side > 0 else col.darkened(0.25), up * side)
+			b.tri(f0, b1, b0, col if side > 0 else col.darkened(0.25), up * side)
+	for x in [-1.6, -0.8, 0.8, 1.6]:
+		var a := asin(x / r)
+		line(b, Vector3(0.1 * signf(x), 0.25, 0), Vector3(x, 1.75 + (cos(a) - 1.0) * r, 0.1), Models.IVORY_D, 0.015)
+
+
+## Dunes: the pilot in a harness seat, helmeted (the origin).
+static func pilot(b: Models.Builder) -> void:
+	b.box(Vector3(0, -0.05, 0), Vector3(0.36, 0.16, 0.42), Models.HULL_D)
+	b.box(Vector3(0, 0.15, -0.05), Vector3(0.32, 0.36, 0.24), Models.NAVY)
+	b.octa(Vector3(0, 0.42, -0.02), 0.13, SAFFRON)
+	b.box(Vector3(0, -0.02, 0.32), Vector3(0.24, 0.1, 0.3), Models.NAVY)
+
+
+## Dunes: a paramotor, the pilot with a caged fan on their back under the wing.
+static func paramotor() -> Mesh:
+	return Models.cached("c_paramotor", func() -> Mesh:
+		var b := Models.Builder.new()
+		wing(b)
+		pilot(b)
+		var cage := CylinderMesh.new()
+		cage.top_radius = 0.5
+		cage.bottom_radius = 0.5
+		cage.height = 0.06
+		cage.radial_segments = 12
+		cage.rings = 1
+		b.prim(cage, Transform3D(Basis(Vector3.RIGHT, PI / 2), Vector3(0, 0.2, -0.38)), Models.IVORY_D)
+		b.box(Vector3(0, 0.2, -0.3), Vector3(0.22, 0.22, 0.16), Models.HULL)
+		b.box(Vector3(0, 0.2, -0.42), Vector3(0.9, 0.06, 0.04), Models.WOOD)
+		return b.commit())
+
+
+## The paramotor's pilot spiralling away under the wing once the motor has died (`Blasts.escape`).
+static func paraglider() -> Mesh:
+	return Models.cached("c_paraglider", func() -> Mesh:
+		var b := Models.Builder.new()
+		wing(b)
+		pilot(b)
+		return b.commit())
+
+
+## Ice: a polar research helicopter, an orange and white cabin with a tail boom and skids (the
+## two-blade rotor is a part, `Foes.part_mesh` "heli blades").
+static func heli() -> Mesh:
+	return Models.cached("c_heli", func() -> Mesh:
+		var b := Models.Builder.new()
+		b.box(Vector3(0, 0, 0.25), Vector3(0.9, 0.8, 1.4), PARKA)
+		b.box(Vector3(0, -0.12, 0.25), Vector3(0.92, 0.16, 1.42), Models.IVORY)
+		b.box(Vector3(0, 0.08, 1.02), Vector3(0.78, 0.5, 0.2), Models.GLASS)
+		b.box(Vector3(0, 0.46, 0.2), Vector3(0.5, 0.14, 0.7), Models.IVORY)
+		b.box(Vector3(0, 0.56, 0.2), Vector3(0.12, 0.12, 0.12), Models.HULL_D)
+		b.box(Vector3(0, 0.15, -1.25), Vector3(0.18, 0.18, 1.7), PARKA)
+		b.box(Vector3(0, 0.45, -2.0), Vector3(0.06, 0.55, 0.35), Models.IVORY)
+		b.box(Vector3(0.08, 0.45, -2.05), Vector3(0.04, 0.55, 0.08), Models.HULL_D)
 		for sx in [1.0, -1.0]:
-			b.box(c + Vector3(0.33 * sx, 1.05, -0.05), Vector3(0.2, 0.34, 0.5), pack)
-		b.box(c + Vector3(0, 1.44, -0.05), Vector3(0.78, 0.16, 0.2), SAFFRON)
-		b.box(c + Vector3(0, 1.45, -0.05), Vector3(0.2, 0.17, 0.21), Models.FOE)
-
-
-## Dunes: three camels nose to tail on a lead rope, the first one ridden.
-static func caravan() -> Mesh:
-	return Models.cached("c_caravan", func() -> Mesh:
-		var b := Models.Builder.new()
-		b.bottoms = false
-		camel(b, Vector3(0, 0, 1.55), true)
-		camel(b, Vector3(0, 0, 0.0), false, TEAL)
-		camel(b, Vector3(0, 0, -1.55), false, Models.FOE)
-		for z in [0.95, -0.6]:
-			b.box(Vector3(0, 1.2, z), Vector3(0.04, 0.04, 0.55), CAMEL_D)
+			b.box(Vector3(0.45 * sx, -0.58, 0.25), Vector3(0.06, 0.06, 1.6), Models.HULL_D)
+			for z in [-0.2, 0.7]:
+				b.box(Vector3(0.4 * sx, -0.48, z), Vector3(0.05, 0.2, 0.05), Models.HULL_D)
 		return b.commit())
 
 
-## The lead camel bolting off with its rider (`Blasts.escape`).
-static func camel_bolt() -> Mesh:
-	return Models.cached("c_camel_bolt", func() -> Mesh:
+## The helicopter's rotor spinning off like a sycamore seed, the pilot hanging underneath (`Blasts.escape`).
+static func heli_seed() -> Mesh:
+	return Models.cached("c_heli_seed", func() -> Mesh:
 		var b := Models.Builder.new()
-		camel(b, Vector3.ZERO, true)
-		return b.commit())
-
-
-## Ice: one sled dog, standing at y 0.
-static func dog(b: Models.Builder, c: Vector3, col: Color) -> void:
-	b.box(c + Vector3(0, 0.42, 0), Vector3(0.24, 0.22, 0.6), col)
-	b.box(c + Vector3(0, 0.54, 0.36), Vector3(0.2, 0.2, 0.22), col)
-	b.box(c + Vector3(0, 0.5, 0.5), Vector3(0.1, 0.1, 0.1), col.darkened(0.3))
-	for sx in [1.0, -1.0]:
-		b.box(c + Vector3(0.07 * sx, 0.68, 0.32), Vector3(0.05, 0.1, 0.05), col.darkened(0.25))
-		for sz in [1.0, -1.0]:
-			b.box(c + Vector3(0.08 * sx, 0.16, 0.2 * sz), Vector3(0.07, 0.32, 0.07), col.darkened(0.2))
-	b.box(c + Vector3(0, 0.6, -0.36), Vector3(0.07, 0.07, 0.24), col)
-	b.box(c + Vector3(0, 0.54, 0.0), Vector3(0.26, 0.05, 0.1), Models.FOE)
-
-
-## Ice: five dogs in pairs on a gangline.
-static func team(b: Models.Builder) -> void:
-	b.box(Vector3(0, 0.38, 0.25), Vector3(0.03, 0.03, 2.8), CAMEL_D)
-	var cols := [DOG, DOG_R, DOG_R, DOG]
-	for i in 4:
-		dog(b, Vector3((0.26 if i % 2 == 0 else -0.26), 0, -0.45 + (i / 2) * 0.9), cols[i])
-	dog(b, Vector3(0, 0, 1.4), DOG)
-
-
-## Ice: a dog sled, the team ahead, the loaded sled and its musher in an orange parka behind.
-static func sled() -> Mesh:
-	return Models.cached("c_sled", func() -> Mesh:
-		var b := Models.Builder.new()
-		b.bottoms = false
-		team(b)
 		for sx in [1.0, -1.0]:
-			b.box(Vector3(0.27 * sx, 0.05, -1.75), Vector3(0.05, 0.06, 1.4), Models.WOOD.darkened(0.3))
-			b.box(Vector3(0.27 * sx, 0.6, -2.3), Vector3(0.05, 0.5, 0.05), Models.WOOD.darkened(0.3))
-		b.box(Vector3(0, 0.2, -1.65), Vector3(0.6, 0.08, 1.0), Models.WOOD)
-		b.box(Vector3(0, 0.42, -1.55), Vector3(0.48, 0.34, 0.7), Models.FOE)
-		b.box(Vector3(0, 0.6, -1.55), Vector3(0.5, 0.04, 0.1), SAFFRON)
-		b.box(Vector3(0, 0.82, -2.3), Vector3(0.6, 0.05, 0.05), Models.WOOD.darkened(0.3))
-		b.box(Vector3(0, 0.62, -2.5), Vector3(0.32, 0.72, 0.26), PARKA)
-		b.octa(Vector3(0, 1.1, -2.48), 0.17, Models.IVORY)
-		b.octa(Vector3(0, 1.1, -2.42), 0.1, SKIN)
-		return b.commit())
-
-
-## The dogs bolting with the musher sliding behind on their belly, holding the line.
-static func dogs_bolt() -> Mesh:
-	return Models.cached("c_dogs_bolt", func() -> Mesh:
-		var b := Models.Builder.new()
-		team(b)
-		b.box(Vector3(0, 0.1, -1.6), Vector3(0.4, 0.05, 0.9), Models.WOOD)
-		b.box(Vector3(0, 0.25, -1.65), Vector3(0.32, 0.2, 0.75), PARKA)
-		b.box(Vector3(0, 0.25, -1.1), Vector3(0.36, 0.08, 0.3), PARKA.darkened(0.15))
-		b.octa(Vector3(0, 0.3, -1.12), 0.15, Models.IVORY)
+			b.box(Vector3(0.9 * sx, 0.6, 0), Vector3(1.8, 0.06, 0.3), Models.IVORY)
+			b.box(Vector3(1.9 * sx, 0.61, 0), Vector3(0.3, 0.06, 0.3), PARKA)
+		b.box(Vector3(0, 0.6, 0), Vector3(0.2, 0.14, 0.2), Models.IVORY)
+		line(b, Vector3(0, -0.2, 0), Vector3(0, 0.55, 0), Models.IVORY_D)
+		b.box(Vector3(0, -0.4, 0), Vector3(0.4, 0.45, 0.3), PARKA)
+		b.octa(Vector3(0, -0.12, 0), 0.13, Models.IVORY)
+		b.box(Vector3(0, -0.05, 0), Vector3(0.36, 0.05, 0.05), PARKA)
 		return b.commit())
 
 

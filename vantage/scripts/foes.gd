@@ -26,7 +26,7 @@ const NAMES := {
 ## Collateral targets, not threats (Guillaume, 2026-11-24: "Hydro planes should be a collateral
 ## damage, not an enemy. It should stroll by (alone) waiting to be shot"): they never fire and the
 ## ship flies through them unharmed (not in `Rules.RAMMABLE`). Each world has its own (`Civilians`).
-const HARMLESS := ["gull", "caravan", "sled", "blimp", "balloon"]
+const HARMLESS := ["gull", "paramotor", "heli", "blimp", "balloon"]
 ## Hacked civilians (Guillaume, 2026-11-24: "civil characters can be enemies if they are clearly
 ## hacked: a lighthouse that opens to show a turret, a hydro plane that unveils a minigun"). The
 ## chance a seaplane is hacked, after the level's opening (its first seaplane is always real), and
@@ -38,7 +38,7 @@ const HACK_TELL := 0.9
 const HACK_UNVEIL := 0.35
 
 ## On the ground (ramming passes under them; they stay with the land).
-const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar", "caravan", "sled"]
+const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
 ## Those that stand on dry land (the hovercraft rides the water too; the tank drives on).
 const DRY := ["pillbox", "borer", "aa", "mortar"]
 
@@ -68,7 +68,7 @@ static func mesh(kind: String, idx := 0) -> Mesh:
 	if Towers.is_tower(kind):
 		return Towers.base(Models.theme)
 	match kind:
-		"gull", "caravan", "sled", "blimp", "balloon": return Civilians.mesh(kind)
+		"gull", "paramotor", "heli", "blimp", "balloon": return Civilians.mesh(kind)
 		"rotor": return rotor()
 		"pillbox": return pillbox()
 		"scarab": return scarab()
@@ -91,6 +91,7 @@ static func part_mesh(name: String) -> Mesh:
 	match name:
 		"blades": return blades(1.35, 2, 0.16)
 		"rotor": return blades(2.3, 4, 0.2)
+		"heli blades": return blades(2.0, 2, 0.18)
 		"quad": return quad_blades()
 		"turret": return tank_turret()
 		"gun": return aa_guns()
@@ -577,8 +578,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 		kind = Civilians.of_world()
 	if kind in HARMLESS:
 		var c := g.new_foe(kind, Civilians.mesh(kind))
-		c.ground = Civilians.is_walker(kind)
-		c.rel = not c.ground
+		c.rel = true
 		Civilians.spawn(g, c, -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0)))
 		return
 	var top := g.frame_z + minf(g.view_top, Rules.Z_TOP) - 2.5
@@ -780,7 +780,7 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		Towers.think(g, f, dt)
 		return
 	match f.kind:
-		"gull", "caravan", "sled", "blimp", "balloon":
+		"gull", "paramotor", "heli", "blimp", "balloon":
 			Civilians.think(g, f, dt)
 		"lighthouse":
 			# a hacked lighthouse: once well in view, its lantern blinks and sparks, then a

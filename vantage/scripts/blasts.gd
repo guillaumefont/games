@@ -60,9 +60,7 @@ var chutes: Array[Dictionary] = []
 ## How long a parachute stays in sight (s) before it shrinks away.
 const CHUTE_LIFE := 4.0
 ## How long the others' getaways last (`Civilians`).
-const ESCAPE_LIFE := {"caravan": 3.0, "sled": 3.0, "blimp": 2.6, "balloon": 4.0}
-## The ground's height at (x, z) (Game.ground_y), for getaways on the ground.
-var ground_at := Callable()
+const ESCAPE_LIFE := {"paramotor": 3.6, "heli": 3.4, "blimp": 2.6, "balloon": 4.0}
 var lights: Array[Light] = []
 ## Blasts waiting to go off: {t, at, size, col, carry}.
 var pending: Array[Dictionary] = []
@@ -334,8 +332,8 @@ func busy() -> bool:
 ## parachute getting out of the plane"), each world its own way (`Civilians`), off to `side` (-1 or
 ## 1) and carried like the blasts, then shrinks away:
 ## - gull: the pilot pops up, the canopy snaps open, then sways down and drifts off;
-## - caravan: the lead camel rears and bolts off at a gallop, its rider clinging on, kicking up dust;
-## - sled: the dogs bolt in a spray of snow, towing the musher on their belly, fishtailing;
+## - paramotor: the motor coughs smoke and dies, and the pilot spirals away under the wing;
+## - heli: the rotor spins off like a sycamore seed, the pilot hanging underneath;
 ## - blimp: punctured, it whizzes round in loops like a let-go party balloon, hissing puffs, shrivelling;
 ## - balloon: the crew rise out of the basket under a bunch of party balloons and float away.
 func escape(kind: String, at: Vector3, carry: Vector3, side: float) -> void:
@@ -368,28 +366,25 @@ func step_chutes(dt: float) -> void:
 		var gone := clampf((life - t) / 0.5, 0.0, 1.0)
 		var pop := minf(t / 0.15, 1.0)   # springs out of the blast
 		match str(c.kind):
-			"caravan", "sled":
-				var camel: bool = c.kind == "caravan"
-				# a beat to take fright (the camel rears), then off at a run, up the land a little
-				var go := maxf(0.0, t - (0.3 if camel else 0.1))
-				var v := (5.5 if camel else 7.5) * minf(go / 0.4, 1.0)
-				var d := Vector3(side, 0, -0.35).normalized()
-				c.at += d * v * dt
-				var y: float = c.at.y if not ground_at.is_valid() else ground_at.call(c.at.x, c.at.z)
-				var k := 13.0 if camel else 18.0
-				var hop := absf(sin(go * k)) * (0.22 if camel else 0.08) if go > 0.0 else 0.0
-				n.position = Vector3(c.at.x, y + hop, c.at.z)
-				var rear := sin(clampf(t / 0.3, 0.0, 1.0) * PI) * 0.45 if camel else 0.0
-				var fish := 0.0 if camel else sin(go * 6.0) * 0.3
-				n.rotation = Vector3(-rear + sin(go * k) * 0.06, atan2(d.x, d.z) + fish, 0)
-				n.scale = Vector3.ONE * lerpf(0.4, 1.0, pop) * gone * Civilians.BIG
+			"paramotor":
+				# the motor coughs and dies; the pilot circles away under the wing, sinking slowly
+				var a := t * 2.2 * side
+				var r := minf(t, 1.0) * 1.3
+				n.position = c.at + Vector3(side * t * 0.9 + sin(a) * r, -t * 0.5, cos(a) * r - r)
+				n.rotation = Vector3(0, a + (PI / 2) * side, -0.3 * side * minf(t, 1.0))
+				n.scale = Vector3.ONE * lerpf(0.5, 1.0, pop) * gone
 				c.puff -= dt
-				if go > 0.0 and c.puff <= 0.0 and parts.size() < CAP:
-					c.puff = 0.07
-					var s := add("smoke", n.position - d * (0.8 if camel else 2.2) * Civilians.BIG + Vector3(0, 0.15, 0), mesh_ball(),
-						rng.randf_range(0.5, 0.7))
-					s.size = rng.randf_range(0.35, 0.55)
-					s.vel = Vector3(rng.randf_range(-0.4, 0.4), 0.9, rng.randf_range(-0.4, 0.4))
+				if t < 0.6 and c.puff <= 0.0 and parts.size() < CAP:
+					c.puff = 0.12
+					var s := add("smoke", n.position + Vector3(0, 0.2, 0), mesh_ball(), rng.randf_range(0.5, 0.7))
+					s.size = rng.randf_range(0.35, 0.5)
+					s.carry = c.carry
+			"heli":
+				# the rotor whirls off like a sycamore seed, drifting down with the pilot below it
+				var up := 1.0 - pow(1.0 - minf(t / 0.3, 1.0), 2.0)
+				n.position = c.at + Vector3(side * t * 1.3 + sin(t * 3.0) * 0.2, up * 0.8 - t * 0.6, 0)
+				n.rotation = Vector3(sin(t * 4.0) * 0.12, t * 9.0, cos(t * 4.0) * 0.12)
+				n.scale = Vector3.ONE * lerpf(0.6, 1.2, pop) * gone
 			"blimp":
 				# loops and zigzags off as the gas rushes out, hissing puffs
 				var a := side * (PI / 2) + sin(t * 7.0) * 1.3 + t * 2.4 * side
