@@ -314,9 +314,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 - Baked shadows (Guillaume, 2026-11-24: "bake shadows, ao... even for moving objects"): no shadow maps (they cost on
   phones and wash out vertex colours on the web). The ground bakes the sun's shadow into its vertex colours: each
   vertex below the plain marches toward the sun (`Models.sun_margin`, `sun_slide` from Game's sun; inside the chunk it
-  reads the grid's own heights) and carries how far the ground stands above the sun's ray (UV2.x); the ground shader
-  thresholds it per pixel (`shade_edge`, `shade_k`), so shadows under cliffs, canyon walls, rims and mesas end in crisp
-  lines (Guillaume, 2026-11-25: "more defined"). The land never rises past `LAND_TOP`, so vertices near the plain
+  reads the grid's own heights) and carries how deep in shadow it lies (`Models.sun_shade`, UV2.x), which the ground
+  shader blends across each cell (`shade_k`): soft shadows under cliffs, canyon walls, rims and mesas. Guillaume tried
+  crisp per-pixel edges (2026-11-25: "more defined") and went back: "go back to soft shadows". The land never rises past `LAND_TOP`, so vertices near the plain
   skip the test (that keeps chunk builds cheap). Props' contact discs (`ao_blobs`) stretch away from the sun as far as
   the prop is tall (`CAST`). Moving things keep their silhouette shadows, now flattened onto the real ground under the
   sun's ray (`Game.land_shadow_y`, looked up every few frames on a remembered 1 m grid), so a shadow in a canyon lands
