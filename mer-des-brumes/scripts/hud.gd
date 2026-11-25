@@ -26,7 +26,8 @@ var joy_active := false
 var joy_origin := Vector2.ZERO
 var joy_vec := Vector2.ZERO
 var joy_mag := 0.0
-## The green aim stick: direction and reach (0..1); releasing it fires.
+## The green aim stick: only its direction counts (the reach just has to leave the middle);
+## releasing it fires.
 var aim_active := false
 var aim_vec := Vector2.ZERO
 var aim_mag := 0.0
@@ -217,7 +218,7 @@ class Joy:
 		draw_circle(knob, 36, Color(0.95, 0.97, 0.95, 0.75))
 
 
-## The green aim stick, bottom right while fighting: drag toward where the balls should land.
+## The green aim stick, bottom right while fighting: drag toward where the guns should point.
 class Aim:
 	extends Control
 	var knob := Vector2.ZERO
