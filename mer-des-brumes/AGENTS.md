@@ -14,7 +14,15 @@ Guillaume's decisions so far (keep them unless he changes his mind):
   fight): only its direction counts (2026-11-23: "uniquement la direction, pas la distance"). While
   aiming, a red line runs from the ship until the first ship or island it meets (2026-11-25); letting go
   fires every loaded battery that bears that way at what the line meets (nothing if it's beyond range,
-  the guns' range if it meets nothing). Balls fly fast (`Game.BALL_SPM`, `BALL_T0`, `BALL_ARC`). The ship defends itself (manoeuvres and fires alone) **only while the player is
+  the guns' range if it meets nothing). Balls fly fast (`Game.BALL_SPM`, `BALL_T0`, `BALL_ARC`).
+- Grapple and boarding (2026-11-25): a purple stick (bottom left) and purple line, same handling; letting
+  go throws the grapple at the first ship on the line within `st.grapple` (10 m + 4 per Grappins level).
+  Caught: the ships are pulled side by side, guns stop, and the crews and captains fight
+  (`Rules.fighters` / `Rules.melee`: blows hit the crew first, the captain last). All of theirs down:
+  treasure ×2 (coins and map chance) and a prompt to take the ship (`Rules.take_hull`, your old hull is
+  left) or sink it. All of ours down: the ship is lost like a sinking. The dead are lost for good.
+  Attacking (online) enemies grapple too; ones that only defend never do. "Couper les cordes" ends it.
+  The old automatic crew damage when ships touched is gone. The ship defends itself (manoeuvres and fires alone) **only while the player is
   disconnected** (`Game.connected`, false on app pause / focus loss), never while connected.
 - Upgrades are capped per hull; past the caps you buy a new hull (Sloop: fast; Frégate: better armed, bow
   and stern guns; Galion). A new hull starts without upgrades.
@@ -52,7 +60,7 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd    # rules, joystick, aim stick, broadsides, AI, sinking, treasure, port
+godot --headless --path . --script tests/game_test.gd    # rules, joystick, aim and grapple sticks, boarding, broadsides, AI, sinking, treasure, port
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher layers
 ```

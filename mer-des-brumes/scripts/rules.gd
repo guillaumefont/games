@@ -39,7 +39,7 @@ const UPS := [
 	{"k": "canons", "name": "Canons", "desc": "Un canon de plus de chaque côté", "base": 300, "step": 300},
 	{"k": "coque", "name": "Coque renforcée", "desc": "+40 points de coque", "base": 200, "step": 250},
 	{"k": "capitaine", "name": "Meilleur capitaine", "desc": "+3 places d'équipage, +10 % de dégâts, tourne plus vite", "base": 600, "step": 600},
-	{"k": "grappin", "name": "Grappins", "desc": "Abordage de plus loin", "base": 800, "step": 700},
+	{"k": "grappin", "name": "Grappins", "desc": "Le grappin va 4 m plus loin", "base": 800, "step": 700},
 ]
 
 const BASE_UPS := [
@@ -138,6 +138,7 @@ static func ship_stats(hk: String, up: Dictionary, crew_pow: float) -> Dictionar
 		"dmg": 7.0 * capt, "range": 24.0, "reload": 3.0,
 		"crew_cap": int(H.crew) + int(up.get("capitaine", 0)) * 3,
 		"board": 6.0 + int(up.get("grappin", 0)) * 3.0,
+		"grapple": 10.0 + int(up.get("grappin", 0)) * 4.0,
 		"crew_dps": crew_pow * 0.55 * capt,
 	}
 
@@ -283,6 +284,82 @@ static func enemy_build(lvl: int) -> Dictionary:
 	st.dmg *= 0.85
 	st.speed *= 0.92
 	return {"hull": hk, "up": up, "st": st}
+
+
+# ---------------------------------------------------------------- boarding
+
+const CREW_HP := 10.0
+const CAPT_HP := 24.0
+
+## The men who fight at a boarding: the crew (counts by kind) then the captain, who falls last.
+static func fighters(crew: Dictionary, capt: int) -> Array:
+	var out := []
+	for c in CREW:
+		for i in int(crew.get(c.k, 0)):
+			out.append({"k": c.k, "power": float(c.power), "hp": CREW_HP, "max": CREW_HP})
+	var ch := CAPT_HP + capt * 6.0
+	out.append({"k": "capitaine", "power": 2.0 + capt * 0.8, "hp": ch, "max": ch})
+	return out
+
+
+static func alive_count(f: Array) -> int:
+	var n := 0
+	for m in f:
+		if m.hp > 0:
+			n += 1
+	return n
+
+
+static func fight_power(f: Array) -> float:
+	var p := 0.0
+	for m in f:
+		if m.hp > 0:
+			p += m.power
+	return p
+
+
+## One moment of the melee: each side strikes with all its living men at once; the blows
+## fall on the other side's crew first and on its captain last.
+static func melee(a: Array, b: Array, dt: float) -> void:
+	var da := fight_power(a) * dt
+	var db := fight_power(b) * dt
+	_strike(b, da)
+	_strike(a, db)
+
+
+static func _strike(f: Array, dmg: float) -> void:
+	for m in f:
+		if dmg <= 0:
+			return
+		if m.hp <= 0:
+			continue
+		var d := minf(dmg, m.hp)
+		m.hp -= d
+		dmg -= d
+
+
+## The crew left after a boarding (the dead are gone for good).
+static func survivors(f: Array) -> Dictionary:
+	var out := {}
+	for c in CREW:
+		out[c.k] = 0
+	for m in f:
+		if m.hp > 0 and out.has(m.k):
+			out[m.k] += 1
+	return out
+
+
+## Taking a ship: you sail it with its upgrades; crew beyond its places is put ashore.
+static func take_hull(s: Dictionary, hk: String, up: Dictionary) -> void:
+	s.ship = hk
+	for k in s.up:
+		s.up[k] = mini(int(up.get(k, 0)), int(HULLS[hk].caps.get(k, 0)))
+	var over := crew_count(s) - int(player_stats(s).crew_cap)
+	for c in CREW:
+		var n := mini(over, int(s.crew[c.k]))
+		if n > 0:
+			s.crew[c.k] -= n
+			over -= n
 
 
 ## A sunk ship sometimes carries a treasure map, more often a big one.
