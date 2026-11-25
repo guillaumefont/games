@@ -69,6 +69,16 @@ func _initialize() -> void:
 		_mouse(ac + d.normalized() * Hud.AIM_R * clampf(0.2 + 0.8 * (d.length() - 6) / 18.0, 0.3, 1.0), true, true)
 		await process_frame
 	await shot("3-aim")
+	# the red line meets the nearest island
+	var near: Dictionary = g.isles[1]
+	for isl in g.isles:
+		if Vector2(isl.x, isl.z).distance_to(g.P.xz()) < Vector2(near.x, near.z).distance_to(g.P.xz()):
+			near = isl
+	for i in 10:
+		var di := Vector2(near.x, near.z) - g.P.xz()
+		_mouse(ac + di.normalized() * Hud.AIM_R, true, true)
+		await process_frame
+	await shot("3-aim-ile")
 	_mouse(ac, false)
 	g.end_combat()
 	g.P.node.position = Rules.DOCK
