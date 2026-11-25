@@ -84,9 +84,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Seaplanes (`gull`) are collateral, not foes (Guillaume, 2026-11-24: "Hydro planes should be a collateral
   damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
   upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
-  costs points when shot down (see civilians below). No formations.
+  pays nothing when shot down (see civilians below). No formations.
 - Civilians (`Rules.CIVILIANS`: seaplanes, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
-  real one down costs `CIVIL_COST` points, drops no scrap, isn't a kill and isn't in the kill total; missiles
+  real one down scores nothing (no penalty or notice either, Guillaume, 2026-11-25: "The game is too
+  dense to be able to avoid killing them"); a downed seaplane's pilot bails out under a parachute that
+  sways off and shrinks away (`Blasts.chute`). It drops no scrap, isn't a kill and isn't in the kill total; missiles
   and the guns' assist never lock onto them (`Game.shy`). Some are hacked (`Obj.hacked`: a seaplane after
   the level's opening, `Foes.HACK_P`; a lighthouse, `Rules.HACK_LIGHTHOUSE`): "a lighthouse that opens to
   show a turret, a hydro plane that unveils a minigun". A hacked one blinks and sparks red for
@@ -111,7 +113,7 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 - Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
   every frame: 60 in flight (`PLAY_FPS`; 90-120 Hz phones would otherwise draw every refresh), 30 in the
-  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1080) px wide
+  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1260) px wide
   (`Game.render_scale`, bilinear upscale). Set these in scripts, not project.godot: a project setting
   needs a new APK shell, a script ships in the game pack. Per-frame script time is small (about 1 ms a
   step, `tools/perf.gd` prints it with draw calls); the cost is on the GPU, so watch fill (full-screen
@@ -307,8 +309,10 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
 - Baked shadows (Guillaume, 2026-11-24: "bake shadows, ao... even for moving objects"): no shadow maps (they cost on
   phones and wash out vertex colours on the web). The ground bakes the sun's shadow into its vertex colours: each
-  vertex below the plain marches toward the sun (`Models.sun_shade`, `sun_slide` from Game's sun) and darkens under
-  cliffs, canyon walls, rims and mesas (`shade_col`). The land never rises past `LAND_TOP`, so vertices near the plain
+  vertex below the plain marches toward the sun (`Models.sun_margin`, `sun_slide` from Game's sun; inside the chunk it
+  reads the grid's own heights) and carries how far the ground stands above the sun's ray (UV2.x); the ground shader
+  thresholds it per pixel (`shade_edge`, `shade_k`), so shadows under cliffs, canyon walls, rims and mesas end in crisp
+  lines (Guillaume, 2026-11-25: "more defined"). The land never rises past `LAND_TOP`, so vertices near the plain
   skip the test (that keeps chunk builds cheap). Props' contact discs (`ao_blobs`) stretch away from the sun as far as
   the prop is tall (`CAST`). Moving things keep their silhouette shadows, now flattened onto the real ground under the
   sun's ray (`Game.land_shadow_y`, looked up every few frames on a remembered 1 m grid), so a shadow in a canyon lands

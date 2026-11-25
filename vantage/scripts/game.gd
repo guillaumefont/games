@@ -655,10 +655,11 @@ func _process(delta: float) -> void:
 const PLAY_FPS := 60
 ## Frames a second where little moves: the hangar, the results and a full pause.
 const IDLE_FPS := 30
-## The 3D view is drawn at most this many pixels wide, then scaled up to the screen: a
-## 1440 px phone screen would otherwise shade 1.8 times the pixels of a 1080 px one, for a
-## low poly world that looks the same. 1080 px wide screens and smaller draw at full size.
-const MAX_3D_W := 1080.0
+## The 3D view is drawn at most this many pixels wide, then scaled up to the screen. 1080 px
+## (2026-11-24, for battery) looked soft on 1440 px phones; Guillaume asked for a sharper world
+## (2026-11-25), and 1260 px gets most of it for about 20% more time a frame there (full 1440 px
+## measured +40%). Screens up to 1260 px wide draw at full size.
+const MAX_3D_W := 1260.0
 
 
 func fps_cap() -> int:
@@ -1825,11 +1826,10 @@ func kill(f: Obj) -> void:
 	var info: Dictionary = Rules.FOES[f.kind]
 	var civil := civilian(f)
 	var pay := Rules.HACK_PAY if f.hacked else 1.0
-	if civil:
-		run.score = maxi(0, run.score - Rules.CIVIL_COST)
-		say("CIVILIAN DOWN", "-%d" % Rules.CIVIL_COST, 1.2)
-	else:
+	if not civil:
 		run.score += roundi(int(info.score) * pay)
+	elif f.kind == "gull":
+		blasts.chute(f.pos, fx_carry(), -signf(f.vel.x) if f.vel.x != 0.0 else 1.0)
 	if f.kind not in ["orb", "boss"] and not landmark(f) and not civil:
 		run.kills += 1
 		if not f.on_fort and f not in boss_parts:

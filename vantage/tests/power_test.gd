@@ -19,7 +19,8 @@ func check(cond: bool, what: String) -> void:
 func render_scale() -> void:
 	print("3D resolution")
 	check(Game.render_scale(720.0) == 1.0 and Game.render_scale(1080.0) == 1.0, "720 and 1080 px wide screens draw the 3D view at full size")
-	check(is_equal_approx(Game.render_scale(1440.0), 0.75), "a 1440 px wide screen draws it 1080 px wide (0.75)")
+	check(Game.render_scale(1260.0) == 1.0, "a 1260 px wide screen draws it at full size too")
+	check(is_equal_approx(Game.render_scale(1440.0), 0.875), "a 1440 px wide screen draws it 1260 px wide (0.875)")
 	check(Game.render_scale(5000.0) == 0.5 and Game.render_scale(0.0) == 1.0, "never below half size, and a zero size is harmless")
 
 
