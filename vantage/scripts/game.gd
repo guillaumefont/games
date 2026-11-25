@@ -1821,11 +1821,10 @@ func kill(f: Obj) -> void:
 	var info: Dictionary = Rules.FOES[f.kind]
 	var civil := civilian(f)
 	var pay := Rules.HACK_PAY if f.hacked else 1.0
-	if civil:
-		run.score = maxi(0, run.score - Rules.CIVIL_COST)
-		say("CIVILIAN DOWN", "-%d" % Rules.CIVIL_COST, 1.2)
-	else:
+	if not civil:
 		run.score += roundi(int(info.score) * pay)
+	elif f.kind == "gull":
+		blasts.chute(f.pos, fx_carry(), -signf(f.vel.x) if f.vel.x != 0.0 else 1.0)
 	if f.kind not in ["orb", "boss"] and not landmark(f) and not civil:
 		run.kills += 1
 		if not f.on_fort and f not in boss_parts:

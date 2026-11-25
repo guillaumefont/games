@@ -55,6 +55,10 @@ class Light:
 
 
 var parts: Array[Part] = []
+## Pilots bailing out of downed civilian seaplanes (`chute`): {node, t, at, carry, side}.
+var chutes: Array[Dictionary] = []
+## How long a parachute stays in sight (s) before it shrinks away.
+const CHUTE_LIFE := 4.0
 var lights: Array[Light] = []
 ## Blasts waiting to go off: {t, at, size, col, carry}.
 var pending: Array[Dictionary] = []
@@ -220,6 +224,7 @@ func light(at: Vector3, size: float, carry: Vector3) -> void:
 
 func step(dt: float) -> void:
 	bright = maxf(0.0, bright - dt * 3.0)
+	step_chutes(dt)
 	for i in range(pending.size() - 1, -1, -1):
 		var b := pending[i]
 		b.t -= dt
@@ -321,7 +326,41 @@ func busy() -> bool:
 	return not parts.is_empty() or not pending.is_empty()
 
 
+## A pilot bails out of a downed civilian seaplane (Guillaume, 2026-11-25: "a fun little
+## animation... a parachute getting out of the plane"): it pops up, the canopy snaps open, then it
+## sways down and drifts off to `side` (-1 or 1), carried like the blasts, and shrinks away.
+func chute(at: Vector3, carry: Vector3, side: float) -> void:
+	var n := Models.instance(Foes.chute())
+	add_child(n)
+	n.position = at
+	n.scale = Vector3.ONE * 0.2
+	chutes.append({"node": n, "t": 0.0, "at": at, "carry": carry, "side": side})
+
+
+func step_chutes(dt: float) -> void:
+	for i in range(chutes.size() - 1, -1, -1):
+		var c := chutes[i]
+		c.t += dt
+		var t: float = c.t
+		if t >= CHUTE_LIFE:
+			(c.node as Node3D).queue_free()
+			chutes.remove_at(i)
+			continue
+		c.at += c.carry * dt
+		var n := c.node as Node3D
+		var up := 1.0 - pow(1.0 - minf(t / 0.35, 1.0), 2.0)   # pops up out of the plane
+		var open := clampf((t - 0.15) / 0.35, 0.0, 1.0)
+		var bounce := 1.0 + sin(open * PI) * 0.18          # the canopy snaps open, overshoots
+		var gone := clampf((CHUTE_LIFE - t) / 0.5, 0.0, 1.0)
+		n.position = c.at + Vector3(c.side * minf(t, 2.5) * 0.7 + sin(t * 1.7) * 0.25, up * 1.0 - t * 0.9, 0)
+		n.scale = Vector3.ONE * lerpf(0.25, 1.0, open) * bounce * gone
+		n.rotation = Vector3(sin(t * 2.4 + 0.6) * 0.12, t * 0.4, sin(t * 2.4) * 0.28 * open)
+
+
 func clear() -> void:
+	for c in chutes:
+		(c.node as Node3D).queue_free()
+	chutes.clear()
 	for p in parts:
 		p.node.visible = false
 		pool.append(p.node)
