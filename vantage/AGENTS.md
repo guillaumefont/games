@@ -305,7 +305,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   Falls follow the upper hull of the rock under them (`Relief.drape`), so they never pour through a ledge (tested),
   and nothing stands in their way (`Relief.near_fall`); `tools/fall_shots.gd` looks at them. Every fall is fed
   (Guillaume: "no waterfall without a water body where it can come from"): a pool behind its lip and a stream
-  notched over the rim (`Relief.fed`), so the fall starts at the water's level (tested). Ember Dunes is a desert:
+  notched over the rim (`Relief.fed`), so the fall starts at the water's level (tested). The 2 m ground grid
+  can't draw a 3 m stream true (Guillaume, 2026-11-25: "waterfall is not aligned"), so the pool, the stream (as
+  wide as the curtain) and a plunge pool at the foot are laid as sheets over it (`Relief.sheet`, tested). Ember Dunes is a desert:
   no water anywhere, its canyon a dry wadi with sand slides (tested). Glass Coast's bare rocky heights break into
   crags (`Relief.crag`: blocks at stepped heights, gullies at their joints, the odd tarn), cut into the land only;
   set pieces start from `Relief.plain` (the plain with its crags). `tools/crag_shots.gd` looks at them.
