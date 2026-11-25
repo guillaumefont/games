@@ -439,6 +439,11 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   turns liquid by world (`LIQUIDS`): glossy water with drifting crest glints, or crusted, glowing
   lava. The dunes' dry washes sit at the same height and stay dry. Vertex colours are converted from
   sRGB in `vertex()` only when `!OUTPUT_IS_SRGB` (as the standard material does), or the colours go dark.
+- Ground detail (2026-11-25): steep faces keep their ground colour in the vertex and the ground shader lays
+  the world's rock (`rock_c`, `Models.rock_col`) over a narrow band of steepness, so cliff rims read crisp
+  instead of smearing grass or sand down the rock. A 128 px tiling noise (`Models.ground_noise`) gives the land
+  a faint mottle (`GROUND_DETAIL`) and soft cloud shadows drifting with the wind (`CLOUD_SHADE`): four texture
+  fetches a ground pixel, no extra draw call. Keep both faint: foes and shots must stay the sharpest things.
 - A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
