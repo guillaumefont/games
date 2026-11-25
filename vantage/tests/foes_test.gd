@@ -349,12 +349,40 @@ func hacked() -> void:
 			check(g.run.score == 1000 + roundi(due * Rules.HACK_PAY) and g.run.kills == kills + 1 and g.picks.size() > drops,
 				"a hacked seaplane pays double and counts as a kill (%d)" % g.run.score)
 		else:
-			check(g.run.score == 1000 - Rules.CIVIL_COST and g.run.kills == kills and g.picks.size() == drops,
-				"a real seaplane costs %d points, drops no scrap and isn't a kill (%d)" % [Rules.CIVIL_COST, g.run.score])
-	g.run.score = 50
+			check(g.run.score == 1000 and g.run.kills == kills and g.picks.size() == drops,
+				"a real seaplane costs nothing, scores nothing, drops no scrap and isn't a kill (%d)" % g.run.score)
+	# Guillaume (2026-11-25): "remove the on-screen notification when you do so"
+	g.say("", "", 0.0)
 	g.spawn_vert("gull", 0.0, 0, 1, "left")
 	g.kill(g.foes[g.foes.size() - 1])
-	check(g.run.score == 0, "the score never goes below zero (%d)" % g.run.score)
+	check(g.banner == "", "downing a civilian isn't announced (%s)" % g.banner)
+	# Guillaume (2026-11-25): "when you down a civilian, there's a parachute getting out of the plane"
+	var n := g.blasts.chutes.size()
+	g.spawn_vert("gull", 0.0, 0, 1, "left")
+	var pl: Game.Obj = g.foes[g.foes.size() - 1]
+	var at := pl.pos
+	g.kill(pl)
+	check(g.blasts.chutes.size() == n + 1, "the pilot of a downed seaplane bails out under a parachute")
+	var c: Dictionary = g.blasts.chutes[g.blasts.chutes.size() - 1]
+	var node: Node3D = c.node
+	var peak := -1e9
+	for i in int(1.0 / DT):
+		g.hp = 5
+		g.inv = 1.0
+		g.step(DT)
+		peak = maxf(peak, node.position.y)
+	check(peak > at.y + 0.3 and node.scale.x > 0.9, "it pops up out of the plane and the canopy opens (%.1f m up)" % (peak - at.y))
+	for i in int(Blasts.CHUTE_LIFE / DT):
+		g.hp = 5
+		g.inv = 1.0
+		g.step(DT)
+	check(c not in g.blasts.chutes and not is_instance_valid(node) or node.is_queued_for_deletion(), "then drifts away and is gone")
+	n = g.blasts.chutes.size()
+	g.spawn_vert("gull", 0.0, 0, 1, "left")
+	pl = g.foes[g.foes.size() - 1]
+	pl.hacked = true
+	g.kill(pl)
+	check(g.blasts.chutes.size() == n, "a hacked seaplane's pilot doesn't bail out")
 	g.queue_free()
 	await process_frame
 

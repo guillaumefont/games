@@ -861,7 +861,7 @@ func landmarks() -> void:
 	g.damage(found, 999.0)
 	if g.civilian(found):
 		# Guillaume (2026-11-24): a real civilian costs points and pays nothing
-		check(found.dead and g.run.score == maxi(0, score - Rules.CIVIL_COST) and g.run.kills == kills, "shooting a civilian (%s) down costs points and isn't a kill" % found.kind)
+		check(found.dead and g.run.score == score and g.run.kills == kills and g.banner != "CIVILIAN DOWN", "shooting a civilian (%s) down neither scores nor costs, isn't a kill and isn't announced" % found.kind)
 		check(g.picks.size() == picks, "it drops no scrap")
 	else:
 		check(found.dead and g.run.score > score and g.run.kills == kills, "shooting it down scores but isn't a kill")

@@ -137,6 +137,29 @@ static func gull() -> Mesh:
 		return b.commit())
 
 
+## A seaplane pilot under a parachute (`Blasts.chute`): a round canopy of red and white panels
+## over the pilot (the origin), seen from above, with its rigging lines.
+static func chute() -> Mesh:
+	return Models.cached("f_chute", func() -> Mesh:
+		var b := Models.Builder.new()
+		var n := 10
+		for k in n:
+			var a0 := TAU * k / n
+			var a1 := TAU * (k + 1) / n
+			var col := Models.FOE if k % 2 == 0 else Models.IVORY
+			# a panel: from the crown out to the rim, which hangs a little lower
+			b.prism(Vector3(0, 1.55, 0), Models.pts([Vector2.ZERO, Vector2(cos(a1), sin(a1)) * 0.95,
+				Vector2(cos(a0), sin(a0)) * 0.95]), 0.0, 0.14, col)
+			b.prism(Vector3(0, 1.35, 0), Models.pts([Vector2(cos(a0), sin(a0)) * 0.7, Vector2(cos(a1), sin(a1)) * 0.7,
+				Vector2(cos(a1), sin(a1)) * 1.12, Vector2(cos(a0), sin(a0)) * 1.12]), 0.0, 0.12, col.darkened(0.08))
+		for k in 4:
+			var a := TAU * k / 4 + PI / 4
+			b.box(Vector3(cos(a) * 0.45, 0.75, sin(a) * 0.45), Vector3(0.03, 1.2, 0.03), Models.IVORY_D)
+		b.box(Vector3(0, 0, 0), Vector3(0.26, 0.36, 0.2), Models.NAVY)
+		b.octa(Vector3(0, 0.3, 0), 0.13, Color8(0xf0, 0xc8, 0x9a))
+		return b.commit())
+
+
 ## A hacked seaplane's minigun, popped up on a mount over its wing (seen from above): six
 ## barrels round a dark drum, pointing +z.
 static func minigun() -> Mesh:
