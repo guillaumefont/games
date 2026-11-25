@@ -447,6 +447,9 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
 - River banks (2026-11-25): a liquid triangle with any wet corner is drawn, its dry corners brought down flat
   to its wet corners' level, so the bank rises out of the water along the land's own slope instead of the
   grid's saw teeth (`Models.ground_chunk`, `Relief.liquid`).
+- Vapour trails (2026-11-25): `Trails` (scripts/trails.gd) draws two thin ribbons off the ship's wing tips, the last
+  half second of their path in world space, tapering and fading. Shorter and half as wide in the chase, where they
+  run at the camera. One small see-through mesh (at most ~180 vertices) rebuilt each step.
 - A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the
