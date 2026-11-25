@@ -1,11 +1,12 @@
 # Rewarded-ad offers on the results screen (docs/monetization.md):
-# - Gold ghost: one per track for Standard/Reverse/Obstacles (not Collect) lapping at the Gold
-#   time; offered after a run without Gold, unlocked for good by the video, not after a Gold run
+# - Gold ghost and ideal line: consumables (Guillaume, 2026-11-25). One Gold lap per track for
+#   Standard/Reverse/Obstacles (not Collect); off by default (No ads too); each video adds one
+#   run and runs stack; offered after a run without Gold, again and again, not after a Gold run;
+#   one run used at GO of a Time trial without Gold, given back by a first-lap quit
 # - Daily Detour: an attempt is used at GO, given back by a first-lap quit, only from the banner;
 #   with none left the banner starts practice (no coins); a video adds one
 # - full-screen ads when leaving the results: none in the first session, before 6 races, after
 #   the tutorial, Off the Map or with No ads; then one every 4 races, a test card meanwhile
-# - ideal line: offered after a run without Gold, drawn (with hook marks) for the next run only
 # - "x2 coins": the wallet gets the run's coins a second time, once per results screen; the
 #   badge says so; the daily cap holds; never after Off the Map, the tutorial or a 2-player race
 #   godot --headless --path . --script tests/results_offers_test.gd
@@ -167,45 +168,66 @@ func _run() -> void:
 				check(false, "%s %s hook marks match the samples" % [d["name"], v])
 	check(n == Defs.TRACKS.size() * 3, "a Gold ghost per track for Standard, Reverse and Obstacles (%d)" % n)
 
-	# ---- offered after a run without Gold, unlocked for good by the video
+	# ---- consumables: off by default, bought by the video, stacked, one used per run
 	Store._cfg = ConfigFile.new()   # no "No ads" any more
 	Wallet.reset()
 	Records.reset()
+	check(GoldGhosts.charges("gold_ghost") == 0 and GoldGhosts.charges("ideal_line") == 0, "no Gold ghost or ideal line runs at first")
 	await start(ev)
-	check(main.view.gold_node == null, "no Gold ghost before it is unlocked")
+	check(main.view.gold_node == null and main.view.ideal_node == null, "no Gold ghost or ideal line by default")
+	check(not main._options(true).has("ideal_line"), "no ideal line option in Settings")
 	var silver: float = Medals.targets(name, "standard")[1]
 	await finish_trial(silver - 0.05)   # Silver, not Gold
-	check(offers().has("gold_ghost"), "Gold ghost offered after a run without Gold (%s)" % str(offers()))
-	offer_btn("gold_ghost").pressed.emit()
-	await frames(2)
-	check(GoldGhosts.unlocked(name, "standard"), "the video unlocks it")
-	check(not offers().has("gold_ghost"), "the offer goes once taken")
+	check(offers().has("gold_ghost") and offers().has("ideal_line"), "both offered after a run without Gold (%s)" % str(offers()))
+	# bought twice: two runs each
+	for i in 2:
+		offer_btn("gold_ghost").pressed.emit()
+		await frames(2)
+		offer_btn("ideal_line").pressed.emit()
+		await frames(2)
+	check(GoldGhosts.charges("gold_ghost") == 2 and GoldGhosts.charges("ideal_line") == 2, "each video adds one run, they stack (%d, %d)" % [GoldGhosts.charges("gold_ghost"), GoldGhosts.charges("ideal_line")])
+	check(offers().has("gold_ghost") and offers().has("ideal_line"), "still offered once bought")
+	# run 1: shown, used at GO
 	await start(ev)
 	check(main.view.gold_node != null and not main.gold_ghost.is_empty(), "the next run brings the Gold ghost")
-	check(not GoldGhosts.unlocked(name, "reverse"), "only on that track + variant")
-	await finish_trial(silver - 0.05)
-	check(not offers().has("gold_ghost"), "not offered again once open")
-	# a Gold run never offers it
-	await start({ "track": 1, "variant": "standard", "mode": "trial", "humans": 1, "kind": "campaign", "idx": 0, "theme": "" })
-	await finish_trial(Medals.targets(Defs.TRACKS[1]["name"], "standard")[2] - 0.1)
-	check(not offers().has("gold_ghost"), "no Gold ghost offer after a Gold run")
-	# Reset progress closes it again
-	Wallet.reset()
-	check(not GoldGhosts.unlocked(name, "standard"), "Reset progress closes unlocked Gold ghosts")
-
-	# ---- the ideal line: offered after a run without Gold, drawn for the next run only
-	Wallet.reset()
-	Records.reset()
-	await start(ev)
-	await finish_trial(silver - 0.05)
-	check(offers().has("ideal_line"), "ideal line offered after a run without Gold (%s)" % str(offers()))
-	offer_btn("ideal_line").pressed.emit()
-	await frames(2)
-	await start(ev)
 	var il = main.view.ideal_node
 	check(il != null and int(il.get_meta("marks", 0)) > 0, "the next run shows the ideal line, with hook marks")
+	check(GoldGhosts.charges("gold_ghost") == 2, "nothing used before GO")
+	await go()
+	check(GoldGhosts.charges("gold_ghost") == 1 and GoldGhosts.charges("ideal_line") == 1, "GO uses one run of each")
+	# a restart in the first lap gives them back (and the new run, shown again, takes them at its GO)
+	main._pause_action("restart")
+	await frames(2)
+	check(GoldGhosts.charges("gold_ghost") == 2 and GoldGhosts.charges("ideal_line") == 2, "a first-lap restart gives the runs back")
+	check(main.view.gold_node != null and main.view.ideal_node != null, "the restarted run still has them")
+	await go()
+	await finish_trial(silver - 0.05)
 	await start(ev)
-	check(main.view.ideal_node == null, "only for one run")
+	check(GoldGhosts.charges("gold_ghost") == 1 and GoldGhosts.charges("ideal_line") == 1, "a finished run keeps them used")
+	await go()
+	await finish_trial(silver - 0.05)
+	await start(ev)
+	check(GoldGhosts.charges("gold_ghost") == 0 and main.view.gold_node == null and main.view.ideal_node == null, "none left: back to no Gold ghost or ideal line")
+	# a track already won with Gold doesn't use them
+	var t1: Dictionary = { "track": 1, "variant": "standard", "mode": "trial", "humans": 1, "kind": "campaign", "idx": 0, "theme": "" }
+	await start(t1)
+	await go()
+	await finish_trial(Medals.targets(Defs.TRACKS[1]["name"], "standard")[2] - 0.1)
+	check(not offers().has("gold_ghost") and not offers().has("ideal_line"), "not offered after a Gold run")
+	GoldGhosts.add_charge("gold_ghost")
+	await start(t1)
+	check(main.view.gold_node == null and GoldGhosts.charges("gold_ghost") == 1, "not used on a track with Gold")
+	# No ads makes the video free, but doesn't turn them on
+	Store._cfg = ConfigFile.new()
+	Store.buy("remove_ads")
+	Wallet.reset()   # no runs left
+	await start(ev)
+	check(main.view.gold_node == null and main.view.ideal_node == null, "No ads doesn't turn them on")
+	Store._cfg = ConfigFile.new()
+	# Reset progress clears the runs
+	GoldGhosts.add_charge("ideal_line", 3)
+	Wallet.reset()
+	check(GoldGhosts.charges("ideal_line") == 0, "Reset progress clears consumable runs")
 
 	# ---- Daily Detour: scored attempts from the banner only
 	Wallet.reset()

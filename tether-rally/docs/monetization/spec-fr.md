@@ -75,6 +75,8 @@ Trois emplacements, tous ajoutés à une course sans jamais en racheter une. Auc
 
 **Pour tous :** avec « Retirer les pubs », les trois sont gratuits (le fantôme Gold est alors débloqué partout, la ligne idéale devient une option des Settings).
 
+**Consommables (décidé par Guillaume le 25/11/2026, remplace le déblocage définitif et l'option des Settings) :** le fantôme Gold et la ligne idéale sont désactivés par défaut, même avec « Retirer les pubs ». Chaque pub (gratuite avec « Retirer les pubs ») ajoute une course ; les courses se cumulent. Une course est consommée au départ d'un Time trial sur une piste sans l'Or, et rendue si on quitte pendant le premier tour.
+
 ## Défi du jour (Daily Detour)
 
 On limite la récompense, pas le jeu : 3 essais notés par jour, le meilleur compte, puis entraînement libre sans récompense.

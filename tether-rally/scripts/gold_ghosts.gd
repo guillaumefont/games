@@ -4,13 +4,14 @@
 # res://ghosts/gold.res (rerun it after changing a layout, like tools/gen_medals.gd).
 # Samples are 30 a second, like the player's own ghost (Records): x, y, heading, and
 # whether the rope is hooked (for the ideal line).
-# A player unlocks the Gold ghost of a track + variant for good with a rewarded ad, offered
-# on the results after a run without Gold; "No ads" opens every one. Unlocks live in
-# user://wallet.cfg (section "ghosts"), so Reset progress clears them.
+# The Gold ghost and the ideal line (the Gold lap drawn on the road) are consumables
+# (Guillaume, 2026-11-25): off by default, each rewarded video (free with "No ads") adds one
+# run, runs stack, and one is used at GO of a Time trial run on a track + variant without
+# Gold yet (given back if that run is left during its first lap). Counts live in
+# user://wallet.cfg (section "perks"), so Reset progress clears them.
 extends RefCounted
 
 const Wallet = preload("res://scripts/wallet.gd")
-const Ads = preload("res://scripts/ads.gd")
 const Medals = preload("res://scripts/medals.gd")
 
 const PATH := "res://ghosts/gold.res"
@@ -54,16 +55,35 @@ static func hooked(track_name: String, variant: String) -> Array:
 static func lap_time(track_name: String, variant: String) -> float:
 	return _flat(track_name, variant).size() / 4.0 / RATE
 
-# ---------------------------------------------------------------- unlocks
-static func unlocked(track_name: String, variant: String) -> bool:
-	if not has(track_name, variant):
+# ---------------------------------------------------------------- consumable runs
+const PERKS := ["gold_ghost", "ideal_line"]
+
+static func charges(perk: String) -> int:
+	return int(Wallet.get_v("perks", perk, 0))
+
+static func add_charge(perk: String, n := 1) -> void:
+	Wallet.set_v("perks", perk, maxi(0, charges(perk) + n))
+
+# use one run; false when there is none left
+static func use_charge(perk: String) -> bool:
+	if charges(perk) <= 0:
 		return false
-	return Ads.ads_removed() or bool(Wallet.get_v("ghosts", key(track_name, variant), false))
+	add_charge(perk, -1)
+	return true
 
-static func unlock(track_name: String, variant: String) -> void:
-	Wallet.set_v("ghosts", key(track_name, variant), true)
+# which perks a run starts with: those with a run left, on a single-player Time trial of a
+# track + variant that has a Gold lap and where the player has no Gold yet (a Special Stage has
+# no medal, so it takes the ideal line but not the ghost)
+static func perks_for(track_name: String, variant: String, held_tier: int, stage: bool) -> Array:
+	var out: Array = []
+	if not has(track_name, variant) or (held_tier >= 3 and not stage):
+		return out
+	for p in PERKS:
+		if charges(p) > 0 and not (stage and p == "gold_ghost"):
+			out.append(p)
+	return out
 
-# offer it on these results: a Time trial run that finished without Gold, where the player
-# has no Gold yet and the ghost isn't open already
+# offer them on these results: a Time trial run that finished without Gold, where the player
+# has no Gold yet
 static func offer(track_name: String, variant: String, finished: bool, run_tier: int, held_tier: int) -> bool:
-	return finished and run_tier < 3 and held_tier < 3 and has(track_name, variant) and not unlocked(track_name, variant)
+	return finished and run_tier < 3 and held_tier < 3 and has(track_name, variant)

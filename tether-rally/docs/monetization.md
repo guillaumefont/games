@@ -15,6 +15,7 @@ Everything game-side is built and merged, running behind stubs (a test build gra
 - PR #100: `Store`, `Ads` and `Monetization` services with stubs.
 - PR #101: "x2 coins" on the results, Gold ghost (51 traces at the Gold time, offered after a run without Gold), Daily Detour with 3 attempts (first lap free, practice, +1 attempt for an ad), full-screen ads, No ads / Restore / Privacy in Settings, the "Android Play" (AAB) export preset.
 - PR #102: starter pack and coin packs (shop under the Garage), Daily Detour streak with "Save my streak", ideal line.
+- Gold ghost and ideal line made consumables (Nov 25, 2026, Guillaume's call): see "Consumables" below.
 
 Before/after screenshots: [results](monetization/results_coins-before-after.jpg), [results phase 3](monetization/results_coins-phase3-before-after.jpg), [Daily Detour](monetization/menu_daily-before-after.jpg), [settings](monetization/settings-before-after.jpg), [home](monetization/menu_home-before-after.jpg), [Garage](monetization/menu_garage-phase3-before-after.jpg).
 
@@ -98,7 +99,9 @@ Three placements, all extras on top of a race, never a way to buy a race back. N
 - **Effect:** for the next run only, the path of the Gold trace is drawn on the ground as a discreet ribbon, with a mark where the AI hooks and lets go. Nothing changes in the physics.
 - **New content:** reuses the Gold ghost traces; the hook and release instants must be added to the recording. Rendering in `world_view.gd`.
 
-**For all of them:** with "No ads", all three are free (the Gold ghost is then unlocked everywhere, the ideal line becomes a Settings option).
+**For all of them:** with "No ads", all three are free (no video).
+
+**Consumables (decided by Guillaume, 2026-11-25; replaces the permanent unlock and the Settings option above):** the Gold ghost and the ideal line are off by default, "No ads" included. Each video (free with "No ads") adds one run of it; runs stack, so the offer stays on the results screen and can be taken again. One run of each held perk is used at GO of a single-player Time trial on a track + variant without Gold (the ideal line also in Special Stages, which have no medal); leaving that run during its first lap gives it back, like a Daily Detour attempt. Counts in `wallet.cfg`, section `perks`, cleared by "Reset progress". Code: `scripts/gold_ghosts.gd` (`charges`, `add_charge`, `perks_for`).
 
 ## Daily Detour
 
