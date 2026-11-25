@@ -84,9 +84,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - Seaplanes (`gull`) are collateral, not foes (Guillaume, 2026-11-24: "Hydro planes should be a collateral
   damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
   upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
-  costs points when shot down (see civilians below). No formations.
+  pays nothing when shot down (see civilians below). No formations.
 - Civilians (`Rules.CIVILIANS`: seaplanes, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
-  real one down costs `CIVIL_COST` points, drops no scrap, isn't a kill and isn't in the kill total; missiles
+  real one down scores nothing (no penalty or notice either, Guillaume, 2026-11-25: "The game is too
+  dense to be able to avoid killing them"); a downed seaplane's pilot bails out under a parachute that
+  sways off and shrinks away (`Blasts.chute`). It drops no scrap, isn't a kill and isn't in the kill total; missiles
   and the guns' assist never lock onto them (`Game.shy`). Some are hacked (`Obj.hacked`: a seaplane after
   the level's opening, `Foes.HACK_P`; a lighthouse, `Rules.HACK_LIGHTHOUSE`): "a lighthouse that opens to
   show a turret, a hydro plane that unveils a minigun". A hacked one blinks and sparks red for
