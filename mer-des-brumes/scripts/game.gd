@@ -85,10 +85,17 @@ var _puff_mesh := Models.ball(1.0, 5, 3)
 var _chip_mesh := Models.box(1, 1, 1)
 var _lit := {}
 var aim_mark: Node3D
+var _aim_line: MeshInstance3D
 var _aim_ring: MeshInstance3D
-var _aim_dots: Array[MeshInstance3D] = []
-var _aim_ready := Color8(0x5f, 0xd0, 0x6a)
-var _aim_idle := Color8(0xb9, 0xc2, 0xbd)
+const AIM_RED := Color8(0xe2, 0x3b, 0x2e)
+## How far the red line reaches when nothing is in the way (lost in the fog: "infinite").
+const LINE_LEN := 220.0
+## A ship's size for the red line and for balls landing on it.
+const HIT_R := 3.0
+## Ball flight: seconds per metre and a fixed part (faster balls, flatter arc).
+const BALL_SPM := 1.0 / 60.0
+const BALL_T0 := 0.15
+const BALL_ARC := 2.2
 
 
 func _ready() -> void:
@@ -151,24 +158,24 @@ func _build_world() -> void:
 	_build_aim_mark()
 
 
-## The green aim on the water: dots from the ship to a ring where the balls will land.
+## The aim on the water: a red line from the ship that runs on until it meets a ship or an
+## island, with a red ring on what it meets.
 func _build_aim_mark() -> void:
 	aim_mark = Node3D.new()
 	aim_mark.visible = false
 	add_child(aim_mark)
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.4, 0.08, 1.0)
+	_aim_line = Models.instance(bm, Models.flat_mat(AIM_RED, 0.9), false)
+	aim_mark.add_child(_aim_line)
 	var tm := TorusMesh.new()
 	tm.inner_radius = 2.3
 	tm.outer_radius = 2.9
 	tm.rings = 24
 	tm.ring_segments = 4
-	_aim_ring = Models.instance(tm, Models.flat_mat(_aim_ready, 0.85), false)
+	_aim_ring = Models.instance(tm, Models.flat_mat(AIM_RED, 0.9), false)
 	_aim_ring.scale = Vector3(1, 0.15, 1)
 	aim_mark.add_child(_aim_ring)
-	var dot := Models.ball(0.32, 6, 3)
-	for i in 7:
-		var d := Models.instance(dot, Models.flat_mat(_aim_ready, 0.8), false)
-		aim_mark.add_child(d)
-		_aim_dots.append(d)
 
 
 func _on_resize() -> void:
@@ -317,7 +324,7 @@ func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang 
 	var aimed := at.is_finite()
 	var tp := at if aimed else target.pos()
 	var dist := Vector2(tp.x - sx, tp.z - sz).length()
-	var dur := dist / 28.0 + 0.35
+	var dur := dist * BALL_SPM + BALL_T0
 	var tv := Vector3.ZERO if aimed else Vector3(sin(target.h), 0, cos(target.h)) * target.v
 	var spread := 1.2 if aimed else 1.8
 	for i in n:
@@ -356,15 +363,63 @@ func can_aim() -> bool:
 	return connected and alive and not hud.port_open() and combat and combat.e.state != "sink"
 
 
-## Where the balls will fall: the green stick only picks the direction; they fly as far as
-## the foe is (within the guns' range), so the player only has to point the guns.
-func aim_point() -> Vector3:
-	var pp := P.pos()
+## Where the ray from (o) along (d) first enters a circle (c, r), or INF.
+static func _ray_circle(o: Vector2, d: Vector2, c: Vector2, r: float) -> float:
+	var oc := o - c
+	var b := oc.dot(d)
+	var q := oc.length_squared() - r * r
+	if q <= 0:
+		return 0.0
+	var disc := b * b - q
+	if b > 0 or disc < 0:
+		return INF
+	return -b - sqrt(disc)
+
+
+## The red line: from the ship in the green stick's direction until the first ship or island.
+## {dist, point, boat (or null), isle (bool)}; nothing in the way: dist = LINE_LEN.
+func aim_ray() -> Dictionary:
+	var o := P.xz()
 	var d := hud.aim_vec.normalized()
-	var r := float(P.st.range)
-	if combat and combat.e.state != "sink":
-		r = clampf(combat.e.xz().distance_to(P.xz()), 6.0, r)
-	return Vector3(pp.x + d.x * r, 0, pp.z + d.y * r)
+	var best := {"dist": LINE_LEN, "boat": null, "isle": false}
+	if d == Vector2.ZERO:
+		d = Vector2(sin(P.h), cos(P.h))
+	for e in enemies:
+		if e.state == "sink":
+			continue
+		var t := _ray_circle(o, d, e.xz(), HIT_R)
+		if t < best.dist:
+			best = {"dist": t, "boat": e, "isle": false}
+	for isl in isles:
+		var t := _ray_circle(o, d, Vector2(isl.x, isl.z), float(isl.r))
+		if t < best.dist:
+			best = {"dist": t, "boat": null, "isle": true}
+	var p := o + d * float(best.dist)
+	best.point = Vector3(p.x, 0, p.y)
+	return best
+
+
+## Where the balls will fall: on what the red line meets (or at the guns' range when it
+## meets nothing).
+func aim_point() -> Vector3:
+	var r := aim_ray()
+	if r.boat == null and not r.isle:
+		var pp := P.pos()
+		var d := hud.aim_vec.normalized()
+		var rg: float = P.st.range
+		return Vector3(pp.x + d.x * rg, 0, pp.z + d.y * rg)
+	if r.boat:
+		# the balls go for the middle of the ship the line touches
+		var bp: Vector3 = r.boat.pos()
+		return Vector3(bp.x, 0, bp.z)
+	return r.point
+
+
+func on_island(p: Vector3) -> bool:
+	for isl in isles:
+		if Vector2(p.x - isl.x, p.z - isl.z).length() < float(isl.r):
+			return true
+	return false
 
 
 func aiming() -> bool:
@@ -383,11 +438,15 @@ func aim_batteries() -> Array:
 func fire_aimed() -> int:
 	if not can_aim():
 		return 0
-	var foe: Boat = combat.e
+	var ray := aim_ray()
+	var foe: Boat = ray.boat if ray.boat else combat.e
 	var at := aim_point()
 	var bats := aim_batteries()
 	if bats.is_empty():
 		hud.toast("Aucun canon de ce côté : tournez le bateau.")
+		return 0
+	if (ray.boat or ray.isle) and float(ray.dist) > float(P.st.range):
+		hud.toast("Trop loin pour les canons : approchez-vous.")
 		return 0
 	var n := 0
 	for b in bats:
@@ -412,19 +471,19 @@ func _update_aim_mark() -> void:
 	if not on:
 		return
 	var pp := P.pos()
-	var at := aim_point()
-	var ready := false
-	for b in aim_batteries():
-		if P.rl.get(b.k, 0.0) <= 0:
-			ready = true
-	var c := _aim_ready if ready and s.balls > 0 else _aim_idle
-	_aim_ring.material_override = Models.flat_mat(c, 0.85)
-	_aim_ring.position = Vector3(at.x, 0.6, at.z)
-	for i in _aim_dots.size():
-		var k := (i + 1.0) / (_aim_dots.size() + 1.0)
-		var d := _aim_dots[i]
-		d.material_override = _aim_ring.material_override
-		d.position = Vector3(lerpf(pp.x, at.x, k), 0.7 + sin(PI * k) * 3.0, lerpf(pp.z, at.z, k))
+	var ray := aim_ray()
+	var end: Vector3 = ray.point
+	var len := maxf(0.1, Vector2(end.x - pp.x, end.z - pp.z).length())
+	_aim_line.position = Vector3((pp.x + end.x) / 2, 0.6, (pp.z + end.z) / 2)
+	_aim_line.rotation = Vector3(0, atan2(end.x - pp.x, end.z - pp.z), 0)
+	_aim_line.scale = Vector3(1, 1, len)
+	var hit: bool = ray.boat != null or ray.isle
+	_aim_ring.visible = hit
+	if hit:
+		var at := aim_point()
+		var ready: bool = float(ray.dist) <= float(P.st.range) and s.balls > 0
+		_aim_ring.material_override = Models.flat_mat(AIM_RED, 0.9 if ready else 0.4)
+		_aim_ring.position = Vector3(at.x, 0.6, at.z) if ray.boat else Vector3(end.x, 0.6, end.z)
 
 
 ## Leaving the game (app in the background, window left) disconnects the player: from then
@@ -465,7 +524,7 @@ func _update_balls(dt: float) -> void:
 		b.n.visible = true
 		var k := minf(1.0, b.t / b.dur)
 		var p: Vector3 = b.from.lerp(b.to, k)
-		p.y = 1.4 + sin(PI * k) * 4 * (1 - k * 0.3)
+		p.y = 1.4 + sin(PI * k) * BALL_ARC * (1 - k * 0.3)
 		b.n.position = p
 		if k >= 1:
 			b.n.queue_free()
@@ -478,7 +537,10 @@ func _update_balls(dt: float) -> void:
 				debris(Vector3(tp.x, 1.2, tp.z), 5)
 				puff(Vector3(tp.x, 1.5, tp.z), Color8(0x5c, 0x5f, 0x5d), 3, 0.5, 1, 1.5, 1)
 			else:
-				splash(b.to)
+				if on_island(b.to):
+					puff(Vector3(b.to.x, 1.2, b.to.z), Color8(0xc9, 0xbf, 0xa4), 4, 0.6, 1.2, 1.4, 1.0)
+				else:
+					splash(b.to)
 
 
 # ---------------------------------------------------------------- combat

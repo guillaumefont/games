@@ -186,6 +186,8 @@ func game() -> void:
 	check(g.shoot_batteries(g.P, e, 0.016, g._pay_ball).is_empty() and g.s.balls == balls, "no shot at a ship dead astern")
 
 	# connected, the guns wait for the green stick: nothing fires on its own
+	var isles_saved := g.isles
+	g.isles = []
 	e.node.position = Vector3(112, 0, -120)
 	e.aggro_cd = 999
 	g.P.rl = {}
@@ -207,15 +209,19 @@ func game() -> void:
 	await process_frame
 	g.step(1.0 / 60)
 	var at := g.aim_point()
-	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "the stick picks the direction; the balls fly as far as the foe")
+	var ray := g.aim_ray()
+	check(ray.boat == e and absf(float(ray.dist) - (12 - Game.HIT_R)) < 0.3, "the red line runs until it meets the enemy")
+	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "the balls go for the ship the line meets")
+	check(g.aim_mark.visible and g._aim_ring.visible and absf(g._aim_line.scale.z - float(ray.dist)) < 0.3, "the red line shows on the water and stops at the enemy")
 	touch(ac + Vector2(Hud.AIM_R, 0), true, true)
 	await process_frame
 	g.step(1.0 / 60)
-	check(g.aim_point().distance_to(at) < 0.3, "pushing the stick further doesn't change the distance")
-	check(g.aim_mark.visible, "the aim shows on the water")
+	check(g.aim_point().distance_to(at) < 0.3, "pushing the stick further doesn't change the target")
 	touch(ac + Vector2(Hud.AIM_R, 0), false)
 	await process_frame
 	check(g.s.balls == balls - 1 and g.balls.size() >= 1 and not g.hud.aim_active, "letting go fires the battery that bears")
+	var b0: Dictionary = g.balls[0]
+	check(float(b0.dur) < 0.4, "the balls are fast: under 0.4 s for 12 m")
 	for i in 120:
 		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
 		g.step(1.0 / 60)
@@ -232,6 +238,33 @@ func game() -> void:
 		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
 		g.step(1.0 / 60)
 	check(g.s.balls == balls - 1 and is_equal_approx(e.hp, ehp), "aimed away, the balls miss")
+	# nothing in the way: the red line runs on into the fog
+	touch(ac, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), true, true)
+	await process_frame
+	g.step(1.0 / 60)
+	check(g.aim_ray().boat == null and is_equal_approx(float(g.aim_ray().dist), Game.LINE_LEN) and not g._aim_ring.visible, "nothing in the way: an endless red line")
+	# an island in the way: the line stops on it and the guns fire at it
+	g.isles = [{"x": g.P.pos().x - 15, "z": g.P.pos().z, "r": 5.0}]
+	g.step(1.0 / 60)
+	ray = g.aim_ray()
+	check(ray.isle and absf(float(ray.dist) - 10) < 0.5, "the red line stops on an island")
+	g.P.rl = {}
+	balls = g.s.balls
+	touch(ac + Vector2(-Hud.AIM_R, 0), false)
+	await process_frame
+	check(g.s.balls == balls - 1 and g.balls.size() >= 1, "the guns fire at the island")
+	check(g.on_island(g.balls[0].to) or Vector2(g.balls[0].to.x - ray.point.x, g.balls[0].to.z - ray.point.z).length() < 1.8, "the balls fall on the island's shore")
+	# too far: the line meets an island beyond the guns' range
+	g.isles = [{"x": g.P.pos().x - 60, "z": g.P.pos().z, "r": 5.0}]
+	g.P.rl = {}
+	balls = g.s.balls
+	touch(ac, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), true, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), false)
+	await process_frame
+	check(g.s.balls == balls, "an obstacle beyond range: no shot")
+	g.isles = []
 	# straight astern: the chaloupe has no gun there
 	g.P.rl = {}
 	balls = g.s.balls
@@ -260,6 +293,7 @@ func game() -> void:
 	finger(0, Vector2(290, 700), false)
 	await process_frame
 	check(not g.hud.joy_active, "and the steering finger lifts")
+	g.isles = isles_saved
 
 	# disconnected: the ship defends itself, manoeuvring and firing alone
 	g.P.rl = {}
@@ -282,6 +316,11 @@ func game() -> void:
 		g.step(1.0 / 60)
 	check(g.s.balls == balls, "and they stop firing alone")
 	# the AI looks for a heading that brings its guns to bear and keeps out of ours
+	# (from a fixed spot: the enemy dead astern of us, both heading +z)
+	g.P.node.position = Vector3(100, 0, -120)
+	g.P.h = 0
+	e.node.position = Vector3(100, 0, -132)
+	e.h = 0
 	var r := Rules.ai_choose(e.view(), e.st, g.P.view(), g.P.st, 1.0, g.isles)
 	var rel := Rules.rel_bearing(e.pos().x, e.pos().z, r[0], g.P.pos().x, g.P.pos().z)
 	check(Rules.guns_in_arcs(Rules.batteries(e.st), rel) > 0 or absf(Rules.wrap_a(r[0] - e.h)) > 0.3, "the AI turns to bring a battery to bear")
