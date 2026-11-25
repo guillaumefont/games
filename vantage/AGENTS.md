@@ -85,7 +85,18 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   damage, not an enemy. It should stroll by (alone) waiting to be shot"): one at a time, it crosses the
   upper screen slowly from one side in a lazy wave, never fires and can't be rammed (`Foes.HARMLESS`), and
   pays nothing when shot down (see civilians below). No formations.
-- Civilians (`Rules.CIVILIANS`: seaplanes, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
+- Each world has its own strolling civilian in place of the seaplane (Guillaume, 2026-11-25: "There
+  should be no seaplane in the desert"; `Civilians`): coast seaplane, dunes paramotor, city advertising
+  blimp, ice polar helicopter, volcano hot-air balloon. Simple low poly craft only: Guillaume rejected a
+  camel caravan and a dog sled ("Camel and reindeer are a bad idea... You need to have simple shapes to
+  keep the realism plausible"), and wants to review new shapes before they're built. Waves still say
+  `gull`; `Foes.spawn` swaps in the world's (`Civilians.BY_THEME`). Same rules as the seaplane (harmless,
+  one at a time, hackable with a minigun at `Civilians.MOUNT`), each with its own getaway
+  (`Blasts.escape`): the parachute, the paramotor pilot spiralling off under the wing, the helicopter's
+  rotor spinning off like a sycamore seed with the pilot below, a blimp whizzing off like a let-go
+  balloon, the balloon's crew floating off under party balloons.
+  `tools/civilian_shots.gd` screenshots each one and its getaway.
+- Civilians (`Rules.CIVILIANS`: seaplanes and the other worlds' strollers, boats, houses, lighthouses; Guillaume, 2026-11-24): shooting a
   real one down scores nothing (no penalty or notice either, Guillaume, 2026-11-25: "The game is too
   dense to be able to avoid killing them"); a downed seaplane's pilot bails out under a parachute that
   sways off and shrinks away (`Blasts.chute`). It drops no scrap, isn't a kill and isn't in the kill total; missiles

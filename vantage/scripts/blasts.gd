@@ -55,10 +55,12 @@ class Light:
 
 
 var parts: Array[Part] = []
-## Pilots bailing out of downed civilian seaplanes (`chute`): {node, t, at, carry, side}.
+## Civilians getting away from their downed craft (`escape`): {kind, node, t, at, carry, side, life}.
 var chutes: Array[Dictionary] = []
 ## How long a parachute stays in sight (s) before it shrinks away.
 const CHUTE_LIFE := 4.0
+## How long the others' getaways last (`Civilians`).
+const ESCAPE_LIFE := {"paramotor": 3.6, "heli": 3.4, "blimp": 2.6, "balloon": 4.0}
 var lights: Array[Light] = []
 ## Blasts waiting to go off: {t, at, size, col, carry}.
 var pending: Array[Dictionary] = []
@@ -326,15 +328,26 @@ func busy() -> bool:
 	return not parts.is_empty() or not pending.is_empty()
 
 
-## A pilot bails out of a downed civilian seaplane (Guillaume, 2026-11-25: "a fun little
-## animation... a parachute getting out of the plane"): it pops up, the canopy snaps open, then it
-## sways down and drifts off to `side` (-1 or 1), carried like the blasts, and shrinks away.
-func chute(at: Vector3, carry: Vector3, side: float) -> void:
-	var n := Models.instance(Foes.chute())
+## A civilian gets away from its downed craft (Guillaume, 2026-11-25: "a fun little animation... a
+## parachute getting out of the plane"), each world its own way (`Civilians`), off to `side` (-1 or
+## 1) and carried like the blasts, then shrinks away:
+## - gull: the pilot pops up, the canopy snaps open, then sways down and drifts off;
+## - paramotor: the motor coughs smoke and dies, and the pilot spirals away under the wing;
+## - heli: the rotor spins off like a sycamore seed, the pilot hanging underneath;
+## - blimp: punctured, it whizzes round in loops like a let-go party balloon, hissing puffs, shrivelling;
+## - balloon: the crew rise out of the basket under a bunch of party balloons and float away.
+func escape(kind: String, at: Vector3, carry: Vector3, side: float) -> void:
+	var n := Models.instance(Civilians.escape_mesh(kind))
 	add_child(n)
 	n.position = at
 	n.scale = Vector3.ONE * 0.2
-	chutes.append({"node": n, "t": 0.0, "at": at, "carry": carry, "side": side})
+	chutes.append({"kind": kind, "node": n, "t": 0.0, "at": at, "carry": carry, "side": side,
+		"life": ESCAPE_LIFE.get(kind, CHUTE_LIFE), "puff": 0.0})
+
+
+## The seaplane pilot's parachute (the coast's `escape`).
+func chute(at: Vector3, carry: Vector3, side: float) -> void:
+	escape("gull", at, carry, side)
 
 
 func step_chutes(dt: float) -> void:
@@ -342,19 +355,65 @@ func step_chutes(dt: float) -> void:
 		var c := chutes[i]
 		c.t += dt
 		var t: float = c.t
-		if t >= CHUTE_LIFE:
+		var life: float = c.life
+		if t >= life:
 			(c.node as Node3D).queue_free()
 			chutes.remove_at(i)
 			continue
 		c.at += c.carry * dt
 		var n := c.node as Node3D
-		var up := 1.0 - pow(1.0 - minf(t / 0.35, 1.0), 2.0)   # pops up out of the plane
-		var open := clampf((t - 0.15) / 0.35, 0.0, 1.0)
-		var bounce := 1.0 + sin(open * PI) * 0.18          # the canopy snaps open, overshoots
-		var gone := clampf((CHUTE_LIFE - t) / 0.5, 0.0, 1.0)
-		n.position = c.at + Vector3(c.side * minf(t, 2.5) * 0.7 + sin(t * 1.7) * 0.25, up * 1.0 - t * 0.9, 0)
-		n.scale = Vector3.ONE * lerpf(0.25, 1.0, open) * bounce * gone
-		n.rotation = Vector3(sin(t * 2.4 + 0.6) * 0.12, t * 0.4, sin(t * 2.4) * 0.28 * open)
+		var side: float = c.side
+		var gone := clampf((life - t) / 0.5, 0.0, 1.0)
+		var pop := minf(t / 0.15, 1.0)   # springs out of the blast
+		match str(c.kind):
+			"paramotor":
+				# the motor coughs and dies; the pilot circles away under the wing, sinking slowly
+				var a := t * 2.2 * side
+				var r := minf(t, 1.0) * 1.3
+				n.position = c.at + Vector3(side * t * 0.9 + sin(a) * r, -t * 0.5, cos(a) * r - r)
+				n.rotation = Vector3(0, a + (PI / 2) * side, -0.3 * side * minf(t, 1.0))
+				n.scale = Vector3.ONE * lerpf(0.5, 1.0, pop) * gone
+				c.puff -= dt
+				if t < 0.6 and c.puff <= 0.0 and parts.size() < CAP:
+					c.puff = 0.12
+					var s := add("smoke", n.position + Vector3(0, 0.2, 0), mesh_ball(), rng.randf_range(0.5, 0.7))
+					s.size = rng.randf_range(0.35, 0.5)
+					s.carry = c.carry
+			"heli":
+				# the rotor whirls off like a sycamore seed, drifting down with the pilot below it
+				var up := 1.0 - pow(1.0 - minf(t / 0.3, 1.0), 2.0)
+				n.position = c.at + Vector3(side * t * 1.3 + sin(t * 3.0) * 0.2, up * 0.8 - t * 0.6, 0)
+				n.rotation = Vector3(sin(t * 4.0) * 0.12, t * 9.0, cos(t * 4.0) * 0.12)
+				n.scale = Vector3.ONE * lerpf(0.6, 1.2, pop) * gone
+			"blimp":
+				# loops and zigzags off as the gas rushes out, hissing puffs
+				var a := side * (PI / 2) + sin(t * 7.0) * 1.3 + t * 2.4 * side
+				var d := Vector3(sin(a), 0, cos(a))
+				c.at += d * 7.5 * dt + Vector3(0, -0.5 * dt, 0)
+				n.position = c.at
+				var shrivel := lerpf(1.0, 0.45, clampf(t / life, 0.0, 1.0))
+				n.rotation = Vector3(sin(t * 11.0) * 0.25, atan2(d.x, d.z), sin(t * 9.0) * 0.35)
+				n.scale = Vector3(shrivel, shrivel * (0.9 + sin(t * 23.0) * 0.1), 1.0 - (1.0 - shrivel) * 0.5) \
+					* lerpf(0.5, 0.9, pop) * gone
+				c.puff -= dt
+				if c.puff <= 0.0 and parts.size() < CAP:
+					c.puff = 0.05
+					var s := add("smoke", c.at - d * 1.8 * shrivel, mesh_ball(), rng.randf_range(0.4, 0.6))
+					s.size = rng.randf_range(0.3, 0.5)
+					s.carry = c.carry
+			"balloon":
+				# the crew rise out of the basket under their balloons and float off, swaying
+				var up := 1.0 - pow(1.0 - minf(t / 0.6, 1.0), 2.0)
+				n.position = c.at + Vector3(side * minf(t, 3.0) * 0.8 + sin(t * 1.5) * 0.3, -1.7 + up * 1.4 + t * 0.25, 0)
+				n.rotation = Vector3(sin(t * 2.0 + 0.6) * 0.1, t * 0.6, sin(t * 2.0) * 0.18)
+				n.scale = Vector3.ONE * lerpf(0.5, 1.6, minf(t / 0.4, 1.0)) * gone
+			_:
+				var up := 1.0 - pow(1.0 - minf(t / 0.35, 1.0), 2.0)   # pops up out of the plane
+				var open := clampf((t - 0.15) / 0.35, 0.0, 1.0)
+				var bounce := 1.0 + sin(open * PI) * 0.18          # the canopy snaps open, overshoots
+				n.position = c.at + Vector3(side * minf(t, 2.5) * 0.7 + sin(t * 1.7) * 0.25, up * 1.0 - t * 0.9, 0)
+				n.scale = Vector3.ONE * lerpf(0.25, 1.0, open) * bounce * gone
+				n.rotation = Vector3(sin(t * 2.4 + 0.6) * 0.12, t * 0.4, sin(t * 2.4) * 0.28 * open)
 
 
 func clear() -> void:
