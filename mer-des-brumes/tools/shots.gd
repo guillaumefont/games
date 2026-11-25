@@ -55,6 +55,8 @@ func _initialize() -> void:
 	g.camera.position = g.P.node.position + g.cam_off
 	e.node.position = Vector3(72, 0, 66)
 	e.h = 2.0
+	e.st = e.st.duplicate()
+	e.st.grapple = 0.0   # no boarding of its own before the boarding shots
 	g.start_combat(e, "pending")
 	await frames(40)
 	await shot("2-attack")
@@ -80,6 +82,29 @@ func _initialize() -> void:
 		await process_frame
 	await shot("3-aim-ile")
 	_mouse(ac, false)
+	# the purple grapple line, then a boarding
+	var hc := g.hud.hook_center()
+	e.node.position = g.P.node.position + Vector3(10, 0, -4)
+	e.offline = true
+	e.rl = {"bab": 99.0, "tri": 99.0, "av": 99.0, "ar": 99.0}   # no smoke over the line
+	await frames(60)
+	_mouse(hc, true)
+	for i in 12:
+		var d2 := e.xz() - g.P.xz()
+		_mouse(hc + d2.normalized() * Hud.AIM_R, true, true)
+		await process_frame
+	await shot("3-grappin")
+	_mouse(hc, false)
+	g.hud.cancel_sticks()
+	g.start_boarding(e, true)
+	await frames(90)
+	await shot("3-abordage")
+	g.combat.board.theirs = []
+	for m in e.fighters:
+		m.hp = 0
+	await frames(5)
+	await shot("3-prise")
+	g.hud.hide_prompt()
 	g.end_combat()
 	g.P.node.position = Rules.DOCK
 	g.camera.position = g.P.node.position + g.cam_off

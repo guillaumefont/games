@@ -65,6 +65,25 @@ func rules() -> void:
 	check(Rules.fmt(1234567) == "1 234 567", "French number format")
 	Rules.save_game(s, SAVE)
 	check(Rules.load_game(SAVE) == Rules.migrate(s), "saves and loads")
+	# boarding: crews and captains
+	var mine := Rules.fighters({"sabre": 4}, 0)
+	check(mine.size() == 5 and mine[4].k == "capitaine" and mine[4].hp > Rules.CREW_HP, "four sabres and a captain, who falls last")
+	var theirs := Rules.fighters({"sabre": 1}, 0)
+	for i in 200:
+		Rules.melee(mine, theirs, 0.05)
+	check(Rules.alive_count(theirs) == 0 and Rules.alive_count(mine) > 0, "the bigger crew wins the melee")
+	var weak := Rules.fighters({"sabre": 2}, 0)
+	var strong := Rules.fighters({"fusil": 6}, 2)
+	Rules.melee(strong, weak, 0.9)
+	check(weak[0].hp <= 0 and weak[2].hp == weak[2].max, "the blows fall on the crew before the captain")
+	check(Rules.survivors(mine).sabre == Rules.alive_count(mine) - 1, "survivors: the crew left standing")
+	s = Rules.fresh()
+	s.crew.sabre = 7
+	Rules.take_hull(s, "sloop", {"voiles": 3, "grappin": 1, "capitaine": 0})
+	check(s.ship == "sloop" and s.up.voiles == 3 and s.up.grappin == 1 and s.crew.sabre == 7, "a taken sloop keeps its upgrades and your crew")
+	Rules.take_hull(s, "chaloupe", {"voiles": 3})
+	check(s.up.voiles == 1 and s.crew.sabre == 6, "a smaller prize: upgrades to its caps, extra crew ashore")
+	check(Rules.ship_stats("sloop", {"grappin": 1}, 0).grapple == 14.0, "grapples throw further")
 
 
 func make_game() -> Game:
@@ -188,6 +207,8 @@ func game() -> void:
 	# connected, the guns wait for the green stick: nothing fires on its own
 	var isles_saved := g.isles
 	g.isles = []
+	e.offline = true   # it only defends: no grapple of its own in these checks
+	g.P.hp = 99999     # its broadsides mustn't sink us halfway through
 	e.node.position = Vector3(112, 0, -120)
 	e.aggro_cd = 999
 	g.P.rl = {}
@@ -341,6 +362,8 @@ func game() -> void:
 	g.P.v = 0
 	g.throttle = 0
 	g.P.hp = 9999
+	a.st = a.st.duplicate()
+	a.st.grapple = 0.0   # this check is about the prompt and the guns, not a boarding
 	balls = g.s.balls
 	g.start_combat(a, "pending")
 	check(g.hud.prompt_visible(), "being attacked asks: fight back or flee")
@@ -408,6 +431,116 @@ func game() -> void:
 	await process_frame
 
 
+## The purple grapple stick and the boarding.
+func boarding() -> void:
+	print("boarding")
+	var g := make_game()
+	await process_frame
+	clear_sea(g)
+	g.isles = []
+	g.P.node.position = Vector3(100, 0, -120)
+	g.P.h = 0
+	g.throttle = 0
+	var e: Game.Boat = g.enemies[0]
+	e.offline = true   # it defends only: never grapples us on its own
+	e.node.position = Vector3(110, 0, -120)
+	e.h = 0
+	e.v = 0
+	g.start_combat(e, "fight")
+	g.step(1.0 / 60)
+	check(g.hud._hook.visible and g.hud._aim.visible, "in a fight: the purple grapple stick shows with the green one")
+	var hc := g.hud.hook_center()
+	touch(hc, true)
+	touch(hc + Vector2(Hud.AIM_R, 0), true, true)
+	await process_frame
+	g.step(1.0 / 60)
+	check(g.hud.hook_active and not g.hud.aim_active and not g.hud.joy_active, "a thumb on the purple stick aims the grapple")
+	check(g.hook_mark.visible and g._hook_ring.visible, "a purple line runs to the ship ahead")
+	# a strong crew boards a weak one
+	g.s.crew = {"sabre": 0, "pistolet": 0, "fusil": 6, "grenade": 0}
+	e.fighters = Rules.fighters({"sabre": 2}, 0)
+	var coins: int = g.s.coins
+	touch(hc + Vector2(Hud.AIM_R, 0), false)
+	await process_frame
+	check(g.hooks.size() == 1, "letting go throws the grapple")
+	run(g, 0.5)
+	check(g.combat.has("board"), "the grapple catches: boarding")
+	check(not g.hud._aim.visible and not g.hud._hook.visible and g.hud._board.visible, "no sticks at a boarding, the melee shows")
+	run(g, 1.5)
+	check(e.xz().distance_to(g.P.xz()) < 6.5, "the ships are pulled side by side")
+	run(g, 10)
+	check(e.state == "taken" and g.combat.is_empty(), "nobody left over there: the ship is ours")
+	check(g.s.coins == coins + e.coins * 2, "and its treasure counts twice")
+	check(g.hud.prompt_visible() and g.s.crew.fusil == 6, "keep it or sink it? (no man lost)")
+	var hk := e.hk
+	check(g.hud.press_prompt("Prendre"), "keep it")
+	check(g.s.ship == hk and not g.enemies.has(e) and not g.hud.prompt_visible(), "we sail the prize")
+
+	# out of reach: the grapple falls short
+	clear_sea(g)
+	var f: Game.Boat = g.enemies[1]
+	f.offline = true
+	f.node.position = g.P.pos() + Vector3(30, 0, 0)
+	g.start_combat(f, "fight")
+	g.hook_cd = 0
+	g.step(1.0 / 60)
+	touch(hc, true)
+	touch(hc + Vector2(Hud.AIM_R, 0), true, true)
+	touch(hc + Vector2(Hud.AIM_R, 0), false)
+	await process_frame
+	run(g, 1.5)
+	check(not g.combat.has("board"), "a ship out of the grapple's reach isn't caught")
+	# sinking the prize instead
+	f.node.position = g.P.pos() + Vector3(9, 0, 0)
+	f.fighters = Rules.fighters({}, 0)
+	g.hook_cd = 0
+	g.step(1.0 / 60)
+	touch(hc, true)
+	touch(hc + Vector2(Hud.AIM_R, 0), true, true)
+	touch(hc + Vector2(Hud.AIM_R, 0), false)
+	await process_frame
+	run(g, 8)
+	check(f.state == "taken", "a lone captain is beaten")
+	check(g.hud.press_prompt("Le couler") and f.state == "sink", "or send the prize down")
+
+	# cutting the ropes
+	clear_sea(g)
+	var c: Game.Boat = g.enemies[2]
+	c.offline = true
+	c.node.position = g.P.pos() + Vector3(8, 0, 0)
+	g.start_combat(c, "fight")
+	g.start_boarding(c, true)
+	g.step(1.0 / 60)
+	check(g.hud.press_action("Couper les cordes"), "the ropes can be cut")
+	check(g.combat and not g.combat.has("board"), "boarding over, the fight goes on")
+
+	# an attacker grapples us; with no crew we lose the ship
+	g.end_combat()
+	clear_sea(g)
+	g.s.crew = {"sabre": 0, "pistolet": 0, "fusil": 0, "grenade": 0}
+	g.s.coins = 1000
+	var a: Game.Boat = g.enemies[3]
+	a.offline = false
+	a.fighters = Rules.fighters({"fusil": 8}, 3)
+	a.node.position = g.P.pos() + Vector3(7, 0, 0)
+	a.st = a.st.duplicate()
+	a.st.speed = 0.0   # it stays close: the check is about its grapple, not its manoeuvre
+	a.v = 0
+	g.start_combat(a, "fight")
+	for i in 60 * 30:
+		g.step(1.0 / 60)
+		if g.combat.has("board") or not g.alive:
+			break
+	check(g.combat.has("board"), "an attacker close by throws its grapple")
+	for i in 60 * 30:
+		g.step(1.0 / 60)
+		if not g.alive:
+			break
+	check(not g.alive and g.s.coins == 500, "our captain falls alone: the ship is lost (half the coins)")
+	g.queue_free()
+	await process_frame
+
+
 func find_button(n: Node, prefix: String) -> Button:
 	for c in n.get_children():
 		if c is Button and c.text.begins_with(prefix):
@@ -422,6 +555,7 @@ func _initialize() -> void:
 	print("Mer des Brumes game test")
 	rules()
 	await game()
+	await boarding()
 	if FileAccess.file_exists(SAVE):
 		DirAccess.remove_absolute(SAVE)
 	print("game test: ", "PASS" if fails == 0 else "%d FAILED" % fails)
