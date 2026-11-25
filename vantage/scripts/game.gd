@@ -655,10 +655,11 @@ func _process(delta: float) -> void:
 const PLAY_FPS := 60
 ## Frames a second where little moves: the hangar, the results and a full pause.
 const IDLE_FPS := 30
-## The 3D view is drawn at most this many pixels wide, then scaled up to the screen: a
-## 1440 px phone screen would otherwise shade 1.8 times the pixels of a 1080 px one, for a
-## low poly world that looks the same. 1080 px wide screens and smaller draw at full size.
-const MAX_3D_W := 1080.0
+## The 3D view is drawn at most this many pixels wide, then scaled up to the screen. 1080 px
+## (2026-11-24, for battery) looked soft on 1440 px phones; Guillaume asked for a sharper world
+## (2026-11-25), and 1260 px gets most of it for about 20% more time a frame there (full 1440 px
+## measured +40%). Screens up to 1260 px wide draw at full size.
+const MAX_3D_W := 1260.0
 
 
 func fps_cap() -> int:

@@ -109,7 +109,7 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   `Rules.fresh()`, so Guillaume can replay the difficulty curve from scratch.
 - Battery (Guillaume, 2026-11-24: "the game is draining the battery"): `Game.fps_cap()` sets `Engine.max_fps`
   every frame: 60 in flight (`PLAY_FPS`; 90-120 Hz phones would otherwise draw every refresh), 30 in the
-  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1080) px wide
+  hangar, the results and a full pause (`IDLE_FPS`). The 3D view is drawn at most `MAX_3D_W` (1260) px wide
   (`Game.render_scale`, bilinear upscale). Set these in scripts, not project.godot: a project setting
   needs a new APK shell, a script ships in the game pack. Per-frame script time is small (about 1 ms a
   step, `tools/perf.gd` prints it with draw calls); the cost is on the GPU, so watch fill (full-screen
