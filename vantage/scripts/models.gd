@@ -52,6 +52,10 @@ uniform float sea_y = -0.4;
 uniform float water = 1.0;
 uniform float lava = 0.0;
 uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
+// the land's baked sun shadow (UV2.x: the margin by which the ground toward the sun stands
+// above the sun's ray, see Models.sun_margin): its edge band and its colour (sRGB)
+uniform vec2 shade_edge = vec2(0.02, 0.14);
+uniform vec3 shade_k = vec3(0.36, 0.37, 0.53);
 varying vec3 wpos;
 varying float flat_up;
 
@@ -70,6 +74,9 @@ void vertex() {
 
 void fragment() {
 	vec3 col = COLOR.rgb;
+	float sh = smoothstep(shade_edge.x, shade_edge.y, UV2.x);
+	vec3 k = OUTPUT_IS_SRGB ? shade_k : to_linear(shade_k);
+	col *= mix(vec3(1.0), k, sh);
 	float rock = 1.0 - COLOR.a;
 	if (rock > 0.01) {
 		float y = wpos.y + 0.35 * sin(wpos.x * 0.23 + wpos.z * 0.17) + 0.15 * sin(wpos.z * 0.61);
@@ -116,6 +123,8 @@ static func ground_mat() -> ShaderMaterial:
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		m.set_shader_parameter("sea_y", SEA_Y)
+		m.set_shader_parameter("shade_edge", SHADE_EDGE)
+		m.set_shader_parameter("shade_k", Vector3((1.0 - SHADE) * 0.94, (1.0 - SHADE) * 0.97, 1.0 - SHADE * 0.75))
 		_cache["ground"] = m
 	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
 	_cache["ground"].set_shader_parameter("water", lq[0])
@@ -1395,33 +1404,39 @@ static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32
 
 
 ## How deep in the land's own shadow the ground at p lies, 0 (in the sun) to 1: the ground
-## between p and the sun stands above the sun's ray through p. Soft at the shadow's edge.
-const SUN_STEPS := [1.0, 2.2, 3.6, 5.2, 7.2]
-const SHADE := 0.55
+## between p and the sun stands above the sun's ray through p.
+const SUN_STEPS := [0.7, 1.4, 2.1, 2.9, 3.7, 4.6, 5.6, 6.6, 7.6]
+## How dark the land's shadow is (and a little cooler: lit by the sky, not the sun), and the
+## margin band over which its edge goes from lit to shaded: thin, so edges are crisp.
+const SHADE := 0.5
+const SHADE_EDGE := Vector2(0.0, 0.25)
 ## The highest the land rises (the plain's top, `Relief.base_y`).
 const LAND_TOP := 1.3
 
 
 static func sun_shade(ground_h: Callable, p: Vector3) -> float:
+	var m := sun_margin(ground_h, p)
+	return smoothstep(SHADE_EDGE.x, SHADE_EDGE.y, m)
+
+
+## How far (m) the ground toward the sun stands above the sun's ray through p: above 0 in
+## shadow. Ground vertices carry it (UV2.x) and the ground shader thresholds it per pixel, so a
+## shadow's edge is a crisp line across a cell, not a blur from one vertex to the next.
+static func sun_margin(ground_h: Callable, p: Vector3) -> float:
 	var l := sun_slide.length()
 	if l < 0.01:
-		return 0.0
+		return -1.0
 	var to_sun := -sun_slide / l
-	var worst := 0.0
+	var worst := -1.0
 	for s: float in SUN_STEPS:
 		# the land never rises past LAND_TOP, so past where the ray clears it nothing can shade p
 		# (and most of the land, near the plain, is never tested at all)
-		if p.y + s / l > LAND_TOP + 0.7:
+		if p.y + s / l > LAND_TOP + 0.05:
 			break
 		var q := Vector2(p.x, p.z) + to_sun * s
 		var above: float = float(ground_h.call(q.x, q.y)) - (p.y + s / l)
 		worst = maxf(worst, above)
-	return smoothstep(0.0, 0.45, worst)
-
-
-## A colour in the land's shadow: darker and a little cooler (lit by the sky, not the sun).
-static func shade_col(c: Color) -> Color:
-	return Color(c.r * (1.0 - SHADE) * 0.94, c.g * (1.0 - SHADE) * 0.97, c.b * (1.0 - SHADE * 0.75), c.a)
+	return clampf(worst, -1.0, 3.0)
 
 
 ## How much wider than the core strip the city is built (half on each side).
@@ -1494,9 +1509,25 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		ns.append(nr)
 	# vertex colours, darkened in hollows (cheap baked occlusion) and in the depths; steep faces
 	# are bare rock, flagged in alpha for the ground shader's strata
+	# the sun-shadow test samples the ground many times a vertex: inside the chunk it reads the
+	# heights already worked out for the grid (bilinear between its nodes), and only asks
+	# Relief past the chunk's edge (it costs ~half the chunk's build time otherwise)
+	var grid_h := func(x: float, z: float) -> float:
+		var fj := (z0 - z) / cz_
+		var ii := xs.bsearch(x) - 1
+		if fj < 0.0 or fj >= nz or ii < 0 or ii >= nx:
+			return ground_h.call(x, z)
+		var jj := int(fj)
+		var tj := fj - jj
+		var ti := (x - xs[ii]) / (xs[ii + 1] - xs[ii])
+		var a0 := lerpf(vs[ii][jj].y, vs[ii + 1][jj].y, ti)
+		var a1 := lerpf(vs[ii][jj + 1].y, vs[ii + 1][jj + 1].y, ti)
+		return lerpf(a0, a1, tj)
 	var cs := []
+	var ms := []
 	for i in nx + 1:
 		var cr := []
+		var mr := []
 		for j in nz + 1:
 			var h: float = hs[i][j]
 			var c := ground_col(h)
@@ -1518,22 +1549,22 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					c.a = 1.0 - steep
 				if y < -0.6:
 					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
-				# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
-				# them (Guillaume, 2026-11-24: "bake shadows" on the landscape)
-				if shaped:
-					var sh := sun_shade(ground_h, vs[i][j])
-					if sh > 0.0:
-						c = Color(c.lerp(shade_col(c), sh), c.a)
 			cr.append(c)
+			# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
+			# them (Guillaume, 2026-11-24: "bake shadows", then "more defined"); the shader draws them
+			mr.append(sun_margin(grid_h, vs[i][j]) if shaped else -1.0)
 		cs.append(cr)
+		ms.append(mr)
 	var gv := PackedVector3Array()
 	var gn := PackedVector3Array()
 	var gc := PackedColorArray()
+	var gm := PackedVector2Array()
 	for i in nx:
 		for j in nz:
 			var q := [vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]]
 			var qn := [ns[i][j], ns[i + 1][j], ns[i + 1][j + 1], ns[i][j + 1]]
 			var qc := [cs[i][j], cs[i + 1][j], cs[i + 1][j + 1], cs[i][j + 1]]
+			var qm := [ms[i][j], ms[i + 1][j], ms[i + 1][j + 1], ms[i][j + 1]]
 			# split along the shorter diagonal of heights so ridges read as ridges
 			var flip: bool = absf(q[0].y - q[2].y) > absf(q[1].y - q[3].y)
 			var order := [[0, 1, 3], [1, 2, 3]] if flip else [[0, 1, 2], [0, 2, 3]]
@@ -1551,6 +1582,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					gv.append(q[k])
 					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
 					gc.append(qc[k])
+					gm.append(Vector2(qm[k], 0.0))
 			# rivers, lakes and lava: a moving surface over the ground (Relief.fx_mesh)
 			var wq := [wet[i][j], wet[i + 1][j], wet[i + 1][j + 1], wet[i][j + 1]]
 			var nwet := 0
@@ -1596,6 +1628,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		gv.append_array(PackedVector3Array(roads[0]))
 		gn.append_array(PackedVector3Array(roads[1]))
 		gc.append_array(PackedColorArray(roads[2]))
+		gm.resize(gv.size())
 		# a calm, low-contrast backdrop, so foes and bullets stand out (Guillaume, 2026-11-24: "the
 		# city landscape is too messy... not very easy to see the enemies")
 		b.tone = City.calm
@@ -1608,6 +1641,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	arr[Mesh.ARRAY_VERTEX] = gv
 	arr[Mesh.ARRAY_NORMAL] = gn
 	arr[Mesh.ARRAY_COLOR] = gc
+	arr[Mesh.ARRAY_TEX_UV2] = gm
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
 
@@ -1638,17 +1672,18 @@ static func ao_blobs(spots: Array, ground_h: Callable, cast := true) -> Mesh:
 		c += lean * 0.5
 		var on_ground := func(x: float, z: float) -> Vector3:
 			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
-		# a soft falloff: an inner ring at 55% of the radius still holds 60% of the shade
+		# a short falloff (a defined shadow, Guillaume 2026-11-25): an inner ring at INNER of the
+		# radius still holds 85% of the shade
 		var mid: Vector3 = on_ground.call(c.x, c.y)
 		var inner := []
 		var ring := []
 		for k in AO_SEG:
 			var ang := TAU * k / AO_SEG
 			var o := u * cos(ang) * ru + w * sin(ang) * r
-			inner.append(on_ground.call(c.x + o.x * 0.55, c.y + o.y * 0.55))
+			inner.append(on_ground.call(c.x + o.x * INNER, c.y + o.y * INNER))
 			ring.append(on_ground.call(c.x + o.x, c.y + o.y))
 		var dark := Color(0, 0, 0, a)
-		var half := Color(0, 0, 0, a * 0.6)
+		var half := Color(0, 0, 0, a * 0.85)
 		var clear := Color(0, 0, 0, 0)
 		for k in AO_SEG:
 			var k1 := (k + 1) % AO_SEG
@@ -1678,7 +1713,9 @@ const AO_SEG := 10
 ## Contact shadows: how far past the prop's own footprint they spread, their darkest, their lift
 ## off the ground (above the low poly ground's facets).
 const AO_SPREAD := 1.35
-const AO_DARK := 0.42
+const AO_DARK := 0.5
+## Where a contact shadow starts fading, as a share of its radius.
+const INNER := 0.72
 const AO_LIFT := 0.1
 ## How far a prop's baked shadow reaches along the sun, as a share of its full sun shadow.
 const CAST := 1.6
