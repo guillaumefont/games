@@ -466,7 +466,7 @@ const POOL_BACK := 11.0
 const FEED_W := 1.6
 const FALL_W := FEED_W * 2.0
 ## The flat, dry bank either side of the stream, at the water's level.
-const BANK := 1.4
+const BANK := 0.8
 ## The water's level in the pool and stream, below the plain.
 const FEED_Y := -0.5
 ## How far past the lip the stream's notch runs into the wall.
