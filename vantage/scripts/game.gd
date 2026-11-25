@@ -95,6 +95,7 @@ var blasts: Blasts
 var ship: Node3D
 var ship_mesh: MeshInstance3D
 var engine_glow: MeshInstance3D
+var trails: Trails
 var ppos := Vector3(0, Rules.PY, 5)
 var prel := Vector2(0, 5)
 var pvel := Vector2.ZERO
@@ -328,6 +329,9 @@ void sky() {
 	engine_glow.position = Vector3(0, -0.05, 1.4)
 	engine_glow.scale = Vector3(1.6, 1, 3)
 	ship.add_child(engine_glow)
+	trails = Trails.new()
+	trails.src = ship
+	add_child(trails)
 	sound = Sound.new()
 	add_child(sound)
 	blasts = Blasts.new()
@@ -2047,6 +2051,11 @@ func update_ship(dt: float) -> void:
 	ship.rotation = Vector3(pitch, 0, bank)
 	ship_mesh.visible = inv <= 0.0 or fmod(inv, 0.16) > 0.08
 	engine_glow.scale = Vector3(1.6, 1, 2.6 + sin(phase_t * 40.0) * 0.6)
+	if dt > 0.0:
+		var chase := pov_mode()
+		trails.keep = 6 if chase else Trails.POINTS
+		trails.width = Trails.WIDTH * (0.5 if chase else 1.0)
+		trails.push(dt)
 
 
 ## Gives a model a shadow on the ground. The shadow is a child (it goes when the model goes)

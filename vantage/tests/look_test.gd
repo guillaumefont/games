@@ -140,6 +140,16 @@ func in_game() -> void:
 	var dt: float = gm.get_shader_parameter("detail")
 	var cl: float = gm.get_shader_parameter("clouds")
 	check(dt > 0.0 and dt <= 0.35 and cl > 0.0 and cl <= 0.25, "ground detail and cloud shadows stay faint, so foes read over them")
+	g.trails.clear()
+	for i in 40:
+		g.ship.position += Vector3(0.05, 0, -0.2)
+		g.trails.push(1.0 / 60.0)
+	var tv: int = (g.trails.im.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() if g.trails.im.get_surface_count() > 0 else 0
+	check(tv > 0 and tv <= 2 * 6 * (Trails.POINTS - 1), "faint vapour trails off the wing tips, a small mesh (%d vertices)" % tv)
+	g.ship.visible = false
+	g.trails.push(1.0 / 60.0)
+	check(g.trails.im.get_surface_count() == 0, "no trail while the ship is hidden")
+	g.ship.visible = true
 	var v: CanvasLayer = g.get_node_or_null("vignette")
 	check(v != null and (v.get_child(0) as Control).mouse_filter == Control.MOUSE_FILTER_IGNORE, "a vignette over the view that lets touches through")
 	g.queue_free()

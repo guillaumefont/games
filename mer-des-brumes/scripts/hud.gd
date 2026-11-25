@@ -1,7 +1,8 @@
 class_name Hud
 extends CanvasLayer
 ## The interface: glass HUD (hull, coins, coffre, maps, balls), speed gauge, the joystick
-## that appears under the thumb, the green aim stick in a fight, edge arrows, enemy labels, toasts, the attack prompt and the
+## that appears under the thumb, the green aim stick and the purple grapple stick in a fight,
+## the boarding melee, edge arrows, enemy labels, toasts, the attack prompt and the
 ## parchment port with its 3D shipyard preview. Built in code.
 
 const INK := Color8(0x2e, 0x1f, 0x15)
@@ -17,6 +18,7 @@ const AIM_R := 80.0
 ## Below this reach the green stick does nothing (let go there to cancel a shot).
 const AIM_DEAD := 0.2
 const AIM_GREEN := Color8(0x5f, 0xd0, 0x6a)
+const HOOK_PURPLE := Color8(0xa0, 0x5c, 0xe0)
 const NO_ID := -99
 const MOUSE_ID := -10
 
@@ -35,6 +37,15 @@ var aim_shown := false
 var _joy_id := NO_ID
 var _aim_id := NO_ID
 var _aim: Aim
+## The purple grapple stick (bottom left): same handling, releasing throws the grapple.
+var hook_active := false
+var hook_vec := Vector2.ZERO
+var hook_mag := 0.0
+var hook_shown := false
+var _hook_id := NO_ID
+var _hook: Aim
+var _board: BoardView
+var _prompt_buttons: HBoxContainer
 
 var f_body: Font
 var f_bold: Font
@@ -223,21 +234,61 @@ class Aim:
 	extends Control
 	var knob := Vector2.ZERO
 	var held := false
+	var color := Hud.AIM_GREEN
+	var hook := false
 
 	func _draw() -> void:
-		var g := Hud.AIM_GREEN
+		var g := color
 		draw_circle(Vector2.ZERO, Hud.AIM_R, Color(g.darkened(0.55), 0.38))
 		draw_arc(Vector2.ZERO, Hud.AIM_R, 0, TAU, 48, Color(g, 0.9), 4, true)
 		draw_arc(Vector2.ZERO, Hud.AIM_R * Hud.AIM_DEAD, 0, TAU, 24, Color(g, 0.45), 2, true)
 		var kc := knob
 		draw_circle(kc, 34, Color(g, 0.95 if held else 0.8))
+		var w := Color(0.08, 0.06, 0.12, 0.85)
+		if hook:
+			# a little grapple: shank, ring and two flukes
+			draw_line(kc + Vector2(0, -18), kc + Vector2(0, 12), w, 4, true)
+			draw_arc(kc + Vector2(0, -21), 4, 0, TAU, 12, w, 3, true)
+			draw_arc(kc + Vector2(0, 2), 12, 0.15, PI - 0.15, 12, w, 4, true)
+			draw_line(kc + Vector2(-9, -8), kc + Vector2(9, -8), w, 3, true)
+			return
 		# a little crosshair on the knob
-		var w := Color(0.06, 0.16, 0.08, 0.85)
 		draw_arc(kc, 13, 0, TAU, 24, w, 3, true)
 		draw_line(kc + Vector2(-21, 0), kc + Vector2(-7, 0), w, 3, true)
 		draw_line(kc + Vector2(7, 0), kc + Vector2(21, 0), w, 3, true)
 		draw_line(kc + Vector2(0, -21), kc + Vector2(0, -7), w, 3, true)
 		draw_line(kc + Vector2(0, 7), kc + Vector2(0, 21), w, 3, true)
+
+
+## The boarding melee: your men (top) and theirs (bottom), captain last and bigger; the
+## fallen are crossed out.
+class BoardView:
+	extends Control
+	var mine: Array = []
+	var theirs: Array = []
+	var font: Font
+
+	func _row(f: Array, y: float, label: String, col: Color) -> void:
+		draw_string(font, Vector2(18, y + 7), label, HORIZONTAL_ALIGNMENT_LEFT, 120, 19, Color8(0xf3, 0xf6, 0xf3))
+		var x := 140.0
+		var step := minf(30.0, (size.x - 160.0) / maxf(1.0, f.size()))
+		for m in f:
+			var capt: bool = m.k == "capitaine"
+			var r := 12.0 if capt else 8.5
+			var k: float = clampf(m.hp / m.max, 0, 1)
+			var c: Color = Hud.GOLD if capt else col
+			if m.hp <= 0:
+				draw_circle(Vector2(x, y), r, Color(0.2, 0.2, 0.22, 0.6))
+				draw_line(Vector2(x - r, y - r), Vector2(x + r, y + r), Color(0.9, 0.3, 0.25, 0.9), 2.5, true)
+			else:
+				draw_circle(Vector2(x, y), r, Color(c, 0.35))
+				draw_circle(Vector2(x, y), r * (0.45 + 0.55 * k), c)
+			x += step + (8 if capt else 0)
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(22 / 255.0, 34 / 255.0, 38 / 255.0, 0.55))
+		_row(mine, 30, "Vous", Color8(0xd9, 0xe8, 0xdc))
+		_row(theirs, 72, "Eux", Color8(0xe5, 0x8a, 0x6a))
 
 
 # ---------------------------------------------------------------- set-up
@@ -323,6 +374,12 @@ func _build_touch() -> void:
 	_aim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_aim.visible = false
 	root.add_child(_aim)
+	_hook = Aim.new()
+	_hook.color = HOOK_PURPLE
+	_hook.hook = true
+	_hook.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hook.visible = false
+	root.add_child(_hook)
 
 
 ## Each finger is followed by its index, so one thumb can steer while the other aims. A real
@@ -345,6 +402,10 @@ func aim_center() -> Vector2:
 	return Vector2(sz.x - 130, sz.y - 250)
 
 
+func hook_center() -> Vector2:
+	return Vector2(130, root.size.y - 250)
+
+
 func _press(id: int, pos: Vector2, pressed: bool) -> void:
 	if pressed:
 		if aim_shown and _aim_id == NO_ID and pos.distance_to(aim_center()) < AIM_R * 1.3:
@@ -355,6 +416,15 @@ func _press(id: int, pos: Vector2, pressed: bool) -> void:
 			_aim.held = true
 			_aim.knob = Vector2.ZERO
 			_aim.queue_redraw()
+			_drag(id, pos)
+		elif hook_shown and _hook_id == NO_ID and pos.distance_to(hook_center()) < AIM_R * 1.3:
+			_hook_id = id
+			hook_active = true
+			hook_vec = Vector2.ZERO
+			hook_mag = 0
+			_hook.held = true
+			_hook.knob = Vector2.ZERO
+			_hook.queue_redraw()
 			_drag(id, pos)
 		elif _joy_id == NO_ID:
 			_joy_id = id
@@ -370,6 +440,8 @@ func _press(id: int, pos: Vector2, pressed: bool) -> void:
 			_hint.visible = false
 	elif id == _aim_id:
 		_aim_end(true)
+	elif id == _hook_id:
+		_hook_end(true)
 	elif id == _joy_id:
 		_joy_end()
 
@@ -384,6 +456,15 @@ func _drag(id: int, pos: Vector2) -> void:
 		aim_mag = minf(1.0, l / AIM_R)
 		_aim.knob = d
 		_aim.queue_redraw()
+	elif id == _hook_id:
+		var d := pos - hook_center()
+		var l := d.length()
+		if l > AIM_R:
+			d = d / l * AIM_R
+		hook_vec = d / AIM_R
+		hook_mag = minf(1.0, l / AIM_R)
+		_hook.knob = d
+		_hook.queue_redraw()
 	elif id == _joy_id:
 		var d := pos - joy_origin
 		var l := d.length()
@@ -416,10 +497,25 @@ func _aim_end(fire: bool) -> void:
 	_aim.queue_redraw()
 
 
-## Drops both sticks without firing (the player left the game).
+## Letting go of the purple stick throws the grapple that way, unless it is back in the middle.
+func _hook_end(fire: bool) -> void:
+	var t := fire and hook_active and hook_mag > AIM_DEAD
+	if t:
+		game.throw_grapple()
+	_hook_id = NO_ID
+	hook_active = false
+	hook_mag = 0
+	hook_vec = Vector2.ZERO
+	_hook.held = false
+	_hook.knob = Vector2.ZERO
+	_hook.queue_redraw()
+
+
+## Drops every stick without firing (the player left the game).
 func cancel_sticks() -> void:
 	_joy_end()
 	_aim_end(false)
+	_hook_end(false)
 
 
 func _label(text: String, size: int, font: Font = null, col := FOAM) -> Label:
@@ -536,19 +632,21 @@ func _build_prompt() -> void:
 	_prompt_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_prompt_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_prompt_text)
-	var h := HBoxContainer.new()
-	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_theme_constant_override("separation", 16)
-	v.add_child(h)
-	var a := Button.new()
-	a.text = "Riposter"
-	a.theme_type_variation = "Primary"
-	a.pressed.connect(func(): game.on_fight())
-	h.add_child(a)
-	var b := Button.new()
-	b.text = "Fuir"
-	b.pressed.connect(func(): game.on_flee())
-	h.add_child(b)
+	_prompt_buttons = HBoxContainer.new()
+	_prompt_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	_prompt_buttons.add_theme_constant_override("separation", 16)
+	v.add_child(_prompt_buttons)
+	# the boarding melee, at the bottom above the buttons
+	_board = BoardView.new()
+	_board.font = f_bold
+	_board.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_board.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_board.offset_left = 20
+	_board.offset_right = -20
+	_board.offset_top = -290
+	_board.offset_bottom = -190
+	_board.visible = false
+	root.add_child(_board)
 
 
 # ---------------------------------------------------------------- per frame
@@ -583,10 +681,33 @@ func toast(msg: String, kind := "") -> void:
 	get_tree().create_timer(3.6).timeout.connect(func(): if is_instance_valid(p): p.queue_free())
 
 
-func show_prompt(title: String, text: String) -> void:
+## A question in the middle of the screen. `buttons`: [[label, Callable, primary], ...];
+## by default "Riposter" and "Fuir" (being attacked).
+func show_prompt(title: String, text: String, buttons := []) -> void:
 	_prompt_title.text = title
 	_prompt_text.text = text
+	if buttons.is_empty():
+		buttons = [["Riposter", func(): game.on_fight(), true], ["Fuir", func(): game.on_flee(), false]]
+	for c in _prompt_buttons.get_children():
+		_prompt_buttons.remove_child(c)
+		c.queue_free()
+	for bt in buttons:
+		var b := Button.new()
+		b.text = bt[0]
+		if bt[2]:
+			b.theme_type_variation = "Primary"
+		b.pressed.connect(bt[1])
+		_prompt_buttons.add_child(b)
 	_prompt.visible = true
+
+
+## Presses a button of the prompt by the start of its text (tests).
+func press_prompt(prefix: String) -> bool:
+	for c in _prompt_buttons.get_children():
+		if c is Button and not c.is_queued_for_deletion() and c.text.begins_with(prefix):
+			c.pressed.emit()
+			return true
+	return false
 
 
 func hide_prompt() -> void:
@@ -662,6 +783,17 @@ func update(dt: float) -> void:
 	if not aim_shown and aim_active:
 		_aim_end(false)
 	_aim.visible = aim_shown
+	hook_shown = game.can_grapple()
+	if not hook_shown and hook_active:
+		_hook_end(false)
+	_hook.visible = hook_shown
+	_hook.position = hook_center()
+	var board: bool = game.combat.has("board")
+	_board.visible = board and not open
+	if board:
+		_board.mine = game.combat.board.mine
+		_board.theirs = game.combat.board.theirs
+		_board.queue_redraw()
 	if aim_shown and _hint:
 		_hint.visible = false
 	_aim.position = aim_center()
@@ -1053,7 +1185,7 @@ func refresh_port() -> void:
 				var hire := _btn("+ %s" % Rules.fmt(c.cost), true, total >= c.cost and Rules.crew_count(s) < st.crew_cap, func(): Rules.hire(game.s, c.k); _done("ship"), true)
 				var lv := _label("×%d" % n, 22, f_bold, Color(INK, 0.7))
 				_body.add_child(_item(c.name, lv, "%s · %s pièces" % [c.desc, Rules.fmt(c.cost)], [fire, hire]))
-			_body.add_child(_note("L'équipage se bat quand les deux bateaux sont bord à bord (portée d'abordage %d, plus avec des grappins). Un meilleur capitaine donne plus de places." % int(st.board)))
+			_body.add_child(_note("En combat, lancez le grappin avec le joystick violet (portée %d m, plus avec des grappins) : votre équipage et votre capitaine se battent contre ceux d'en face. Un meilleur capitaine donne plus de places et se bat mieux." % int(st.grapple)))
 		"base":
 			for u in Rules.BASE_UPS:
 				var l: int = s.base[u.k]
