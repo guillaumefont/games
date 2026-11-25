@@ -25,10 +25,8 @@ const NAMES := {
 }
 ## Collateral targets, not threats (Guillaume, 2026-11-24: "Hydro planes should be a collateral
 ## damage, not an enemy. It should stroll by (alone) waiting to be shot"): they never fire and the
-## ship flies through them unharmed (not in `Rules.RAMMABLE`).
-const HARMLESS := ["gull"]
-## How fast a seaplane strolls across the screen (m/s).
-const GULL_SPEED := 2.4
+## ship flies through them unharmed (not in `Rules.RAMMABLE`). Each world has its own (`Civilians`).
+const HARMLESS := ["gull", "caravan", "sled", "blimp", "balloon"]
 ## Hacked civilians (Guillaume, 2026-11-24: "civil characters can be enemies if they are clearly
 ## hacked: a lighthouse that opens to show a turret, a hydro plane that unveils a minigun"). The
 ## chance a seaplane is hacked, after the level's opening (its first seaplane is always real), and
@@ -40,7 +38,7 @@ const HACK_TELL := 0.9
 const HACK_UNVEIL := 0.35
 
 ## On the ground (ramming passes under them; they stay with the land).
-const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar"]
+const GROUND := ["pillbox", "tank", "borer", "aa", "hover", "mortar", "caravan", "sled"]
 ## Those that stand on dry land (the hovercraft rides the water too; the tank drives on).
 const DRY := ["pillbox", "borer", "aa", "mortar"]
 
@@ -70,7 +68,7 @@ static func mesh(kind: String, idx := 0) -> Mesh:
 	if Towers.is_tower(kind):
 		return Towers.base(Models.theme)
 	match kind:
-		"gull": return gull()
+		"gull", "caravan", "sled", "blimp", "balloon": return Civilians.mesh(kind)
 		"rotor": return rotor()
 		"pillbox": return pillbox()
 		"scarab": return scarab()
@@ -574,6 +572,15 @@ static func clear(g: Game, x: float, z: float, me: Game.Obj) -> bool:
 
 ## Spawns foe i of n of a wave of `kind` entering at x (from `from`), past the screen's edge.
 static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top") -> void:
+	if kind == "gull":
+		# the civilian stroll: each world has its own civilian (`Civilians`)
+		kind = Civilians.of_world()
+	if kind in HARMLESS:
+		var c := g.new_foe(kind, Civilians.mesh(kind))
+		c.ground = Civilians.is_walker(kind)
+		c.rel = not c.ground
+		Civilians.spawn(g, c, -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0)))
+		return
 	var top := g.frame_z + minf(g.view_top, Rules.Z_TOP) - 2.5
 	var gz := g.frame_z + minf(g.view_ground_top, top - g.frame_z - 3.0) - 2.0
 	var spread := (i - (n - 1) * 0.5)
@@ -597,15 +604,6 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 	# the side a foe that holds comes in from when the top edge is too far (`Game.enter_toward`)
 	var side := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if (x < 0.0 or x == 0.0 and i % 2 == 0) else 1.0))
 	match kind:
-		"gull":
-			# a lone seaplane out for a stroll: crosses the upper screen from one side to the other
-			var s := -1.0 if from == "left" else (1.0 if from == "right" else (-1.0 if x < 0.0 else 1.0))
-			var z := g.hold_z(6.5)
-			f.x0 = s
-			f.goal = Vector3(0, 0, z)
-			f.pos = Vector3(s * (g.view_hw(z) + 2.5), Rules.PY, g.frame_z + z)
-			f.vel = Vector3(-s * GULL_SPEED, 0, 0)
-			f.hacked = g.stage_t > HACK_AFTER and g.rng.randf() < HACK_P
 		"rotor":
 			var gx := clampf(f.x0 + spread * 4.2, -6.0, 6.0)
 			f.goal = Vector3(gx, 0, g.hold_z(7.5 - (i % 2) * 1.8))   # z: above the screen's centre
@@ -782,28 +780,8 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		Towers.think(g, f, dt)
 		return
 	match f.kind:
-		"gull":
-			# strolls across in a lazy wave, never fires: it's only there to be shot down
-			f.pos.x += f.vel.x * dt
-			f.pos.z = g.frame_z + f.goal.z + sin(f.t * 0.8) * 0.9
-			var dz := cos(f.t * 0.8) * 0.72
-			f.node.rotation = Vector3(0, atan2(f.vel.x, dz), sin(f.t * 0.8) * 0.18 * -f.x0)
-			if f.hacked:
-				var z := f.pos.z - g.frame_z
-				if f.hold < 0.0 and in_play(g, f) and absf(f.pos.x) < g.view_hw(z) - 2.5:
-					f.hold = f.t
-				if unveil(g, f, "minigun", Vector3(0, 0.78, 0.1)):
-					# slows to hose the ship with short bursts, nose round to face it
-					f.vel.x = move_toward(f.vel.x, -f.x0 * GULL_SPEED * 0.45, dt * 2.0)
-					var to := g.ppos - f.pos
-					var gun := f.node.get_node("minigun") as Node3D
-					gun.rotation.y = wrapf(atan2(to.x, to.z) - f.node.rotation.y, -PI, PI)
-					if f.t >= f.fire_t and in_play(g, f):
-						g.aimed(f.pos + to.normalized() * 0.9, 11.0)
-						f.burst -= 1
-						f.fire_t = f.t + (0.09 if f.burst > 0 else 1.5)
-						if f.burst <= 0:
-							f.burst = 6
+		"gull", "caravan", "sled", "blimp", "balloon":
+			Civilians.think(g, f, dt)
 		"lighthouse":
 			# a hacked lighthouse: once well in view, its lantern blinks and sparks, then a
 			# turret rises out of the top and fires aimed bursts

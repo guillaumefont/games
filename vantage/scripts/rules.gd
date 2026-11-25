@@ -583,6 +583,11 @@ const FOES := {
 	"heavy": {"hp": 45.0, "r": 1.6, "score": 800, "scrap": 60},
 	# the campaign's own foes, one new kind a level (`Foes.INTRO`)
 	"gull": {"hp": 3.0, "r": 0.95, "score": 120, "scrap": 6},
+	# each world's own civilian in place of the seaplane (`Civilians`)
+	"caravan": {"hp": 3.0, "r": 2.3, "score": 120, "scrap": 6},
+	"sled": {"hp": 3.0, "r": 2.2, "score": 120, "scrap": 6},
+	"blimp": {"hp": 4.0, "r": 1.5, "score": 120, "scrap": 6},
+	"balloon": {"hp": 3.0, "r": 1.2, "score": 120, "scrap": 6},
 	"rotor": {"hp": 7.0, "r": 1.0, "score": 220, "scrap": 10},
 	"pillbox": {"hp": 14.0, "r": 1.15, "score": 300, "scrap": 15},
 	"scarab": {"hp": 7.0, "r": 1.0, "score": 250, "scrap": 12},
@@ -636,7 +641,7 @@ const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tow
 ## and it doesn't count towards the kill rate. No penalty and no notice (Guillaume, 2026-11-25: "The
 ## game is too dense to be able to avoid killing them"). A hacked one (`Game.Obj.hacked`) unveils a gun:
 ## a seaplane a minigun, a lighthouse a turret. It's a foe then, and pays HACK_PAY times its due.
-const CIVILIANS := ["gull", "boat", "house", "lighthouse"]
+const CIVILIANS := ["gull", "caravan", "sled", "blimp", "balloon", "boat", "house", "lighthouse"]
 const HACK_PAY := 2.0
 ## Chance a lighthouse is hacked (a seaplane's: `Foes.HACK_P`).
 const HACK_LIGHTHOUSE := 0.4

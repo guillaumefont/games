@@ -402,6 +402,112 @@ func hacked() -> void:
 	await process_frame
 
 
+## Guillaume (2026-11-25): "There should be no seaplane in the desert. You should replace it in each
+## world with something appropriate... in the desert, that could be a camel caravan." Each world's
+## civilian keeps the seaplane's rules and has its own getaway.
+func worlds() -> void:
+	print("each world has its own civilian, harmless, with its own getaway")
+	var g := make_game()
+	await process_frame
+	g.s.open = Campaign.count() - 1
+	var seen := {}
+	for wi in Campaign.WORLDS.size():
+		var lv := wi * Campaign.PER_WORLD
+		g.launch(lv)
+		g.step(DT)
+		var want: String = Civilians.BY_THEME[Campaign.WORLDS[wi].theme]
+		seen[want] = true
+		check(want == "gull" if wi == 0 else want != "gull", "%s: %s" % [Campaign.WORLDS[wi].name, want])
+		for from: String in ["left", "right"]:
+			g.clear_all()
+			g.queue.clear()
+			g.wave_i = g.waves.size()
+			g.stage_t = 0.0   # the level's opening: a real one
+			g.spawn_vert("gull", 0.0, 0, 1, from)
+			var f: Game.Obj = g.foes[g.foes.size() - 1]
+			check(f.kind == want and not f.hacked and g.civilian(f) and g.shy(f), "%s from the %s: a real %s" % [want, from, want])
+			check(f.ground == Civilians.is_walker(want), "%s: %s" % [want, "on the ground" if f.ground else "in the air"])
+			check(not g.on_screen(f), "%s: comes in from off-screen" % want)
+			f.hp = 1e6
+			var hp0 := g.hp
+			var x0 := f.pos.x
+			var shown := 0.0
+			var fired := false
+			var t := 0.0
+			while t < 14.0 and f in g.foes:
+				for o in g.foes:
+					o.hacked = false   # a lighthouse along the way stays a lighthouse: this watches the civilian
+				g.inv = 0.0
+				g.prel = Vector2(clampf(f.pos.x, -5.0, 5.0), g.seen(f.pos).z - g.frame_z)
+				g.step(DT)
+				t += DT
+				fired = fired or g.bullets.size() > 0
+				if f in g.foes and g.on_screen(f):
+					shown += DT
+			var x1 := f.pos.x
+			# (a walker that found no dry ground on its side starts on the other and comes back)
+			check(signf(x1 - x0) == -signf(x0) and absf(x1 - x0) > 4.0,
+				"%s from the %s: heads across the screen (%.1f m to %.1f m)" % [want, from, x0, x1])
+			check(shown > 3.0, "%s from the %s: a while on screen (%.1f s)" % [want, from, shown])
+			check(not fired and g.hp == hp0, "%s from the %s: never fires, flying into it costs nothing" % [want, from])
+		# downed: nothing scored, its getaway plays out and is gone
+		g.clear_all()
+		g.spawn_vert("gull", 0.0, 0, 1, "left")
+		var f: Game.Obj = g.foes[g.foes.size() - 1]
+		f.hacked = false
+		for i in int(2.0 / DT):
+			g.step(DT)
+		g.run.score = 1000
+		var kills: int = g.run.kills
+		var drops := g.picks.size()
+		var n := g.blasts.chutes.size()
+		var at := f.pos
+		g.kill(f)
+		check(g.run.score == 1000 and g.run.kills == kills and g.picks.size() == drops, "%s: downing it scores nothing, isn't a kill, drops nothing" % want)
+		check(g.blasts.chutes.size() == n + 1 and g.blasts.chutes[n].kind == want, "%s: someone gets away" % want)
+		var c: Dictionary = g.blasts.chutes[n]
+		var node: Node3D = c.node
+		var far := 0.0
+		for i in int(1.2 / DT):
+			g.hp = 5
+			g.inv = 1.0
+			g.step(DT)
+			far = maxf(far, Vector2(node.position.x - at.x, node.position.z - at.z).length())
+		check(node.scale.x > 0.4 and far > 1.0, "%s: the getaway shows and moves off (%.1f m)" % [want, far])
+		for i in int(float(c.life) / DT):
+			g.hp = 5
+			g.inv = 1.0
+			g.step(DT)
+		check(c not in g.blasts.chutes, "%s: then it's gone" % want)
+		# hacked: a tell, then a minigun, then fire
+		g.clear_all()
+		g.spawn_vert("gull", 0.0, 0, 1, "left")
+		f = g.foes[g.foes.size() - 1]
+		f.hacked = true
+		f.hp = 1e6
+		var told := -1.0
+		var first := -1.0
+		var t := 0.0
+		while t < 12.0 and f in g.foes and first < 0.0:
+			g.hp = 5
+			g.inv = 1.0
+			var before := g.bullets.size()
+			g.step(DT)
+			t += DT
+			if told < 0.0 and f.hold >= 0.0:
+				told = t
+			if g.bullets.size() > before:
+				first = t
+		check(told >= 0.0 and first - told >= Foes.HACK_TELL and f.node.has_node("minigun"),
+			"%s: a hacked one gives itself away, unveils a minigun and fires (%.1f s after)" % [want, first - told])
+		n = g.blasts.chutes.size()
+		g.kill(f)
+		check(g.blasts.chutes.size() == n, "%s: a hacked one's crew doesn't get away" % want)
+	check(seen.size() == Campaign.WORLDS.size(), "every world its own civilian (%d)" % seen.size())
+	g.queue_free()
+	await process_frame
+
+
 func extras() -> void:
 	print("announced, shells burst, borers hide")
 	var g := make_game()
@@ -518,6 +624,7 @@ func _initialize() -> void:
 	await holds()
 	await formations()
 	await hacked()
+	await worlds()
 	await extras()
 	print("ALL PASSED" if fails == 0 else "%d FAILED" % fails)
 	quit(1 if fails else 0)

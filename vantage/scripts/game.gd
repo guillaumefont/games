@@ -332,6 +332,7 @@ void sky() {
 	add_child(sound)
 	blasts = Blasts.new()
 	blasts.cam = cam
+	blasts.ground_at = ground_y
 	add_child(blasts)
 	add_vignette()
 	fit_render_scale()
@@ -1828,15 +1829,16 @@ func kill(f: Obj) -> void:
 	var pay := Rules.HACK_PAY if f.hacked else 1.0
 	if not civil:
 		run.score += roundi(int(info.score) * pay)
-	elif f.kind == "gull":
-		blasts.chute(f.pos, fx_carry(), -signf(f.vel.x) if f.vel.x != 0.0 else 1.0)
+	elif f.kind in Foes.HARMLESS:
+		# the seaplane's pilot bails out, the camel bolts, the blimp whizzes off... (`Civilians`)
+		blasts.escape(f.kind, f.pos, fx_carry(f.ground), -signf(f.vel.x) if f.vel.x != 0.0 else 1.0)
 	if f.kind not in ["orb", "boss"] and not landmark(f) and not civil:
 		run.kills += 1
 		if not f.on_fort and f not in boss_parts:
 			count_core(f.pos)
 	var big: float = {"heavy": 2.6, "boss": 6.0, "bridge": 4.0, "dome": 4.0, "lance": 2.0, "spiral": 2.2, "cannon": 2.2, "battery": 2.0, "core": 4.0, "panel": 1.6, "nozzle": 3.2, "twin": 2.6, "quad": 2.6, "pod": 2.6, "mast": 2.6, "dish": 3.0, "pylon": 2.6, "hatch": 2.8,
 		"lighthouse": 2.6, "house": 2.0, "boat": 1.5, "pyramid": 3.2, "stone head": 2.6, "water tower": 2.2, "snowman": 2.0,
-		"duck": 1.8, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
+		"duck": 1.8, "caravan": 1.8, "sled": 1.6, "blimp": 2.0, "balloon": 1.6, "gunship": 2.4, "tank": 2.0, "borer": 2.0, "mortar": 2.0, "aa": 1.8, "hover": 1.8, "prism": 1.8,
 		"pillbox": 1.8, "rocket": 1.8, "howitzer": 2.0, "pulse": 1.8, "turret": 1.6, "ember": 1.6, "rotor": 1.5, "scarab": 1.5}.get(f.kind, 1.3)
 	if landmark(f):
 		# the landmark falls: a ruin stays on the ground where it stood
