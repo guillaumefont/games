@@ -61,6 +61,8 @@ static func results_offers(ctx: Dictionary) -> Array:
 		out.append("gold_ghost")
 	if ctx.get("daily_extra", false) and not used.has("daily_extra") and left_today("daily_extra") > 0:
 		out.append("daily_extra")
+	if ctx.get("ideal_line", false) and not used.has("ideal_line"):
+		out.append("ideal_line")
 	return out
 
 # ---------------------------------------------------------------- Starter pack

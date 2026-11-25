@@ -3,9 +3,9 @@
 #   time; offered after a run without Gold, unlocked for good by the video, not after a Gold run
 # - Daily Detour: an attempt is used at GO, given back by a first-lap quit, only from the banner;
 #   with none left the banner starts practice (no coins); a video adds one
-# - no ideal line (removed 2026-11-24): no offer, no Settings option
 # - full-screen ads when leaving the results: none in the first session, before 6 races, after
 #   the tutorial, Off the Map or with No ads; then one every 4 races, a test card meanwhile
+# - ideal line: offered after a run without Gold, drawn (with hook marks) for the next run only
 # - "x2 coins": the wallet gets the run's coins a second time, once per results screen; the
 #   badge says so; the daily cap holds; never after Off the Map, the tutorial or a 2-player race
 #   godot --headless --path . --script tests/results_offers_test.gd
@@ -163,6 +163,8 @@ func _run() -> void:
 			var lt: float = GoldGhosts.lap_time(d["name"], v)
 			if absf(lt - g) > 0.05:
 				check(false, "%s %s Gold ghost laps in %.3f, Gold is %.2f" % [d["name"], v, lt, g])
+			if GoldGhosts.trace(d["name"], v).size() != GoldGhosts.hooked(d["name"], v).size():
+				check(false, "%s %s hook marks match the samples" % [d["name"], v])
 	check(n == Defs.TRACKS.size() * 3, "a Gold ghost per track for Standard, Reverse and Obstacles (%d)" % n)
 
 	# ---- offered after a run without Gold, unlocked for good by the video
@@ -174,9 +176,6 @@ func _run() -> void:
 	var silver: float = Medals.targets(name, "standard")[1]
 	await finish_trial(silver - 0.05)   # Silver, not Gold
 	check(offers().has("gold_ghost"), "Gold ghost offered after a run without Gold (%s)" % str(offers()))
-	# the ideal line was removed (Guillaume, 2026-11-24): never offered, never drawn
-	check(not offers().has("ideal_line"), "no ideal line offer after a run without Gold")
-	check(not main.view.has_method("show_ideal_line") and not main._options(true).has("ideal_line"), "no ideal line in the game or its Settings")
 	offer_btn("gold_ghost").pressed.emit()
 	await frames(2)
 	check(GoldGhosts.unlocked(name, "standard"), "the video unlocks it")
@@ -193,6 +192,20 @@ func _run() -> void:
 	# Reset progress closes it again
 	Wallet.reset()
 	check(not GoldGhosts.unlocked(name, "standard"), "Reset progress closes unlocked Gold ghosts")
+
+	# ---- the ideal line: offered after a run without Gold, drawn for the next run only
+	Wallet.reset()
+	Records.reset()
+	await start(ev)
+	await finish_trial(silver - 0.05)
+	check(offers().has("ideal_line"), "ideal line offered after a run without Gold (%s)" % str(offers()))
+	offer_btn("ideal_line").pressed.emit()
+	await frames(2)
+	await start(ev)
+	var il = main.view.ideal_node
+	check(il != null and int(il.get_meta("marks", 0)) > 0, "the next run shows the ideal line, with hook marks")
+	await start(ev)
+	check(main.view.ideal_node == null, "only for one run")
 
 	# ---- Daily Detour: scored attempts from the banner only
 	Wallet.reset()

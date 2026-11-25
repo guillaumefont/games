@@ -13,7 +13,7 @@ const Store = preload("res://scripts/store.gd")
 const Monetization = preload("res://scripts/monetization.gd")
 
 # the rewarded placements (one ad unit each once AdMob is in)
-const PLACEMENTS := ["double_coins", "gold_ghost", "daily_extra", "streak_save"]
+const PLACEMENTS := ["double_coins", "gold_ghost", "ideal_line", "daily_extra", "streak_save"]
 # products that end the ads
 const REMOVERS := ["remove_ads"]
 

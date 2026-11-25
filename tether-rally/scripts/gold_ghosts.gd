@@ -3,7 +3,7 @@
 # slowed to finish exactly at the Gold time, made by tools/gen_gold_ghosts.gd into
 # res://ghosts/gold.res (rerun it after changing a layout, like tools/gen_medals.gd).
 # Samples are 30 a second, like the player's own ghost (Records): x, y, heading, and
-# whether the rope is hooked (recorded, not used in the game).
+# whether the rope is hooked (for the ideal line).
 # A player unlocks the Gold ghost of a track + variant for good with a rewarded ad, offered
 # on the results after a run without Gold; "No ads" opens every one. Unlocks live in
 # user://wallet.cfg (section "ghosts"), so Reset progress clears them.
@@ -41,6 +41,14 @@ static func trace(track_name: String, variant: String) -> Array:
 	var out: Array = []
 	for i in range(0, f.size() - 3, 4):
 		out.append(Vector3(f[i], f[i + 1], f[i + 2]))
+	return out
+
+# is the rope hooked at each sample
+static func hooked(track_name: String, variant: String) -> Array:
+	var f := _flat(track_name, variant)
+	var out: Array = []
+	for i in range(3, f.size(), 4):
+		out.append(f[i] > 0.5)
 	return out
 
 static func lap_time(track_name: String, variant: String) -> float:
