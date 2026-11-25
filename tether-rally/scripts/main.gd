@@ -1201,6 +1201,11 @@ func _refresh_offers() -> void:
 	var list: Array = []
 	var free := Ads.ads_removed()
 	for id in Monetization.results_offers(_offer_ctx()):
+		if GoldGhosts.PERKS.has(id):   # consumables are bought with coins, not a video
+			var price: int = GoldGhosts.PRICE[id]
+			list.append({ "id": id, "text": "%s  %d" % [OFFER_TEXT[id], price], "icon": "coin",
+				"ready": Wallet.coins() >= price, "off_text": "%s  %d (NOT ENOUGH COINS)" % [OFFER_TEXT[id], price] })
+			continue
 		list.append({ "id": id, "text": OFFER_TEXT.get(id, id), "icon": OFFER_ICON.get(id, "video") if free else "video",
 			"ready": Ads.rewarded_ready(id) or offer_busy == id, "busy": offer_busy == id })
 	var link := ""
@@ -1211,11 +1216,27 @@ func _refresh_offers() -> void:
 func _offer_pressed(id: String) -> void:
 	if offer_busy != "" or offers_used.has(id):
 		return
+	if GoldGhosts.PERKS.has(id):
+		_buy_perk(id)
+		return
 	offer_busy = id
 	_refresh_offers()
 	if not Ads.show_rewarded(id, _offer_granted.bind(id, pay_total, results_n)):
 		offer_busy = ""
 		_refresh_offers()
+
+# a Gold ghost or ideal line run bought with coins on the results; it can be bought again
+func _buy_perk(id: String) -> void:
+	if not GoldGhosts.buy(id):
+		_refresh_offers()
+		return
+	sfx.blip(990, 0.2, "triangle", 0.05, 300)
+	var n := GoldGhosts.charges(id)
+	if id == "gold_ghost":
+		ui.res_note.text = "Gold ghost runs: %d. Your next Time trial without Gold brings a ghost lapping at the Gold time. Tap again to stack more." % n
+	else:
+		ui.res_note.text = "Ideal line runs: %d. Your next Time trial without Gold draws the Gold lap on the road, with marks where it hooks and lets go. Tap again to stack more." % n
+	_refresh_offers()
 
 # the video was watched (or "No ads" owns it): give the reward, even if the player has moved on
 func _offer_granted(id: String, total: int, screen: int) -> void:
@@ -1226,23 +1247,13 @@ func _offer_granted(id: String, total: int, screen: int) -> void:
 			if here:
 				ui.set_reward_text(0, "+%d x2 COINS" % total)
 				sfx.blip(1320, 0.2, "square", 0.05, 300)
-		"ideal_line":
-			GoldGhosts.add_charge("ideal_line")
-			if here:
-				ui.res_note.text = "Ideal line runs: %d. Your next Time trial without Gold draws the Gold lap on the road, with marks where it hooks and lets go. Tap again to stack more." % GoldGhosts.charges("ideal_line")
 		"daily_extra":
 			Daily.add_extra()
 			if here:
 				ui.res_note.text = "One more scored attempt today: tap Again."
-		"gold_ghost":
-			GoldGhosts.add_charge("gold_ghost")
-			if here:
-				ui.res_note.text = "Gold ghost runs: %d. Your next Time trial without Gold brings a ghost lapping at the Gold time. Tap again to stack more." % GoldGhosts.charges("gold_ghost")
-				sfx.blip(990, 0.2, "triangle", 0.05, 300)
 	if here:
 		offer_busy = ""
-		if not GoldGhosts.PERKS.has(id):   # consumables can be bought again and again
-			offers_used[id] = true
+		offers_used[id] = true
 		_refresh_offers()
 
 # Settings > Reset progress (confirmed there): coins, looks bought, awards, medals,

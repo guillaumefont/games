@@ -1,7 +1,7 @@
 # Rewarded-ad offers on the results screen (docs/monetization.md):
 # - Gold ghost and ideal line: consumables (Guillaume, 2026-11-25). One Gold lap per track for
-#   Standard/Reverse/Obstacles (not Collect); off by default (No ads too); each video adds one
-#   run and runs stack; offered after a run without Gold, again and again, not after a Gold run;
+#   Standard/Reverse/Obstacles (not Collect); off by default (No ads too); bought with coins
+#   (one run each purchase, no video) and runs stack; offered after a run without Gold, again and again, not after a Gold run;
 #   one run used at GO of a Time trial without Gold, given back by a first-lap quit
 # - Daily Detour: an attempt is used at GO, given back by a first-lap quit, only from the banner;
 #   with none left the banner starts practice (no coins); a video adds one
@@ -179,13 +179,23 @@ func _run() -> void:
 	var silver: float = Medals.targets(name, "standard")[1]
 	await finish_trial(silver - 0.05)   # Silver, not Gold
 	check(offers().has("gold_ghost") and offers().has("ideal_line"), "both offered after a run without Gold (%s)" % str(offers()))
-	# bought twice: two runs each
+	# bought with coins: greyed out without enough, then twice: two runs each
+	Wallet.spend(Wallet.coins())
+	await frames(1)
+	main._refresh_offers()
+	check(offer_btn("gold_ghost").disabled and offer_btn("ideal_line").disabled, "greyed out without enough coins")
+	offer_btn("gold_ghost").pressed.emit()
+	check(GoldGhosts.charges("gold_ghost") == 0, "nothing bought without the coins")
+	Wallet.add(500)
+	main._refresh_offers()
+	check(not offer_btn("gold_ghost").disabled and offer_btn("gold_ghost").get_meta("offer") == "gold_ghost", "buyable with enough coins")
 	for i in 2:
 		offer_btn("gold_ghost").pressed.emit()
 		await frames(2)
 		offer_btn("ideal_line").pressed.emit()
 		await frames(2)
-	check(GoldGhosts.charges("gold_ghost") == 2 and GoldGhosts.charges("ideal_line") == 2, "each video adds one run, they stack (%d, %d)" % [GoldGhosts.charges("gold_ghost"), GoldGhosts.charges("ideal_line")])
+	check(GoldGhosts.charges("gold_ghost") == 2 and GoldGhosts.charges("ideal_line") == 2, "each purchase adds one run, they stack (%d, %d)" % [GoldGhosts.charges("gold_ghost"), GoldGhosts.charges("ideal_line")])
+	check(Wallet.coins() == 500 - 2 * (GoldGhosts.PRICE["gold_ghost"] + GoldGhosts.PRICE["ideal_line"]), "paid in coins (%d left)" % Wallet.coins())
 	check(offers().has("gold_ghost") and offers().has("ideal_line"), "still offered once bought")
 	# run 1: shown, used at GO
 	await start(ev)
@@ -217,7 +227,7 @@ func _run() -> void:
 	GoldGhosts.add_charge("gold_ghost")
 	await start(t1)
 	check(main.view.gold_node == null and GoldGhosts.charges("gold_ghost") == 1, "not used on a track with Gold")
-	# No ads makes the video free, but doesn't turn them on
+	# No ads doesn't turn them on
 	Store._cfg = ConfigFile.new()
 	Store.buy("remove_ads")
 	Wallet.reset()   # no runs left

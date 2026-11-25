@@ -5,8 +5,8 @@
 # Samples are 30 a second, like the player's own ghost (Records): x, y, heading, and
 # whether the rope is hooked (for the ideal line).
 # The Gold ghost and the ideal line (the Gold lap drawn on the road) are consumables
-# (Guillaume, 2026-11-25): off by default, each rewarded video (free with "No ads") adds one
-# run, runs stack, and one is used at GO of a Time trial run on a track + variant without
+# (Guillaume, 2026-11-25): off by default ("No ads" too), bought with coins on the results
+# (PRICE each), one run per purchase, runs stack, and one is used at GO of a Time trial run on a track + variant without
 # Gold yet (given back if that run is left during its first lap). Counts live in
 # user://wallet.cfg (section "perks"), so Reset progress clears them.
 extends RefCounted
@@ -57,12 +57,20 @@ static func lap_time(track_name: String, variant: String) -> float:
 
 # ---------------------------------------------------------------- consumable runs
 const PERKS := ["gold_ghost", "ideal_line"]
+const PRICE := { "gold_ghost": 40, "ideal_line": 30 }   # coins a run (a Gold run pays ~50)
 
 static func charges(perk: String) -> int:
 	return int(Wallet.get_v("perks", perk, 0))
 
 static func add_charge(perk: String, n := 1) -> void:
 	Wallet.set_v("perks", perk, maxi(0, charges(perk) + n))
+
+# buy one run with coins; false (nothing spent) when the player can't afford it
+static func buy(perk: String) -> bool:
+	if not Wallet.spend(int(PRICE[perk])):
+		return false
+	add_charge(perk)
+	return true
 
 # use one run; false when there is none left
 static func use_charge(perk: String) -> bool:
