@@ -444,6 +444,9 @@ restart" button (`Game.refresh_game()`). Tests load `scenes/main.tscn` directly.
   instead of smearing grass or sand down the rock. A 128 px tiling noise (`Models.ground_noise`) gives the land
   a faint mottle (`GROUND_DETAIL`) and soft cloud shadows drifting with the wind (`CLOUD_SHADE`): four texture
   fetches a ground pixel, no extra draw call. Keep both faint: foes and shots must stay the sharpest things.
+- River banks (2026-11-25): a liquid triangle with any wet corner is drawn, its dry corners brought down flat
+  to its wet corners' level, so the bank rises out of the water along the land's own slope instead of the
+  grid's saw teeth (`Models.ground_chunk`, `Relief.liquid`).
 - A soft vignette (`Game.add_vignette`, a CanvasLayer under the HUD) frames the view.
 - After its reactor the fortress breaks up in the air for `Rules.BREAKUP_TIME` (`Game.step_breakup`; Guillaume:
   "die in the air and drift out of screen, not into the ground"): the reactor blows, blasts run aft along the

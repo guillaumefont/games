@@ -1635,11 +1635,22 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					nwet += 1
 			if nwet > 0:
 				for t: Array in order:
-					if (wq[t[0]] as Vector2).x > 0.0 and (wq[t[1]] as Vector2).x > 0.0 and (wq[t[2]] as Vector2).x > 0.0:
-						for k: int in [t[0], t[2], t[1]]:
-							Relief.liquid.append(q[k] + Vector3(0, 0.04, 0))
-							var fl: float = (wq[k] as Vector2).y
-							Relief.liquid_flow.append(Vector2(0, 1) if fl == 1.0 else (Vector2(1, 0) if fl == 2.0 else Vector2.ZERO))
+					# a triangle part wet lies flat at its wet corners' level: the bank rises out of
+					# it, so the shore follows the land's own slope instead of the grid's saw teeth
+					var lvl := INF
+					var fl := 0.0
+					for k: int in t:
+						if (wq[k] as Vector2).x > 0.0:
+							lvl = minf(lvl, (q[k] as Vector3).y)
+							fl = maxf(fl, (wq[k] as Vector2).y)
+					if lvl == INF:
+						continue
+					for k: int in [t[0], t[2], t[1]]:
+						var p: Vector3 = q[k]
+						var wk := (wq[k] as Vector2).x > 0.0
+						Relief.liquid.append(Vector3(p.x, (p.y if wk else lvl) + 0.04, p.z))
+						var f: float = (wq[k] as Vector2).y if wk else fl
+						Relief.liquid_flow.append(Vector2(0, 1) if f == 1.0 else (Vector2(1, 0) if f == 2.0 else Vector2.ZERO))
 			# scenery: woods, villages, beaches, rocks and boats
 			var hs4: Array[float] = [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
 			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
