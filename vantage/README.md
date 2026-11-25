@@ -7,12 +7,14 @@ Godot 4.7, low poly 3D built entirely in code.
   ground flak and gunships, and collect the scrap they drop.
 - **Mid-boss:** the Bastion, a battleship wider than the screen, fought top-down and taken apart section
   by section: bow guns, wing batteries (each section breaks off), then the bridge.
-- **Final boss, the fortress chase:** the camera swoops down behind the ship (no cut, it's the same 3D
-  world) and you chase a flying fortress bigger than the screen (a huge armoured aircraft with propeller engines
-  and guns everywhere), in third person, on rails. Drag to move and dodge; the guns fire ahead with a
-  little aim assist. Take it apart in sections: its tail guns, its dorsal gun tower, then the reactor in
-  its tail bay behind four shield panels, while drones keep launching. Then it loses a wing and falls
-  out of the sky.
+- **Final boss, the fortress run:** the camera swoops down behind the ship (no cut, it's the same 3D
+  world) and you take on a capital ship over 200 m long and wider than the screen, in third person, on
+  rails. You come in behind its stern and clear it section by section as you advance along it: the engines,
+  then hangar decks, gun decks, missile banks or lance arrays, then the bridge, whose armour breaks off to
+  show the reactor behind four shield panels. Each section has its own mix of guns (twin turrets, flak,
+  missile pods, lance masts, radar dishes, shield pylons that protect their section, hangar hatches that
+  launch drones). Drag to move and dodge; the guns fire ahead with a little aim assist. When the reactor
+  goes, the ship breaks apart in mid-air and the burning pieces drift away off the screen.
 - **Hangar:** scrap buys permanent upgrades (cannon, missiles, hull, magnet) used in both modes.
 
 Desktop: arrows/WASD also fly and aim, Enter launches.

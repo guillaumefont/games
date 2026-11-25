@@ -31,7 +31,7 @@ func tick() -> void:
 				if best == null or f.pos.distance_to(g.ppos) < best.pos.distance_to(g.ppos):
 					best = f
 		if best:
-			g.off = g.off.lerp(Vector2(best.pos.x, best.pos.y - Rules.PY), 0.06)
+			g.off = g.off.lerp(g.line_up(best), 0.06)
 	g.step(1.0 / 60.0)
 	await process_frame
 
@@ -64,12 +64,13 @@ func _initialize() -> void:
 		"4-midboss-wings": func() -> bool: return g.boss != null and g.boss_sec == 1 and g.boss_parts.size() <= 3,
 		"5-midboss-bridge": func() -> bool: return g.boss != null and g.boss_sec == 2 and g.boss_parts[0].hp < 200.0,
 		"6-swoop": func() -> bool: return g.phase == "approach" and g.phase_t > 1.3,
-		"7-stern-guns": func() -> bool: return g.phase == "pov" and g.fort_sec == 0 and g.phase_t > 2.0,
-		"8-tower": func() -> bool: return g.phase == "pov" and g.fort_sec == 1 and g.fort_parts.size() <= 4,
+		"7-engines": func() -> bool: return g.phase == "pov" and g.fort_sec == 0 and g.phase_t > 2.0,
+		"8-hangar-deck": func() -> bool: return g.phase == "pov" and g.fort_sec == 1 and g.fort_parts.size() <= 4,
+		"8b-gun-deck": func() -> bool: return g.phase == "pov" and g.fort_sec == 2 and g.adv_t > Rules.ADVANCE + 1.0,
 		"9-reactor": func() -> bool: return g.phase == "core" and g.phase_t > 2.0,
-		"9b-fortress-down": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
-		"9b2-fortress-falling": func() -> bool: return g.phase == "escape" and g.phase_t > 2.6,
-		"9b3-fortress-crash": func() -> bool: return g.phase == "escape" and g.phase_t > 4.1,
+		"9b-fortress-breaks": func() -> bool: return g.phase == "escape" and g.phase_t > 1.1,
+		"9b2-fortress-breaking-up": func() -> bool: return g.phase == "escape" and g.phase_t > 2.6,
+		"9b3-fortress-drifts-off": func() -> bool: return g.phase == "escape" and g.phase_t > 4.6,
 		"9c-results": func() -> bool: return g.phase == "results" and g.phase_t > 1.0}
 	for i in 60 * 240:
 		await tick()

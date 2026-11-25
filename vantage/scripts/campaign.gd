@@ -5,16 +5,26 @@ extends RefCounted
 ## (`Models.THEMES`), its own mix of foes, and gets tougher (foe hull, bullet speed) and richer
 ## (scrap) than the last.
 ##
-## Every world plays its three levels the same way:
-## - level 1, a patrol: waves only, the level ends once the last wave is dealt with;
-## - level 2, the battleship: waves, then the Bastion (top-down), which ends the level;
-## - level 3, the fortress run: waves, the Bastion as mid-boss, more waves, then the fortress
-##   chased in third person, which ends the world.
-## Glass Coast's fortress run is the hand-made sector (`Rules.STAGE`); the other levels are
+## Every level plays the same way (Guillaume, 2026-11-23: "mid bosses and final fortresses for
+## every level"): waves, a mid-boss (top-down), more waves, then a fortress chased in third
+## person, which ends the level. The first level of a world is the shortest, the third the
+## longest; each level has its own mid-boss (`midboss_of`), never the same twice in a world.
+## Glass Coast's third level is the hand-made sector (`Rules.STAGE`); the other levels are
 ## built from their world's mix by `waves()`, the same every time (seeded by the level).
 
 const PER_WORLD := 3
-const KINDS := ["patrol", "battleship", "fortress"]
+## Seconds of waves before the mid-boss and after it, by level in the world (Guillaume,
+## 2026-11-24: "the journey between two bosses should be longer": about twice what it was).
+const LENGTHS := [[25.0, 22.0], [30.0, 28.0], [35.0, 35.0]]
+## The mid-bosses' hull (hp of their parts), by level in the world: the first is a little quicker.
+const BOSS_HP := [0.75, 0.9, 1.0]
+## The order the mid-bosses come in (`Rules.MIDBOSSES`): level k of world w gets (w + k)th, so a
+## world's three levels have three different ones and each world starts on a new one.
+const MIDBOSS_ORDER := ["mantis", "halo", "bastion", "twin", "hammer"]
+## The fortresses, one for each level in order (Guillaume, 2026-11-24: "a different boss per
+## level"); 1-3, the hand-made sector, keeps the Goliath.
+const FORTRESS_ORDER := ["albatross", "marlin", "goliath", "sirocco", "scarab", "talon", "manta", "zephyr", "trident",
+	"narwhal", "wyvern", "aurora", "basilisk", "leviathan", "behemoth"]
 
 ## name, terrain theme, the foes' hull and bullet speed and the scrap they drop (multipliers),
 ## how many seconds between waves, the mix of waves (weights), the bosses' tint, and the names
@@ -46,8 +56,22 @@ static func world_of(lv: int) -> Dictionary:
 	return WORLDS[clampi(lv, 0, count() - 1) / PER_WORLD]
 
 
-static func kind_of(lv: int) -> String:
-	return KINDS[lv % PER_WORLD]
+## The level's mid-boss id (a key of `Rules.MIDBOSSES`).
+static func midboss_of(lv: int) -> String:
+	return MIDBOSS_ORDER[(lv / PER_WORLD + lv % PER_WORLD) % MIDBOSS_ORDER.size()]
+
+
+static func midboss(lv: int) -> Dictionary:
+	return Rules.MIDBOSSES[midboss_of(lv)]
+
+
+## The level's fortress id (a key of `Rules.FORTRESSES`).
+static func fortress_of(lv: int) -> String:
+	return FORTRESS_ORDER[clampi(lv, 0, FORTRESS_ORDER.size() - 1)]
+
+
+static func fortress(lv: int) -> Dictionary:
+	return Rules.FORTRESSES[fortress_of(lv)]
 
 
 ## "2-3" for the third level of the second world.
@@ -102,41 +126,56 @@ static func cleared(s: Dictionary, lv: int, grade: String) -> bool:
 
 # ---------------------------------------------------------------- the waves of a level
 
-## The waves of a level, by stage time, in the shape of `Rules.STAGE`. A level that doesn't end
-## with the fortress ends with an "end" wave: the level clears once its foes are dealt with.
+## The waves of a level, by stage time, in the shape of `Rules.STAGE`: waves, the mid-boss,
+## waves, the fortress.
 static func waves(lv: int) -> Array:
-	var kind := kind_of(lv)
 	if lv == PER_WORLD - 1:
 		return Rules.STAGE
 	var w: Dictionary = world_of(lv)
+	var span: Array = LENGTHS[lv % PER_WORLD]
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 7919 * (lv + 1)
+	rng.seed = hash("vantage level %d" % lv)
 	var out: Array = []
-	var t := 1.5
-	match kind:
-		"patrol":
-			t = beats(out, rng, w, t, 30.0)
-			out.append({"t": t + 2.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
-		"battleship":
-			t = beats(out, rng, w, t, 26.0)
-			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-			out.append({"t": t + 3.0, "kind": "end", "n": 0, "x": 0.0, "gap": 0.0})
-		"fortress":
-			t = beats(out, rng, w, t, 17.0)
-			out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
-			t = beats(out, rng, w, t + 4.0, t + 4.0 + 17.0)
-			out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
+	var mix := mix_of(lv)
+	# the level's new kind opens it, so it is met (and announced) straight away
+	var t := beats(out, rng, w, {debut(lv): 1}, 1.5, 1.6)
+	t = beats(out, rng, w, mix, t, float(span[0]), debut(lv))
+	out.append({"t": t + 2.5, "kind": "boss", "n": 1, "x": 0.0, "gap": 0.0})
+	# after the mid-boss, the kind met in the level before comes back first
+	t = beats(out, rng, w, {debut(lv - 1): 1}, t + 4.0, t + 4.1) if lv > 0 else t + 4.0
+	t = beats(out, rng, w, mix, t, t + float(span[1]), debut(lv - 1) if lv > 0 else "")
+	out.append({"t": t + 3.5, "kind": "fortress", "n": 1, "x": 0.0, "gap": 0.0})
 	return out
 
 
-## Fills `out` with waves from the world's mix from time `t` to `until`; returns the time after.
-static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: float, until: float) -> float:
-	var mix: Dictionary = w.mix
+## The kind of foe level lv brings in (`Foes.INTRO`).
+static func debut(lv: int) -> String:
+	return Foes.INTRO[clampi(lv, 0, Foes.INTRO.size() - 1)]
+
+
+## The waves a level draws from (weights): its world's first foes (`mix`), and every kind met so
+## far (Guillaume: "staggered types"): the level's new one the most, then its world's earlier ones,
+## then those of earlier worlds, a little each.
+static func mix_of(lv: int) -> Dictionary:
+	var mix: Dictionary = world_of(lv).mix.duplicate()
+	# gun towers come in several types now (`Towers`): more of them
+	mix["turret"] = int(mix.get("turret", 0)) + 3
+	var w := lv / PER_WORLD
+	for k in range(lv + 1):
+		var kind: String = Foes.INTRO[k]
+		mix[kind] = 5 if k == lv else (4 if k / PER_WORLD == w else 2)
+	return mix
+
+
+## Fills `out` with waves from `mix` from time `t` to `until`; returns the time after. `last` is
+## the kind of the wave before (never two of a kind in a row).
+static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, mix: Dictionary, t: float, until: float,
+		last := "") -> float:
 	var total := 0
 	for k: String in mix:
 		total += int(mix[k])
-	var last := ""
 	var heavies := 0
+	var towers := rng.randi_range(0, 3)
 	while t < until:
 		var pick := ""
 		for tries in 4:
@@ -147,7 +186,7 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: floa
 					pick = k
 					break
 			# no two of the same in a row, and no more than three heavies a level
-			if pick != last and not (pick == "heavy" and heavies > 2):
+			if (pick != last or mix.size() == 1) and not (pick == "heavy" and heavies > 2):
 				break
 		if pick == "heavy":
 			heavies += 1
@@ -166,11 +205,17 @@ static func beats(out: Array, rng: RandomNumberGenerator, w: Dictionary, t: floa
 				wave.merge({"kind": "swing", "n": 6, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5), "gap": 0.37})
 			"turret":
 				var n := rng.randi_range(1, 3)
-				wave.merge({"kind": "turret", "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
+				# one of the gun towers the world fields (`Towers.BY_WORLD`)
+				var types: Array = Towers.BY_WORLD[maxi(0, WORLDS.find(w))]
+				var kind: String = types[towers % types.size()]   # in turn, so a level shows several
+				towers += 1
+				wave.merge({"kind": kind, "n": n, "x": 0.0 if n == 3 else side * rng.randf_range(2.0, 3.5)})
 			"heavy":
 				wave.merge({"kind": "heavy", "n": 1, "x": snappedf(rng.randf_range(-2.5, 2.5), 0.5)})
+			_:
+				wave.merge(new_wave(pick, rng, side))
 		out.append(wave)
-		t += float(w.beat) * rng.randf_range(0.85, 1.15) + (1.2 if pick == "heavy" else 0.0)
+		t += float(w.beat) * rng.randf_range(0.85, 1.15) + (1.2 if pick in ["heavy", "gunship", "prism"] else 0.0)
 	return t
 
 
@@ -179,10 +224,42 @@ static func foes_in(lv: int) -> int:
 	var n := 0
 	for w: Dictionary in waves(lv):
 		if w.kind == "boss":
-			n += Rules.boss_parts()
+			n += Rules.boss_parts(midboss_of(lv))
 		elif w.kind == "fortress":
-			for sec: Dictionary in Rules.FORTRESS_SECTIONS:
-				n += 5 if sec.mounts.is_empty() else sec.mounts.size()
-		elif w.kind != "end":
+			n += Rules.fortress_parts(fortress_of(lv))
+		elif w.kind != "end" and w.kind not in Rules.CIVILIANS:
 			n += int(w.n)
 	return n
+
+
+## A wave of one of the campaign's own foes (`Foes`): how many, where, how far apart.
+static func new_wave(kind: String, rng: RandomNumberGenerator, side: float) -> Dictionary:
+	var x := snappedf(rng.randf_range(-3.0, 3.0), 0.5)
+	match kind:
+		"gull":
+			# collateral, not a threat (Guillaume, 2026-11-24): one seaplane strolls across alone
+			return {"kind": kind, "n": 1, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
+		"rotor":
+			return {"kind": kind, "n": rng.randi_range(2, 3), "x": 0.0, "gap": 0.5}
+		"pillbox", "aa", "mortar":
+			var n := rng.randi_range(1, 2)
+			return {"kind": kind, "n": n, "x": side * rng.randf_range(1.5, 3.5) if n == 1 else snappedf(side * 1.0, 0.5), "gap": 0.0}
+		"scarab", "lancer":
+			return {"kind": kind, "n": rng.randi_range(2, 3), "x": snappedf(x * 0.5, 0.5), "gap": 0.6}
+		"tank":
+			return {"kind": kind, "n": 2, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
+		"borer":
+			return {"kind": kind, "n": rng.randi_range(1, 2), "x": x * 0.6, "gap": 0.0}
+		"seeker":
+			return {"kind": kind, "n": rng.randi_range(5, 6), "x": x, "gap": 0.28}
+		"gunship":
+			return {"kind": kind, "n": 1, "x": side, "gap": 0.0, "from": "left" if side < 0 else "right"}
+		"hover":
+			return {"kind": kind, "n": 2, "x": -side * 1.5, "gap": 0.0}
+		"prism":
+			return {"kind": kind, "n": rng.randi_range(1, 2), "x": x * 0.5, "gap": 1.0}
+		"ember":
+			return {"kind": kind, "n": rng.randi_range(3, 4), "x": x * 0.5, "gap": 0.5}
+		"wyrm":
+			return {"kind": kind, "n": 7, "x": snappedf(x * 0.5, 0.5), "gap": 0.2}
+	return {"kind": kind, "n": 1, "x": x, "gap": 0.0}

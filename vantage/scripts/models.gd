@@ -40,16 +40,140 @@ static func mat() -> StandardMaterial3D:
 	return _mat
 
 
-## The terrain material: matte, no rim, so the ground stays calm under the action.
-static func ground_mat() -> StandardMaterial3D:
+## The terrain material: matte, no rim, so the ground stays calm under the action. Where a vertex
+## is flagged as bare rock (alpha below 1: steep faces, see `ground_chunk`), it shows strata, bands
+## that follow the height, so canyon walls and cliffs read as layered rock. Where the
+## ground lies at the water line (`SEA_Y`, flat), it turns liquid by the theme (`LIQUIDS`): open water
+## gets a glossy sun highlight and slow drifting glints, lava glows and churns.
+const GROUND_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+uniform float sea_y = -0.4;
+uniform float water = 1.0;
+uniform float lava = 0.0;
+// a small tiling noise (`ground_noise`): detail and cloud shadows read it, a few lookups a pixel
+uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
+uniform float detail = 0.3;
+// bare rock (sRGB): steep faces turn to it over a narrow band, so a cliff's rim reads crisp
+uniform vec3 rock_c : source_color = vec3(0.6, 0.58, 0.53);
+uniform float clouds = 0.2;
+uniform vec2 wind = vec2(0.6, -1.1);
+uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
+// the land's baked sun shadow (UV2.x: how deep in it the vertex lies, 0 to 1, see
+// Models.sun_shade, blended softly across each cell) and its colour (sRGB)
+uniform vec3 shade_k = vec3(0.36, 0.37, 0.53);
+varying vec3 wpos;
+varying float flat_up;
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + vec3(0.055)) * (1.0 / 1.055), vec3(2.4)), c * (1.0 / 12.92), lessThan(c, vec3(0.04045)));
+}
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	flat_up = (MODEL_MATRIX * vec4(NORMAL, 0.0)).y;
+	// vertex colours are sRGB (as `vertex_color_is_srgb` does it)
+	if (!OUTPUT_IS_SRGB) {
+		COLOR.rgb = to_linear(COLOR.rgb);
+	}
+}
+
+void fragment() {
+	vec3 col = COLOR.rgb;
+	float rock = smoothstep(0.3, 0.55, 1.0 - COLOR.a);
+	vec3 rc = rock_c * (1.0 - clamp(-wpos.y * 0.025, 0.0, 0.25));
+	rc *= wpos.y < -0.6 ? 1.0 - clamp(-wpos.y * 0.03, 0.0, 0.3) : 1.0;
+	col = mix(col, rc, rock);
+	float sh = clamp(UV2.x, 0.0, 1.0);
+	vec3 k = OUTPUT_IS_SRGB ? shade_k : to_linear(shade_k);
+	col *= mix(vec3(1.0), k, sh);
+	// detail: broad patches and a finer mottle, both faint, so wide flats aren't one smooth wash
+	// (low contrast on purpose: foes and shots must stay the brightest, sharpest things on screen)
+	float dn = texture(noise_tex, wpos.xz * 0.012).r * 0.5 + texture(noise_tex, wpos.xz * 0.07 + 0.37).r * 0.5;
+	col *= 1.0 + (dn - 0.5) * detail;
+	// soft cloud shadows drifting over the land with the wind
+	vec2 cp = wpos.xz * 0.009 + wind * TIME * 0.006;
+	float cl = texture(noise_tex, cp).r * 0.65 + texture(noise_tex, cp * 2.3 + 0.5).r * 0.35;
+	col *= 1.0 - clouds * smoothstep(0.55, 0.75, cl);
+	if (rock > 0.01) {
+		float y = wpos.y + 0.35 * sin(wpos.x * 0.23 + wpos.z * 0.17) + 0.15 * sin(wpos.z * 0.61);
+		float band = fract(y * 0.62);
+		float k = mix(0.78, 1.1, smoothstep(0.1, 0.2, band)) * mix(1.0, 0.86, smoothstep(0.62, 0.7, band) * (1.0 - smoothstep(0.82, 0.9, band)));
+		// thicker beds of warmer and cooler rock
+		float bed = smoothstep(0.4, 0.5, fract(y * 0.23 + 0.3)) * (1.0 - smoothstep(0.75, 0.85, fract(y * 0.23 + 0.3)));
+		vec3 kc = vec3(k) * mix(vec3(1.0), vec3(1.07, 0.93, 0.82), bed);
+		col *= mix(vec3(1.0), kc, rock);
+	}
+	float wet = (1.0 - smoothstep(sea_y + 0.01, sea_y + 0.12, wpos.y)) * smoothstep(0.92, 0.99, flat_up);
+	float t = TIME;
+	vec2 p = wpos.xz;
+	// two slow swells crossing, and finer ripples on them
+	float w1 = sin(p.x * 0.35 + p.y * 0.21 + t * 0.9) + sin(p.x * -0.18 + p.y * 0.42 - t * 0.7);
+	float w2 = sin(p.x * 1.7 - p.y * 1.1 + t * 2.3) * sin(p.x * 0.9 + p.y * 1.9 - t * 1.9);
+	vec3 n = normalize(vec3(cos(p.x * 0.35 + p.y * 0.21 + t * 0.9) * 0.06 + w2 * 0.05, 1.0,
+		cos(p.x * -0.18 + p.y * 0.42 - t * 0.7) * 0.06 + w2 * 0.04));
+	float aw = wet * water;
+	// crest glints: short thin streaks along the swell, where the ripples peak on it
+	float line = smoothstep(0.86, 1.0, sin(p.x * 0.31 + p.y * 0.62 + t * 0.8 + w2 * 0.6));
+	float crest = line * smoothstep(0.2, 0.9, w2 * 0.5 + 0.5) * smoothstep(-0.5, 1.5, w1);
+	col += glint * crest * 0.07 * aw;
+	ALBEDO = col;
+	NORMAL = mix(NORMAL, normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz), aw);
+	ROUGHNESS = mix(0.95, 0.32, aw);
+	SPECULAR = mix(0.2, 0.6, aw);
+	// lava: a dark crust broken by hot veins that crawl and pulse, glowing in the dark
+	float al = wet * lava;
+	float vein = smoothstep(0.55, 0.95, abs(sin(p.x * 0.45 + w1 * 0.9 + t * 0.25) * sin(p.y * 0.38 - w2 * 0.7 - t * 0.2)));
+	ALBEDO = mix(ALBEDO, col * mix(0.35, 1.1, vein), al);
+	EMISSION = col * al * (0.25 + vein * (1.3 + 0.3 * sin(t * 2.0 + p.x * 0.3)));
+}
+"""
+const SEA_Y := -0.4
+## How much the ground's mottle varies its colour, and how much a cloud's shadow darkens it: faint, so
+## foes and shots stay the sharpest things on screen.
+const GROUND_DETAIL := 0.3
+const CLOUD_SHADE := 0.2
+## Each theme's liquid at the water line: water gloss and glints, or lava glow.
+const LIQUIDS := {"coast": [1.0, 0.0], "dunes": [0.0, 0.0], "city": [0.55, 0.0], "ice": [0.9, 0.0], "volcano": [0.0, 1.0]}
+
+
+static func ground_mat() -> ShaderMaterial:
 	if not _cache.has("ground"):
-		var m := StandardMaterial3D.new()
-		m.vertex_color_use_as_albedo = true
-		m.vertex_color_is_srgb = true
-		m.roughness = 0.95
-		m.metallic_specular = 0.2
+		var sh := Shader.new()
+		sh.code = GROUND_SHADER
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.set_shader_parameter("sea_y", SEA_Y)
+		m.set_shader_parameter("noise_tex", ground_noise())
+		m.set_shader_parameter("detail", GROUND_DETAIL)
+		m.set_shader_parameter("clouds", CLOUD_SHADE)
+		m.set_shader_parameter("shade_k", Vector3((1.0 - SHADE) * 0.94, (1.0 - SHADE) * 0.97, 1.0 - SHADE * 0.75))
 		_cache["ground"] = m
+	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
+	_cache["ground"].set_shader_parameter("water", lq[0])
+	_cache["ground"].set_shader_parameter("lava", lq[1])
+	_cache["ground"].set_shader_parameter("rock_c", rock_col(0.0))
 	return _cache["ground"]
+
+
+## The ground's tiling noise: 128 px, seamless, values spread over 0..1. One fetch is far cheaper
+## on a phone than hashing value noise in the shader.
+static func ground_noise() -> NoiseTexture2D:
+	if not _cache.has("ground_noise"):
+		var n := FastNoiseLite.new()
+		n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		n.frequency = 0.04
+		n.fractal_octaves = 2
+		n.seed = 7
+		var t := NoiseTexture2D.new()
+		t.width = 128
+		t.height = 128
+		t.seamless = true
+		t.normalize = true
+		t.generate_mipmaps = true
+		t.noise = n
+		_cache["ground_noise"] = t
+	return _cache["ground_noise"]
 
 
 ## A glowing unshaded material (shots, lights, engines).
@@ -67,10 +191,91 @@ static func glow(c: Color, alpha := 1.0) -> StandardMaterial3D:
 	return _cache[key]
 
 
+## A soft halo round a shot: a camera-facing disc whose colour fades out from the centre. Mixed
+## over the ground (not added), so it tints sand, snow or lava with the shot's colour instead of
+## washing out; it reads from both cameras.
+const HALO_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled;
+uniform vec4 col : source_color;
+void vertex() {
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(vec4(length(MODEL_MATRIX[0].xyz), 0, 0, 0), vec4(0, length(MODEL_MATRIX[1].xyz), 0, 0), vec4(0, 0, 1, 0), vec4(0, 0, 0, 1));
+}
+void fragment() {
+	float d = length(UV - 0.5) * 2.0;
+	float a = 1.0 - smoothstep(0.0, 1.0, d);
+	ALBEDO = col.rgb;
+	ALPHA = col.a * a * (0.6 + 0.4 * a);
+}
+"""
+
+
+static func halo_mat(c: Color) -> ShaderMaterial:
+	var key := "halo%s" % c.to_html()
+	if not _cache.has(key):
+		var sh := Shader.new()
+		sh.code = HALO_SHADER
+		var m := ShaderMaterial.new()
+		m.shader = sh
+		m.set_shader_parameter("col", c)
+		_cache[key] = m
+	return _cache[key]
+
+
+static func halo_mesh() -> Mesh:
+	return cached("halo", func() -> Mesh:
+		var q := QuadMesh.new()
+		q.size = Vector2(2, 2)
+		return q)
+
+
+## Enemy fire takes each world's `fire` colour (`THEMES`), picked to stand apart from its ground:
+## a white-hot core, a saturated body and a soft halo of the same colour.
+const BULLET_CORE := Color8(0xff, 0xfa, 0xe0)
+## The ship's shots: cyan with a soft blue halo.
+const SHOT_BODY := Color8(0x9c, 0xf6, 0xff)
+const SHOT_HALO := Color8(0x2a, 0x6c, 0xff)
+
+
+static func fire_col() -> Color:
+	return THEMES[theme].get("fire", Color8(0xff, 0x24, 0x5e))
+
+
+## A shot node: `body` mesh of radius `r`, a soft `halo` disc `glow_k` times its size and, if
+## `core` > 0, a hot core.
+static func shot_node(r: float, body: Color, halo: Color, core := 0.0, glow_k := 3.4, halo_a := 0.75) -> MeshInstance3D:
+	var n := instance(shot_mesh(r), glow(body))
+	if core > 0.0:
+		var c := instance(shot_mesh(core), glow(BULLET_CORE))
+		c.name = "core"
+		n.add_child(c)
+	var h := instance(halo_mesh(), halo_mat(Color(halo, halo_a)))
+	h.scale = Vector3.ONE * r * glow_k
+	h.name = "halo"
+	n.add_child(h)
+	return n
+
+
 static func hash2(x: float, y: float) -> float:
 	var s := sin(x * 12.9898 + y * 78.233) * 43758.5453
 	return s - floor(s)
 
+
+## An irregular outline: n points round a circle of radius r, each pushed in or out.
+static func blob(r: float, n: int, seed: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		var a := TAU * i / n + seed
+		out.append(Vector2(cos(a), sin(a)) * r * (0.72 + 0.5 * hash2(seed * 9.1 + i, i * 1.3)))
+	return out
+
+## Baked occlusion (`Builder.ao`): how dark a placed prop gets at its very base, how high (m) the
+## darkening reaches, and how tall a part must stand to shade the ground round it.
+const AO_BASE := 0.5
+const AO_H := 1.4
+const AO_TALL := 0.75
+const AO_FLAT := 0.15
 
 ## Collects coloured triangles from many parts into one flat-shaded mesh.
 class Builder:
@@ -78,13 +283,131 @@ class Builder:
 	var n := 0
 	## Where parts go: everything added is moved by this (scenery is built round its own origin,
 	## then turned and placed).
-	var xf := Transform3D.IDENTITY
+	var xf := Transform3D.IDENTITY:
+		set(v):
+			if ao > 0.0:
+				close_spot()
+			xf = v
+			ao = 0.0
+	## Baked ambient occlusion for things standing on the ground (`Models.place` turns it on):
+	## vertices darken towards the placement's base over `ao` metres, so walls, trunks and rocks
+	## sit in the ground instead of floating on it. Any new `xf` turns it off.
+	var ao := 0.0
+	## The footprint of each placement with `ao` on, seen from above, where it stands taller than
+	## `AO_TALL`: [origin at its base, height, (x, z) min, (x, z) max]. `Models.ao_blobs` turns them
+	## into soft dark patches on the ground (`take_spots`).
+	var spots: Array = []
+	# the open placement's footprint, kept in plain floats (this runs for every vertex)
+	var _oy := 0.0
+	var _top := 0.0
+	var _lx := INF
+	var _lz := INF
+	var _hx := -INF
+	var _hz := -INF
 	## False for things that sit on the ground: their bottom faces are never seen.
 	var bottoms := true
+	## False skips prism's bevelled top edge (small parts, built by the thousand, don't need it).
+	var bevels := true
 
 	func _init() -> void:
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		st.set_smooth_group(0xFFFFFFFF)
+
+	## Smooth shading for what follows (curved hulls, wings, nacelles), or back to flat facets.
+	func smooth(on: bool) -> void:
+		st.set_smooth_group(1 if on else 0xFFFFFFFF)
+
+	## Joins rings of points (each the same count, going round the same way) into a smooth skin;
+	## `col` gives the colour at a point (a Callable taking the point) or is a Color. `inward`
+	## faces it inside (a tunnel). Caps close the first and last rings with flat fans.
+	func loft(rings: Array, col: Variant, inward := false, cap0 := false, cap1 := false) -> void:
+		var mids: Array[Vector3] = []
+		for r: PackedVector3Array in rings:
+			var m := Vector3.ZERO
+			for q in r:
+				m += q
+			mids.append(m / maxf(1.0, r.size()))
+		var colf: Callable = col if col is Callable else func(_q: Vector3) -> Color: return col
+		smooth(true)
+		for i in rings.size() - 1:
+			var r0: PackedVector3Array = rings[i]
+			var r1: PackedVector3Array = rings[i + 1]
+			var n := r0.size()
+			for k in n:
+				var a := r0[k]
+				var b := r0[(k + 1) % n]
+				var c := r1[(k + 1) % n]
+				var d := r1[k]
+				var axis := (mids[i + 1] - mids[i]).normalized()
+				var o := (a + b + c + d) * 0.25 - (mids[i] + mids[i + 1]) * 0.5
+				o -= axis * o.dot(axis)
+				if inward:
+					o = -o
+				tri_cols(a, b, c, colf.call(a), colf.call(b), colf.call(c), o)
+				tri_cols(a, c, d, colf.call(a), colf.call(c), colf.call(d), o)
+		smooth(false)
+		for e in [[cap0, 0, 1], [cap1, rings.size() - 1, rings.size() - 2]]:
+			if not e[0]:
+				continue
+			var r: PackedVector3Array = rings[e[1]]
+			var o2: Vector3 = mids[e[1]] - mids[e[2]]
+			for k in r.size():
+				tri(mids[e[1]], r[k], r[(k + 1) % r.size()], colf.call(r[k]), o2)
+
+	## Starts occlusion for a placement at `xf` (`h`: how high the darkening reaches, metres).
+	func occlude(h: float) -> void:
+		ao = h
+		_oy = xf.origin.y
+		_top = 0.0
+		_lx = INF
+		_lz = INF
+		_hx = -INF
+		_hz = -INF
+
+	func close_spot() -> void:
+		if _lx <= _hx:
+			spots.append([Vector3(xf.origin.x, _oy, xf.origin.z), _top, Vector2(_lx, _lz), Vector2(_hx, _hz)])
+		_lx = INF
+		_hx = -INF
+
+	## The footprints so far (closing the open one).
+	func take_spots() -> Array:
+		if ao > 0.0:
+			close_spot()
+			ao = 0.0
+		return spots
+
+	func grow(p: Vector3) -> void:
+		var up := p.y - _oy
+		if up > AO_TALL:
+			_lx = minf(_lx, p.x)
+			_lz = minf(_lz, p.z)
+			_hx = maxf(_hx, p.x)
+			_hz = maxf(_hz, p.z)
+			_top = maxf(_top, up)
+
+	## Whether a triangle needs darkening: not if it lies flat on the ground (foam rings, paths,
+	## garden beds) or stands clear above `ao`. It also grows the footprint.
+	func occluded(a: Vector3, b: Vector3, c: Vector3) -> bool:
+		grow(a)
+		grow(b)
+		grow(c)
+		var lo := minf(a.y, minf(b.y, c.y)) - _oy
+		var hi := maxf(a.y, maxf(b.y, c.y)) - _oy
+		return lo < ao and hi > AO_FLAT
+
+	## A vertex colour darkened by how close the (world) point is to its placement's base, less so
+	## on faces open to the sky (`open`).
+	func shade(p: Vector3, col: Color, open := 0.0) -> Color:
+		var k := lerpf(AO_BASE, 1.0, maxf(smoothstep(-0.1, ao, p.y - _oy), open))
+		return Color(col.r * k, col.g * k, col.b * k, col.a)
+
+	## How open to the sky a face is (tops of rocks and roofs stay lit; walls darken at the base).
+	func sky(a: Vector3, b: Vector3, c: Vector3, out: Vector3) -> float:
+		var fn := (b - a).cross(c - a)
+		if fn.dot(out) < 0.0:
+			fn = -fn
+		return smoothstep(0.5, 0.95, fn.y / maxf(fn.length(), 1e-9))
 
 	## One triangle; `out` is roughly the direction its front faces.
 	func tri(a: Vector3, b: Vector3, c: Vector3, col: Color, out: Vector3) -> void:
@@ -96,10 +419,19 @@ class Builder:
 			var t := b
 			b = c
 			c = t
-		st.set_color(col)
-		st.add_vertex(a)
-		st.add_vertex(c)
-		st.add_vertex(b)
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			st.set_color(shade(a, col, o))
+			st.add_vertex(a)
+			st.set_color(shade(c, col, o))
+			st.add_vertex(c)
+			st.set_color(shade(b, col, o))
+			st.add_vertex(b)
+		else:
+			st.set_color(col)
+			st.add_vertex(a)
+			st.add_vertex(c)
+			st.add_vertex(b)
 		n += 3
 
 	## A triangle with a colour per corner.
@@ -115,6 +447,11 @@ class Builder:
 			var u := cb
 			cb = cc
 			cc = u
+		if ao > 0.0 and occluded(a, b, c):
+			var o := sky(a, b, c, out)
+			ca = shade(a, ca, o)
+			cb = shade(b, cb, o)
+			cc = shade(c, cc, o)
 		st.set_color(ca)
 		st.add_vertex(a)
 		st.set_color(cc)
@@ -146,7 +483,7 @@ class Builder:
 		for p in outline:
 			minr = minf(minr, (p - mid).length())
 		var bev := 0.0
-		if top.x > 0.5 and top.y > 0.5 and y1 - y0 > 0.12 and minr > 0.12:
+		if bevels and top.x > 0.5 and top.y > 0.5 and y1 - y0 > 0.12 and minr > 0.12:
 			bev = minf(minf(0.16, (y1 - y0) * 0.3), minr * 0.22)
 		var yb := y1 - bev
 		var inset := 1.0 - bev / maxf(minr, 0.001) * 0.9
@@ -199,12 +536,115 @@ class Builder:
 		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 		st.set_color(col)
 		for i in idx.size():
-			st.add_vertex(xf * (at * v[idx[i]]))
+			var q := xf * (at * v[idx[i]])
+			if ao > 0.0:
+				grow(q)
+				st.set_color(shade(q, col))
+			st.add_vertex(q)
 		n += idx.size()
+
+	## When set (`Callable` Color -> Color), every colour goes through it at commit: the city's
+	## calming (`City.calm`).
+	var tone := Callable()
 
 	func commit() -> ArrayMesh:
 		st.generate_normals()
-		return st.commit()
+		if not tone.is_valid():
+			return st.commit()
+		var arr := st.commit_to_arrays()
+		var cols: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		for i in cols.size():
+			cols[i] = tone.call(cols[i])
+		arr[Mesh.ARRAY_COLOR] = cols
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		return m
+
+
+## Baked ambient occlusion for a model (ships, foes, bosses, landmarks): the mesh is dropped into
+## a coarse grid of cells (`AO_CELLS` along its longest side), then from each vertex a few rays go
+## out over its hemisphere; the sooner they hit the model itself, the darker the vertex, down to
+## `1 - AO_STRENGTH`. Creases, the feet of turrets and bridges, gun wells and the gaps between
+## parts darken; open plating stays as it was. Runs once per cached mesh (`cached`).
+const AO_CELLS := 44.0
+const AO_STRENGTH := 0.6
+const AO_STEPS := [0.8, 1.8, 3.2, 5.5]
+## The ray directions round +y (a hemisphere, slightly favouring the normal).
+const AO_DIRS := [Vector3(0, 1, 0), Vector3(0.7, 0.7, 0), Vector3(-0.7, 0.7, 0), Vector3(0, 0.7, 0.7),
+	Vector3(0, 0.7, -0.7), Vector3(0.9, 0.3, 0.3), Vector3(-0.9, 0.3, -0.3), Vector3(0.3, 0.3, -0.9),
+	Vector3(-0.3, 0.3, 0.9)]
+
+
+static func bake_ao(m: Mesh) -> Mesh:
+	if not (m is ArrayMesh) or m.get_surface_count() == 0:
+		return m
+	var aabb := m.get_aabb()
+	var cell := maxf(aabb.get_longest_axis_size() / AO_CELLS, 0.02)
+	var org := aabb.position - Vector3.ONE * cell * 2.0
+	var dim := Vector3i((aabb.size / cell).ceil()) + Vector3i(5, 5, 5)
+	var grid := PackedByteArray()
+	grid.resize(dim.x * dim.y * dim.z)
+	var surfs := []
+	for si in m.get_surface_count():
+		surfs.append(m.surface_get_arrays(si))
+	# the surface, rasterised by sampling each triangle finer than a cell
+	for arr: Array in surfs:
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var nt := idx.size() / 3 if idx.size() > 0 else vs.size() / 3
+		for t in nt:
+			var a := vs[idx[t * 3] if idx.size() > 0 else t * 3]
+			var b := vs[idx[t * 3 + 1] if idx.size() > 0 else t * 3 + 1]
+			var c := vs[idx[t * 3 + 2] if idx.size() > 0 else t * 3 + 2]
+			var steps := ceili(maxf((b - a).length(), (c - a).length()) / (cell * 0.7)) + 1
+			for i in steps + 1:
+				for j in steps + 1 - i:
+					var q := a + (b - a) * (float(i) / steps) + (c - a) * (float(j) / steps)
+					var g := Vector3i(((q - org) / cell).floor())
+					grid[(g.z * dim.y + g.y) * dim.x + g.x] = 1
+	var out := ArrayMesh.new()
+	for si in surfs.size():
+		var arr: Array = surfs[si]
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		if arr[Mesh.ARRAY_COLOR] == null or ns.is_empty():
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+		var seen := {}
+		for v in vs.size():
+			var key := Vector3i(((vs[v] - org) / (cell * 0.25)).round()) * 8 + Vector3i((ns[v] * 3.0).round())
+			var k: float = seen.get(key, -1.0)
+			if k < 0.0:
+				k = 1.0 - AO_STRENGTH * occlusion(grid, dim, org, cell, vs[v], ns[v])
+				seen[key] = k
+			cs[v] = Color(cs[v].r * k, cs[v].g * k, cs[v].b * k, cs[v].a)
+		arr[Mesh.ARRAY_COLOR] = cs
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		var mt := m.surface_get_material(si)
+		if mt:
+			out.surface_set_material(si, mt)
+	return out
+
+
+## How shut in a point is (0 open, 1 buried): the share of rays from it that hit the grid, nearer
+## hits counting more.
+static func occlusion(grid: PackedByteArray, dim: Vector3i, org: Vector3, cell: float, p: Vector3, n: Vector3) -> float:
+	var basis := Basis.looking_at(n, Vector3.UP if absf(n.y) < 0.95 else Vector3.RIGHT)
+	# looking_at points -z along n: map the table's +y onto n
+	var occ := 0.0
+	for d: Vector3 in AO_DIRS:
+		var dir := (basis * Vector3(d.x, d.z, -d.y)).normalized()
+		var w := 1.0
+		for st: float in AO_STEPS:
+			var g := Vector3i(((p + n * cell * 1.01 + dir * st * cell - org) / cell).floor())
+			if g.x < 0 or g.y < 0 or g.z < 0 or g.x >= dim.x or g.y >= dim.y or g.z >= dim.z:
+				break
+			if grid[(g.z * dim.y + g.y) * dim.x + g.x] == 1:
+				occ += w
+				break
+			w *= 0.75
+	return occ / AO_DIRS.size()
 
 
 static func ngon(r: float, n: int, rot := 0.0) -> PackedVector2Array:
@@ -302,8 +742,16 @@ static func shadow_plane_mat(mask: Texture2D) -> ShaderMaterial:
 
 static func cached(key: String, f: Callable) -> Mesh:
 	if not _cache.has(key):
-		_cache[key] = f.call()
+		var m: Mesh = f.call()
+		# every solid model gets its occlusion baked in; glowing things (shots, lights) don't need it
+		if not NO_AO.any(func(p: String) -> bool: return key.begins_with(p)):
+			m = bake_ao(m)
+		_cache[key] = m
 	return _cache[key]
+
+
+## Cached meshes left without baked occlusion: unshaded glows and effects.
+const NO_AO := ["halo", "shot", "ring", "scrap", "cap_glow", "cap_lights", "cap_bubble", "contact"]
 
 
 # ---------------------------------------------------------------- the player's ship
@@ -396,12 +844,28 @@ static func heavy() -> Mesh:
 ## The sector's guardian, the Bastion: a battleship wider than the screen, nose to +z. The hull
 ## stays; the bow plating and the wings are separate meshes that break off when their section
 ## is destroyed. Its guns are separate parts (boss_cannon, boss_battery, boss_bridge, turret).
+## The Bastion's outlines seen from above (x, z from the hull's centre, bow towards +z): its
+## meshes are built from them and ramming tests the ship against them (Game.boss_rammed).
+const BOSS_HULL := [Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
+	Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]
+const BOSS_BOW := [Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0), Vector2(-2.2, 7.0)]
+const BOSS_WING := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
+
+
+## One of the Bastion's wings (sx = 1 right, -1 left), wound the same way as the others.
+static func boss_wing(sx: float) -> PackedVector2Array:
+	var o := PackedVector2Array()
+	for p: Vector2 in BOSS_WING:
+		o.append(Vector2(p.x * sx, p.y))
+	if sx < 0:
+		o.reverse()
+	return o
+
+
 static func boss_hull() -> Mesh:
 	return cached("boss_hull", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3.ZERO, pts([Vector2(0, 5.0), Vector2(2.6, 3.5), Vector2(3.6, -2.0), Vector2(3.2, -10.5),
-			Vector2(1.6, -12.0), Vector2(-1.6, -12.0), Vector2(-3.2, -10.5), Vector2(-3.6, -2.0), Vector2(-2.6, 3.5)]),
-			-0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
+		b.prism(Vector3.ZERO, pts(BOSS_HULL), -0.9, 0.7, FOE_D, Vector2(0.9, 0.95))
 		# raised spine, deck stripes, stern engines
 		b.box(Vector3(0, 0.9, -5.5), Vector3(2.4, 0.5, 9.0), HULL_D, Vector2(0.8, 0.95))
 		for k in 4:
@@ -415,8 +879,7 @@ static func boss_hull() -> Mesh:
 static func boss_bow() -> Mesh:
 	return cached("boss_bow", func() -> Mesh:
 		var b := Builder.new()
-		b.prism(Vector3(0, 0, 0), pts([Vector2(0, 9.6), Vector2(2.2, 7.0), Vector2(3.4, 2.0), Vector2(-3.4, 2.0),
-			Vector2(-2.2, 7.0)]), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
+		b.prism(Vector3(0, 0, 0), pts(BOSS_BOW), -0.6, 1.0, FOE, Vector2(0.85, 0.9))
 		b.box(Vector3(0, 1.05, 5.0), Vector3(1.0, 0.1, 5.0), AMBER, Vector2(0.4, 0.9))
 		for sx in [1.0, -1.0]:
 			b.prism(Vector3(sx * 1.6, 1.0, 6.5), ngon(1.0, 8, PI / 8), 0.0, 0.2, HULL_D)
@@ -428,12 +891,7 @@ static func boss_wings() -> Mesh:
 	return cached("boss_wings", func() -> Mesh:
 		var b := Builder.new()
 		for sx in [1.0, -1.0]:
-			var w := [Vector2(3.4, 2.4), Vector2(12.5, -2.2), Vector2(12.5, -4.0), Vector2(3.4, -6.5)]
-			var o := PackedVector2Array()
-			for p: Vector2 in w:
-				o.append(Vector2(p.x * sx, p.y))
-			if sx < 0:
-				o.reverse()
+			var o := boss_wing(sx)
 			b.prism(Vector3.ZERO, o, -0.35, 0.35, FOE, Vector2(0.97, 0.97))
 			b.box(Vector3(sx * 12.2, 0.0, -3.1), Vector3(0.7, 1.0, 2.6), HULL_D)
 			b.box(Vector3(sx * 9.5, 0.37, -2.0), Vector3(3.5, 0.05, 0.3), AMBER)
@@ -476,6 +934,247 @@ static func boss_bridge() -> Mesh:
 		return b.commit())
 
 
+# ---------------------------------------------------------------- the other mid-bosses
+## Every mid-boss (`Rules.MIDBOSSES`) is a hull that stays and a piece per section that breaks
+## off; its guns are separate parts (`boss_part`). Nose to +z, decks round y = 0.7..1.2 so the
+## parts' mounts sit on them.
+const OLIVE := Color8(0x7a, 0x84, 0x4c)
+const OLIVE_D := Color8(0x4c, 0x55, 0x34)
+const IVORY := Color8(0xd6, 0xd8, 0xd2)
+const IVORY_D := Color8(0x8e, 0x96, 0x9a)
+const COBALT := Color8(0x2c, 0x4a, 0x7c)
+const COBALT_D := Color8(0x1e, 0x2c, 0x48)
+const IRON := Color8(0x4a, 0x46, 0x44)
+const IRON_D := Color8(0x2e, 0x2a, 0x2a)
+const RUST := Color8(0xd0, 0x5c, 0x2a)
+
+
+static func midboss_hull(id: String) -> Mesh:
+	if id == "bastion":
+		return boss_hull()
+	return cached("mid_%s" % id, func() -> Mesh:
+		var b := Builder.new()
+		match id:
+			"mantis":
+				# a long segmented body, a raised carapace, the eye's socket near its tail
+				b.prism(Vector3.ZERO, pts([Vector2(0, 6.2), Vector2(1.8, 4.2), Vector2(2.6, -0.8), Vector2(2.2, -5.4),
+					Vector2(1.0, -7.2), Vector2(-1.0, -7.2), Vector2(-2.2, -5.4), Vector2(-2.6, -0.8), Vector2(-1.8, 4.2)]),
+					-0.8, 0.8, OLIVE_D, Vector2(0.9, 0.95))
+				for k in 4:
+					b.prism(Vector3(0, 0, 3.0 - k * 2.4), ngon(1.7 - k * 0.12, 6, PI / 6), 0.8, 1.2, OLIVE, Vector2(0.7, 0.7))
+				b.prism(Vector3(0, 0, -1.2), ngon(2.0, 10), 0.8, 1.0, HULL_D)
+				b.prism(Vector3(0, 0, 4.6), ngon(1.0, 8, PI / 8), 0.8, 1.3, HULL_D)
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 2.3, 0.3, -2.0), Vector3(0.4, 0.8, 5.0), AMBER, Vector2(0.6, 0.95))
+					b.prism(Vector3(sx * 1.0, 0, -7.0), ngon(0.7, 8, PI / 8), -0.5, 0.5, HULL)
+			"halo":
+				# a hub with an inner ring round it
+				b.prism(Vector3.ZERO, ngon(2.4, 12), -0.9, 1.2, IVORY_D, Vector2(0.85, 0.85))
+				b.prism(Vector3.ZERO, ngon(1.7, 12), 1.2, 1.5, IVORY)
+				ring(b, 3.8, 4.6, 16, -0.5, 0.8, IVORY)
+				for k in 16:
+					var a := TAU * (k + 0.5) / 16.0
+					b.box(Vector3(sin(a) * 4.2, 0.82, cos(a) * 4.2), Vector3(0.2, 0.06, 0.2), CYAN)
+			"twin":
+				# the keel between the hulls, the bridge's base at its stern
+				b.prism(Vector3.ZERO, pts([Vector2(0, 2.8), Vector2(1.6, 1.4), Vector2(1.6, -5.6), Vector2(0.8, -6.6),
+					Vector2(-0.8, -6.6), Vector2(-1.6, -5.6), Vector2(-1.6, 1.4)]), -0.7, 0.8, COBALT_D, Vector2(0.9, 0.95))
+				b.box(Vector3(0, 0.9, -2.4), Vector3(2.6, 0.3, 3.4), HULL_D)
+				for k in 3:
+					b.box(Vector3(0, 0.82, 1.4 - k * 2.6), Vector3(2.4, 0.04, 0.24), AMBER)
+			"hammer":
+				# a thick body, the heart's armoured cradle near its stern
+				b.prism(Vector3.ZERO, pts(HAMMER_BODY), -0.9, 0.9, IRON, Vector2(0.9, 0.95))
+				b.prism(Vector3(0, 0, -3.0), ngon(2.0, 8, PI / 8), 0.9, 1.2, IRON_D)
+				for sx in [1.0, -1.0]:
+					b.prism(Vector3(sx * 1.2, 0, -6.6), ngon(0.8, 8, PI / 8), -0.6, 0.6, HULL)
+					b.box(Vector3(sx * 2.5, 0.4, 0.0), Vector3(0.3, 0.6, 8.0), RUST, Vector2(0.6, 0.95))
+		return b.commit())
+
+
+static func midboss_piece(id: String, piece: String) -> Mesh:
+	if id == "bastion":
+		return boss_bow() if piece == "bow" else boss_wings()
+	return cached("mid_%s_%s" % [id, piece], func() -> Mesh:
+		var b := Builder.new()
+		var parts: Array = []
+		for sec: Dictionary in Rules.MIDBOSSES[id].sections:
+			if sec.piece == piece:
+				parts = sec.parts
+		match [id, piece]:
+			["mantis", "claws"]:
+				for sx in [1.0, -1.0]:
+					slab(b, Vector2(sx * 2.2, 1.2), Vector2(sx * 4.4, 2.6), 1.4, -0.4, 0.7, OLIVE)
+					slab(b, Vector2(sx * 4.4, 2.6), Vector2(sx * 5.0, 7.6), 1.6, -0.4, 0.8, OLIVE)
+					slab(b, Vector2(sx * 5.2, 7.4), Vector2(sx * 3.0, 9.6), 1.0, -0.3, 0.6, AMBER)
+					b.prism(Vector3(sx * 4.4, 0, 2.6), ngon(1.0, 8, PI / 8), -0.5, 0.75, OLIVE_D)
+			["mantis", "pods"]:
+				for sx in [1.0, -1.0]:
+					slab(b, Vector2(sx * 2.3, -2.0), Vector2(sx * 5.6, -2.2), 1.0, -0.2, 0.5, OLIVE_D)
+					slab(b, Vector2(sx * 6.2, 0.6), Vector2(sx * 6.2, -5.6), 1.9, -0.6, 0.8, OLIVE)
+					b.box(Vector3(sx * 6.2, 0.1, -5.7), Vector3(1.2, 0.8, 0.3), AMBER)
+			["halo", "rim"]:
+				ring(b, 4.6, 6.2, 24, -0.4, 0.6, IVORY_D)
+				for k in 24:
+					if k % 2 == 0:
+						var a := TAU * k / 24.0
+						b.box(Vector3(sin(a) * 6.1, 0.3, cos(a) * 6.1), Vector3(0.3, 0.5, 0.3), CYAN)
+			["halo", "spokes"]:
+				for p: Dictionary in parts:
+					var at := Vector2(p.at.x, p.at.z)
+					slab(b, at.normalized() * 2.2, at.normalized() * 4.0, 1.2, 0.0, 1.0, IVORY)
+			["twin", "port"], ["twin", "starboard"]:
+				var sx := -1.0 if piece == "port" else 1.0
+				var c := Vector3(sx * 4.6, 0, 0)
+				b.prism(c, pts(TWIN_HULL), -0.9, 0.8, COBALT, Vector2(0.88, 0.95))
+				b.box(c + Vector3(0, 0.82, 1.0), Vector3(0.4, 0.06, 9.0), FOE)
+				# the beams joining it to the keel
+				for z in [3.4, -3.8]:
+					b.box(Vector3(sx * 2.4, 0.3, z), Vector3(2.4, 0.6, 1.0), COBALT_D)
+			["twin", "deck"]:
+				b.prism(Vector3(0, 0, 2.2), pts(TWIN_DECK), 0.0, 1.0, COBALT, Vector2(0.9, 0.9))
+				b.box(Vector3(0, 1.02, 4.0), Vector3(2.0, 0.05, 0.24), AMBER)
+			["hammer", "hammer"]:
+				b.prism(Vector3(0, 0, 6.6), pts(HAMMER_BAR), -0.7, 0.8, IRON, Vector2(0.97, 0.9))
+				b.box(Vector3(0, 0.82, 7.9), Vector3(12.0, 0.06, 0.3), RUST)
+				for sx in [1.0, -1.0]:
+					b.box(Vector3(sx * 7.4, 0.0, 6.4), Vector3(0.5, 1.2, 2.6), HULL_D)
+			["hammer", "fins"]:
+				for sx in [1.0, -1.0]:
+					b.prism(Vector3.ZERO, pts([Vector2(sx * 2.2, 2.4), Vector2(sx * 5.8, -1.6), Vector2(sx * 5.4, -3.0),
+						Vector2(sx * 2.2, -1.2)]) if sx < 0 else pts([Vector2(sx * 2.2, -1.2), Vector2(sx * 5.4, -3.0),
+						Vector2(sx * 5.8, -1.6), Vector2(sx * 2.2, 2.4)]), -0.3, 0.6, IRON_D, Vector2(0.97, 0.97))
+					b.box(Vector3(sx * 4.0, 0.62, -1.0), Vector3(2.2, 0.05, 0.22), RUST)
+				b.prism(Vector3(0, 0, 2.2), ngon(1.3, 8, PI / 8), 0.9, 1.3, IRON_D)
+		# a platform under each of the section's guns
+		for p: Dictionary in parts:
+			b.prism(Vector3(p.at.x, 0, p.at.z), ngon(0.95, 8, PI / 8), p.at.y - 0.4, p.at.y - 0.15, HULL_D)
+		return b.commit())
+
+
+## A mid-boss's outlines seen from above (x, z from the hull's centre, bow towards +z), by the
+## piece they belong to ("" for the hull, which stays): ramming tests the ship against the hull
+## and the pieces still on (`Game.boss_rammed`).
+static var _shapes := {}
+
+
+static func midboss_shapes(id: String) -> Dictionary:
+	if _shapes.has(id):
+		return _shapes[id]
+	var out := {}
+	match id:
+		"bastion":
+			out = {"": [pts(BOSS_HULL)], "bow": [pts(BOSS_BOW)], "wings": [boss_wing(1.0), boss_wing(-1.0)]}
+		"mantis":
+			out = {"": [pts([Vector2(0, 6.2), Vector2(1.8, 4.2), Vector2(2.6, -0.8), Vector2(2.2, -5.4), Vector2(1.0, -7.2),
+				Vector2(-1.0, -7.2), Vector2(-2.2, -5.4), Vector2(-2.6, -0.8), Vector2(-1.8, 4.2)])], "claws": [], "pods": []}
+			for sx in [1.0, -1.0]:
+				out.claws.append(slab_poly(Vector2(sx * 2.2, 1.2), Vector2(sx * 4.4, 2.6), 1.4))
+				out.claws.append(slab_poly(Vector2(sx * 4.4, 2.6), Vector2(sx * 5.0, 7.6), 1.6))
+				out.claws.append(slab_poly(Vector2(sx * 5.2, 7.4), Vector2(sx * 3.0, 9.6), 1.0))
+				out.pods.append(slab_poly(Vector2(sx * 2.3, -2.0), Vector2(sx * 5.6, -2.2), 1.0))
+				out.pods.append(slab_poly(Vector2(sx * 6.2, 0.6), Vector2(sx * 6.2, -5.6), 1.9))
+		"halo":
+			out = {"": [ngon(4.6, 16)], "rim": [ngon(6.2, 24)]}
+		"twin":
+			out = {"": [pts([Vector2(0, 2.8), Vector2(1.6, 1.4), Vector2(1.6, -5.6), Vector2(0.8, -6.6), Vector2(-0.8, -6.6),
+				Vector2(-1.6, -5.6), Vector2(-1.6, 1.4)])], "deck": [shifted(TWIN_DECK, Vector2(0, 2.2))]}
+			for side in ["port", "starboard"]:
+				var sx := -1.0 if side == "port" else 1.0
+				out[side] = [shifted(TWIN_HULL, Vector2(sx * 4.6, 0))]
+				for z in [3.4, -3.8]:
+					out[side].append(slab_poly(Vector2(sx * 1.2, z), Vector2(sx * 3.6, z), 1.0))
+		"hammer":
+			out = {"": [pts(HAMMER_BODY)], "hammer": [shifted(HAMMER_BAR, Vector2(0, 6.6))], "fins": []}
+			for sx in [1.0, -1.0]:
+				out.fins.append(pts([Vector2(sx * 2.2, 2.4), Vector2(sx * 5.8, -1.6), Vector2(sx * 5.4, -3.0), Vector2(sx * 2.2, -1.2)]))
+	_shapes[id] = out
+	return out
+
+
+const TWIN_HULL := [Vector2(0, 8.4), Vector2(1.6, 5.6), Vector2(1.7, -5.0), Vector2(1.0, -6.6),
+	Vector2(-1.0, -6.6), Vector2(-1.7, -5.0), Vector2(-1.6, 5.6)]
+const TWIN_DECK := [Vector2(0, 2.8), Vector2(2.8, 1.2), Vector2(2.8, -1.4), Vector2(-2.8, -1.4), Vector2(-2.8, 1.2)]
+const HAMMER_BODY := [Vector2(2.2, 5.4), Vector2(2.6, 1.0), Vector2(2.4, -5.0), Vector2(1.4, -6.6),
+	Vector2(-1.4, -6.6), Vector2(-2.4, -5.0), Vector2(-2.6, 1.0), Vector2(-2.2, 5.4)]
+const HAMMER_BAR := [Vector2(-7.4, -1.2), Vector2(7.4, -1.2), Vector2(7.6, 0.6), Vector2(6.8, 1.6),
+	Vector2(-6.8, 1.6), Vector2(-7.6, 0.6)]
+
+
+static func shifted(a: Array, by: Vector2) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p: Vector2 in a:
+		out.append(p + by)
+	return out
+
+
+## The outline of a slab from a to b `w` wide (x, z).
+static func slab_poly(from: Vector2, to: Vector2, w: float) -> PackedVector2Array:
+	var d := (to - from).normalized()
+	var n := Vector2(-d.y, d.x) * w * 0.5
+	return pts([from + n, to + n, to - n, from - n])
+
+
+## A convex slab from a to b (x, z) `w` wide, from y0 to y1: arms, beams, struts.
+static func slab(b: Builder, from: Vector2, to: Vector2, w: float, y0: float, y1: float, col: Color) -> void:
+	var o := slab_poly(from, to, w)
+	# the outline must wind the same way as every other prism's (anticlockwise seen from above)
+	if (o[1] - o[0]).cross(o[2] - o[1]) < 0.0:
+		o.reverse()
+	b.prism(Vector3.ZERO, o, y0, y1, col)
+
+
+## A flat ring from radius r0 to r1 in n segments.
+static func ring(b: Builder, r0: float, r1: float, n: int, y0: float, y1: float, col: Color) -> void:
+	for k in n:
+		var a0 := TAU * k / n
+		var a1 := TAU * (k + 1) / n
+		var o := pts([Vector2(sin(a0), cos(a0)) * r0, Vector2(sin(a0), cos(a0)) * r1,
+			Vector2(sin(a1), cos(a1)) * r1, Vector2(sin(a1), cos(a1)) * r0])
+		if (o[1] - o[0]).cross(o[2] - o[1]) < 0.0:
+			o.reverse()
+		b.prism(Vector3.ZERO, o, y0, y1, col)
+
+
+## A mid-boss's gun, by kind (barrels along +z, turned to the player).
+static func boss_part(kind: String) -> Mesh:
+	match kind:
+		"cannon":
+			return boss_cannon()
+		"flak":
+			return turret()
+		"battery":
+			return boss_battery()
+		"bridge":
+			return boss_bridge()
+	return cached("part_" + kind, func() -> Mesh:
+		var b := Builder.new()
+		match kind:
+			"lance":
+				# one long barrel on a sloped mantlet
+				b.prism(Vector3.ZERO, ngon(0.8, 8, PI / 8), 0.0, 0.5, HULL, Vector2(0.75, 0.75))
+				b.box(Vector3(0, 0.6, -0.1), Vector3(0.9, 0.4, 1.0), FOE_D, Vector2(0.7, 0.8))
+				b.box(Vector3(0, 0.6, 1.3), Vector3(0.26, 0.26, 2.2), HULL_D)
+				b.box(Vector3(0, 0.6, 2.45), Vector3(0.34, 0.34, 0.16), AMBER)
+			"spiral":
+				# a squat drum with four short barrels round it
+				b.prism(Vector3.ZERO, ngon(0.95, 8, PI / 8), 0.0, 0.7, HULL_D, Vector2(0.85, 0.85))
+				for k in 4:
+					var a := TAU * k / 4.0
+					b.box(Vector3(sin(a) * 0.95, 0.4, cos(a) * 0.95), Vector3(0.3 + absf(cos(a)) * 0.0, 0.24, 0.3) + Vector3(absf(sin(a)), 0, absf(cos(a))) * 0.6, HULL)
+				b.prism(Vector3(0, 0.7, 0), ngon(0.45, 8), 0.0, 0.2, AMBER)
+			"dome":
+				# the heart: a stepped armoured dome with a glowing eye band
+				b.prism(Vector3.ZERO, ngon(2.0, 10), -0.4, 0.4, HULL_D, Vector2(0.9, 0.9))
+				b.prism(Vector3(0, 0.4, 0), ngon(1.75, 10), 0.0, 0.35, FOE)
+				b.prism(Vector3(0, 0.75, 0), ngon(1.6, 10), 0.0, 0.5, FOE_D, Vector2(0.75, 0.75))
+				b.prism(Vector3(0, 1.25, 0), ngon(1.15, 10), 0.0, 0.4, FOE, Vector2(0.5, 0.5))
+				for k in 10:
+					var a := TAU * (k + 0.5) / 10.0
+					b.box(Vector3(sin(a) * 1.74, 0.58, cos(a) * 1.74), Vector3(0.36, 0.14, 0.36), AMBER)
+		return b.commit())
+
+
 # ---------------------------------------------------------------- foes inside the fortress
 ## Security drone: a diamond with four fins and an amber eye facing the player (+z).
 static func drone() -> Mesh:
@@ -511,17 +1210,41 @@ static func panel() -> Mesh:
 
 
 # ---------------------------------------------------------------- the fortress
-## The flying fortress, stern at z = 0, bow at z = -FORTRESS_LEN: a huge armoured aircraft,
-## its fuselage tall and narrow (so every gun on its tail is in the ship's reach), an open bay
-## in the tail (where the drones launch and the reactor shows in the chase), twin tail fins on a
-## wide tailplane, gun blisters down its flanks and turrets along its spine. The wings and their
-## engines are separate meshes (`fortress_wing`), so one can break off when it goes down.
+## The capital ships (`Rules.FORTRESSES`) are built in `Capital` (capital.gd); these are their
+## paints and the lofting helpers they share.
 const ARMOUR := Color8(0x4e, 0x56, 0x62)
 const GLASS_D := Color8(0x1c, 0x2a, 0x3c)
+## Each paint: deck and upper hull, the flanks and belly, and the darker trim.
+const PAINTS := {
+	"steel": [Color8(0x7a, 0x82, 0x8e), Color8(0x55, 0x5d, 0x69), Color8(0x33, 0x38, 0x41)],
+	"ivory": [Color8(0xe2, 0xe0, 0xd6), Color8(0x9e, 0xa4, 0xa6), Color8(0x4a, 0x50, 0x56)],
+	"iron": [Color8(0x4c, 0x4a, 0x4c), Color8(0x34, 0x32, 0x34), Color8(0x1e, 0x1c, 0x1e)],
+	"olive": [Color8(0x86, 0x8e, 0x58), Color8(0x5a, 0x62, 0x3c), Color8(0x36, 0x3a, 0x26)],
+	"cobalt": [Color8(0x3a, 0x5a, 0x8e), Color8(0x26, 0x38, 0x5c), Color8(0x16, 0x20, 0x34)],
+	"pearl": [Color8(0xd8, 0xe2, 0xea), Color8(0xa8, 0xb8, 0xc6), Color8(0x4c, 0x5a, 0x68)],
+	"teal": [Color8(0x4e, 0x8c, 0x90), Color8(0x2e, 0x5e, 0x66), Color8(0x1a, 0x34, 0x3a)],
+	"sand": [Color8(0xc8, 0xa8, 0x78), Color8(0x8e, 0x6c, 0x48), Color8(0x4a, 0x36, 0x26)],
+	"bronze": [Color8(0x9a, 0x7a, 0x4a), Color8(0x5e, 0x4c, 0x36), Color8(0x2e, 0x26, 0x1e)],
+	"graphite": [Color8(0x5e, 0x62, 0x6a), Color8(0x3c, 0x40, 0x48), Color8(0x22, 0x24, 0x2a)],
+	"crimson": [Color8(0x9a, 0x3c, 0x3a), Color8(0x62, 0x26, 0x28), Color8(0x2e, 0x16, 0x18)],
+	"frost": [Color8(0xe6, 0xf0, 0xf6), Color8(0x9c, 0xb6, 0xcc), Color8(0x4a, 0x5e, 0x74)],
+	"violet": [Color8(0x6a, 0x5a, 0x9a), Color8(0x44, 0x3a, 0x6a), Color8(0x24, 0x1e, 0x3a)],
+	"basalt": [Color8(0x48, 0x42, 0x40), Color8(0x30, 0x2a, 0x2a), Color8(0x18, 0x14, 0x14)],
+}
+const HULL_N := 32
+const WING_N := 14
+
+
+static func fort(id: String) -> Dictionary:
+	return Rules.FORTRESSES[id]
+
+
+static func paint(id: String) -> Array:
+	return PAINTS[fort(id).paint]
 
 
 ## Extrudes the outline (x, y) along -z, from z = -z0 to z = -z1 round `c`, the far end scaled
-## by `top` and shifted (x, y) by `shift`: fuselages, nacelles and barrels.
+## by `top` and shifted (x, y) by `shift`.
 static func along_z(b: Builder, c: Vector3, outline: PackedVector2Array, z0: float, z1: float, col: Color,
 		top := Vector2.ONE, shift := Vector2.ZERO) -> void:
 	if z1 < z0 and top == Vector2.ONE and shift == Vector2.ZERO:
@@ -534,202 +1257,97 @@ static func along_z(b: Builder, c: Vector3, outline: PackedVector2Array, z0: flo
 	b.xf = keep
 
 
-## A gun turret with `n` barrels pointing along `dir` (+z aft, the way the chase sees them).
-static func gun_turret(b: Builder, at: Vector3, r: float, n: int, dir := 1.0) -> void:
-	b.prism(at, ngon(r, 8, PI / 8), -r * 0.35, r * 0.45, HULL_D, Vector2(0.7, 0.7))
-	b.box(at + Vector3(0, r * 0.6, 0), Vector3(r * 1.1, r * 0.35, r * 1.2), ARMOUR, Vector2(0.8, 0.8))
+## A superellipse's point at angle a (unit size): exponent p, 2 an ellipse, higher squarer.
+static func squircle(a: float, p: float) -> Vector2:
+	var c := cos(a)
+	var s := sin(a)
+	return Vector2(signf(c) * pow(absf(c), 2.0 / p), signf(s) * pow(absf(s), 2.0 / p))
+
+
+## A ring of n points round c in the plane of u and v (their lengths are the radii).
+static func oval(c: Vector3, u: Vector3, v: Vector3, p: float, n: int) -> PackedVector3Array:
+	var out := PackedVector3Array()
 	for k in n:
-		var x := (k - (n - 1) * 0.5) * r * 0.55
-		along_z(b, at + Vector3(x, r * 0.55, 0), ngon(r * 0.13, 6), 0.0, -r * 2.2 * dir, STEEL_D)
-
-
-static func fortress() -> Mesh:
-	return cached("fortress", func() -> Mesh:
-		var b := Builder.new()
-		var L := Rules.FORTRESS_LEN
-		var y := Rules.PY
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
-		var hw := Rules.BAY_HW
-		var hh := Rules.BAY_HH
-		var bot := 0.8
-		var deep := 7.0
-		var inner := Color8(0x2c, 0x31, 0x39)
-		# the fuselage: a tall chamfered section, tapering to a raised nose
-		var sect := pts([Vector2(-W, 2.4), Vector2(-W + 1.5, bot), Vector2(W - 1.5, bot), Vector2(W, 2.4),
-			Vector2(W, top - 1.5), Vector2(W - 1.3, top), Vector2(-W + 1.3, top), Vector2(-W, top - 1.5)])
-		along_z(b, Vector3.ZERO, sect, deep, L - 34.0, HULL)
-		along_z(b, Vector3(0, 0, -(L - 34.0)), sect, 0.0, 34.0, HULL, Vector2(0.42, 0.5), Vector2(0, 2.6))
-		# the glazed nose: a band of dark windows wrapping the cockpit, a gun chin below
-		for k in 5:
-			b.box(Vector3(0, top - 1.6 - k * 0.05, -(L - 30.0) - k * 3.2), Vector3(W * 2.04 - k * 0.9, 1.0, 2.4), GLASS_D)
-		gun_turret(b, Vector3(0, bot + 1.6, -(L - 26.0)), 1.6, 3, -1.0)
-		# the tail round the bay mouth (a ring of armour a little bigger than the fuselage)
-		b.box(Vector3(0, (bot + y - hh) * 0.5, -deep * 0.5), Vector3(W * 2, y - hh - bot, deep), HULL_D)
-		b.box(Vector3(0, (y + hh + top) * 0.5, -deep * 0.5), Vector3(W * 2, top - y - hh, deep), HULL, Vector2(0.94, 1.0))
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw + (W - hw) * 0.5), y, -deep * 0.5), Vector3(W - hw, hh * 2, deep), HULL)
-		b.box(Vector3(0, y, -deep + 0.1), Vector3(hw * 2, hh * 2, 0.2), inner)
-		b.box(Vector3(0, y - hh + 0.05, -deep * 0.5), Vector3(hw * 2, 0.1, deep), inner.lightened(0.1))
-		# amber frame round the bay mouth
-		b.box(Vector3(0, y + hh + 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
-		b.box(Vector3(0, y - hh - 0.25, 0.2), Vector3(hw * 2 + 1.0, 0.5, 0.4), AMBER)
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (hw + 0.25), y, 0.2), Vector3(0.5, hh * 2, 0.4), AMBER)
-		# the tailplane, wide and swept, with a tall fin at each end
-		for sx in [1.0, -1.0]:
-			var keep := b.xf
-			b.xf = Transform3D(Basis.from_scale(Vector3(sx, 1, 1)), Vector3.ZERO) * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3(W, 8.6, -9.0))
-			b.prism(Vector3.ZERO, pts([Vector2(0, -8.0), Vector2(-0.45, -4.0), Vector2(-0.35, 6.0), Vector2(0, 8.0),
-				Vector2(0.3, 6.0), Vector2(0.4, -4.0)]), 0.0, 10.5, ARMOUR, Vector2(0.7, 0.62), Vector2(-0.6, 4.0))
-			b.xf = keep
-			var fx: float = sx * (W + 10.2)
-			var fin := pts([Vector2(-0.5, -6.5), Vector2(0.5, -6.5), Vector2(0.5, 5.0), Vector2(0, 7.0), Vector2(-0.5, 5.0)])
-			b.prism(Vector3(fx, 0, -5.0), fin, 3.2, 20.5, HULL, Vector2(0.8, 0.6), Vector2(0, 3.0))
-			b.box(Vector3(fx, 19.2, -1.6), Vector3(1.2, 0.3, 3.0), AMBER)
-			b.octa(Vector3(fx, 8.6, -2.6), 1.2, HULL_D, Vector3(1.0, 0.9, 2.2))
-		# a ventral gondola bristling with guns, keel plates, armour belts down the flanks
-		b.box(Vector3(0, bot - 0.3, -L * 0.5), Vector3(W * 1.1, 0.6, L * 0.8), HULL_D, Vector2(0.75, 1.0))
-		for sx in [1.0, -1.0]:
-			for k in 4:
-				b.box(Vector3(sx * (W + 0.3), 6.2, -14.0 - k * 26.0), Vector3(0.6, 6.0, 16.0), ARMOUR, Vector2(0.6, 0.95))
-				# gun blisters between the belts, high and low
-				var bz := -27.0 - k * 26.0
-				b.octa(Vector3(sx * (W + 0.2), 10.8, bz), 1.1, HULL_D, Vector3(0.9, 0.9, 1.2))
-				along_z(b, Vector3(sx * (W + 0.7), 10.8, bz), ngon(0.14, 6), -0.4, -2.6, STEEL_D)
-				b.octa(Vector3(sx * (W + 0.2), 2.6, bz + 8.0), 0.9, HULL_D, Vector3(0.9, 0.9, 1.2))
-		# the spine: plating seams and a row of twin turrets on top
-		for k in 6:
-			b.box(Vector3(0, top + 0.02, -36.0 - k * 12.0), Vector3(W * 1.6, 0.06, 0.25), HULL_D)
-		for k in 3:
-			gun_turret(b, Vector3(0, top + 0.3, -48.0 - k * 20.0), 1.5, 2)
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * (W - 0.9), top + 0.02, -L * 0.55), Vector3(0.22, 0.05, L - 20.0), AMBER)
-		return b.commit())
-
-
-## Where the wings meet the fuselage (x of the right root, y, z of the root's mid chord), their
-## span, and the engines' places along the span.
-const WING_ROOT := Vector3(4.6, 9.4, -46.0)
-const WING_SPAN := 54.0
-const WING_ENGINES := [11.0, 23.0, 36.0]
-
-
-## A point on the right wing at `along` (0 at the root, 1 at the tip): the wing's local frame
-## (x out, y up, z aft) at its mid chord, and its chord there.
-static func wing_at(along: float) -> Array:
-	return [Vector3(along * WING_SPAN, along * 2.6, along * 17.0), lerpf(34.0, 11.0, along)]
-
-
-## One wing (`side` 1 right, -1 left), built round its root: a long tapered wing with a slight
-## dihedral, two engine nacelles hanging under it (the propellers are `fortress_prop`s) and gun
-## blisters on its top.
-static func fortress_wing(side: float) -> Mesh:
-	return cached("fortress_wing%d" % side, func() -> Mesh:
-		var b := Builder.new()
-		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
-		var keep := b.xf
-		b.xf = keep * Transform3D(Basis(Vector3.BACK, -PI / 2), Vector3.ZERO)
-		b.prism(Vector3.ZERO, pts([Vector2(0, -17.0), Vector2(-1.0, -11.0), Vector2(-0.75, 10.0), Vector2(0, 17.0),
-			Vector2(0.7, 10.0), Vector2(0.9, -11.0)]), 0.0, WING_SPAN, ARMOUR, Vector2(0.45, 11.0 / 34.0), Vector2(-2.6, 17.0))
-		b.xf = keep
-		var tip: Vector3 = wing_at(1.0)[0]
-		b.box(tip + Vector3(0.2, 0, -1.0), Vector3(0.4, 0.5, 6.0), AMBER)
-		for e: float in WING_ENGINES:
-			var w: Array = wing_at(e / WING_SPAN)
-			var at: Vector3 = w[0] + Vector3(0, -1.5, 0)
-			var ch: float = w[1]
-			# a nacelle under the wing from ahead of the leading edge to the propeller at the back
-			along_z(b, at + Vector3(0, 0, ch * 0.5 + 1.5), ngon(1.5, 8, PI / 8), 0.0, ch + 4.0, HULL_D)
-			along_z(b, at + Vector3(0, 0, -ch * 0.5 - 2.5), ngon(1.5, 8, PI / 8), 0.0, 3.0, HULL_D, Vector2(0.45, 0.45))
-			along_z(b, at + Vector3(0, 0, ch * 0.5 + 3.4), ngon(0.55, 8, PI / 8), 0.0, 1.9, STEEL_D)
-			b.box(at + Vector3(0, 1.0, 0), Vector3(0.8, 1.2, ch * 0.7), HULL_D)
-			b.box(at + Vector3(0, -1.45, ch * 0.2), Vector3(0.5, 0.2, ch * 0.4), AMBER)
-		for f in [0.3, 0.6, 0.86]:
-			var w: Array = wing_at(f)
-			gun_turret(b, w[0] + Vector3(0, 0.55, -2.0), 1.0, 2)
-		return b.commit())
-
-
-## Where a wing's engines' propellers spin, in the wing's frame (right wing; x flips on the left).
-static func prop_points() -> Array[Vector3]:
-	var out: Array[Vector3] = []
-	for e: float in WING_ENGINES:
-		var w: Array = wing_at(e / WING_SPAN)
-		out.append(w[0] + Vector3(0, -1.5, float(w[1]) * 0.5 + 3.5))
+		var q := squircle(TAU * k / n, p)
+		out.append(c + u * q.x + v * q.y)
 	return out
 
 
-## A four-bladed pusher propeller facing aft (spun round z).
-static func fortress_prop() -> Mesh:
-	return cached("fortress_prop", func() -> Mesh:
-		var b := Builder.new()
-		along_z(b, Vector3(0, 0, 0.3), ngon(0.6, 8), 0.0, 0.8, NAVY, Vector2(0.4, 0.4))
-		for k in 4:
-			var keep := b.xf
-			b.xf = Transform3D(Basis(Vector3.BACK, TAU * k / 4.0 + 0.3), Vector3.ZERO)
-			b.box(Vector3(0, 1.9, 0), Vector3(0.6, 3.4, 0.14), NAVY, Vector2(0.6, 1.0))
-			b.xf = keep
-		return b.commit())
+## The part of a convex outline where p . n >= d (Sutherland-Hodgman against one line).
+static func clip(o: PackedVector2Array, n: Vector2, d: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in o.size():
+		var a := o[i]
+		var c := o[(i + 1) % o.size()]
+		var ia := a.dot(n) >= d
+		var ic := c.dot(n) >= d
+		if ia:
+			out.append(a)
+		if ia != ic:
+			var t := (d - a.dot(n)) / (c - a).dot(n)
+			out.append(a + (c - a) * t)
+	return out
 
 
-## The fortress's tail armour plating with the gun platforms of its first section (breaks off).
-static func fortress_plating() -> Mesh:
-	return cached("fortress_plating", func() -> Mesh:
-		var b := Builder.new()
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
-		var y := Rules.PY
-		var hh := Rules.BAY_HH
-		b.box(Vector3(0, (y + hh + 0.6 + top) * 0.5, 0.25), Vector3(W * 2 - 0.6, top - y - hh - 0.6, 0.5), FOE_D, Vector2(0.97, 1.0))
-		for k in 3:
-			b.box(Vector3(0, top - 1.0 - k * 1.3, 0.52), Vector3(W * 2 - 1.4, 0.12, 0.06), AMBER)
-		for sx in [1.0, -1.0]:
-			b.box(Vector3(sx * 4.0, (1.2 + y + hh) * 0.5, 0.3), Vector3(1.6, y + hh - 1.2, 0.6), FOE_D)
-		for m: Vector2 in Rules.FORTRESS_SECTIONS[0].mounts:
-			b.box(Vector3(m.x, m.y - 0.8, 0.8), Vector3(1.6, 0.25, 1.2), HULL)
-		return b.commit())
+static func inset(o: PackedVector2Array, k: float) -> PackedVector2Array:
+	var mid := Vector2.ZERO
+	for p in o:
+		mid += p
+	mid /= maxf(1.0, o.size())
+	var out := PackedVector2Array()
+	for p in o:
+		out.append(mid + (p - mid) * k)
+	return out
 
 
-## The fortress's dorsal gun tower, an armoured casemate stepped up from its spine, with the gun
-## platforms of its second section and a big twin gun on top (breaks off).
-static func fortress_tower() -> Mesh:
-	return cached("fortress_tower", func() -> Mesh:
-		var b := Builder.new()
-		var W := Rules.FORTRESS_HW
-		var top := Rules.FORTRESS_TOP
-		b.box(Vector3(0, (top + 17.0) * 0.5, -21.0), Vector3(W * 1.6, 17.0 - top, 40.0), ARMOUR, Vector2(0.88, 0.97))
-		b.box(Vector3(0, (17.0 + Rules.TOWER_TOP) * 0.5, -14.0), Vector3(W * 1.1, Rules.TOWER_TOP - 17.0, 22.0), HULL_D, Vector2(0.8, 0.95))
-		gun_turret(b, Vector3(0, Rules.TOWER_TOP + 0.4, -16.0), 1.9, 2)
-		b.box(Vector3(0, Rules.TOWER_TOP + 0.3, -22.0), Vector3(0.25, 4.0, 0.25), STEEL_D)
-		for k in 4:
-			b.box(Vector3((k - 1.5) * 1.6, 18.2, -2.95), Vector3(1.0, 0.5, 0.1), CYAN)
-		for m: Vector2 in Rules.FORTRESS_SECTIONS[1].mounts:
-			var fz := -0.4 if m.y < 17.0 else -2.4
-			b.box(Vector3(m.x, m.y - 0.8, fz - 0.1), Vector3(1.4, 0.25, 1.2), HULL_D)
-		return b.commit())
+## A smooth gun dome with `n` barrels pointing along `dir` (+z aft, the way the chase sees them).
+static func gun_dome(b: Builder, at: Vector3, r: float, n: int, dir := 1.0, col := HULL_D) -> void:
+	var rings: Array = []
+	for k in 5:
+		var a := PI * 0.5 * k / 4.0
+		rings.append(oval(at + Vector3(0, sin(a) * r * 0.75, 0), Vector3(cos(a) * r + 0.01, 0, 0), Vector3(0, 0, cos(a) * r * 1.1 + 0.01), 2.0, 12))
+	b.loft(rings, col, false, true, true)
+	for k in n:
+		var x := (k - (n - 1) * 0.5) * r * 0.5
+		var c := at + Vector3(x, r * 0.4, 0)
+		b.loft([oval(c, Vector3(r * 0.12, 0, 0), Vector3(0, r * 0.12, 0), 2.0, 8),
+			oval(c + Vector3(0, 0, r * 2.4 * dir), Vector3(r * 0.1, 0, 0), Vector3(0, r * 0.1, 0), 2.0, 8)], STEEL_D, false, false, true)
 
 
-## The fortress's lights (bay strips), a separate mesh with a glow material.
-static func fortress_lights() -> Mesh:
-	return cached("fortress_lights", func() -> Mesh:
-		var b := Builder.new()
-		var y := Rules.PY
-		var hw := Rules.BAY_HW
-		var hh := Rules.BAY_HH
-		for k in 3:
-			b.box(Vector3(0, y + hh - 0.3, -1.5 - k * 2.0), Vector3(hw * 1.4, 0.05, 0.25), Color.WHITE)
-		return b.commit())
+## A capsule standing up from y0 to y1 at (x, z): gun pods on the stern.
+static func capsule_y(b: Builder, x: float, z: float, y0: float, y1: float, rx: float, rz: float, col: Variant) -> void:
+	var rings: Array = []
+	for k in 4:
+		var a := PI * 0.5 * (3 - k) / 3.0
+		rings.append(oval(Vector3(x, y0 + rx * (1.0 - cos(a)) - rx + rx, z), Vector3(sin(a) * rx + 0.01, 0, 0), Vector3(0, 0, sin(a) * rz + 0.01), 2.0, 12))
+	rings[0] = oval(Vector3(x, y0, z), Vector3(0.02, 0, 0), Vector3(0, 0, 0.02), 2.0, 12)
+	for k in 4:
+		var a := PI * 0.5 * k / 3.0
+		rings.append(oval(Vector3(x, y1 - rx + sin(a) * rx, z), Vector3(cos(a) * rx + 0.01, 0, 0), Vector3(0, 0, cos(a) * rz + 0.01), 2.0, 12))
+	b.loft(rings, col)
 
 
-## The engines' exhaust glow round the back of a wing's nacelles (`side` 1 right, -1 left).
-static func fortress_exhausts(side: float) -> Mesh:
-	return cached("fortress_exhausts%d" % side, func() -> Mesh:
-		var b := Builder.new()
-		b.xf = Transform3D(Basis.from_scale(Vector3(side, 1, 1)), Vector3.ZERO)
-		for p in prop_points():
-			along_z(b, p + Vector3(0, 0, -1.9), ngon(1.15, 8, PI / 8), 0.0, 0.2, Color.WHITE)
-		return b.commit())
+## A tapered airfoil from `root` along `span` (a vector: its length and direction, sweep and rise
+## included), chord c0 at the root to c1 at a rounded tip; `thick` scales its thickness and `up`
+## is the side its thickness grows towards. Wings, tailplanes and fins.
+static func airfoil(b: Builder, root: Vector3, span: Vector3, c0: float, c1: float, thick: float, up: Vector3,
+		col: Color, tip_col := Color(0, 0, 0, 0)) -> void:
+	var rings: Array = []
+	var ts := [0.0, 0.25, 0.5, 0.75, 0.92, 1.0]
+	var dir := Vector3(span.x, span.y, 0).normalized() if absf(span.x) + absf(span.y) > 0.01 else Vector3.RIGHT
+	for t: float in ts:
+		var ch := lerpf(c0, c1, t) * (0.55 if t == 1.0 else 1.0)
+		var th := ch * 0.12 * thick * (0.5 if t == 1.0 else 1.0)
+		var c := root + span * t - dir * (0.0 if t < 1.0 else 0.0)
+		var pts3 := PackedVector3Array()
+		for k in WING_N:
+			var a := TAU * k / WING_N
+			var z := -cos(a) * ch * 0.5
+			var yy := sin(a) * th * 0.5 * (0.7 + 0.3 * cos(a))
+			pts3.append(c + Vector3(0, 0, z) + up * yy)
+		rings.append(pts3)
+	var tipc := tip_col if tip_col.a > 0.0 else col
+	b.loft(rings, func(q: Vector3) -> Color: return tipc if (q - root).dot(dir) > span.length() * 0.9 else col, false, true, true)
 
 
 # ---------------------------------------------------------------- terrain
@@ -740,19 +1358,23 @@ static func fortress_exhausts(side: float) -> Mesh:
 ## The terrain theme of the current world (`Campaign.WORLDS`): "coast", "dunes", "city", "ice"
 ## or "volcano". `ground_chunk` colours the land and picks its props by it.
 static var theme := "coast"
+## Where the sun throws a shadow: a point h above the ground shades the ground h * sun_slide
+## away (x, z). Game sets it from its sun; this is the same sun's.
+static var sun_slide := Vector2(0.4016, -0.5736)
 
 ## Each theme's sky (top, middle, horizon, below), fog, ambient light and sun.
 const THEMES := {
 	"coast": {"sky": [Color(0.24, 0.50, 0.80), Color(0.48, 0.74, 0.92), Color(0.86, 0.92, 0.94), Color(0.62, 0.78, 0.88)],
-		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "sun": Color8(0xff, 0xef, 0xd6)},
+		"fog": Color8(0xc4, 0xde, 0xee), "ambient": Color8(0xb4, 0xcc, 0xe8), "fire": Color8(0xff, 0x24, 0x5e), "sun": Color8(0xff, 0xef, 0xd6)},
 	"dunes": {"sky": [Color(0.36, 0.56, 0.80), Color(0.66, 0.78, 0.88), Color(0.96, 0.88, 0.74), Color(0.86, 0.74, 0.58)],
-		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
-	"city": {"sky": [Color(0.30, 0.42, 0.62), Color(0.56, 0.64, 0.76), Color(0.84, 0.80, 0.78), Color(0.58, 0.60, 0.66)],
-		"fog": Color8(0xc8, 0xc8, 0xd0), "ambient": Color8(0xb8, 0xc0, 0xd4), "sun": Color8(0xff, 0xe2, 0xc8), "lift": 0.35},
+		"fog": Color8(0xf0, 0xdc, 0xbc), "ambient": Color8(0xe0, 0xcc, 0xb0), "fire": Color8(0x8a, 0x2c, 0xff), "sun": Color8(0xff, 0xe6, 0xc0), "lift": 0.45},
+	# a city at war: a sky of smoke, lit orange low down by the fires; magenta shots stand out from the flames
+	"city": {"sky": [Color(0.12, 0.12, 0.13), Color(0.24, 0.23, 0.23), Color(0.46, 0.32, 0.24), Color(0.20, 0.19, 0.19)],
+		"fog": Color8(0x48, 0x46, 0x46), "ambient": Color8(0x94, 0x94, 0x98), "fire": Color8(0xff, 0x2c, 0xe0), "sun": Color8(0xd0, 0xc0, 0xb4), "lift": 0.35},
 	"ice": {"sky": [Color(0.40, 0.58, 0.82), Color(0.66, 0.80, 0.92), Color(0.92, 0.95, 0.98), Color(0.74, 0.84, 0.92)],
-		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
+		"fog": Color8(0xe2, 0xee, 0xf6), "ambient": Color8(0xc4, 0xd8, 0xf0), "fire": Color8(0xff, 0x3a, 0x1a), "sun": Color8(0xf4, 0xf6, 0xff), "lift": 0.3},
 	"volcano": {"sky": [Color(0.22, 0.18, 0.26), Color(0.50, 0.32, 0.30), Color(0.86, 0.52, 0.34), Color(0.40, 0.24, 0.20)],
-		"fog": Color8(0x8c, 0x5c, 0x4c), "ambient": Color8(0xc8, 0x9c, 0x88), "sun": Color8(0xff, 0xc8, 0x90), "lift": 0.45},
+		"fog": Color8(0x8c, 0x5c, 0x4c), "ambient": Color8(0xc8, 0x9c, 0x88), "fire": Color8(0xd8, 0x3c, 0xff), "sun": Color8(0xff, 0xc8, 0x90), "lift": 0.45},
 }
 
 
@@ -760,6 +1382,17 @@ const THEMES := {
 ## nearly all land, with the odd dry wash).
 static func lift() -> float:
 	return float(THEMES[theme].get("lift", 0.0))
+
+
+## The water's height under the terrain cell being dressed (a lowered sea sits far below -0.4).
+static var sea_y := -0.4
+
+
+## Bare rock on steep faces, by world, a little darker deeper down (the ground shader adds strata).
+static func rock_col(y: float) -> Color:
+	var c: Color = {"coast": Color8(0xd8, 0xcc, 0xb0), "dunes": Color8(0xc4, 0x66, 0x3e), "ice": Color8(0xa4, 0xd2, 0xea),
+		"volcano": Color8(0x3e, 0x34, 0x36), "city": Color8(0x6a, 0x66, 0x62)}.get(theme, ROCK)
+	return c.darkened(clampf(-y * 0.025, 0.0, 0.25))
 
 
 static func ground_col(h: float) -> Color:
@@ -771,19 +1404,20 @@ static func ground_col(h: float) -> Color:
 			return d.lerp(Color8(0xb4, 0x62, 0x40), smoothstep(0.74, 0.8, h))
 		"city":
 			if h < 0.0:   # canals
-				return Color8(0x2c, 0x52, 0x66).lerp(Color8(0x7a, 0x7e, 0x84), smoothstep(-0.06, 0.0, h))
-			var c := Color8(0x86, 0x8a, 0x90).lerp(Color8(0x6a, 0x8e, 0x56), smoothstep(0.3, 0.33, h) * (1.0 - smoothstep(0.4, 0.43, h)))
-			return c.lerp(Color8(0xa6, 0xa8, 0xac), smoothstep(0.7, 0.76, h))
+				return Color8(0x3a, 0x48, 0x4c).lerp(Color8(0x4e, 0x4e, 0x4e), smoothstep(-0.06, 0.0, h))
+			# scorched banks along the canals, ash-grey concrete under the blocks (City paves the rest)
+			return Color8(0x44, 0x40, 0x36).lerp(Color8(0x56, 0x56, 0x58), smoothstep(0.1, 0.16, h))
 		"ice":
 			if h < 0.0:   # cold sea, pale where the shelf meets it
 				return Color8(0x1c, 0x3e, 0x60).lerp(Color8(0x6e, 0xae, 0xcc), smoothstep(-0.12, 0.0, h) * 0.8)
 			var c := Color8(0xd6, 0xea, 0xf4).lerp(Color8(0xf6, 0xfa, 0xfd), smoothstep(0.08, 0.14, h))
-			return c.lerp(Color8(0x8e, 0x9a, 0xa8), smoothstep(0.7, 0.76, h))
+			return c.lerp(Color8(0xb4, 0xce, 0xe2), smoothstep(0.7, 0.76, h))   # glacier ice on the heights
 		"volcano":
 			if h < 0.0:   # lava, a dark crust at its edge
 				return Color8(0xf0, 0x6a, 0x1e).lerp(Color8(0x50, 0x26, 0x1e), smoothstep(-0.1, 0.0, h))
+			# basalt, ash, then dark rusty rock on the heights (never as bright as the lava)
 			var c := Color8(0x4a, 0x42, 0x42).lerp(Color8(0x74, 0x6c, 0x68), smoothstep(0.35, 0.5, h))
-			return c.lerp(Color8(0x8a, 0x44, 0x34), smoothstep(0.72, 0.78, h))
+			return c.lerp(Color8(0x5e, 0x44, 0x3e), smoothstep(0.72, 0.78, h))
 	if h < 0.0:
 		# deep blue out at sea, turquoise shallows along the coast
 		return SEA.lerp(SEA_D, smoothstep(-0.08, -0.5, h)).lerp(Color8(0x3f, 0xa6, 0xb4), smoothstep(-0.1, 0.0, h) * 0.75)
@@ -813,6 +1447,46 @@ static func ground_cols(core: float, cell: float, flank: float) -> PackedFloat32
 	return cols
 
 
+## How deep in the land's own shadow the ground at p lies, 0 (in the sun) to 1: the ground
+## between p and the sun stands above the sun's ray through p.
+const SUN_STEPS := [0.7, 1.4, 2.1, 2.9, 3.7, 4.6, 5.6, 6.6, 7.6]
+## How dark the land's shadow is (and a little cooler: lit by the sky, not the sun), and the
+## margin (m) over which it deepens from lit to fully shaded. Soft (Guillaume, 2026-11-25: "go
+## back to soft shadows", after trying crisp edges drawn per pixel).
+const SHADE := 0.55
+const SHADE_SOFT := 0.45
+## The highest the land rises (the plain's top, `Relief.base_y`).
+const LAND_TOP := 1.3
+
+
+static func sun_shade(ground_h: Callable, p: Vector3) -> float:
+	var m := sun_margin(ground_h, p)
+	return smoothstep(0.0, SHADE_SOFT, m)
+
+
+## How far (m) the ground toward the sun stands above the sun's ray through p: above 0 in
+## shadow.
+static func sun_margin(ground_h: Callable, p: Vector3) -> float:
+	var l := sun_slide.length()
+	if l < 0.01:
+		return -1.0
+	var to_sun := -sun_slide / l
+	var worst := -1.0
+	for s: float in SUN_STEPS:
+		# the land never rises past LAND_TOP, so past where the ray clears it nothing can shade p
+		# (and most of the land, near the plain, is never tested at all)
+		if p.y + s / l > LAND_TOP + 0.05:
+			break
+		var q := Vector2(p.x, p.z) + to_sun * s
+		var above: float = float(ground_h.call(q.x, q.y)) - (p.y + s / l)
+		worst = maxf(worst, above)
+	return clampf(worst, -1.0, 3.0)
+
+
+## How much wider than the core strip the city is built (half on each side).
+const CITY_MORE := 24.0
+
+
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float, flank := 0.0) -> Mesh:
 	var b := Builder.new()
 	b.bottoms = false
@@ -824,13 +1498,20 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + lift()
 	var height := func(h: float) -> float:
 		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
+	# the city keeps its flat ground (its roads are laid on it); elsewhere the land has its set
+	# pieces (Relief): canyons, cliffs, craters...
+	var shaped := theme != "city"
+	Relief.fx.clear()
+	Relief.liquid = PackedVector3Array()
+	Relief.liquid_flow = PackedVector2Array()
 	# one vertex grid, jittered in world space so neighbouring chunks still meet
 	var hs := []
 	var vs := []
-	var cs := []
+	var wet := []
 	for i in nx + 1:
 		var hr := []
 		var vr := []
+		var wr := []
 		for j in nz + 1:
 			var wx := xs[i]
 			var wz := z0 - j * cz_
@@ -839,51 +1520,95 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			if i == 0 or i == nx:
 				jx = 0.0
 			var h: float = hgt.call(wx + jx, wz + jz)
-			hr.append(h)
-			vr.append(Vector3(wx + jx, height.call(h), wz + jz))
+			if shaped:
+				var r := Relief.at(wx + jx, wz + jz, h)
+				hr.append(r.y)
+				vr.append(Vector3(wx + jx, r.x, wz + jz))
+				wr.append(Vector2(r.z, r.w))
+			else:
+				hr.append(h)
+				vr.append(Vector3(wx + jx, height.call(h), wz + jz))
+				wr.append(Vector2.ZERO)
 		hs.append(hr)
 		vs.append(vr)
-	# vertex colours, darkened in hollows (cheap baked occlusion)
-	for i in nx + 1:
-		var cr := []
-		for j in nz + 1:
-			var h: float = hs[i][j]
-			var c := ground_col(h)
-			if h >= 0.0:
-				var around := 0.0
-				var k := 0
-				for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-					var a := i + d.x
-					var e := j + d.y
-					if a >= 0 and a <= nx and e >= 0 and e <= nz:
-						around += vs[a][e].y
-						k += 1
-				var hollow: float = clampf((around / k - vs[i][j].y) * 0.8, 0.0, 0.25)
-				c = c.darkened(hollow)
-			cr.append(c)
-		cs.append(cr)
+		wet.append(wr)
 	# soft normals: mostly the broad shape of the land (from the height field itself, so chunks
 	# meet without a seam), a little of each facet, so it reads as low poly but polished
 	var e := cell * 0.6
 	var ground_h := func(x: float, z: float) -> float:
+		if shaped:
+			return Relief.at(x, z, hgt.call(x, z)).x
 		return height.call(hgt.call(x, z))
 	var ns := []
 	for i in nx + 1:
 		var nr := []
 		for j in nz + 1:
 			var v: Vector3 = vs[i][j]
+			if (wet[i][j] as Vector2).x > 0.0 or (v.y <= -0.4 and hs[i][j] < 0.0):
+				nr.append(Vector3.UP)   # water lies flat, even where a lowered sea slopes away
+				continue
 			var dx: float = ground_h.call(v.x + e, v.z) - ground_h.call(v.x - e, v.z)
 			var dz: float = ground_h.call(v.x, v.z + e) - ground_h.call(v.x, v.z - e)
 			nr.append(Vector3(-dx / (2.0 * e), 1.0, -dz / (2.0 * e)).normalized())
 		ns.append(nr)
+	# vertex colours, darkened in hollows (cheap baked occlusion) and in the depths; steep faces
+	# are bare rock, flagged in alpha for the ground shader's strata
+	# the sun-shadow test samples the ground many times a vertex: inside the chunk it reads the
+	# heights already worked out for the grid (bilinear between its nodes), and only asks
+	# Relief past the chunk's edge (it costs ~half the chunk's build time otherwise)
+	var grid_h := func(x: float, z: float) -> float:
+		var fj := (z0 - z) / cz_
+		var ii := xs.bsearch(x) - 1
+		if fj < 0.0 or fj >= nz or ii < 0 or ii >= nx:
+			return ground_h.call(x, z)
+		var jj := int(fj)
+		var tj := fj - jj
+		var ti := (x - xs[ii]) / (xs[ii + 1] - xs[ii])
+		var a0 := lerpf(vs[ii][jj].y, vs[ii + 1][jj].y, ti)
+		var a1 := lerpf(vs[ii][jj + 1].y, vs[ii + 1][jj + 1].y, ti)
+		return lerpf(a0, a1, tj)
+	var cs := []
+	var ms := []
+	for i in nx + 1:
+		var cr := []
+		var mr := []
+		for j in nz + 1:
+			var h: float = hs[i][j]
+			var c := ground_col(h)
+			var y: float = vs[i][j].y
+			if h >= 0.0:
+				var around := 0.0
+				var k := 0
+				for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+					var a := i + d.x
+					var ee := j + d.y
+					if a >= 0 and a <= nx and ee >= 0 and ee <= nz:
+						around += vs[a][ee].y
+						k += 1
+				var hollow: float = clampf((around / k - y) * 0.8, 0.0, 0.25)
+				c = c.darkened(hollow)
+				var steep := smoothstep(0.16, 0.42, 1.0 - (ns[i][j] as Vector3).y)
+				if steep > 0.0:
+					# the rock itself is laid by the ground shader (`rock_c`), with a crisp edge
+					c.a = 1.0 - steep
+				if y < -0.6:
+					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
+			cr.append(c)
+			# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
+			# them (Guillaume, 2026-11-24: "bake shadows"; soft, 2026-11-25); the shader darkens by it
+			mr.append(sun_shade(grid_h, vs[i][j]) if shaped else 0.0)
+		cs.append(cr)
+		ms.append(mr)
 	var gv := PackedVector3Array()
 	var gn := PackedVector3Array()
 	var gc := PackedColorArray()
+	var gm := PackedVector2Array()
 	for i in nx:
 		for j in nz:
 			var q := [vs[i][j], vs[i + 1][j], vs[i + 1][j + 1], vs[i][j + 1]]
 			var qn := [ns[i][j], ns[i + 1][j], ns[i + 1][j + 1], ns[i][j + 1]]
 			var qc := [cs[i][j], cs[i + 1][j], cs[i + 1][j + 1], cs[i][j + 1]]
+			var qm := [ms[i][j], ms[i + 1][j], ms[i + 1][j + 1], ms[i][j + 1]]
 			# split along the shorter diagonal of heights so ridges read as ridges
 			var flip: bool = absf(q[0].y - q[2].y) > absf(q[1].y - q[3].y)
 			var order := [[0, 1, 3], [1, 2, 3]] if flip else [[0, 1, 2], [0, 2, 3]]
@@ -901,27 +1626,157 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 					gv.append(q[k])
 					gn.append(((qn[k] as Vector3) * 0.8 + fn * 0.2).normalized())
 					gc.append(qc[k])
+					gm.append(Vector2(qm[k], 0.0))
+			# rivers, lakes and lava: a moving surface over the ground (Relief.fx_mesh)
+			var wq := [wet[i][j], wet[i + 1][j], wet[i + 1][j + 1], wet[i][j + 1]]
+			var nwet := 0
+			for w: Vector2 in wq:
+				if w.x > 0.0:
+					nwet += 1
+			if nwet > 0:
+				for t: Array in order:
+					if (wq[t[0]] as Vector2).x > 0.0 and (wq[t[1]] as Vector2).x > 0.0 and (wq[t[2]] as Vector2).x > 0.0:
+						for k: int in [t[0], t[2], t[1]]:
+							Relief.liquid.append(q[k] + Vector3(0, 0.04, 0))
+							var fl: float = (wq[k] as Vector2).y
+							Relief.liquid_flow.append(Vector2(0, 1) if fl == 1.0 else (Vector2(1, 0) if fl == 2.0 else Vector2.ZERO))
 			# scenery: woods, villages, beaches, rocks and boats
 			var hs4: Array[float] = [hs[i][j], hs[i + 1][j], hs[i + 1][j + 1], hs[i][j + 1]]
 			var cy: float = minf(minf(q[0].y, q[1].y), minf(q[2].y, q[3].y))
+			var top: float = maxf(maxf(q[0].y, q[1].y), maxf(q[2].y, q[3].y))
 			# the wide cells out on the flanks are far off in the fog: bare ground is enough
 			if xs[i + 1] - xs[i] > cell * 3.5:
 				continue
+			# nothing stands on a cliff, in a river or on a lowered shore (only the sea's own props)
+			if top - cy > 0.9 or (nwet > 0 and nwet < 4) or (nwet == 4 and theme != "volcano"):
+				continue
+			sea_y = cy
 			var cen: Vector3 = (q[0] + q[1] + q[2] + q[3]) * 0.25
+			if shaped and (Relief.in_town(cen.x, cen.z) or Relief.near_fall(cen.x, cen.z)):
+				continue
 			if theme != "coast":
 				# the other worlds' land (Glass Coast's scenery is scatter's)
 				b.xf = Transform3D.IDENTITY
 				theme_prop(b, (hs4[0] + hs4[1] + hs4[2] + hs4[3]) * 0.25, cen, cy, hash2(cen.x * 1.7, cen.z * 0.3))
 				continue
 			scatter(b, hs4, cen, cy)
+	if shaped:
+		Towns.build(b, z0, z0 - size.y)
+		Relief.fx = Relief.events(z0, z0 - size.y, noise)
+		for ev: Dictionary in Relief.fx:
+			if ev.t == "rock":
+				meteorite(b, ev.at)
+	if theme == "city":
+		# the city runs on past the core strip, so from the chase its blocks don't stop short
+		var roads := City.build(b, z0, Vector2(size.x + CITY_MORE, size.y), hgt, height)
+		gv.append_array(PackedVector3Array(roads[0]))
+		gn.append_array(PackedVector3Array(roads[1]))
+		gc.append_array(PackedColorArray(roads[2]))
+		gm.resize(gv.size())
+		# a calm, low-contrast backdrop, so foes and bullets stand out (Guillaume, 2026-11-24: "the
+		# city landscape is too messy... not very easy to see the enemies")
+		b.tone = City.calm
+		for i in gc.size():
+			gc[i] = City.calm(gc[i])
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
+	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = gv
 	arr[Mesh.ARRAY_NORMAL] = gn
 	arr[Mesh.ARRAY_COLOR] = gc
+	arr[Mesh.ARRAY_TEX_UV2] = gm
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+
+## The last `ground_chunk`'s contact shadows (`ao_blobs`), for `Game.update_chunks` to hang under it.
+static var ao_mesh: Mesh
+
+
+## Baked contact occlusion: a soft dark disc on the ground under each placed prop, as wide as
+## what stands on it and darker the taller it is, following the ground's height (`ground_h`).
+## One see-through mesh a chunk, drawn with `ao_mat`.
+static func ao_blobs(spots: Array, ground_h: Callable, cast := true) -> Mesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 0
+	for sp: Array in spots:
+		var lo: Vector2 = sp[2]
+		var hi: Vector2 = sp[3]
+		var base: Vector3 = sp[0]
+		var c := (lo + hi) * 0.5
+		var r := maxf(hi.x - lo.x, hi.y - lo.y) * 0.5 * AO_SPREAD + 0.3
+		var a := clampf(0.3 + float(sp[1]) * 0.06, 0.0, AO_DARK)
+		# baked cast shadow: the disc stretches away from the sun as far as the prop is tall
+		var lean: Vector2 = sun_slide * float(sp[1]) * CAST if cast else Vector2.ZERO
+		var u := lean.normalized() if lean.length() > 0.01 else Vector2(1, 0)
+		var w := Vector2(-u.y, u.x)
+		var ru := r + lean.length() * 0.5
+		c += lean * 0.5
+		var on_ground := func(x: float, z: float) -> Vector3:
+			return Vector3(x, maxf(float(ground_h.call(x, z)), base.y) + AO_LIFT, z)
+		# a soft falloff (Guillaume, 2026-11-25: "go back to soft shadows"): an inner ring at INNER
+		# of the radius still holds 60% of the shade
+		var mid: Vector3 = on_ground.call(c.x, c.y)
+		var inner := []
+		var ring := []
+		for k in AO_SEG:
+			var ang := TAU * k / AO_SEG
+			var o := u * cos(ang) * ru + w * sin(ang) * r
+			inner.append(on_ground.call(c.x + o.x * INNER, c.y + o.y * INNER))
+			ring.append(on_ground.call(c.x + o.x, c.y + o.y))
+		var dark := Color(0, 0, 0, a)
+		var half := Color(0, 0, 0, a * 0.6)
+		var clear := Color(0, 0, 0, 0)
+		for k in AO_SEG:
+			var k1 := (k + 1) % AO_SEG
+			for t: Array in [[mid, dark, inner[k], half, inner[k1], half],
+					[inner[k], half, ring[k], clear, ring[k1], clear],
+					[inner[k], half, ring[k1], clear, inner[k1], half]]:
+				for v in 3:
+					st.set_color(t[v * 2 + 1])
+					st.add_vertex(t[v * 2])
+			n += 9
+	if n == 0:
+		return null
+	return st.commit()
+
+
+## A contact shadow for a model standing on something else (a gun on a fortress's deck): a soft disc
+## on y = 0 as wide as the model seen from above, cached by `key`.
+static func contact(key: String, m: Mesh) -> Mesh:
+	return cached("contact_" + key, func() -> Mesh:
+		var bx := m.get_aabb()
+		var lo := Vector2(bx.position.x, bx.position.z)
+		var hi := lo + Vector2(bx.size.x, bx.size.z)
+		return ao_blobs([[Vector3.ZERO, bx.size.y, lo * 0.8, hi * 0.8]], func(_x: float, _z: float) -> float: return 0.0, false))
+
+
+const AO_SEG := 10
+## Contact shadows: how far past the prop's own footprint they spread, their darkest, their lift
+## off the ground (above the low poly ground's facets).
+const AO_SPREAD := 1.35
+const AO_DARK := 0.42
+## Where a contact shadow starts fading, as a share of its radius.
+const INNER := 0.55
+const AO_LIFT := 0.1
+## How far a prop's baked shadow reaches along the sun, as a share of its full sun shadow.
+const CAST := 1.6
+
+
+## The contact shadows' material: black, see-through by vertex alpha, fogged like the ground.
+static func ao_mat() -> StandardMaterial3D:
+	if not _cache.has("ao"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.vertex_color_use_as_albedo = true
+		m.albedo_color = Color.WHITE
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		m.render_priority = -10
+		_cache["ao"] = m
+	return _cache["ao"]
 
 
 # ---------------------------------------------------------------- scenery
@@ -938,6 +1793,8 @@ const PALM := Color8(0x66, 0xa4, 0x40)
 const FOAM := Color8(0xdc, 0xf2, 0xf2)
 const STONE := Color8(0xc4, 0xba, 0xa6)
 const STONE_WET := Color8(0x96, 0x90, 0x86)
+const PYRAMID := Color8(0xc9, 0xa8, 0x6c)
+const DUCK := Color8(0xff, 0xd2, 0x2e)
 
 
 ## How many of each kind of scenery the chunks built so far hold (tests read it).
@@ -960,7 +1817,8 @@ const PROP_V := 1.8
 ## takes the list after each chunk (`Game.update_chunks`) and gives each its own node.
 static var marks: Array = []
 ## Height of a landmark's centre above its base before PROP_V (see mark_h).
-const MARK_H := {"lighthouse": 1.15, "boat": 0.2, "house": 0.57}
+const MARK_H := {"lighthouse": 1.15, "boat": 0.2, "house": 0.57, "pyramid": 0.7, "duck": 0.4,
+	"water tower": 1.1, "snowman": 1.0, "stone head": 0.85}
 
 
 ## Height of a landmark's centre above its base (the game hits it there, as it shows on screen).
@@ -991,6 +1849,17 @@ static func landmark(kind: String, r: float) -> Mesh:
 				boat(b, at, 0.0)
 			"house":
 				house(b, at, 0.0, q)
+			"pyramid":
+				pyramid(b, at)
+			"duck":
+				duck(b, at)
+			"water tower":
+				water_tower(b, at)
+			"snowman":
+				snowman(b, at, q)
+			"stone head":
+				stone_head(b, at)
+		b.xf = Transform3D.IDENTITY
 		return b.commit())
 
 
@@ -1015,6 +1884,19 @@ static func ruin(kind: String) -> Mesh:
 				b.box(Vector3(-0.3, 0.35, 0.1), Vector3(0.16, 0.7, 0.16), BRICK.darkened(0.25))
 				for k in 5:
 					b.octa(Vector3(cos(k * 2.3) * 0.5, 0.08, sin(k * 2.3) * 0.4), 0.13, ROOFS[k % 4].darkened(0.4))
+			"pyramid", "water tower", "snowman", "stone head":
+				# a scorched heap in the landmark's own colours
+				var c: Color = {"pyramid": PYRAMID, "water tower": Color8(0xc8, 0x3c, 0x34), "snowman": Color8(0xf2, 0xf6, 0xfa),
+					"stone head": Color8(0x5a, 0x56, 0x58)}[kind]
+				var w := 1.1 if kind == "pyramid" else 0.6
+				b.prism(Vector3.ZERO, ngon(w * 1.1, 8), -0.3, 0.05, soot, Vector2(0.95, 0.95))
+				b.prism(Vector3.ZERO, ngon(w * 0.8, 7), -0.2, 0.3 if kind == "pyramid" else 0.2, c.darkened(0.3), Vector2(0.6, 0.6))
+				for k in 6:
+					b.octa(Vector3(cos(k * 2.1) * w * 0.9, 0.08, sin(k * 2.1) * w * 0.8), 0.14, c.darkened(0.2 + (k % 2) * 0.2))
+			"duck":
+				b.prism(Vector3.ZERO, ngon(0.7, 10), -0.03, 0.01, FOAM.darkened(0.15))
+				for k in 3:
+					b.octa(Vector3(cos(k * 2.0) * 0.4, 0.03, sin(k * 2.0) * 0.35), 0.14, DUCK.darkened(0.2))
 			"boat":
 				b.prism(Vector3.ZERO, ngon(0.8, 10), -0.03, 0.01, FOAM.darkened(0.15))
 				for k in 4:
@@ -1027,6 +1909,7 @@ static func ruin(kind: String) -> Mesh:
 
 static func place(b: Builder, pos: Vector3, ang: float) -> void:
 	b.xf = Transform3D(Basis(Vector3.UP, ang) * Basis.from_scale(Vector3(PROP_SCALE, PROP_V, PROP_SCALE)), pos)
+	b.occlude(AO_H)
 
 
 ## What grows or stands on one terrain cell, from the noise heights at its corners `h`;
@@ -1042,15 +1925,17 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 	if lo < 0.0 and hi >= 0.0:
 		# the shoreline: rocks in the surf, now and then a lighthouse on a point
 		if r < 0.0045 and avg > -0.15:
-			mark("lighthouse", Vector3(cen.x, -0.4, cen.z), ang, r2)
-		elif r < 0.05:
-			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, -0.4, cen.z), 0.32 + r * 6.0, r2, true)
+			mark("lighthouse", Vector3(cen.x, sea_y, cen.z), ang, r2)
+		elif r < 0.016:
+			rocks(b, Vector3(cen.x + (r2 - 0.5) * 0.8, sea_y, cen.z), 0.8 + r * 30.0, r2, true)
 	elif hi < 0.0:
 		# at sea: stacks in the shallows, fishing boats further out
-		if avg > -0.14 and r < 0.012:
-			rocks(b, Vector3(cen.x, -0.4, cen.z), 0.4 + r * 33.0, r2, true)
+		if avg > -0.14 and r < 0.008:
+			rocks(b, Vector3(cen.x, sea_y, cen.z), 0.9 + r * 50.0, r2, true)
 		elif avg < -0.22 and r < 0.0035:
-			mark("boat", Vector3(cen.x, -0.4, cen.z), ang, r2)
+			mark("boat", Vector3(cen.x, sea_y, cen.z), ang, r2)
+		elif avg < -0.22 and r < 0.0045:
+			mark("duck", Vector3(cen.x, sea_y, cen.z), ang, r2)
 	elif avg < 0.08:
 		# the beach: palms, sun-bleached driftwood, pebbles, the odd parasol, dune grass
 		if r < 0.035:
@@ -1062,8 +1947,8 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 			place(b, at, ang)
 			b.box(Vector3(0, 0.04, 0), Vector3(1.1, 0.13, 0.13), DRIFT)
 			b.box(Vector3(0.25, 0.05, 0.16), Vector3(0.4, 0.09, 0.09), DRIFT.darkened(0.1))
-		elif r < 0.06:
-			rocks(b, at, 0.25 + (r - 0.045) * 12.0, r2, false)
+		elif r < 0.05:
+			rocks(b, at, 0.7 + (r - 0.045) * 60.0, r2, false)
 		elif r < 0.067:
 			parasol(b, at, ang, r2)
 		elif r < 0.12 and avg > 0.03:
@@ -1078,7 +1963,7 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		var village := hash2(floor(cen.x / 14.0) * 3.1 + 0.5, floor(cen.z / 14.0) * 1.7 + 0.5) < 0.38
 		# one house per 8 x 8 lot at most, so the scaled-up houses and gardens don't overlap
 		var even := posmod(floori(cen.x * 0.5), 4) == 0 and posmod(floori(cen.z * 0.5), 4) == 0
-		var lot := 0.7 if village else 0.15
+		var lot := 0.7 if village else 0.03
 		if avg >= 0.11 and r < lot and even:
 			var turn := snappedf(ang, PI * 0.5) + (r2 - 0.5) * 0.3
 			if house_kind(r2) == 1:
@@ -1098,11 +1983,11 @@ static func scatter(b: Builder, h: Array[float], cen: Vector3, cy: float) -> voi
 		# the woods, with a boulder among the pines
 		if r < 0.3:
 			conifer(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r)
-		elif r < 0.32:
-			rocks(b, at, 0.35, r2, false)
-	elif r < 0.08:
-		# bare rock on the heights
-		rocks(b, at, 0.45 + r, r2, false)
+		elif r < 0.306:
+			rocks(b, at, 0.8 + r2 * 0.4, r2, false)
+	elif r < 0.025:
+		# outcrops of bare rock on the heights
+		rocks(b, at, 1.0 + r * 16.0, r2, false)
 	b.xf = Transform3D.IDENTITY
 
 
@@ -1134,23 +2019,42 @@ static func bush(b: Builder, p: Vector3, r: float) -> void:
 
 
 ## One to three boulders round `p`, sized about `s`; `wet` ones are darker and ringed with surf.
-static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool) -> void:
+static func rocks(b: Builder, p: Vector3, s: float, r: float, wet: bool, tint := Color(0, 0, 0, 0)) -> void:
+	# a natural outcrop (Guillaume, 2026-11-24: "big rocks, as big as the ship, with small ones on
+	# the sides"): one big faceted rock, a few smaller ones leaning on its sides, pebbles at its foot
 	count("sea rocks" if wet else "rocks")
 	place(b, p, r * TAU)
-	var n := 1 + int(r * 3.0)
+	var col := (STONE_WET if wet else STONE) if tint.a == 0.0 else tint
+	boulder(b, Vector3.ZERO, s, r, col)
+	var n := 3 + int(r * 4.0)
+	var reach := s
 	for k in n:
-		var sz := s * (1.0 - k * 0.3)
-		var off := Vector3(k * s * 0.85, 0, (k % 2) * s * 0.6 - s * 0.3)
-		var out := PackedVector2Array()
-		for a in 6:
-			var rr := sz * (0.75 + hash2(r * 31.0 + a, k * 7.0 + a * 3.0) * 0.5)
-			var an := TAU * a / 6.0 + r * 2.0
-			out.append(Vector2(cos(an), sin(an)) * rr)
-		var c := (STONE_WET if wet else STONE).darkened(hash2(r + k, s) * 0.15)
-		var tall := sz * (0.6 + hash2(k, r * 9.0) * 0.5) + (0.25 if wet else 0.0)
-		b.prism(off, out, -0.3, tall, c, Vector2(0.6, 0.56), Vector2(sz * 0.12, -sz * 0.08))
-		if wet:
-			b.prism(off, ngon(sz * 1.75, 8, r), -0.43, -0.37, FOAM)
+		var hk := hash2(r * 17.0 + k, k * 3.3)
+		var a := TAU * k / n + r * 5.0 + hk * 0.9
+		var sz := s * (0.22 + 0.3 * hash2(k * 1.7, r * 11.0))
+		var d := s * (0.78 + 0.3 * hk) + sz * 0.5
+		reach = maxf(reach, d + sz)
+		boulder(b, Vector3(cos(a), 0, sin(a)) * d, sz, r + k * 0.37, col.darkened(0.04 + hk * 0.1))
+	for k in 5:
+		var a := r * 9.0 + k * 1.3
+		var d := s * (1.25 + 0.4 * hash2(k, r))
+		b.octa(Vector3(cos(a) * d, -0.02, sin(a) * d), s * 0.07 + 0.03, col.darkened(0.12), Vector3(1.0, 0.6, 1.0))
+	if wet:
+		b.prism(Vector3.ZERO, ngon(reach * 1.15, 10, r), -0.43, -0.37, FOAM)
+
+
+## One rock: an irregular faceted body, a narrower cap catching the light, leaning a little.
+static func boulder(b: Builder, c: Vector3, s: float, seed: float, col: Color) -> void:
+	var out := PackedVector2Array()
+	for a in 7:
+		var rr := s * (0.7 + hash2(seed * 31.0 + a, a * 3.0 + seed) * 0.45)
+		var an := TAU * a / 7.0 + seed * 2.0
+		out.append(Vector2(cos(an), sin(an)) * rr)
+	var mid := s * (0.42 + 0.15 * hash2(seed, 5.0))
+	var lean := Vector2(hash2(seed, 7.0) - 0.5, hash2(seed, 9.0) - 0.5) * s * 0.25
+	b.prism(c, out, -0.3, mid, col.darkened(0.05), Vector2(0.9, 0.88), lean * 0.4)
+	b.prism(c + Vector3(lean.x * 0.4, 0, lean.y * 0.4), out, mid, mid + s * (0.32 + 0.2 * hash2(seed, 13.0)), col.lightened(0.06),
+		Vector2(0.45, 0.4), lean, col.darkened(0.12))
 
 
 ## A palm: a slender trunk that leans and curves, a crown of drooping fronds.
@@ -1312,50 +2216,32 @@ static func lighthouse(b: Builder, p: Vector3, ang: float) -> void:
 ## cacti, mesas and adobe in the dunes; blocks of buildings on a street grid in the city; pines,
 ## ice shards and floes on the shelf; obsidian spires and lava rocks in the cinder fields.
 static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float) -> void:
+	# things come in groups, not one by one (Guillaume, 2026-11-24: "elements scattered without
+	# real character"): groves, fields and outcrops live in some 12 m cells and not others; the
+	# landmarks and houses stand in the towns (Towns)
 	var r2 := hash2(cen.z * 0.9, cen.x * 2.1)
 	var at := Vector3(cen.x, cy, cen.z)
+	var grove := hash2(floorf(cen.x / 12.0) * 2.3 + 0.7, floorf(cen.z / 12.0) * 1.9 + 0.3)
 	match theme:
 		"dunes":
-			if avg >= 0.8 and r < 0.1:
-				count("mesa")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.9 + r * 3.0, 6), 0, 0.9 + r2 * 0.9, Color8(0xb8, 0x66, 0x42), Vector2(0.75, 0.75))
-			elif avg >= 0.05 and avg < 0.6 and r < 0.04:
+			if avg >= 0.72 and r < 0.02:
+				# outcrops of red rock on the heights
+				count("boulder")
+				rocks(b, at, 0.9 + r * 25.0, r2, false, Color8(0xb8, 0x62, 0x40))
+			elif avg >= 0.05 and avg < 0.6 and grove < 0.22 and r < 0.2:
 				count("cactus")
-				place(b, at, r2 * TAU)
-				var cg := Color8(0x5c, 0x8a, 0x4a)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, 1.4, cg, Vector2(0.85, 0.85))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), r2 * TAU)
+				var cg := Color8(0x5c, 0x8a, 0x4a).darkened(r2 * 0.12)
+				var ht := 1.0 + r2 * 0.6
+				b.prism(Vector3(0, -0.1, 0), ngon(0.26, 7), 0, ht, cg, Vector2(0.85, 0.85))
 				b.prism(Vector3(0.36, 0.45, 0), ngon(0.15, 6), 0, 0.55, cg.darkened(0.06), Vector2(0.8, 0.8))
 				b.prism(Vector3(-0.32, 0.7, 0), ngon(0.13, 6), 0, 0.4, cg.darkened(0.06), Vector2(0.8, 0.8))
-			elif avg >= 0.1 and avg < 0.5 and r >= 0.04 and r < 0.055:
-				count("adobe")
-				place(b, at, snappedf(r2 * TAU, PI * 0.5))
-				b.box(Vector3(0, 0.3, 0), Vector3(1.2, 0.6, 1.0), Color8(0xe0, 0xb8, 0x88))
-				b.box(Vector3(-0.2, 0.75, 0.1), Vector3(0.6, 0.3, 0.6), Color8(0xd6, 0xac, 0x7c))
+			elif avg >= 0.05 and avg < 0.6 and grove > 0.93 and r < 0.06:
+				rocks(b, at, 0.7 + r * 8.0, r2, false, Color8(0xd0, 0x9a, 0x62))
 		"city":
-			# streets between blocks, two towers to a block, a park where the land is green
-			var gx := posmod(int(floor(cen.x / 2.0)), 4)
-			var gz := posmod(int(floor(cen.z / 2.0)), 5)
-			if avg < 0.02 or gx == 0 or gz == 0 or (avg >= 0.3 and avg < 0.43):
-				if avg >= 0.3 and avg < 0.43 and r < 0.12:
-					count("park tree")
-					place(b, at, r * 6.0)
-					b.prism(Vector3(0, -0.1, 0), ngon(0.6, 7), 0, 0.9, Color8(0x4a, 0x7a, 0x44), Vector2(0.3, 0.3))
-				return
-			if gx != 2 or gz % 2 == 0:
-				return
-			count("tower")
-			var tall := 0.6 + r2 * r2 * 1.2
-			var cols := [Color8(0xd8, 0xd4, 0xcc), Color8(0x9e, 0xae, 0xc0), Color8(0xc4, 0x9a, 0x84), Color8(0x7e, 0x88, 0x96)]
-			var col: Color = cols[int(r * 40.0) % cols.size()]
-			place(b, Vector3(floor(cen.x / 2.0) * 2.0 + 1.0, cy, floor(cen.z / 2.0) * 2.0 + 2.0), 0.0)
-			b.box(Vector3(0, tall * 0.5 - 0.1, 0), Vector3(1.9, tall, 1.6), col)
-			b.box(Vector3(0, tall - 0.05, 0), Vector3(1.6, 0.12, 1.3), col.darkened(0.25))
-			# rows of windows on the side the camera sees
-			for f in int(tall / 0.4):
-				b.box(Vector3(0, 0.25 + f * 0.4, 0.81), Vector3(1.5, 0.12, 0.03), GLASS)
-			if tall > 1.2:
-				b.box(Vector3(0.3, tall + 0.15, -0.2), Vector3(0.4, 0.3, 0.4), Color8(0x5a, 0x60, 0x6a))
+			# the city itself is City.build's; the canals get the odd giant rubber duck
+			if avg < -0.05 and r < 0.012 and not City.on_road(cen.x, cen.z, 1.5):
+				mark("duck", Vector3(cen.x, sea_y, cen.z), r2 * TAU, r2)
 		"ice":
 			if avg >= 0.28 and avg < 0.5 and r < 0.25:
 				count("pine")
@@ -1364,24 +2250,152 @@ static func theme_prop(b: Builder, avg: float, cen: Vector3, cy: float, r: float
 				var tc := Color8(0x2e, 0x50, 0x4c).darkened(r * 0.2)
 				b.prism(Vector3(0, -0.1, 0), ngon(0.6, 6), 0, tall, tc, Vector2(0.05, 0.05))
 				b.prism(Vector3(0, tall * 0.55, 0), ngon(0.45, 6, 0.5), 0, tall * 0.55, Color8(0xe8, 0xf2, 0xf8), Vector2(0.05, 0.05))
-			elif avg >= 0.72 and r < 0.08:
+			elif avg >= 0.6 and grove < 0.35 and r < 0.18:
+				# fields of ice shards, leaning together
 				count("ice shard")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.2, 0.0))
+				place(b, at + Vector3((r2 - 0.5) * 1.2, 0, 0), 0.4 + r2 * 0.5)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.5, 4), 0, 1.0 + r2 * 0.8, Color8(0xa6, 0xd6, 0xec), Vector2(0.1, 0.1), Vector2(0.25, 0.05))
+				b.prism(Vector3(0.45, -0.1, 0.3), ngon(0.28, 4, 0.4), 0, 0.6 + r * 2.0, Color8(0xc4, 0xe6, 0xf4), Vector2(0.1, 0.1), Vector2(0.15, 0.05))
 			elif avg < -0.05 and r < 0.025:
 				count("floe")
-				place(b, Vector3(cen.x, -0.42, cen.z), r * 6.0)
+				place(b, Vector3(cen.x, sea_y - 0.02, cen.z), r * 6.0)
 				b.prism(Vector3.ZERO, ngon(0.7 + r2 * 0.8, 7), 0, 0.12, Color8(0xee, 0xf6, 0xfa), Vector2(0.9, 0.9))
 		"volcano":
-			if avg >= 0.62 and r < 0.1:
+			if avg >= 0.55 and grove < 0.4 and r < 0.22:
+				# stands of basalt spires, a big one with smaller round it
 				count("spire")
-				place(b, at, r2 * 6.0)
-				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.0 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				place(b, at + Vector3((r2 - 0.5), 0, 0), r2 * 6.0)
+				b.prism(Vector3(0, -0.1, 0), ngon(0.55, 5), 0, 1.2 + r2 * 1.0, Color8(0x26, 0x22, 0x2a), Vector2(0.15, 0.15), Vector2(0.15, -0.1))
+				b.prism(Vector3(0.6, -0.1, 0.25), ngon(0.3, 5, 0.5), 0, 0.5 + r * 3.0, Color8(0x30, 0x2a, 0x30), Vector2(0.2, 0.2))
+			elif avg >= 0.15 and avg < 0.55 and r < 0.012:
+				rocks(b, at, 0.9 + r * 30.0, r2, false, Color8(0x4a, 0x40, 0x42))
 			elif avg < -0.05 and r < 0.02:
+				# a raft of cooled crust drifting on the lava
 				count("lava rock")
-				place(b, Vector3(cen.x, -0.45, cen.z), r * 6.0)
-				b.prism(Vector3.ZERO, ngon(0.5 + r2 * 0.4, 6), 0, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.7, 0.7))
+				place(b, Vector3(cen.x, sea_y - 0.05, cen.z), r * 6.0)
+				var raft := blob(0.5 + r2 * 0.5, 9, r2)
+				b.prism(Vector3.ZERO, raft, 0, 0.16, Color8(0x2a, 0x20, 0x20), Vector2(0.8, 0.8))
+				b.prism(Vector3(0.08, 0, -0.05), blob(0.22 + r2 * 0.2, 6, r), 0.1, 0.3, Color8(0x3a, 0x2c, 0x2a), Vector2(0.6, 0.6))
 	b.xf = Transform3D.IDENTITY
+
+
+## The meteorite at the bottom of a desert crater: a dark faceted lump, glowing cracks, debris.
+static func meteorite(b: Builder, p: Vector3) -> void:
+	count("meteorite")
+	place(b, p, 0.4)
+	b.octa(Vector3(0, 0.55, 0), 0.9, Color8(0x3a, 0x30, 0x2e), Vector3(1.0, 0.75, 0.85))
+	b.octa(Vector3(0.5, 0.35, 0.3), 0.55, Color8(0x2e, 0x26, 0x26), Vector3(1.0, 0.8, 1.0))
+	b.box(Vector3(0, 0.6, 0.62), Vector3(0.7, 0.06, 0.06), Color8(0xff, 0x7a, 0x22))
+	b.box(Vector3(0.62, 0.5, 0.0), Vector3(0.06, 0.06, 0.6), Color8(0xff, 0x9a, 0x30))
+	for k in 6:
+		var a := k * 1.1
+		b.octa(Vector3(cos(a), 0, sin(a)) * (1.3 + 0.2 * (k % 3)), 0.18 + 0.04 * k, Color8(0x4a, 0x3a, 0x34))
+	b.xf = Transform3D.IDENTITY
+
+
+## A stepped temple pyramid: four tiers, a stair up the front, a small shrine on top.
+static func pyramid(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	var y := -0.3
+	for k in 4:
+		var w := 2.3 - k * 0.48
+		var h := 0.34 if k > 0 else 0.6
+		b.box(Vector3(0, y + h * 0.5, 0), Vector3(w, h, w), PYRAMID.darkened(k * 0.04))
+		b.box(Vector3(0, y + h - 0.02, 0), Vector3(w + 0.06, 0.05, w + 0.06), PYRAMID.lightened(0.12))
+		y += h
+	# the stair: a ramp of steps up the +z face
+	for k in 8:
+		var sy := 0.0 + k * 0.155
+		var sz := 1.15 - k * 0.115
+		b.box(Vector3(0, sy + 0.04, sz), Vector3(0.42, 0.1, 0.13), PYRAMID.lightened(0.06))
+	# the shrine
+	b.box(Vector3(0, y + 0.2, 0), Vector3(0.62, 0.4, 0.55), Color8(0xe4, 0xd2, 0xa8))
+	b.box(Vector3(0, y + 0.45, 0), Vector3(0.72, 0.1, 0.65), Color8(0xa8, 0x4a, 0x36))
+	b.box(Vector3(0, y + 0.13, 0.28), Vector3(0.2, 0.26, 0.03), Color8(0x3a, 0x2a, 0x22))
+	b.box(Vector3(0, y + 0.55, 0), Vector3(0.4, 0.12, 0.35), Color8(0x3c, 0x8a, 0x7a))
+
+
+## A giant rubber duck, bobbing at the water line.
+static func duck(b: Builder, p: Vector3) -> void:
+	place(b, p, PI)   # built beak to -z; turned to face the camera
+	b.prism(Vector3.ZERO, ngon(0.85, 12), -0.03, 0.02, FOAM)
+	b.prism(Vector3(0, 0, 0.1), ngon(0.6, 9), -0.1, 0.42, DUCK, Vector2(0.85, 0.85))
+	b.prism(Vector3(0, 0.3, 0.15), ngon(0.62, 9), 0, 0.2, DUCK.lightened(0.05), Vector2(0.75, 0.75))
+	b.prism(Vector3(0, 0.0, 0.62), ngon(0.18, 6), 0.32, 0.55, DUCK, Vector2(0.5, 0.5), Vector2(0, 0.15))
+	b.prism(Vector3(0, 0, -0.32), ngon(0.32, 8), 0.45, 0.9, DUCK, Vector2(1.05, 1.05))
+	b.prism(Vector3(0, 0, -0.32), ngon(0.34, 8, 0.2), 0.9, 1.08, DUCK.lightened(0.06), Vector2(0.5, 0.5))
+	b.prism(Vector3(0, 0, -0.68), pts([Vector2(-0.14, 0.12), Vector2(0.14, 0.12), Vector2(0.0, -0.18)]), 0.62, 0.72, Color8(0xff, 0x7a, 0x1e))
+	for sx in [-0.17, 0.17]:
+		b.box(Vector3(sx, 0.86, -0.6), Vector3(0.08, 0.1, 0.06), Color8(0x22, 0x22, 0x28))
+
+
+## A city water tower: four legs, a red tank with a cone roof.
+static func water_tower(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	for k in 4:
+		var a := Vector3(cos(k * PI * 0.5 + PI * 0.25), 0, sin(k * PI * 0.5 + PI * 0.25)) * 0.42
+		b.box(a + Vector3(0, 0.55, 0), Vector3(0.08, 1.3, 0.08), Color8(0x5a, 0x60, 0x6a))
+	b.box(Vector3(0, 0.6, 0), Vector3(0.75, 0.05, 0.05), Color8(0x5a, 0x60, 0x6a))
+	b.prism(Vector3.ZERO, ngon(0.6, 12), 1.15, 1.7, Color8(0xc8, 0x3c, 0x34))
+	b.prism(Vector3.ZERO, ngon(0.62, 12), 1.38, 1.46, Color8(0xf4, 0xf0, 0xe6))
+	b.prism(Vector3.ZERO, ngon(0.64, 12), 1.7, 1.98, Color8(0x8a, 0x2c, 0x28), Vector2(0.08, 0.08))
+
+
+## A giant snowman: three snowballs, coal eyes, a carrot nose, a red scarf and a top hat.
+static func snowman(b: Builder, p: Vector3, r: float) -> void:
+	place(b, p, 0.0)
+	var snow := Color8(0xf6, 0xfa, 0xfd)
+	for ball in [[0.0, 0.62, 0.5], [0.62, 0.5, 0.42], [1.08, 0.38, 0.36]]:
+		var y: float = ball[0]
+		var rr: float = ball[1]
+		b.prism(Vector3.ZERO, ngon(rr, 10), y, y + ball[2], snow, Vector2(0.62, 0.62))
+		b.prism(Vector3.ZERO, ngon(rr * 0.62, 10, 0.3), y - 0.02, y + 0.05, snow.darkened(0.04))
+	b.prism(Vector3(0, 0, 0), ngon(0.37, 10), 1.02, 1.14, Color8(0xd8, 0x34, 0x3a) if r < 0.5 else Color8(0x2e, 0x7a, 0xd0))
+	b.box(Vector3(0.2, 0.98, 0.25), Vector3(0.1, 0.28, 0.06), Color8(0xd8, 0x34, 0x3a) if r < 0.5 else Color8(0x2e, 0x7a, 0xd0))
+	b.octa(Vector3(0, 1.28, 0.36), 0.08, Color8(0xff, 0x8a, 0x22), Vector3(1, 1, 3.0))
+	for sx in [-0.11, 0.11]:
+		b.octa(Vector3(sx, 1.36, 0.3), 0.045, Color8(0x22, 0x22, 0x28))
+	for k in 3:
+		b.octa(Vector3(0, 0.75 + k * 0.14, 0.45 - k * 0.02), 0.04, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.34, 10), 1.42, 1.46, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.22, 10), 1.46, 1.8, Color8(0x22, 0x22, 0x28))
+	b.prism(Vector3.ZERO, ngon(0.225, 10), 1.5, 1.56, Color8(0xd8, 0x34, 0x3a))
+
+
+## A huge carved stone head, half sunk in the cinders, staring down the valley.
+static func stone_head(b: Builder, p: Vector3) -> void:
+	place(b, p, 0.0)
+	var st := Color8(0x5a, 0x56, 0x58)
+	b.box(Vector3(0, 0.55, 0), Vector3(0.8, 1.3, 0.7), st)
+	b.box(Vector3(0, 1.26, -0.03), Vector3(0.84, 0.14, 0.74), st.darkened(0.15))   # brow of the cap
+	b.box(Vector3(0, 0.98, 0.37), Vector3(0.7, 0.1, 0.08), st.darkened(0.2))        # heavy brow
+	for sx in [-0.18, 0.18]:
+		b.box(Vector3(sx, 0.86, 0.36), Vector3(0.16, 0.1, 0.03), Color8(0xff, 0x7a, 0x2a))   # glowing eyes
+	b.prism(Vector3(0, 0, 0.4), pts([Vector2(-0.1, -0.05), Vector2(0.1, -0.05), Vector2(0.13, 0.12), Vector2(-0.13, 0.12)]), 0.5, 0.92, st.lightened(0.06), Vector2(0.6, 0.6))
+	b.box(Vector3(0, 0.36, 0.37), Vector3(0.44, 0.08, 0.06), st.darkened(0.35))      # mouth
+	for sx in [-0.43, 0.43]:
+		b.box(Vector3(sx, 0.75, 0), Vector3(0.08, 0.5, 0.2), st.darkened(0.08))     # ears
+
+
+## The city's colours (City builds the city) and its comically big cars.
+const ASPHALT := Color8(0x34, 0x34, 0x38)
+const KERB := Color8(0x74, 0x74, 0x76)
+const PAINT := Color8(0xa8, 0xa4, 0x96)
+const CARS := [Color8(0x7a, 0x3a, 0x34), Color8(0x8a, 0x7a, 0x44), Color8(0x3e, 0x52, 0x6a), Color8(0x8c, 0x8a, 0x86), Color8(0x4a, 0x5e, 0x46)]
+
+
+## A little car, comically big like the rest: a coloured body, a glass cabin, dark wheels.
+static func car(b: Builder, p: Vector3, ang: float, r: float, col := Color(0, 0, 0, 0)) -> void:
+	count("car")
+	place(b, p, ang)
+	var c: Color = CARS[int(r * 997.0) % CARS.size()] if col.a == 0.0 else col
+	b.box(Vector3(0, 0.1, 0), Vector3(0.42, 0.16, 0.82), c)
+	b.box(Vector3(0, 0.25, 0.04), Vector3(0.36, 0.14, 0.42), c.lightened(0.08))
+	for e in [[-0.181, -1.0], [0.261, 1.0]]:   # windscreen and rear window
+		var z: float = e[0]
+		b.quad(Vector3(-0.17, 0.2, z), Vector3(0.17, 0.2, z), Vector3(0.17, 0.3, z), Vector3(-0.17, 0.3, z), GLASS, Vector3(0, 0, e[1]))
+	for sx in [-0.22, 0.22]:
+		b.box(Vector3(sx, 0.05, 0), Vector3(0.05, 0.1, 0.66), Color8(0x24, 0x24, 0x2a))   # the wheels, one dark band a side
 
 
 ## The vertex-coloured material tinted (a world's colours on its bosses).

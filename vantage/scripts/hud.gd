@@ -9,6 +9,8 @@ const DIM := Color(0.86, 0.92, 1.0, 0.7)
 const GOLD := Color8(0xff, 0xd2, 0x4a)
 const CY := Color8(0x5f, 0xe2, 0xff)
 const RED := Color8(0xff, 0x4d, 0x6d)
+## In-level power steps (the cores are the same cyan-white).
+const POWER := Color8(0x6a, 0xf4, 0xff)
 ## Below the title, tag line and version; the hangar panel and the ship stay under it.
 const HANGAR_TOP := 330.0
 ## Open sky kept between that and the hangar panel for the idling ship.
@@ -26,6 +28,13 @@ var hangar_scrap: Label
 var hangar_best: Label
 var update_btn: Button
 var version_btn: Button
+## Wipes the progress; the first tap arms it, a second within `RESET_ARM` s confirms.
+var reset_btn: Button
+var reset_armed := false
+const RESET_ARM := 4.0
+## On the pause screen: quits the run back to the hangar, with the same two-tap confirmation.
+var quit_btn: Button
+var quit_armed := false
 ## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
 var version_note := ""
 var rows := {}
@@ -41,6 +50,7 @@ var res_body: Label
 var res_hint: Label
 var hurt_t := 0.0
 var scrap_t := 0.0
+var power_t := 0.0
 
 
 func _ready() -> void:
@@ -60,8 +70,11 @@ func _ready() -> void:
 	place(sub_l, Rect2(0, 0.3, 1, 0), Rect2(0, 32, 0, 40))
 	build_hangar()
 	build_results()
+	build_quit()
 	get_viewport().size_changed.connect(fit_hangar)
 	hangar_panel.resized.connect(fit_hangar)
+	# wrapped lines settle their height once the panel has its width: refit then
+	hangar_panel.minimum_size_changed.connect(fit_hangar)
 	fit_hangar()
 
 
@@ -191,6 +204,8 @@ func build_hangar() -> void:
 		pips.reparent(col)
 		var desc := label(20, DIM)
 		desc.text = u.desc
+		# wraps instead of widening the panel off the screen (tested in hangar_fits)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		desc.reparent(col)
 		var b := button("", GOLD, 26)
 		b.custom_minimum_size = Vector2(170, 72)
@@ -203,8 +218,21 @@ func build_hangar() -> void:
 	var gap := Control.new()
 	gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(gap)
-	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	hangar_best.reparent(v)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 12)
+	v.add_child(foot)
+	hangar_best = label(22, DIM, HORIZONTAL_ALIGNMENT_LEFT)
+	hangar_best.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hangar_best.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hangar_best.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hangar_best.reparent(foot)
+	reset_btn = Button.new()
+	reset_btn.flat = true
+	reset_btn.focus_mode = Control.FOCUS_NONE
+	reset_btn.custom_minimum_size = Vector2(0, 48)
+	reset_btn.add_theme_font_size_override("font_size", 22)
+	reset_btn.pressed.connect(reset_tap)
+	foot.add_child(reset_btn)
 	update_btn = button("", GOLD, 26)
 	update_btn.visible = false
 	update_btn.pressed.connect(func() -> void: game.refresh_game())
@@ -213,6 +241,29 @@ func build_hangar() -> void:
 	go_btn.custom_minimum_size = Vector2(0, 104)
 	go_btn.pressed.connect(func() -> void: game.launch())
 	v.add_child(go_btn)
+
+
+## Reset progress, with a confirmation: the first tap turns the button red ("tap again"), a
+## second tap within RESET_ARM seconds wipes the save; otherwise it calms down again.
+func reset_tap() -> void:
+	if not reset_armed:
+		reset_armed = true
+		game.sound.play("tap")
+		refresh_reset()
+		get_tree().create_timer(RESET_ARM).timeout.connect(func() -> void:
+			if reset_armed:
+				reset_armed = false
+				refresh_reset())
+		return
+	reset_armed = false
+	game.reset_progress()
+	refresh_hangar()
+
+
+func refresh_reset() -> void:
+	reset_btn.text = "Tap again to wipe all" if reset_armed else "Reset progress"
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		reset_btn.add_theme_color_override(c, RED if reset_armed else DIM)
 
 
 ## The campaign as a timeline: ‹ WORLD › on top, then the world's three levels on a track,
@@ -257,6 +308,9 @@ func build_campaign(v: VBoxContainer) -> void:
 		var b := button("", CY, 22)
 		b.custom_minimum_size = Vector2(150, 118)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# a long level name trims to "…" rather than pushing the panel off the screen
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.pressed.connect(func() -> void:
 			game.pick_level(int(game.level) / Campaign.PER_WORLD * Campaign.PER_WORLD + k)
 			game.sound.play("tap")
@@ -302,7 +356,7 @@ func refresh_campaign() -> void:
 		var open := Campaign.is_open(s, lv)
 		var sel := lv == game.level
 		var grade: String = s.grades.get(Campaign.code(lv), "")
-		var kind: String = {"patrol": "Patrol", "battleship": "Battleship", "fortress": "Fortress"}[Campaign.kind_of(lv)]
+		var kind: String = Campaign.midboss(lv).name
 		b.disabled = not open
 		b.text = "%s\n%s\n%s" % [Campaign.code(lv), Campaign.level_name(lv) if open else "Locked",
 			("Grade " + grade) if grade != "" else kind]
@@ -361,6 +415,7 @@ func refresh_hangar() -> void:
 		b.text = "MAX" if c < 0 else "◆ " + Rules.fmt(c)
 		b.disabled = not Rules.can_buy(s, key)
 	hangar_best.text = "Best score  %s   ·   Sorties  %d" % [Rules.fmt(s.best), s.runs]
+	refresh_reset()
 	var build: String = ProjectSettings.get_setting("application/config/version", "")
 	if build == "":
 		build = "dev"
@@ -433,10 +488,55 @@ func show_results() -> void:
 	res_body.text = "\n".join(lines)
 
 
+# ---------------------------------------------------------------- pause menu
+
+## "Main menu" under the pause title and hint (Guillaume's call). Only shown once time has stopped, so a finger coming back
+## down to fly never lands on it; the button takes its tap, so pressing it doesn't resume.
+func build_quit() -> void:
+	quit_btn = Button.new()
+	quit_btn.focus_mode = Control.FOCUS_NONE
+	quit_btn.add_theme_font_size_override("font_size", 28)
+	var sb := glass(24)
+	sb.set_content_margin_all(18)
+	for st in ["normal", "hover", "pressed"]:
+		quit_btn.add_theme_stylebox_override(st, sb)
+	place(quit_btn, Rect2(0.5, 0.42, 0, 0), Rect2(-170, 110, 340, 76))
+	quit_btn.pressed.connect(quit_tap)
+	add_child(quit_btn)
+	quit_btn.visible = false
+	refresh_quit()
+
+
+## First tap arms it ("Tap again to quit"), a second within RESET_ARM seconds ends the run.
+func quit_tap() -> void:
+	if not quit_armed:
+		quit_armed = true
+		game.sound.play("tap")
+		refresh_quit()
+		get_tree().create_timer(RESET_ARM).timeout.connect(func() -> void:
+			if quit_armed:
+				quit_armed = false
+				refresh_quit())
+		return
+	quit_armed = false
+	refresh_quit()
+	game.quit_run()
+
+
+func refresh_quit() -> void:
+	quit_btn.text = "Tap again to quit" if quit_armed else "Main menu"
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		quit_btn.add_theme_color_override(c, RED if quit_armed else INK)
+
+
 # ---------------------------------------------------------------- in flight
 
 func ping_scrap() -> void:
 	scrap_t = 0.25
+
+
+func ping_power() -> void:
+	power_t = 0.5
 
 
 func flash_hurt() -> void:
@@ -447,7 +547,12 @@ func sync() -> void:
 	var dt := get_process_delta_time()
 	hurt_t = maxf(0.0, hurt_t - dt)
 	scrap_t = maxf(0.0, scrap_t - dt)
+	power_t = maxf(0.0, power_t - dt)
 	var playing := game.phase not in ["hangar", "results"]
+	quit_btn.visible = game.paused() and game.started
+	if not quit_btn.visible and quit_armed:
+		quit_armed = false
+		refresh_quit()
 	score_l.visible = playing
 	scrap_l.visible = playing
 	if playing:
@@ -484,6 +589,13 @@ func _draw() -> void:
 			draw_rect(r, Color(1, 1, 1, 0.16), true)
 			if i < game.hp:
 				draw_rect(r.grow(-5), CY if game.hp > 1 else RED, true)
+		# power: the in-level spread, a bar of steps under the hull (pulses when it changes)
+		for i in Rules.POWER_MAX:
+			var r := Rect2(30 + i * 30, 76, 24, 12)
+			draw_rect(r.grow(power_t * 6.0), Color(1, 1, 1, 0.16 + power_t * 0.5), true)
+			if i < game.power:
+				draw_rect(r, POWER if game.power < Rules.POWER_MAX else INK, true)
+		draw_string(FONT, Vector2(36 + Rules.POWER_MAX * 30, 89), "MAX" if game.power >= Rules.POWER_MAX else "POWER", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(INK, 0.7 + power_t * 0.6))
 		# boss / reactor bar
 		var bar := game.boss_bar()
 		if not bar.is_empty():
@@ -497,12 +609,20 @@ func _draw() -> void:
 	draw_pause(v)
 
 
-## The finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
+## Before the first touch of a level, "Touch to start". Then, the finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
 func draw_pause(v: Vector2) -> void:
 	if not game.pausable():
 		return
 	var still := 1.0 - game.time_speed()
 	if still <= 0.0:
+		return
+	if not game.started:
+		# a level waiting for its first touch: not a pause, just the prompt
+		# under the level banner, with a shadow so it reads on any ground
+		var a := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.004)
+		var p := Vector2(0, v.y * 0.62)
+		draw_string(FONT, p + Vector2(0, 3), "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(0, 0, 0, 0.45 * a))
+		draw_string(FONT, p, "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(INK, a))
 		return
 	draw_rect(Rect2(Vector2.ZERO, v), Color(0.02, 0.04, 0.08, 0.35 * still))
 	var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)
@@ -523,7 +643,10 @@ func draw_reticle(p: Vector2, k: float) -> void:
 ## Brackets on the foes ahead, so they read against the ground.
 func draw_locks() -> void:
 	for f: Game.Obj in game.foes:
-		if f.dead or f.kind == "orb":
+		if f.dead or (f.kind == "orb" and f.homing <= 0.0) or f.ground:
+			continue
+		# on the fortress, only the section being fought is bracketed
+		if f.on_fort and f.sec != game.fort_sec:
 			continue
 		if game.cam.is_position_behind(f.pos):
 			continue
@@ -531,7 +654,7 @@ func draw_locks() -> void:
 		var dist := game.cam.global_position.distance_to(f.pos)
 		var r := clampf(f.r * 700.0 / maxf(dist, 1.0), 14, 90)
 		var c := Color(RED, 0.85)
-		if f.kind == "core" and game.shielded():
+		if (f.kind == "core" and game.shielded()) or game.fort_guarded(f):
 			c = Color(CY, 0.7)
 		for sx in [-1, 1]:
 			for sy in [-1, 1]:
