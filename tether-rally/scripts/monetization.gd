@@ -48,7 +48,7 @@ static func left_today(key: String) -> int:
 # ---------------------------------------------------------------- results offers
 # the rewarded-ad buttons a results screen shows, in order. ctx: total (coins the run paid),
 # free (Off the Map), tutorial, humans, used (offers already taken on this screen), gold_ghost
-# (GoldGhosts.offer() said yes: a Time trial run without Gold, ghost not open yet), daily_extra
+# (GoldGhosts.offer() said yes: a Time trial run without Gold; runs bought with coins, again and again), daily_extra
 # (a Daily Detour run with no scored attempt left).
 static func results_offers(ctx: Dictionary) -> Array:
 	var out: Array = []

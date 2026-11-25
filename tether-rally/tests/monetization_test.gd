@@ -48,7 +48,7 @@ func _run() -> void:
 	Ads.stub_delay = 0.1
 	expect(Ads.show_rewarded("double_coins", func(): got[0] += 1), true, "video starts")
 	expect(got[0], 0, "no reward while the video plays")
-	expect(Ads.rewarded_ready("gold_ghost"), false, "one video at a time")
+	expect(Ads.rewarded_ready("streak_save"), false, "one video at a time")
 	await create_timer(0.4).timeout
 	expect(got[0], 1, "reward once the video ended")
 	expect(M.used_today("double_coins"), 1, "x2 coins counted")
@@ -62,7 +62,7 @@ func _run() -> void:
 	expect(Ads.rewarded_ready("double_coins"), false, "x2 coins capped for today")
 	expect(Ads.show_rewarded("double_coins", func(): got[0] += 1), false, "capped video refused")
 	expect(got[0], M.DOUBLE_COINS_PER_DAY, "no reward past the cap")
-	expect(Ads.rewarded_ready("gold_ghost"), true, "an uncapped placement stays ready")
+	expect(Ads.rewarded_ready("streak_save"), true, "an uncapped placement stays ready")
 	Daily.fake_day = day + 1
 	expect(M.used_today("double_coins"), 0, "counter starts again the next day")
 	expect(Ads.rewarded_ready("double_coins"), true, "x2 coins back the next day")
@@ -105,7 +105,7 @@ func _run() -> void:
 	M.fake_now += M.INTERSTITIAL_MIN_GAP_S
 	for k in M.INTERSTITIAL_EVERY:
 		M.note_race()
-	Ads.show_rewarded("gold_ghost", func(): pass)   # a video just played
+	Ads.show_rewarded("streak_save", func(): pass)   # a video just played
 	expect(Ads.maybe_interstitial("after_results"), false, "none in the cooldown after a video")
 	expect(M.interstitial_due(M.INTERSTITIAL_COOLDOWN_S + 1.0), true, "due again after the cooldown")
 
@@ -131,7 +131,7 @@ func _run() -> void:
 	expect(Ads.maybe_interstitial("after_results"), false, "but No ads shows none")
 	Ads.stub_delay = 5.0
 	got[0] = 0
-	expect(Ads.show_rewarded("gold_ghost", func(): got[0] += 1), true, "reward without a video")
+	expect(Ads.show_rewarded("streak_save", func(): got[0] += 1), true, "reward without a video")
 	expect(got[0], 1, "granted at once with No ads")
 	expect(Ads.since_last_ad(), -1.0, "no video, no cooldown")
 	expect(Ads.rewarded_ready("double_coins"), false, "the daily cap still holds with No ads")

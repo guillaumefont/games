@@ -54,7 +54,8 @@ var last_beep := 4
 var end_timer := 0.0
 var ghost: Array = []
 var gold_ghost: Array = []   # the Gold medal ghost, once unlocked for this track + variant
-var ideal_next := false      # the ideal line was won for the next run (a rewarded video)
+var perks_on: Array = []     # consumables this run starts with (GoldGhosts.perks_for)
+var perks_live := false      # ...and their runs were used at GO, the run hasn't ended yet
 var new_record := false
 var touch_owner := {}        # touch index -> player
 var paused := false
@@ -68,7 +69,7 @@ var offers_used := {}        # offers already taken on this results screen
 var offer_busy := ""         # the offer whose video is playing
 var results_n := 0           # counts results screens, so a late reward never touches a newer one
 var gold_offer := false      # these results may offer the Gold ghost (a Time trial run without Gold)
-var ideal_offer := false     # ...and the ideal line for the next run
+var ideal_offer := false     # ...and the ideal line (Special Stages too)
 # Daily Detour (docs/monetization.md): only a run started from its banner counts
 var daily_run := false       # this event is the Daily Detour
 var daily_scored := false    # ...and this run uses a scored attempt (else it is practice)
@@ -354,7 +355,6 @@ func _options(with_ghost: bool) -> Dictionary:
 		"ghost": Settings.get_opt("ghost") if with_ghost else null,
 		"haptics": Settings.get_opt("haptics") if Haptics.available() else null,
 		"quality": Settings.get_opt("quality"),
-		"ideal_line": Settings.get_opt("ideal_line", false) if Ads.ads_removed() else null,
 		"shop": _shop(),
 	}
 
@@ -470,13 +470,13 @@ func new_race(built: TrackData = null) -> void:
 	ghost = Records.get_ghost(rec_key()) if mode == "trial" and not tutorial else []
 	daily_scored = daily_run and not tutorial and Daily.attempts_left() > 0
 	var nm: String = cur_def()["name"]
-	gold_ghost = GoldGhosts.trace(nm, variant) if mode == "trial" and not tutorial and humans == 1 and not stage_run and GoldGhosts.unlocked(nm, variant) else []
+	# consumables (Gold ghost, ideal line): one run each, used at GO
+	perks_on = []
+	if mode == "trial" and not tutorial and humans == 1:
+		perks_on = GoldGhosts.perks_for(nm, variant, Campaign.medal(nm, variant, "trial"), stage_run)
+	gold_ghost = GoldGhosts.trace(nm, variant) if perks_on.has("gold_ghost") else []
 	view.setup_cars(race, mode == "trial" and not tutorial, _dress(race), not gold_ghost.is_empty())
-	# the ideal line: for one run after its video, or always with No ads and its Settings option
-	var ideal: bool = mode == "trial" and not tutorial and humans == 1 and GoldGhosts.has(nm, variant) \
-		and (ideal_next or (Ads.ads_removed() and Settings.get_opt("ideal_line", false)))
-	ideal_next = false
-	if ideal:
+	if perks_on.has("ideal_line"):
 		view.show_ideal_line(GoldGhosts.trace(nm, variant), GoldGhosts.hooked(nm, variant))
 	else:
 		view.clear_ideal_line()
@@ -901,6 +901,7 @@ func _show_results() -> void:
 	offer_busy = ""
 	gold_offer = false
 	ideal_offer = false
+	perks_live = false   # the run reached its results: its consumables stay used
 	results_n += 1
 	ui.hide_streak()
 	ui.hide_lap_note()
@@ -946,7 +947,7 @@ func _show_results() -> void:
 		var run_tier := Medals.trial_tier(name, variant, run_val) if c.finished else 0
 		var coins := Wallet.medal_coins(start_tier, run_tier)
 		gold_offer = GoldGhosts.offer(name, variant, c.finished, run_tier, maxi(start_tier, tier))
-		ideal_offer = GoldGhosts.has(name, variant) and c.finished and maxi(start_tier, tier) < 3 and not Ads.ads_removed()
+		ideal_offer = gold_offer
 		var daily := 0
 		attempt_live = false
 		var streak_coins := 0
@@ -1014,7 +1015,7 @@ func _show_stage_results() -> void:
 		rewards.append({ "text": "−%.2f S FASTER" % gain if rec_before > 0.0 and gain > 0.0 else "FIRST TIME SET", "col": UI.C_GAIN })
 		Wallet.bump("records")
 	attempt_live = false
-	ideal_offer = GoldGhosts.has(name, variant) and c.finished and not Ads.ads_removed()
+	ideal_offer = GoldGhosts.has(name, variant) and c.finished
 	var note := _pay(0, 0, { "mode": "trial", "variant": variant, "finished": c.finished, "clean_laps": c.best_clean_laps,
 		"streak": c.best_streak, "hits": c.hits, "gems_all": false }, rewards)
 	note += "Special Stages rank your best lap against other drivers. Medals are won on the Road Trip."
@@ -1166,9 +1167,19 @@ func _go() -> void:
 	if daily_scored and not attempt_live:
 		Daily.use_attempt()
 		attempt_live = true
+	if not perks_live and not perks_on.is_empty():
+		for p in perks_on:
+			GoldGhosts.use_charge(p)
+		perks_live = true
 
 # leaving or restarting a run: a scored attempt quit during its first lap is given back
 func _drop_attempt() -> void:
+	var first_lap: bool = race != null and not race.cars[0].finished and race.cars[0].lap <= 1
+	if perks_live:
+		perks_live = false
+		if first_lap:
+			for p in perks_on:
+				GoldGhosts.add_charge(p)
 	if not attempt_live:
 		return
 	attempt_live = false
@@ -1176,13 +1187,13 @@ func _drop_attempt() -> void:
 		Daily.give_back_attempt()
 
 # ---------------------------------------------------------------- rewarded-ad offers
-const OFFER_TEXT := { "double_coins": "x2 COINS", "gold_ghost": "GOLD GHOST", "daily_extra": "+1 SCORED ATTEMPT", "ideal_line": "IDEAL LINE" }
+const OFFER_TEXT := { "double_coins": "x2 COINS", "gold_ghost": "+1 GOLD GHOST", "daily_extra": "+1 SCORED ATTEMPT", "ideal_line": "+1 IDEAL LINE" }
 const OFFER_ICON := { "double_coins": "coin", "gold_ghost": "ghost", "daily_extra": "retry", "ideal_line": "standard" }
 
 # what the offers rule (Monetization.results_offers) needs to know about this results screen
 func _offer_ctx() -> Dictionary:
 	return { "total": pay_total, "free": free_run, "tutorial": tutorial, "humans": humans, "used": offers_used, "gold_ghost": gold_offer,
-		"daily_extra": daily_run and Daily.attempts_left() <= 0, "ideal_line": ideal_offer and not ideal_next }
+		"daily_extra": daily_run and Daily.attempts_left() <= 0, "ideal_line": ideal_offer }
 
 func _refresh_offers() -> void:
 	if phase != "results" or tutorial:
@@ -1190,6 +1201,11 @@ func _refresh_offers() -> void:
 	var list: Array = []
 	var free := Ads.ads_removed()
 	for id in Monetization.results_offers(_offer_ctx()):
+		if GoldGhosts.PERKS.has(id):   # consumables are bought with coins, not a video
+			var price: int = GoldGhosts.PRICE[id]
+			list.append({ "id": id, "text": "%s  %d" % [OFFER_TEXT[id], price], "icon": "coin",
+				"ready": Wallet.coins() >= price, "off_text": "%s  %d (NOT ENOUGH COINS)" % [OFFER_TEXT[id], price] })
+			continue
 		list.append({ "id": id, "text": OFFER_TEXT.get(id, id), "icon": OFFER_ICON.get(id, "video") if free else "video",
 			"ready": Ads.rewarded_ready(id) or offer_busy == id, "busy": offer_busy == id })
 	var link := ""
@@ -1200,11 +1216,27 @@ func _refresh_offers() -> void:
 func _offer_pressed(id: String) -> void:
 	if offer_busy != "" or offers_used.has(id):
 		return
+	if GoldGhosts.PERKS.has(id):
+		_buy_perk(id)
+		return
 	offer_busy = id
 	_refresh_offers()
 	if not Ads.show_rewarded(id, _offer_granted.bind(id, pay_total, results_n)):
 		offer_busy = ""
 		_refresh_offers()
+
+# a Gold ghost or ideal line run bought with coins on the results; it can be bought again
+func _buy_perk(id: String) -> void:
+	if not GoldGhosts.buy(id):
+		_refresh_offers()
+		return
+	sfx.blip(990, 0.2, "triangle", 0.05, 300)
+	var n := GoldGhosts.charges(id)
+	if id == "gold_ghost":
+		ui.res_note.text = "Gold ghost runs: %d. Your next Time trial without Gold brings a ghost lapping at the Gold time. Tap again to stack more." % n
+	else:
+		ui.res_note.text = "Ideal line runs: %d. Your next Time trial without Gold draws the Gold lap on the road, with marks where it hooks and lets go. Tap again to stack more." % n
+	_refresh_offers()
 
 # the video was watched (or "No ads" owns it): give the reward, even if the player has moved on
 func _offer_granted(id: String, total: int, screen: int) -> void:
@@ -1215,19 +1247,10 @@ func _offer_granted(id: String, total: int, screen: int) -> void:
 			if here:
 				ui.set_reward_text(0, "+%d x2 COINS" % total)
 				sfx.blip(1320, 0.2, "square", 0.05, 300)
-		"ideal_line":
-			ideal_next = true
-			if here:
-				ui.res_note.text = "Ideal line on for your next run: the Gold lap is drawn on the road, with marks where it hooks and lets go. Tap Again."
 		"daily_extra":
 			Daily.add_extra()
 			if here:
 				ui.res_note.text = "One more scored attempt today: tap Again."
-		"gold_ghost":
-			GoldGhosts.unlock(cur_def()["name"], variant)
-			if here:
-				ui.res_note.text = "Gold ghost unlocked on %s: it laps at the Gold time beside your own ghost. Tap Again to chase it." % cur_def()["name"]
-				sfx.blip(990, 0.2, "triangle", 0.05, 300)
 	if here:
 		offer_busy = ""
 		offers_used[id] = true
