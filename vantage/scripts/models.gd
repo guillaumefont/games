@@ -51,6 +51,13 @@ render_mode cull_back;
 uniform float sea_y = -0.4;
 uniform float water = 1.0;
 uniform float lava = 0.0;
+// a small tiling noise (`ground_noise`): detail and cloud shadows read it, a few lookups a pixel
+uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
+uniform float detail = 0.3;
+// bare rock (sRGB): steep faces turn to it over a narrow band, so a cliff's rim reads crisp
+uniform vec3 rock_c : source_color = vec3(0.6, 0.58, 0.53);
+uniform float clouds = 0.2;
+uniform vec2 wind = vec2(0.6, -1.1);
 uniform vec3 glint : source_color = vec3(1.0, 0.97, 0.88);
 // the land's baked sun shadow (UV2.x: how deep in it the vertex lies, 0 to 1, see
 // Models.sun_shade, blended softly across each cell) and its colour (sRGB)
@@ -73,10 +80,21 @@ void vertex() {
 
 void fragment() {
 	vec3 col = COLOR.rgb;
+	float rock = smoothstep(0.3, 0.55, 1.0 - COLOR.a);
+	vec3 rc = rock_c * (1.0 - clamp(-wpos.y * 0.025, 0.0, 0.25));
+	rc *= wpos.y < -0.6 ? 1.0 - clamp(-wpos.y * 0.03, 0.0, 0.3) : 1.0;
+	col = mix(col, rc, rock);
 	float sh = clamp(UV2.x, 0.0, 1.0);
 	vec3 k = OUTPUT_IS_SRGB ? shade_k : to_linear(shade_k);
 	col *= mix(vec3(1.0), k, sh);
-	float rock = 1.0 - COLOR.a;
+	// detail: broad patches and a finer mottle, both faint, so wide flats aren't one smooth wash
+	// (low contrast on purpose: foes and shots must stay the brightest, sharpest things on screen)
+	float dn = texture(noise_tex, wpos.xz * 0.012).r * 0.5 + texture(noise_tex, wpos.xz * 0.07 + 0.37).r * 0.5;
+	col *= 1.0 + (dn - 0.5) * detail;
+	// soft cloud shadows drifting over the land with the wind
+	vec2 cp = wpos.xz * 0.009 + wind * TIME * 0.006;
+	float cl = texture(noise_tex, cp).r * 0.65 + texture(noise_tex, cp * 2.3 + 0.5).r * 0.35;
+	col *= 1.0 - clouds * smoothstep(0.55, 0.75, cl);
 	if (rock > 0.01) {
 		float y = wpos.y + 0.35 * sin(wpos.x * 0.23 + wpos.z * 0.17) + 0.15 * sin(wpos.z * 0.61);
 		float band = fract(y * 0.62);
@@ -111,6 +129,10 @@ void fragment() {
 }
 """
 const SEA_Y := -0.4
+## How much the ground's mottle varies its colour, and how much a cloud's shadow darkens it: faint, so
+## foes and shots stay the sharpest things on screen.
+const GROUND_DETAIL := 0.3
+const CLOUD_SHADE := 0.2
 ## Each theme's liquid at the water line: water gloss and glints, or lava glow.
 const LIQUIDS := {"coast": [1.0, 0.0], "dunes": [0.0, 0.0], "city": [0.55, 0.0], "ice": [0.9, 0.0], "volcano": [0.0, 1.0]}
 
@@ -122,12 +144,36 @@ static func ground_mat() -> ShaderMaterial:
 		var m := ShaderMaterial.new()
 		m.shader = sh
 		m.set_shader_parameter("sea_y", SEA_Y)
+		m.set_shader_parameter("noise_tex", ground_noise())
+		m.set_shader_parameter("detail", GROUND_DETAIL)
+		m.set_shader_parameter("clouds", CLOUD_SHADE)
 		m.set_shader_parameter("shade_k", Vector3((1.0 - SHADE) * 0.94, (1.0 - SHADE) * 0.97, 1.0 - SHADE * 0.75))
 		_cache["ground"] = m
 	var lq: Array = LIQUIDS.get(theme, [0.0, 0.0])
 	_cache["ground"].set_shader_parameter("water", lq[0])
 	_cache["ground"].set_shader_parameter("lava", lq[1])
+	_cache["ground"].set_shader_parameter("rock_c", rock_col(0.0))
 	return _cache["ground"]
+
+
+## The ground's tiling noise: 128 px, seamless, values spread over 0..1. One fetch is far cheaper
+## on a phone than hashing value noise in the shader.
+static func ground_noise() -> NoiseTexture2D:
+	if not _cache.has("ground_noise"):
+		var n := FastNoiseLite.new()
+		n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		n.frequency = 0.04
+		n.fractal_octaves = 2
+		n.seed = 7
+		var t := NoiseTexture2D.new()
+		t.width = 128
+		t.height = 128
+		t.seamless = true
+		t.normalize = true
+		t.generate_mipmaps = true
+		t.noise = n
+		_cache["ground_noise"] = t
+	return _cache["ground_noise"]
 
 
 ## A glowing unshaded material (shots, lights, engines).
@@ -1543,7 +1589,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				c = c.darkened(hollow)
 				var steep := smoothstep(0.16, 0.42, 1.0 - (ns[i][j] as Vector3).y)
 				if steep > 0.0:
-					c = c.lerp(rock_col(y), steep)
+					# the rock itself is laid by the ground shader (`rock_c`), with a crisp edge
 					c.a = 1.0 - steep
 				if y < -0.6:
 					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
