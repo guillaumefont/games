@@ -951,7 +951,8 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 					# sweep across the upper screen from beyond the side edge
 					var side := -1.0 if from == "left" else 1.0
 					var z := hold_z(9.0) + x * 0.5
-					f.pos = Vector3(side * (view_hw(z) + 2.0), Rules.PY, frame_z + z)
+					# each a metre further out than the one before: a row, not a clump
+					f.pos = Vector3(side * (view_hw(z) + 2.0 + i), Rules.PY, frame_z + z)
 					f.vel = Vector3(-side * 5.5, 0, 1.2)
 				"back":
 					# overtake from behind, up a lane at the side, then fire back down
@@ -1184,6 +1185,8 @@ func update_objs(dt: float) -> void:
 		if f.rel:
 			f.pos.z += dz
 		think(f, dt)
+		if not f.ground and f.kind in Foes.ROWS:
+			Foes.space(self, f, dt)   # a row keeps a little room between its foes
 	for o in shots:
 		o.t += dt
 		if o.rel:
@@ -1279,7 +1282,10 @@ func think(f: Obj, dt: float) -> void:
 	match f.kind:
 		"dart" when f.vel != Vector3.ZERO:
 			var z := f.pos.z - frame_z
-			if f.vel.z < 0.0 or f.hold >= 0.0:
+			# from behind it overtakes fast; a sweep from a side dips a little up the screen, too,
+			# and must not be taken for one (it would join the line in the middle: a clump)
+			var back := f.vel.z < -3.0 or f.hold >= 0.0
+			if back:
 				# from behind: overtake up a side lane, brake and hold in the upper screen
 				# (weaving, firing), then climb away off the top
 				var hz := hold_z(8.0) + (f.idx % 2) * 1.6
@@ -1298,10 +1304,8 @@ func think(f: Obj, dt: float) -> void:
 						f.fire_t = f.t + 1.6
 						aimed(f.pos, 9.5)
 			f.pos += f.vel * dt
-			if f.vel.z < 0.0 or f.hold >= 0.0:
-				Foes.keep_apart(self, f, 2.0, dt)
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), 0)
-			if f.vel.z >= 0.0 and f.hold < 0.0:
+			if not back:
 				# from a side: a slow sweep across with a gentle dip
 				f.vel.z = 1.2 + sin(f.t * 1.4) * 1.4
 				if f.t >= f.fire_t and f.fire_t > 0 and on_screen(f):

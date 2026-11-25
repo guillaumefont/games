@@ -94,7 +94,11 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   show a turret, a hydro plane that unveils a minigun". A hacked one blinks and sparks red for
   `Foes.HACK_TELL` s before its gun unfolds (`Foes.unveil`) and fires, then is a foe paying `HACK_PAY` x.
 - Groups keep their spacing: seekers and darts from behind keep apart (`Foes.keep_apart`), and the darts
-  hold in a line across the screen.
+  hold in a line across the screen. Every air foe that comes in a row (`Foes.ROWS`, from the top, a side or
+  behind) keeps `Foes.ROW_GAP` (1 m) between hulls (`Foes.space`; Guillaume, 2026-11-25: rows from the
+  top and the sides bunched up). Foes flying to a goal move the goal with the nudge, and scarabs and
+  lancers pick dash spots clear of the others' (`Foes.clear_x`). A dart sweeping in from a side is never
+  taken for one from behind (they used to join the back darts' line in the middle: a clump).
 - Boss targets have generous hit radii (Guillaume found them too small).
 - Scrap is the only currency and is kept even when shot down. Upgrades apply in both modes.
 - In-level power (Guillaume, 2026-11-24: with everything bought "it was too easy"; after a reset it was

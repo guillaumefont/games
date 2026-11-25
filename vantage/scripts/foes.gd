@@ -616,7 +616,7 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 			f.fire_t = 1.2
 			f.burst = 4
 		"scarab":
-			var gx := clampf(f.x0 + spread * 2.0, -6.0, 6.0)
+			var gx := clampf(f.x0 + spread * 3.0, -6.0, 6.0)
 			f.goal = Vector3(gx, 0, g.hold_z(7.0))
 			g.enter_toward(f, gx, f.goal.z, side)
 			f.fire_t = 0.0
@@ -679,9 +679,43 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 
 # ---------------------------------------------------------------- behaviour
 
+## The room left between the hulls of foes flying in a group (m). Guillaume (2026-11-25): "give a
+## little space between enemies when they are in a row"; rows from the top and the sides bunched up.
+const ROW_GAP := 1.0
+## Air foes that come in as a row, a line or a swarm and keep ROW_GAP between them (`space`). Not
+## the wyrm: its segments are one creature.
+const ROWS := ["dart", "swing", "rotor", "scarab", "lancer", "prism", "seeker", "ember"]
+## Of those, the ones that fly to a goal: the goal moves with the nudge, or they would close up again.
+const TO_GOAL := ["rotor", "scarab", "lancer", "prism"]
+
+
+## A random x on side s (between lo and hi metres out) for foe f to dart to at z, as far as it can
+## from where the others of its kind are going, so two of a group never pick the same spot.
+static func clear_x(g: Game, f: Game.Obj, s: float, lo: float, hi: float, z: float) -> float:
+	var best := s * g.rng.randf_range(lo, hi)
+	var room := -1.0
+	for k in 6:
+		var x := s * g.rng.randf_range(lo, hi)
+		var near := 1e9
+		for o: Game.Obj in g.foes:
+			if o != f and o.kind == f.kind and not o.dead:
+				near = minf(near, Vector2(o.goal.x - x, o.goal.z - z).length())
+		if near > room:
+			room = near
+			best = x
+		if room >= f.r * 2.0 + ROW_GAP + 1.0:
+			break
+	return best
+
+
+## Keeps a foe of a group ROW_GAP clear of the others of its kind, whichever way they came in.
+static func space(g: Game, f: Game.Obj, dt: float) -> void:
+	keep_apart(g, f, f.r * 2.0 + ROW_GAP, dt, f.kind in TO_GOAL)
+
+
 ## Nudges a foe away from others of its kind closer than r on the flight plane, so a group keeps
-## its spacing instead of stacking into one blob.
-static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float) -> void:
+## its spacing instead of stacking into one blob (`goal`: its goal moves with it).
+static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float, goal := false) -> void:
 	for o: Game.Obj in g.foes:
 		if o == f or o.kind != f.kind or o.dead:
 			continue
@@ -691,9 +725,12 @@ static func keep_apart(g: Game, f: Game.Obj, r: float, dt: float) -> void:
 			if d < 0.001:
 				away = Vector2(1.0 if f.idx > o.idx else -1.0, 0.0)
 				d = 1.0
-			var push := away / d * (r - d) * minf(1.0, dt * 6.0)
+			var push := away / d * (r - d) * minf(1.0, dt * 10.0)
 			f.pos.x += push.x
 			f.pos.z += push.y
+			if goal:
+				f.goal.x = clampf(f.goal.x + push.x, -6.5, 6.5)
+				f.goal.z += push.y
 
 ## Where a foe shows on the flight plane (ground foes are seen at an angle).
 static func at_of(g: Game, f: Game.Obj) -> Vector3:
@@ -822,7 +859,9 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 					f.goal = Vector3(f.pos.x, 0, maxf(g.view_bot, Rules.Z_BOT) + 8.0)
 				else:
 					var s := -1.0 if (f.burst + f.idx) % 2 == 0 else 1.0
-					f.goal = Vector3(s * g.rng.randf_range(1.5, 5.5), 0, g.hold_z(7.0) + f.burst * 2.2)
+					# every other one a row lower, so the two rows dash past each other, not into
+					var gz := g.hold_z(7.0) + f.burst * 2.2 + (f.idx % 2) * 2.8
+					f.goal = Vector3(clear_x(g, f, s, 1.5, 5.5, gz), 0, gz)
 			var k := minf(1.0, dt * 5.0)
 			var was := f.pos
 			f.pos.x = lerpf(f.pos.x, f.goal.x, k)
@@ -861,7 +900,6 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 			else:
 				f.vel.x += (1.0 if f.pos.x > 0.0 else -1.0) * 14.0 * dt
 			f.pos += f.vel * dt
-			keep_apart(g, f, 2.0, dt)   # a swarm, not one blob
 			f.node.rotation = Vector3(0, atan2(f.vel.x, f.vel.z), sin(f.t * 9.0) * 0.12)
 			(f.node.get_node("quad") as Node3D).rotation.y += dt * 30.0
 		"aa":
@@ -1035,7 +1073,7 @@ static func think_lancer(g: Game, f: Game.Obj, dt: float) -> void:
 			f.fire_t = -1.0
 			f.burst -= 1
 			var s := -1.0 if f.pos.x > 0.0 else 1.0
-			f.goal = Vector3(s * g.rng.randf_range(2.0, 5.5), 0, f.goal.z + 1.5)
+			f.goal = Vector3(clear_x(g, f, s, 2.0, 5.5, f.goal.z + 1.5), 0, f.goal.z + 1.5)
 		elif f.fire_t < 0.0 and since > 1.5:
 			f.fire_t = 0.0
 			f.hold = f.t

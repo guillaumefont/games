@@ -233,8 +233,17 @@ func formations() -> void:
 	g.s.open = Campaign.count() - 1
 	g.launch(0)
 	g.step(DT)
-	var groups := [["seeker", 6, "top", 0.3], ["dart", 6, "back", 0.3]]
+	# Guillaume (2026-11-25): rows from the top and the sides bunched up, the ones from behind didn't
+	var groups := [["seeker", 6, "top", 0.28], ["dart", 6, "back", 0.3], ["dart", 6, "top", 0.27], ["dart", 6, "left", 0.3],
+		["dart", 6, "right", 0.3], ["swing", 6, "top", 0.37], ["rotor", 3, "top", 0.5], ["scarab", 3, "top", 0.6],
+		["lancer", 3, "top", 0.6], ["ember", 4, "top", 0.5], ["prism", 2, "top", 1.0],
+		["rotor", 3, "tall", 0.5], ["scarab", 3, "tall", 0.6], ["lancer", 3, "tall", 0.6]]
+	var view := [g.view_top, g.view_hw_top]
 	for grp: Array in groups:
+		# a tall phone: those that hold come in from the sides
+		var tall: bool = grp[2] == "tall"
+		g.view_top = -29.0 if tall else view[0]
+		g.view_hw_top = 12.6 if tall else view[1]
 		g.clear_all()
 		g.queue.clear()
 		g.wave_i = g.waves.size()
@@ -246,7 +255,7 @@ func formations() -> void:
 		var closest := 1e9
 		while t < 6.0:
 			while next < n and t >= next * float(grp[3]):
-				g.spawn_vert(kind, 4.5 if grp[2] == "back" else 0.0, next, n, grp[2])
+				g.spawn_vert(kind, 4.5 if grp[2] == "back" else 0.0, next, n, "top" if tall else grp[2])
 				var f: Game.Obj = g.foes[g.foes.size() - 1]
 				f.hp = 1e6
 				mine.append(f)
@@ -254,6 +263,9 @@ func formations() -> void:
 			g.hp = 5
 			g.inv = 1.0
 			g.prel.x = sin(t * 0.9) * 3.0
+			if tall:
+				g.view_top = -29.0
+				g.view_hw_top = 12.6
 			g.step(DT)
 			t += DT
 			for a in mine.size():
@@ -261,7 +273,10 @@ func formations() -> void:
 					if mine[a] in g.foes and mine[b] in g.foes and g.on_screen(mine[a]) and g.on_screen(mine[b]):
 						var d := Vector2(mine[a].pos.x - mine[b].pos.x, mine[a].pos.z - mine[b].pos.z).length()
 						closest = minf(closest, d)
-		check(closest >= 1.4 and closest < 1e8, "%s %s: never closer than 1.4 m on screen (%.1f)" % [kind, grp[2], closest])
+		# a little room between their hulls (a nudge, not a wall: a few tenths of give); a scarab or
+		# a lancer darting across past another may brush by it, but never runs into it
+		var room: float = Rules.FOES[kind].r * 2.0 + (Foes.ROW_GAP - 0.5 if kind not in ["scarab", "lancer"] else -0.3)
+		check(closest >= room and closest < 1e8, "%s %s: never closer than %.1f m on screen (%.1f)" % [kind, grp[2], room, closest])
 	g.queue_free()
 	await process_frame
 
