@@ -270,8 +270,13 @@ static func crag(x: float, z: float, h: float) -> Vector2:
 	return Vector2(y * k, wet if k >= 1.0 else 0.0)
 
 
-## The set piece's own shape at (x, z), before the crags.
+## The set piece's own shape at (x, z), before the crags: its cut, and the pools feeding its falls.
 static func piece(x: float, z: float, h: float) -> Vector4:
+	return fed(x, z, cut(x, z, h))
+
+
+## The set piece's cut into the land at (x, z).
+static func cut(x: float, z: float, h: float) -> Vector4:
 	var n := stretch_of(z)
 	var kind := kind_of(n)
 	# what runs on a floor: lava in the cinders, water, and nothing in the desert (Guillaume,
@@ -427,18 +432,79 @@ static func fall_lines(n: int) -> Array:
 	return []
 
 
-## True on and round a fall's course, where no rock or tree may stand in the water.
+## True on and round a fall's course and the pool and stream feeding it, where no rock or tree
+## may stand in the water.
 static func near_fall(x: float, z: float) -> bool:
 	var n := stretch_of(z)
 	if n < 0:
 		return false
+	var q := Vector2(x, z)
 	for line: Array in fall_lines(n):
 		var a: Vector3 = line[0]
 		var b: Vector3 = line[1]
-		var p := Geometry2D.get_closest_point_to_segment(Vector2(x, z), Vector2(a.x, a.z), Vector2(b.x, b.z))
-		if p.distance_to(Vector2(x, z)) < line[2] * 0.5 + 4.5:
+		var p := Geometry2D.get_closest_point_to_segment(q, Vector2(a.x, a.z), Vector2(b.x, b.z))
+		if p.distance_to(q) < line[2] * 0.5 + 4.5:
+			return true
+		var src := pool_c(a)
+		p = Geometry2D.get_closest_point_to_segment(q, src, Vector2(a.x, a.z))
+		if p.distance_to(q) < FEED_W + 3.5 or src.distance_to(q) < POOL_R + 4.0:
 			return true
 	return false
+
+
+# ---------------------------------------------------------------- where the falls come from
+## Guillaume, 2026-11-25: "there should not be any waterfall without a water body where it can
+## come from". Every fall is fed: a pool (a lake, or a lava pool in the cinders) lies on the land
+## behind its lip, and a stream runs from it over the lip, cut into the rim so the fall starts at
+## the water's own level.
+const POOL_R := 5.5
+## How far behind the lip the pool's centre lies.
+const POOL_BACK := 11.0
+## The stream's half width on its flat bed (the fall's curtain is 3.2 m at most).
+const FEED_W := 2.0
+## The water's level in the pool and stream, below the plain.
+const FEED_Y := -0.5
+## How far past the lip the stream's notch runs into the wall.
+const FEED_ON := 4.0
+
+
+static func pool_c(lip: Vector3) -> Vector2:
+	return Vector2(lip.x + 1.5 * signf(lip.x + 0.01), lip.z - POOL_BACK)
+
+
+## The ground v at (x, z) with the pools and streams feeding stretch n's falls cut into it.
+static func fed(x: float, z: float, v: Vector4) -> Vector4:
+	var n := stretch_of(z)
+	if n < 0 or not kind_of(n) in ["gorge", "canyon", "rift"]:
+		return v
+	var lines := fall_lines(n)
+	if lines.is_empty():
+		return v
+	var q := Vector2(x, z)
+	var wb := wob(x, z)
+	# 0 on the dry land round them, 1 on their flat bed
+	var f := 0.0
+	var fs := 0.0
+	for line: Array in lines:
+		var lip: Vector3 = line[0]
+		var foot: Vector3 = line[1]
+		var src := pool_c(lip)
+		var dl := Vector2(lip.x, lip.z)
+		var end := dl + (Vector2(foot.x, foot.z) - dl).normalized() * FEED_ON
+		var ds := Geometry2D.get_closest_point_to_segment(q, src, end).distance_to(q) + wb * 0.4
+		fs = maxf(fs, clampf((FEED_W + 1.2 - ds) / 1.2, 0.0, 1.0))
+		f = maxf(f, fs)
+		var dp := src.distance_to(q) + wb * 1.4
+		f = maxf(f, clampf((POOL_R + 1.6 - dp) / 1.6, 0.0, 1.0))
+	if f <= 0.0:
+		return v
+	var y := lerpf(v.x, FEED_Y, smoothstep(0.0, 1.0, f))
+	if y >= v.x:
+		return v
+	var liq := 2.0 if Models.theme == "volcano" else 1.0
+	var wet := liq if f >= 1.0 else 0.0
+	# the stream runs towards the lip (+z); the pool lies still
+	return Vector4(y, maxf(v.y, 0.06), wet, 1.0 if wet > 0.0 and fs >= 1.0 else 0.0)
 
 
 ## The moving parts in [z_far, z_near): for each, a dictionary. "fall": a curtain draped down a
