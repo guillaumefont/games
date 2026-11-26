@@ -193,6 +193,8 @@ var drone_n := 0
 ## pixel is shaded once: overlapping faces and neighbouring shadows never stack into dark patches,
 ## and the edges fade smoothly instead of stair-stepping.
 const SHADOW_Y := 1.45
+## The city's shadows fall halfway down its towers, between the roofs and the sunken streets.
+const CITY_SHADOW_Y := SHADOW_Y - City.SINK * 0.5
 const SHADOW_LAYER := 1 << 19
 var shadows: Array[MeshInstance3D] = []
 var shadow_tick := 0
@@ -1024,7 +1026,7 @@ func land(x: float, z: float) -> float:
 func ground_y(x: float, z: float) -> float:
 	var h := Relief.raw(noise, x, z)
 	if Models.theme == "city":
-		return maxf(0.0, minf(h, 0.8) * 1.6)
+		return maxf(0.0, minf(h, 0.8) * 1.6) - City.SINK
 	var v := Relief.at(x, z, h)
 	# the open sea at its usual level counts as 0, as it always has
 	return 0.0 if v.y < 0.0 and absf(v.x + 0.4) < 0.01 else v.x
@@ -2140,7 +2142,7 @@ func update_shadows() -> void:
 ## so a shadow flattened onto a canyon's floor shows on that floor.
 func land_shadow_y(p: Vector3) -> float:
 	if Models.theme == "city":
-		return SHADOW_Y
+		return CITY_SHADOW_Y
 	var y := shadow_ground(p.x, p.z)
 	for k in 2:
 		var d := maxf(p.y - y, 0.0)

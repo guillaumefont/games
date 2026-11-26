@@ -41,7 +41,8 @@ const SANDBAG := Color8(0xb0, 0xa0, 0x76)
 ## How tall the pole between the footing and the gun is, by theme (short on a city roof).
 const POLE := {"coast": 1.6, "dunes": 1.3, "city": 0.9, "ice": 1.4, "volcano": 1.3}
 ## The footing's own height, by theme (the city's is the building).
-const FOOT := {"coast": 0.5, "dunes": 0.9, "city": 2.6, "ice": 0.6, "volcano": 1.0}
+## The city's building rises from its sunken streets (City.SINK) to stand among the towers.
+const FOOT := {"coast": 0.5, "dunes": 0.9, "city": 2.6 + City.SINK, "ice": 0.6, "volcano": 1.0}
 ## How far out the footing reaches from the tower's centre (sandbags, drifts): all of it must stand
 ## on firm ground.
 const FOOT_R := 1.8
@@ -90,7 +91,7 @@ static func base(theme: String) -> Mesh:
 					var a := TAU * side / 4.0
 					var n := Vector3(sin(a), 0, cos(a))
 					var u := Vector3(cos(a), 0, -sin(a))
-					for row in 2:
+					for row in int((h - 0.4) / 0.9):
 						for col in 3:
 							var c := n * (w + 0.02) + u * (col - 1) * 0.95 + Vector3(0, -h + 0.55 + row * 0.9, 0)
 							var lit := (row * 3 + col + side) % 5 == 0
