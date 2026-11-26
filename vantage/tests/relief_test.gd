@@ -315,16 +315,16 @@ func city(g: Game) -> void:
 		peak = maxf(peak, t)
 		low = minf(low, t)
 	check(peak > 0.8 and low < 0.2, "city: the skyline climbs to a downtown and falls away (%.2f..%.2f)" % [low, peak])
-	# Guillaume (2026-11-26): "I want more tall buildings in the city": most blocks away from the
-	# downtowns still raise towers, a few stay low
+	# Guillaume (2026-11-26): "I want 80% of blocks to be high towers": blocks away from the
+	# downtowns raise towers near downtown's height, a few stay low
 	var mid_tall := 0
 	var mid_low := 0
 	for k in 20:
 		for m in 20:
 			var t := City.midtown(k - 10, m - 10)
-			mid_tall += 1 if t >= 0.3 else 0
+			mid_tall += 1 if t >= 0.8 else 0
 			mid_low += 1 if t == 0.0 else 0
-	check(mid_tall > 240 and mid_low > 40, "city: towers stand tall across the city (%d of 400 blocks), a few blocks low (%d)" % [mid_tall, mid_low])
+	check(mid_tall >= 300 and mid_tall <= 340 and mid_low > 40, "city: high towers on about 80%% of blocks (%d of 400), a few blocks low (%d)" % [mid_tall, mid_low])
 	# towers cast soft shadows over the streets: a street behind a tower (from the sun) lies in its
 	# shade, one on its sunny side doesn't, and a low roof's shadow is short
 	var cx := City.Ctx.new()
