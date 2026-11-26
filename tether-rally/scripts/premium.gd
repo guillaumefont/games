@@ -77,14 +77,14 @@ const PALETTE := {
 # lean to (and how far), and the colour grade's shade and glint. Lighting only: no new
 # meshes or shaders, so it costs nothing on a phone.
 const GOLDEN := {
-	"snow": { "sun": Color("#ffb878"), "energy": 1.0, "ambient": Color("#8a78c0"), "ambient_mix": 0.45,
-		"shade": Color("#4a2a6a"), "glint": Color("#ffd8a0") },
-	"forest": { "sun": Color("#ffd29c"), "energy": 1.18, "ambient": Color("#a0acd8"), "ambient_mix": 0.2,
-		"shade": Color("#3e3c6a"), "glint": Color("#ffe6b4") },
-	"sand": { "sun": Color("#ffaa72"), "energy": 1.0, "ambient": Color("#a07ab8"), "ambient_mix": 0.4,
-		"shade": Color("#5a2a58"), "glint": Color("#ffd496") },
-	"rock": { "sun": Color("#ffc494"), "energy": 1.25, "ambient": Color("#a096d0"), "ambient_mix": 0.25,
-		"shade": Color("#4c4278"), "glint": Color("#ffdcae") },
+	"snow": { "sun": Color("#ff9450"), "energy": 1.15, "ambient": Color("#7a5cc0"), "ambient_mix": 0.6,
+		"shade": Color("#5a2470"), "glint": Color("#ffc070") },
+	"forest": { "sun": Color("#ffa860"), "energy": 1.55, "ambient": Color("#9088d0"), "ambient_mix": 0.35,
+		"shade": Color("#4a2e70"), "glint": Color("#ffcc78") },
+	"sand": { "sun": Color("#ff8c4a"), "energy": 1.15, "ambient": Color("#a06ab8"), "ambient_mix": 0.55,
+		"shade": Color("#6a2058"), "glint": Color("#ffc070") },
+	"rock": { "sun": Color("#ff9e5c"), "energy": 1.6, "ambient": Color("#9a80d0"), "ambient_mix": 0.4,
+		"shade": Color("#583a7a"), "glint": Color("#ffc888") },
 }
 
 static func golden(th: Dictionary) -> Dictionary:

@@ -99,7 +99,7 @@ const AMBIENT_ENERGY_COMPAT := 0.62
 const GRADE_SAT_COMPAT := 1.05
 const GRADE_SHADE := 0.10   # how much the shadows lean to the world's "shade" colour
 const GRADE_GLINT := 0.6    # how much the highlights lean to its "glint" colour
-const GOLDEN_SUN_PITCH := -19.0   # golden hour: the sun low over the horizon
+const GOLDEN_SUN_PITCH := -13.0   # golden hour: the sun low over the horizon
 const GOLDEN_SUN_YAW := -55.0
 
 func _ready() -> void:
@@ -2143,7 +2143,7 @@ func _build_gems() -> void:
 # the ground, so the shadows stay put on the land as the camera moves. It fades out when the
 # camera drops near it (the low cinematic shots). One draw call and no triangles to speak of.
 const CLOUD_Y := 6.0          # metres up: above the tallest tree
-const CLOUD_SHADE := 0.24     # how dark a cloud's middle gets (faint: the scene stays bright)
+const CLOUD_SHADE := 0.5      # how dark a cloud's middle gets (clearly seen; Guillaume found 0.24 invisible)
 var clouds: MeshInstance3D
 func _build_clouds() -> void:
 	var sh := Shader.new()
@@ -2151,7 +2151,7 @@ func _build_clouds() -> void:
 shader_type spatial;
 render_mode unshaded, blend_mul, cull_disabled, depth_draw_never, depth_test_disabled, shadows_disabled, fog_disabled;
 uniform vec3 shade : source_color;
-uniform float amount = 0.24;
+uniform float amount = 0.5;
 uniform float plane_y = 6.0;
 varying vec3 wp;
 void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
@@ -2165,9 +2165,9 @@ void fragment() {
 	float fade = smoothstep(plane_y + 2.0, plane_y + 7.0, cam.y);
 	// where this pixel's view ray meets the ground (height 0)
 	vec2 g = cam.xz + (wp.xz - cam.xz) * (cam.y / max(cam.y - wp.y, 0.01));
-	vec2 p = g * 0.04 + TIME * vec2(0.012, 0.006);
+	vec2 p = g * 0.03 + TIME * vec2(0.035, 0.015);
 	float n = vnoise(p) * 0.62 + vnoise(p * 2.3 + 7.1) * 0.38;
-	float c = smoothstep(0.5, 0.7, n) * amount * fade;
+	float c = smoothstep(0.47, 0.6, n) * amount * fade;
 	ALBEDO = mix(vec3(1.0), shade, c);
 }
 """
@@ -2189,7 +2189,7 @@ void fragment() {
 
 # a cloud's shadow: the world's shade colour, lifted a lot (a soft cool dimming, not a stain)
 static func cloud_tint(shade: Color) -> Color:
-	return shade.lerp(Color.WHITE, 0.35)
+	return shade.lerp(Color.WHITE, 0.2)
 
 func _build_fx() -> void:
 	_build_clouds()

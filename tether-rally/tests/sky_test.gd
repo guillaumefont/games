@@ -1,7 +1,7 @@
 extends SceneTree
 # Cloud shadows and the Golden hour lighting (WorldView._build_clouds, set_golden, Premium.GOLDEN):
 # - every world gets one faint cloud layer: a single plane, no shadow casting, shown on Medium
-#   and High only, dark enough to see but light enough that the scene stays bright
+#   and High only, clearly seen (Guillaume found the first, faint version invisible) but not black
 # - Golden hour is off by default and is a Settings toggle that Settings and pause both list
 # - every world has its golden-hour light; switching it on lowers and warms the sun and only
 #   changes colours, energy and the sun's angle: no lighting mode switches (no shader recompile),
@@ -64,7 +64,7 @@ func _run() -> void:
 			check(c.mesh is PlaneMesh, "%s: the cloud layer should be one plane" % theme)
 			check(c.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "%s: the cloud layer must not cast shadows" % theme)
 			var amt: float = (c.material_override as ShaderMaterial).get_shader_parameter("amount")
-			check(amt > 0.1 and amt <= 0.3, "%s: cloud shadows should stay faint (amount %.2f)" % [theme, amt])
+			check(amt >= 0.4 and amt <= 0.6, "%s: cloud shadows should be clearly seen but not black out the scene (amount %.2f)" % [theme, amt])
 			check(c.visible, "%s: clouds should show on High" % theme)
 			view.set_quality(0)
 			check(not c.visible, "%s: clouds should be off on Low" % theme)
