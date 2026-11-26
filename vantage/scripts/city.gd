@@ -33,6 +33,12 @@ const SINK := 5.0
 ## (SKY_R m across) that falls away to low streets round it.
 const SKY_SEG := 96.0
 const SKY_R := 34.0
+## Midtown: the share of blocks left low, and how high the others' towers climb (see `midtown`).
+const MIDTOWN_LOW := 0.25
+const MIDTOWN_LO := 0.3
+const MIDTOWN_HI := 0.65
+## The share of mid-rise and shop lots turned into towers.
+const TOWER_MORE := 0.35
 ## The expressway deck's height (world), above the highest ground and under the flight altitude.
 const HWY_Y := 1.9 - SINK
 const HWY_W := 4.0
@@ -103,6 +109,15 @@ static func skyline(u: float, v: float) -> float:
 		var d := Vector2(p.x, p.z).distance_to(at) * (0.85 + Models.hash2(u * 0.11, v * 0.13) * 0.3)
 		t = maxf(t, smoothstep(SKY_R, SKY_R * 0.15, d))
 	return t
+
+
+## How tall block (k, m)'s towers stand outside the downtowns, on the skyline's 0..1 scale: most
+## blocks MIDTOWN_LO..MIDTOWN_HI, a few (MIDTOWN_LOW of them) left low so the skyline still varies.
+static func midtown(k: int, m: int) -> float:
+	var h := Models.hash2(k * 2.31 + 0.7, m * 1.93 + 3.1)
+	if h < MIDTOWN_LOW:
+		return 0.0
+	return lerpf(MIDTOWN_LO, MIDTOWN_HI, (h - MIDTOWN_LOW) / (1.0 - MIDTOWN_LOW))
 
 
 static func to_local(x: float, z: float) -> Vector2:
@@ -529,8 +544,11 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 	var j1 := v1 - 0.5
 	# the skyline: towers climb to each stretch's downtown, lower streets round it
 	var tall := skyline((u0 + u1) * 0.5, (v0 + v1) * 0.5)
+	# and midtown (Guillaume, 2026-11-26: "I want more tall buildings in the city"): away from the
+	# downtowns most blocks still hold a few high towers, so the whole city stands tall, not just its peaks
+	var rise := maxf(tall, midtown(k, m))
 	var sd := Models.hash2(k * 1.7 + 4.0, m * 5.3 + 1.0)
-	if sd < 0.22:
+	if sd < 0.14:
 		# a courtyard block: four wings round a green court with a tree
 		var d := 2.6
 		var col: Color = (BRICKS + PASTELS)[int(sd * 97.0) % (BRICKS.size() + PASTELS.size())]
@@ -574,9 +592,11 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 				ruin(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, r)
 				continue
 			var style := int(r * 41.0) % 4
-			var h := 0.35 + r * 0.5 + tall * 0.9
+			if style >= 2 and Models.hash2(r * 23.0, k * 0.7 + m * 1.3) < TOWER_MORE:
+				style = int(r * 7.0) % 2   # more of the lots are towers
+			var h := 0.35 + r * 0.5 + rise * 0.9
 			if style < 2:
-				h = 0.8 + tall * (3.4 + r * 1.4) + r * 0.4   # towers rise higher downtown
+				h = 0.8 + rise * (3.4 + r * 1.4) + r * 0.4   # towers rise higher downtown
 			building(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, h, r, style, Color(0, 0, 0, 0))
 
 
