@@ -154,16 +154,6 @@ class Icon extends Control:
 				draw_colored_polygon(pts, col)
 				draw_circle(c + Vector2(s * 0.26, -s * 0.26), s * 0.05, col2)
 				draw_circle(c + Vector2(-s * 0.24, s * 0.26), s * 0.04, col2)
-			"sunset":     # half a sun on the horizon, with short rays (Golden hour)
-				var hz := c.y + s * 0.14
-				var sun := PackedVector2Array()
-				for k in 13:
-					sun.append(Vector2(c.x, hz) + Vector2.from_angle(PI + PI * k / 12.0) * s * 0.2)
-				draw_colored_polygon(sun, col)
-				draw_line(Vector2(c.x - s * 0.36, hz), Vector2(c.x + s * 0.36, hz), col, lw, true)
-				for k in 5:
-					var d := Vector2.from_angle(PI + PI * (k + 1) / 6.0)
-					draw_line(Vector2(c.x, hz) + d * s * 0.27, Vector2(c.x, hz) + d * s * 0.36, col2, lw * 0.8, true)
 			"vibrate":    # a phone with buzz marks either side
 				var r := Rect2(c + Vector2(-s * 0.14, -s * 0.3), Vector2(s * 0.28, s * 0.6))
 				draw_rect(r, col, false, lw)

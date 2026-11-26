@@ -11,8 +11,6 @@ const Premium = preload("res://scripts/premium.gd")
 # "Premium low-poly" look (scripts/premium.gd): curated palettes, gradient-shaded props,
 # soft rim light, swaying trees, sparkling snow. On by default on this preview branch.
 static var premium := true
-# Settings "Golden hour": a low orange sun, long shadows and violet shade (Premium.GOLDEN)
-var golden := false
 
 const U := 0.01
 # Model detail. 1 = the game (light enough for phones). 2 = artwork renders
@@ -99,8 +97,6 @@ const AMBIENT_ENERGY_COMPAT := 0.62
 const GRADE_SAT_COMPAT := 1.05
 const GRADE_SHADE := 0.10   # how much the shadows lean to the world's "shade" colour
 const GRADE_GLINT := 0.6    # how much the highlights lean to its "glint" colour
-const GOLDEN_SUN_PITCH := -13.0   # golden hour: the sun low over the horizon
-const GOLDEN_SUN_YAW := -55.0
 
 func _ready() -> void:
 	if "--look=classic" in OS.get_cmdline_user_args():
@@ -258,30 +254,7 @@ func _apply_light() -> void:
 	# by the ambient alone (their winding), so its brightness is tuned with them in mind
 	env.ambient_light_color = amb.lerp(sky, SKY_TINT)
 	light.light_color = th["sun"]
-	var shade: Color = th.get("shade", Color(0.2, 0.25, 0.35))
-	var glint: Color = th.get("glint", Color(1, 0.95, 0.88))
-	var pitch := PREMIUM_SUN_PITCH if premium else SUN_PITCH
-	var yaw := SUN_YAW
-	var energy := SUN_ENERGY
-	var g: Dictionary = Premium.golden(th) if golden else {}
-	if not g.is_empty():
-		# golden hour: same scene, the light of a late afternoon
-		env.ambient_light_color = env.ambient_light_color.lerp(g["ambient"], g["ambient_mix"])
-		light.light_color = g["sun"]
-		energy *= g["energy"]
-		shade = g["shade"]
-		glint = g["glint"]
-		pitch = GOLDEN_SUN_PITCH
-		yaw = GOLDEN_SUN_YAW
-	light.light_energy = energy
-	light.rotation = Vector3(deg_to_rad(pitch), deg_to_rad(yaw), 0)
-	grade_tex.gradient = grade_curve(shade, glint)
-
-# Settings "Golden hour" switched: relight the current world (no rebuild, no new shaders)
-func set_golden(on: bool) -> void:
-	golden = on
-	if not th.is_empty():
-		_apply_light()
+	grade_tex.gradient = grade_curve(th.get("shade", Color(0.2, 0.25, 0.35)), th.get("glint", Color(1, 0.95, 0.88)))
 
 # The colour grade as a per-channel curve (the Environment's colour correction reads each of
 # red, green and blue through it): the darks lean towards `shade`, the highlights towards

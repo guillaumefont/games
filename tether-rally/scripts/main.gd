@@ -93,7 +93,6 @@ func _ready() -> void:
 	add_child(ui)
 	sfx.set_volumes(Settings.get_opt("music_vol"), Settings.get_opt("sfx_vol"))
 	view.set_quality(Settings.get_opt("quality"))
-	view.golden = Settings.get_opt("golden")
 	ui.option_changed.connect(_option_changed)
 	ui.reward_popped.connect(_reward_popped)
 	ui.menu.settings_pressed.connect(func(): ui.show_settings(_options(true)))
@@ -356,7 +355,6 @@ func _options(with_ghost: bool) -> Dictionary:
 		"ghost": Settings.get_opt("ghost") if with_ghost else null,
 		"haptics": Settings.get_opt("haptics") if Haptics.available() else null,
 		"quality": Settings.get_opt("quality"),
-		"golden": Settings.get_opt("golden"),
 		"shop": _shop(),
 	}
 
@@ -373,8 +371,6 @@ func _option_changed(key: String, value) -> void:
 			sfx.set_volumes(Settings.get_opt("music_vol"), Settings.get_opt("sfx_vol"))
 		"quality":
 			_apply_quality(value)
-		"golden":
-			view.set_golden(value)
 		"haptics":
 			if value:
 				Haptics.hook()   # a tick so you feel it is on

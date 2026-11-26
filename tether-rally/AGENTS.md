@@ -99,7 +99,7 @@ godot --headless --path . --script tests/ghost_bridge_test.gd # ghosts stay on t
 godot --headless --path . --script tests/road_trip_colour_test.gd # Road Trip pages in their world's colour, stop names fit
 godot --headless --path . --script tests/self_update_test.gd  # test APKs update themselves safely
 godot --headless --path . --script tests/premium_test.gd   # premium look: palette, gradient props, triangle budget
-godot --headless --path . --script tests/sky_test.gd       # cloud shadows (faint, off on Low) and the Golden hour toggle
+godot --headless --path . --script tests/sky_test.gd       # cloud shadows: one plane, clearly visible, off on Low
 ```
 
 After changing a track layout, rerun `tools/gen_obstacles.gd` (posts placed off the AI's racing line,
@@ -118,11 +118,10 @@ A headless run lays the UI out for 640 logical pixels (desktop); to test at a ph
 `main.ui._uh = 450` and then change `root.size` (or call `ui._apply_scale()`), as `tests/home_tabs_test.gd`
 does. Test with a long save too (four-digit coins, every medal kind): the home page grows with its content.
 
-Golden hour (Settings toggle, `WorldView.set_golden`, per-world light in `Premium.GOLDEN`) only
-changes colours, energy and the sun's angle in `_apply_light`; never switch an Environment mode for
-it (shaders would recompile mid-game). Its low sun lengthens shadows, so the shadow pass draws more
-(~+15% triangles on the forest track). Guillaume rejected ground cover (grass tufts, pebbles) on
-2026-11-26 as darkening the scene: don't add it back.
+Cloud shadows (`WorldView._build_clouds`, Medium and High) are one multiply-blended plane above
+the land, kept clearly visible (`CLOUD_SHADE` 0.5: Guillaume couldn't see 0.24 on his phone).
+Guillaume rejected ground cover (grass tufts, pebbles) and a golden-hour lighting option
+(2026-11-26): don't add them back.
 
 Screenshots without a GPU: `xvfb-run -a godot --rendering-driver opengl3 --path . --resolution 1280x720 -- <demo flag>`
 with `SHOT_DIR=<dir>`. Demo flags in `scripts/main.gd`: `--demo=`, `--tutorial-demo`, `--cine-demo=` (camera shots).

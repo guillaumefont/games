@@ -1,5 +1,5 @@
 # Player options kept between sessions in user://settings.cfg: music and sound volume
-# (0..100), ghost car, graphics quality, golden hour lighting, vibration; whether the first-launch tutorial has been played.
+# (0..100), ghost car, graphics quality, vibration; whether the first-launch tutorial has been played.
 extends RefCounted
 
 const PATH := "user://settings.cfg"
@@ -11,7 +11,7 @@ static func _load() -> ConfigFile:
 		_cfg.load(PATH)
 	return _cfg
 
-const DEFAULTS := { "music_vol": 70, "sfx_vol": 100, "ghost": true, "haptics": true, "tutorial_done": false, "golden": false }
+const DEFAULTS := { "music_vol": 70, "sfx_vol": 100, "ghost": true, "haptics": true, "tutorial_done": false }
 
 # graphics quality: what each level turns on is in WorldView.set_quality
 const QUALITY_NAMES := ["LOW", "MEDIUM", "HIGH"]
