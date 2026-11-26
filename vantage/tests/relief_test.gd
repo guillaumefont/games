@@ -302,6 +302,18 @@ func city(g: Game) -> void:
 		peak = maxf(peak, t)
 		low = minf(low, t)
 	check(peak > 0.8 and low < 0.2, "city: the skyline climbs to a downtown and falls away (%.2f..%.2f)" % [low, peak])
+	# towers cast soft shadows over the streets: a street behind a tower (from the sun) lies in its
+	# shade, one on its sunny side doesn't, and a low roof's shadow is short
+	var cx := City.Ctx.new()
+	cx.casters[Vector2i(0, 0)] = [[2.0, 6.0, 2.0, 6.0, 4.0]]
+	var sl := Models.sun_slide.length()
+	var dir := City.to_local(-Models.sun_slide.x / sl, -Models.sun_slide.y / sl)
+	var mid := Vector2(4.0, 4.0)
+	var behind := City.cast_at(cx, mid - dir * 4.0, -City.SINK, dir, sl, City.CAST_REACH)
+	var sunny := City.cast_at(cx, mid + dir * 4.0, -City.SINK, dir, sl, City.CAST_REACH)
+	cx.casters[Vector2i(0, 0)] = [[2.0, 6.0, 2.0, 6.0, -City.SINK + 0.5]]
+	var low_far := City.cast_at(cx, mid - dir * 4.0, -City.SINK, dir, sl, City.CAST_REACH)
+	check(behind > 0.99 and sunny == 0.0 and low_far == 0.0, "city: towers shade the streets behind them (%.2f, %.2f, %.2f)" % [behind, sunny, low_far])
 
 
 ## Baked shadows (Guillaume, 2026-11-24: "bake shadows... even for moving objects"): the land
