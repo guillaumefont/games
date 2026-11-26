@@ -612,7 +612,7 @@ func towers() -> void:
 					dry_ok += 1
 		check(bad <= n / 100, "level %d: towers stand level, not over a rim (%d of %d spots)" % [lv + 1, n - bad, n])
 		check(dry_ok >= n * 0.8, "level %d: towers mostly stand out of the water (where the sea or a river fills the width they stand in it, level, like a pier) (%d of %d spots)" % [lv + 1, dry_ok, n])
-	check(Towers.height("city") + 1.6 < Rules.PY, "a tower on a building stays under the flight altitude")
+	check(Towers.height("city") - City.SINK + 1.6 < Rules.PY, "a tower on a building stays under the flight altitude")
 	g.queue_free()
 	await process_frame
 

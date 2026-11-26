@@ -25,8 +25,16 @@ const AVE := 16.0
 const STR := 14.0
 const AVE_W := 4.0
 const STR_W := 2.0
+## How far the city's streets lie below the other worlds' plain (Guillaume, 2026-11-26: "the city
+## world is very flat... it doesn't go as high as a city should"). Nothing may rise past the ship,
+## so the city goes down instead, like the canyons: its towers rise from deep streets.
+const SINK := 5.0
+## The skyline: each SKY_SEG m of the course has its downtown, a cluster of the tallest towers
+## (SKY_R m across) that falls away to low streets round it.
+const SKY_SEG := 96.0
+const SKY_R := 34.0
 ## The expressway deck's height (world), above the highest ground and under the flight altitude.
-const HWY_Y := 1.9
+const HWY_Y := 1.9 - SINK
 const HWY_W := 4.0
 
 const CONCRETE := Color8(0x6e, 0x6e, 0x70)
@@ -73,6 +81,19 @@ static func calm(col: Color) -> Color:
 	return c
 
 
+## How far into a downtown (u, v) lies, 0 on the outskirts to 1 at its heart: the skyline's
+## shape, so the towers build up to a peak and fall away instead of standing at random heights.
+static func skyline(u: float, v: float) -> float:
+	var p := to_world(u, v)
+	var n := floori(-p.z / SKY_SEG)
+	var t := 0.0
+	for i in range(n - 1, n + 2):
+		var at := Vector2((Models.hash2(i * 1.7 + 0.3, 2.1) - 0.5) * 22.0, -(i + 0.35 + Models.hash2(i * 0.9, 5.3) * 0.3) * SKY_SEG)
+		var d := Vector2(p.x, p.z).distance_to(at) * (0.85 + Models.hash2(u * 0.11, v * 0.13) * 0.3)
+		t = maxf(t, smoothstep(SKY_R, SKY_R * 0.15, d))
+	return t
+
+
 static func to_local(x: float, z: float) -> Vector2:
 	return Vector2(x * _ca - z * _sa, x * _sa + z * _ca)
 
@@ -114,12 +135,12 @@ class Ctx:
 		return hgt.call(x, z)
 
 	func ground(x: float, z: float) -> float:
-		return maxf(height.call(hgt.call(x, z)), 0.0)
+		return maxf(height.call(hgt.call(x, z)), -City.SINK)
 
 	## A road's height: on the land, or up on a bridge deck over (and ramping off) the water.
 	func road(x: float, z: float) -> float:
 		var h: float = hgt.call(x, z)
-		return maxf(maxf(height.call(h), 0.0), 0.55 * (1.0 - smoothstep(-0.03, 0.12, h)))
+		return maxf(maxf(height.call(h), -City.SINK), 0.55 * (1.0 - smoothstep(-0.03, 0.12, h)) - City.SINK)
 
 	## Owns what is centred at world p: each chunk builds only its own, so nothing is doubled.
 	func owns(p: Vector3) -> bool:
@@ -309,8 +330,10 @@ static func bridge_bits(c: Ctx, along_v: bool, c0: float, s: float, hw: float, y
 		var sz := Vector3(0.12, 0.3, 2.02) if along_v else Vector3(2.02, 0.3, 0.12)
 		c.b.box(p, sz, Color8(0xd8, 0xdc, 0xe2))
 	if posmod(s + 1.0, 4.0) < 2.0:
-		var p := Vector3(c0, (y - 0.5) * 0.5, s) if along_v else Vector3(s, (y - 0.5) * 0.5, c0)
-		var sz := Vector3(hw * 1.6, y + 0.5, 0.5) if along_v else Vector3(0.5, y + 0.5, hw * 1.6)
+		# a pier down to the canal's bed, under the sunken streets
+		var bed := -0.5 - SINK
+		var p := Vector3(c0, (y + bed) * 0.5, s) if along_v else Vector3(s, (y + bed) * 0.5, c0)
+		var sz := Vector3(hw * 1.6, y - bed, 0.5) if along_v else Vector3(0.5, y - bed, hw * 1.6)
 		c.b.box(p, sz, CONCRETE.darkened(0.15))
 
 
@@ -397,14 +420,14 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 	var i1 := u1 - 0.5
 	var j0 := v0 + 0.5
 	var j1 := v1 - 0.5
-	# districts: a downtown of tall towers here and there, lower streets elsewhere
-	var tall := Models.hash2(floorf(k / 2.0) * 1.3 + 0.2, floorf(m / 2.0) * 2.7 + 0.1)
+	# the skyline: towers climb to each stretch's downtown, lower streets round it
+	var tall := skyline((u0 + u1) * 0.5, (v0 + v1) * 0.5)
 	var sd := Models.hash2(k * 1.7 + 4.0, m * 5.3 + 1.0)
 	if sd < 0.22:
 		# a courtyard block: four wings round a green court with a tree
 		var d := 2.6
 		var col: Color = (BRICKS + PASTELS)[int(sd * 97.0) % (BRICKS.size() + PASTELS.size())]
-		var hh := 0.7 + tall * 0.5
+		var hh := 0.7 + tall * 1.1
 		building(c, (i0 + i1) * 0.5, j1 - d * 0.5, i1 - i0, d, hh, sd, 2, col)
 		building(c, (i0 + i1) * 0.5, j0 + d * 0.5, i1 - i0, d, hh, sd * 1.3, 2, col)
 		building(c, i0 + d * 0.5, (j0 + j1) * 0.5, d, j1 - j0 - 2.0 * d - 0.2, hh * 0.9, sd * 1.7, 2, col)
@@ -444,10 +467,10 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 				ruin(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, r)
 				continue
 			var style := int(r * 41.0) % 4
-			var h := 0.35 + r * 0.5
+			var h := 0.35 + r * 0.5 + tall * 0.9
 			if style < 2:
-				h = 0.7 + tall * 0.9 + r * 0.5   # towers rise higher downtown
-			building(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, minf(h, 2.05), r, style, Color(0, 0, 0, 0))
+				h = 0.8 + tall * (3.4 + r * 1.4) + r * 0.4   # towers rise higher downtown
+			building(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, h, r, style, Color(0, 0, 0, 0))
 
 
 ## One building on a lot w x d (metres) centred on (u, v), `h` tall (before PROP_V), in a style:

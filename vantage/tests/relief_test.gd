@@ -274,10 +274,13 @@ func city(g: Game) -> void:
 	var out := 0
 	var sat := 0.0
 	var fires := 0
+	var top := -INF
 	for k in 10:
 		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 		fires += City.fires.size()
 		for s in m.get_surface_count():
+			for v: Vector3 in m.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
+				top = maxf(top, v.y)
 			for c: Color in m.surface_get_arrays(s)[Mesh.ARRAY_COLOR]:
 				n += 1
 				var l := c.get_luminance()
@@ -287,6 +290,18 @@ func city(g: Game) -> void:
 	check(n > 0 and out < n * 0.03, "city: its colours stay in a calm mid band (%d of %d outside)" % [out, n])
 	check(sat / n < 0.12, "city: muted colours (saturation %.2f)" % (sat / n))
 	check(fires > 0 and fires <= 80, "city: a few fires, not everywhere (%d in 10 chunks)" % fires)
+	# Guillaume (2026-11-26): "the city world is very flat... it doesn't go as high as a city should".
+	# Its streets lie deep, so its towers rise far from them, and still under the ship
+	var street := g.ground_y(3.0, -30.0)
+	check(street < -City.SINK + 1.0, "city: the streets lie deep (%.1f m)" % street)
+	check(top - street > 9.0 and top < Rules.PY - 0.5, "city: towers rise %.1f m over the streets, under the ship (top %.1f)" % [top - street, top])
+	var peak := 0.0
+	var low := 1.0
+	for i in 40:
+		var t := City.skyline(0.0, -i * 6.0)
+		peak = maxf(peak, t)
+		low = minf(low, t)
+	check(peak > 0.8 and low < 0.2, "city: the skyline climbs to a downtown and falls away (%.2f..%.2f)" % [low, peak])
 
 
 ## Baked shadows (Guillaume, 2026-11-24: "bake shadows... even for moving objects"): the land

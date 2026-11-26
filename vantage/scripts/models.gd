@@ -1380,6 +1380,11 @@ const THEMES := {
 
 ## How far the theme raises the land out of the water (the coast keeps its sea; the dunes are
 ## nearly all land, with the odd dry wash).
+## The level of the plain: the city's streets lie City.SINK below the other worlds'.
+static func floor_y() -> float:
+	return -City.SINK if theme == "city" else 0.0
+
+
 static func lift() -> float:
 	return float(THEMES[theme].get("lift", 0.0))
 
@@ -1488,6 +1493,8 @@ const CITY_MORE := 24.0
 
 
 static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: float, flank := 0.0) -> Mesh:
+	# the water line sits at the theme's own plain (the city's canals are sunk with its streets)
+	ground_mat().set_shader_parameter("sea_y", SEA_Y + floor_y())
 	var b := Builder.new()
 	b.bottoms = false
 	var xs := ground_cols(size.x, cell, flank)
@@ -1497,7 +1504,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 	var hgt := func(x: float, z: float) -> float:
 		return noise.get_noise_2d(x, z) + 0.35 * sin(x * 0.05 + z * 0.01) + lift()
 	var height := func(h: float) -> float:
-		return -0.4 if h < 0.0 else minf(h, 0.8) * 1.6
+		return (-0.4 if h < 0.0 else minf(h, 0.8) * 1.6) + floor_y()
 	# the city keeps its flat ground (its roads are laid on it); elsewhere the land has its set
 	# pieces (Relief): canyons, cliffs, craters...
 	var shaped := theme != "city"
@@ -1591,7 +1598,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 				if steep > 0.0:
 					# the rock itself is laid by the ground shader (`rock_c`), with a crisp edge
 					c.a = 1.0 - steep
-				if y < -0.6:
+				if y - floor_y() < -0.6:
 					c = Color(c.darkened(clampf(-y * 0.03, 0.0, 0.3)), c.a)
 			cr.append(c)
 			# baked sun shadows: cliffs, canyon walls, crater rims and mesas shade the land beside
