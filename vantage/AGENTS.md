@@ -302,6 +302,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   Towers cast soft shadows across the streets: `City.shade_streets` darkens each street, plaza and park vertex
   whose ray toward the sun runs into a building under its roof (`cast_at`, buildings bucketed by block,
   neighbouring chunks' edge blocks worked out "dry" without drawing). ~8 ms a chunk on desktop.
+  A few windows are lit and some towers and shops carry a neon sign (Guillaume, 2026-11-26), listed in `City.glows`
+  and drawn unshaded in the fx mesh's third surface (`glow_mat`, neon hums), so `City.calm` doesn't grey them.
+  Keep them dim and sparse (`LIT`, `NEON`), and never magenta or blue like the shots (tested).
 - The city is at war (Guillaume: "grey, dark and on fire"): an ash and soot palette, a smoky sky, and magenta
   enemy shots that stand apart from the flames. About 30% of buildings burn (orange windows, roof fires).
   There are also ruins (`City.ruin`), road craters, burnt-out wrecks, tank traps, dead trees and rubble.

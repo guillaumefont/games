@@ -58,6 +58,17 @@ const SHOPS := [Color8(0x8a, 0x3a, 0x34), Color8(0x3a, 0x52, 0x70), Color8(0x8e,
 
 ## The flames and smoke of the chunk last built: {"p": base (world), "s": size, "smoke": bool}.
 static var fires: Array = []
+## The lit windows and neon signs of the chunk last built, drawn unshaded (so the city's calming
+## leaves their warmth) in `fx_mesh`: [[4 corners (world)], colour, neon (pulses)].
+static var glows: Array = []
+## Lit windows (Guillaume, 2026-11-26: a few dim lit windows and neon signs against the grey): a
+## dim warm light, and the odd neon in colours that stay apart from the foes' magenta shots and
+## the player's blue ones. Dim and sparse: they're accents, the foes stay the brightest things.
+const LAMP := Color8(0xe0, 0xae, 0x6a)
+const NEONS := [Color8(0xd0, 0x8a, 0x3c), Color8(0x6c, 0xb0, 0x78), Color8(0xc0, 0x58, 0x44), Color8(0xb8, 0xb0, 0x70)]
+## The share of a calm building's windows lit, and of buildings with a neon sign.
+const LIT := 0.16
+const NEON := 0.22
 ## The highest point smoke may reach (world), so it never hides the shots at the flight altitude.
 const SMOKE_TOP := 5.3
 
@@ -206,6 +217,7 @@ static func build(b: Models.Builder, z0: float, size: Vector2, hgt: Callable, he
 	var c := Ctx.new()
 	c.b = b
 	fires.clear()
+	glows.clear()
 	b.bevels = false   # only the buildings' own walls get the bevelled edge
 	c.hgt = hgt
 	c.height = height
@@ -652,10 +664,28 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 				b.quad(Vector3(x - sw * 0.38, 0.03, d * 0.5 + 0.01), Vector3(x + sw * 0.38, 0.03, d * 0.5 + 0.01),
 					Vector3(x + sw * 0.38, 0.18, d * 0.5 + 0.01), Vector3(x - sw * 0.38, 0.18, d * 0.5 + 0.01), glow, Vector3(0, 0, 1))
 				b.box(Vector3(x, hh + 0.05, d * 0.5 - 0.06), Vector3(sw * 0.6, 0.1, 0.06), aw.lightened(0.3))   # the sign
+				if not c.burning and q > 1.0 - NEON * 2.0:
+					var nc: Color = NEONS[int(q * 53.0) % NEONS.size()]
+					glow(c, Vector3(x - sw * 0.26, hh + 0.02, d * 0.5 - 0.025), Vector3(x + sw * 0.26, hh + 0.02, d * 0.5 - 0.025),
+						Vector3(x + sw * 0.26, hh + 0.08, d * 0.5 - 0.025), Vector3(x - sw * 0.26, hh + 0.08, d * 0.5 - 0.025), nc, true)
 				if q < 0.3:
 					b.box(Vector3(x, hh + 0.04, -d * 0.15), Vector3(0.4, 0.08, 0.3), Color8(0xc4, 0xc8, 0xce))   # an AC unit
 				top = maxf(top, hh)
 	b.bevels = false
+	if style < 2 and not c.burning and Models.hash2(u * 0.61 + 3.0, v * 0.47 + r) < NEON:
+		# a tall neon sign down the tower's front corner
+		var fx := w * (0.45 if style == 1 else 0.5) - 0.18
+		var fz := d * (0.45 if style == 1 else 0.5) + 0.03
+		var nc: Color = NEONS[int(r * 61.0) % NEONS.size()]
+		var y1 := minf(top - 0.25, 0.4 + 1.6 * Models.hash2(r, u))
+		if y1 > 0.7:
+			glow(c, Vector3(fx - 0.07, 0.3, fz), Vector3(fx + 0.07, 0.3, fz), Vector3(fx + 0.07, y1, fz), Vector3(fx - 0.07, y1, fz), nc, true)
+		# and a sign on the roof, leaning back to face the sky (seen from above, unlike a wall)
+		if c.cap - top > 0.3:
+			var sw := minf(w, d) * 0.3
+			var z0 := d * 0.2
+			var y0 := top + 0.05
+			glow(c, Vector3(-sw, y0, z0), Vector3(sw, y0, z0), Vector3(sw, y0 + 0.14, z0 - 0.3), Vector3(-sw, y0 + 0.14, z0 - 0.3), nc, true)
 	b.xf = Transform3D.IDENTITY
 	if c.burning:
 		# flames on the roof, as big as fits under the ship; soot streaks the roof round them
@@ -672,11 +702,21 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 static func bands(c: Ctx, w: float, d: float, y0: float, y1: float, step: float, col: Color) -> void:
 	var b := c.b
 	var y := y0
+	var o := b.xf.origin
 	while y + 0.06 < y1:
 		var a := y
 		var e := y + 0.06
 		b.quad(Vector3(-w * 0.46, a, d * 0.5 + 0.01), Vector3(w * 0.46, a, d * 0.5 + 0.01), Vector3(w * 0.46, e, d * 0.5 + 0.01),
 			Vector3(-w * 0.46, e, d * 0.5 + 0.01), col, Vector3(0, 0, 1))
+		if not c.burning:
+			# a few lit offices along the front
+			var n := maxi(1, int(w / 0.5))
+			for i in n:
+				if Models.hash2(o.x * 1.3 + i * 0.71, o.z * 0.9 + y * 3.1) < LIT:
+					var x0 := -w * 0.46 + w * 0.92 * i / n
+					var x1 := x0 + w * 0.92 / n * 0.85
+					glow(c, Vector3(x0, a, d * 0.5 + 0.015), Vector3(x1, a, d * 0.5 + 0.015), Vector3(x1, e, d * 0.5 + 0.015),
+						Vector3(x0, e, d * 0.5 + 0.015), LAMP.darkened(Models.hash2(i, y) * 0.25))
 		for sx in [-1.0, 1.0]:
 			b.quad(Vector3(sx * (w * 0.5 + 0.01), a, -d * 0.46), Vector3(sx * (w * 0.5 + 0.01), a, d * 0.46),
 				Vector3(sx * (w * 0.5 + 0.01), e, d * 0.46), Vector3(sx * (w * 0.5 + 0.01), e, -d * 0.46), col, Vector3(sx, 0, 0))
@@ -694,6 +734,9 @@ static func grid(c: Ctx, w: float, d: float, y0: float, y1: float, r: float) -> 
 			b.quad(Vector3(x - 0.13, y, d * 0.5 + 0.01), Vector3(x + 0.13, y, d * 0.5 + 0.01), Vector3(x + 0.13, y + 0.08, d * 0.5 + 0.01),
 				Vector3(x - 0.13, y + 0.08, d * 0.5 + 0.01), Color8(0x22, 0x26, 0x2c) if Models.hash2(x + r, y) > (0.6 if c.burning else 0.08) else BLAZE,
 				Vector3(0, 0, 1))
+			if not c.burning and Models.hash2(x * 1.7 + r, y * 2.3) < LIT:
+				glow(c, Vector3(x - 0.12, y + 0.01, d * 0.5 + 0.015), Vector3(x + 0.12, y + 0.01, d * 0.5 + 0.015),
+					Vector3(x + 0.12, y + 0.07, d * 0.5 + 0.015), Vector3(x - 0.12, y + 0.07, d * 0.5 + 0.015), LAMP)
 		y += 0.22
 
 
@@ -1009,8 +1052,14 @@ static func ruin(c: Ctx, u: float, v: float, w: float, d: float, r: float) -> vo
 
 ## The fire and smoke of the chunk just built (`fires`), in one mesh: a surface of flickering
 ## flame tongues and one of smoke puffs that billow up and drift off. Null when nothing burns.
+## A glowing quad (corners in the builder's current frame), for fx_mesh.
+static func glow(c: Ctx, a: Vector3, b: Vector3, cc: Vector3, d: Vector3, col: Color, neon := false) -> void:
+	var xf := c.b.xf
+	glows.append([[xf * a, xf * b, xf * cc, xf * d], col, neon])
+
+
 static func fx_mesh() -> ArrayMesh:
-	if fires.is_empty():
+	if fires.is_empty() and glows.is_empty():
 		return null
 	var mesh := ArrayMesh.new()
 	var fv := PackedVector3Array()
@@ -1071,7 +1120,19 @@ static func fx_mesh() -> ArrayMesh:
 						sc.append(col)
 						su.append(Vector2(p.x, p.z))
 						su2.append(Vector2(p.y, ph))
-	for e: Array in [[fv, null, fc, fu, fu2, fire_mat()], [sv, sn, sc, su, su2, smoke_mat()]]:
+	var gv := PackedVector3Array()
+	var gc := PackedColorArray()
+	var gu := PackedVector2Array()
+	var gu2 := PackedVector2Array()
+	for g: Array in glows:
+		var q: Array = g[0]
+		var ph := Models.hash2(q[0].x, q[0].z)
+		for k: int in [0, 1, 2, 0, 2, 3]:
+			gv.append(q[k])
+			gc.append(g[1])
+			gu.append(Vector2(1.0 if g[2] else 0.0, ph))
+			gu2.append(Vector2.ZERO)
+	for e: Array in [[fv, null, fc, fu, fu2, fire_mat()], [sv, sn, sc, su, su2, smoke_mat()], [gv, null, gc, gu, gu2, glow_mat()]]:
 		if (e[0] as PackedVector3Array).is_empty():
 			continue
 		var arr := []
@@ -1088,6 +1149,25 @@ static func fx_mesh() -> ArrayMesh:
 
 
 static var _fire_mat: ShaderMaterial
+static var _glow_mat: ShaderMaterial
+
+
+## Lit windows and neon: unshaded; a neon (UV.x 1) hums, now and then a slow flicker.
+static func glow_mat() -> ShaderMaterial:
+	if _glow_mat == null:
+		var sh := Shader.new()
+		sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled;
+void fragment() {
+	float ph = UV.y * 6.283;
+	float hum = 1.0 - UV.x * (0.12 + 0.12 * sin(TIME * 1.7 + ph)) * step(0.0, sin(TIME * 0.4 + ph * 3.0));
+	ALBEDO = pow(COLOR.rgb, vec3(2.2)) * hum;
+}
+"""
+		_glow_mat = ShaderMaterial.new()
+		_glow_mat.shader = sh
+	return _glow_mat
 static var _smoke_mat: ShaderMaterial
 
 
