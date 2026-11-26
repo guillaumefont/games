@@ -33,11 +33,13 @@ const SINK := 5.0
 ## (SKY_R m across) that falls away to low streets round it.
 const SKY_SEG := 96.0
 const SKY_R := 34.0
-## Midtown: the share of blocks left low, and how high the others' towers climb (see `midtown`).
-const MIDTOWN_LOW := 0.25
-const MIDTOWN_LO := 0.3
-const MIDTOWN_HI := 0.65
-## The share of mid-rise and shop lots turned into towers.
+## Midtown (Guillaume, 2026-11-26: "I want 80% of blocks to be high towers"): the share of blocks
+## left low (parks, plazas, courtyards, low streets), and how high the others' towers climb, near
+## downtown's (see `midtown`). A tower block is all towers, bar the odd square, car park or ruin.
+const MIDTOWN_LOW := 0.2
+const MIDTOWN_LO := 0.8
+const MIDTOWN_HI := 1.0
+## The share of mid-rise and shop lots turned into towers on the low blocks.
 const TOWER_MORE := 0.35
 ## The expressway deck's height (world), above the highest ground and under the flight altitude.
 const HWY_Y := 1.9 - SINK
@@ -519,6 +521,8 @@ static func block(c: Ctx, k: int, m: int) -> void:
 				tree(c, tu, tv, c.ground(w.x, w.z), 0.9, tu)
 		return
 	var hb := Models.hash2(k * 7.31 + 0.5, m * 3.17 + 0.5)
+	if midtown(k, m) > 0.0:
+		hb = 1.0   # a tower block: no park, plaza or stadium
 	var dry := true
 	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
 		var w := to_world(q.x, q.y)
@@ -547,8 +551,9 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 	# and midtown (Guillaume, 2026-11-26: "I want more tall buildings in the city"): away from the
 	# downtowns most blocks still hold a few high towers, so the whole city stands tall, not just its peaks
 	var rise := maxf(tall, midtown(k, m))
+	var towers := midtown(k, m) > 0.0
 	var sd := Models.hash2(k * 1.7 + 4.0, m * 5.3 + 1.0)
-	if sd < 0.14:
+	if sd < 0.14 and not towers:
 		# a courtyard block: four wings round a green court with a tree
 		var d := 2.6
 		var col: Color = (BRICKS + PASTELS)[int(sd * 97.0) % (BRICKS.size() + PASTELS.size())]
@@ -592,7 +597,7 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 				ruin(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, r)
 				continue
 			var style := int(r * 41.0) % 4
-			if style >= 2 and Models.hash2(r * 23.0, k * 0.7 + m * 1.3) < TOWER_MORE:
+			if style >= 2 and (towers or Models.hash2(r * 23.0, k * 0.7 + m * 1.3) < TOWER_MORE):
 				style = int(r * 7.0) % 2   # more of the lots are towers
 			var h := 0.35 + r * 0.5 + rise * 0.9
 			if style < 2:
