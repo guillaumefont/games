@@ -72,6 +72,24 @@ const PALETTE := {
 	},
 }
 
+# ---------------------------------------------------------------- golden hour
+# Settings "Golden hour": per world, the low sun's colour, the violet sky light the shadows
+# lean to (and how far), and the colour grade's shade and glint. Lighting only: no new
+# meshes or shaders, so it costs nothing on a phone.
+const GOLDEN := {
+	"snow": { "sun": Color("#ffb878"), "energy": 1.0, "ambient": Color("#8a78c0"), "ambient_mix": 0.45,
+		"shade": Color("#4a2a6a"), "glint": Color("#ffd8a0") },
+	"forest": { "sun": Color("#ffd29c"), "energy": 1.18, "ambient": Color("#a0acd8"), "ambient_mix": 0.2,
+		"shade": Color("#3e3c6a"), "glint": Color("#ffe6b4") },
+	"sand": { "sun": Color("#ffaa72"), "energy": 1.0, "ambient": Color("#a07ab8"), "ambient_mix": 0.4,
+		"shade": Color("#5a2a58"), "glint": Color("#ffd496") },
+	"rock": { "sun": Color("#ffc494"), "energy": 1.25, "ambient": Color("#a096d0"), "ambient_mix": 0.25,
+		"shade": Color("#4c4278"), "glint": Color("#ffdcae") },
+}
+
+static func golden(th: Dictionary) -> Dictionary:
+	return GOLDEN.get(String(th.get("props", "snow")), GOLDEN["snow"])
+
 static func restyle(name: String, th: Dictionary) -> Dictionary:
 	if not PALETTE.has(name):
 		return th

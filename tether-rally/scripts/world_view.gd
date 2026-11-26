@@ -11,6 +11,8 @@ const Premium = preload("res://scripts/premium.gd")
 # "Premium low-poly" look (scripts/premium.gd): curated palettes, gradient-shaded props,
 # soft rim light, swaying trees, sparkling snow. On by default on this preview branch.
 static var premium := true
+# Settings "Golden hour": a low orange sun, long shadows and violet shade (Premium.GOLDEN)
+var golden := false
 
 const U := 0.01
 # Model detail. 1 = the game (light enough for phones). 2 = artwork renders
@@ -97,6 +99,8 @@ const AMBIENT_ENERGY_COMPAT := 0.62
 const GRADE_SAT_COMPAT := 1.05
 const GRADE_SHADE := 0.10   # how much the shadows lean to the world's "shade" colour
 const GRADE_GLINT := 0.6    # how much the highlights lean to its "glint" colour
+const GOLDEN_SUN_PITCH := -19.0   # golden hour: the sun low over the horizon
+const GOLDEN_SUN_YAW := -55.0
 
 func _ready() -> void:
 	if "--look=classic" in OS.get_cmdline_user_args():
@@ -254,7 +258,30 @@ func _apply_light() -> void:
 	# by the ambient alone (their winding), so its brightness is tuned with them in mind
 	env.ambient_light_color = amb.lerp(sky, SKY_TINT)
 	light.light_color = th["sun"]
-	grade_tex.gradient = grade_curve(th.get("shade", Color(0.2, 0.25, 0.35)), th.get("glint", Color(1, 0.95, 0.88)))
+	var shade: Color = th.get("shade", Color(0.2, 0.25, 0.35))
+	var glint: Color = th.get("glint", Color(1, 0.95, 0.88))
+	var pitch := PREMIUM_SUN_PITCH if premium else SUN_PITCH
+	var yaw := SUN_YAW
+	var energy := SUN_ENERGY
+	var g: Dictionary = Premium.golden(th) if golden else {}
+	if not g.is_empty():
+		# golden hour: same scene, the light of a late afternoon
+		env.ambient_light_color = env.ambient_light_color.lerp(g["ambient"], g["ambient_mix"])
+		light.light_color = g["sun"]
+		energy *= g["energy"]
+		shade = g["shade"]
+		glint = g["glint"]
+		pitch = GOLDEN_SUN_PITCH
+		yaw = GOLDEN_SUN_YAW
+	light.light_energy = energy
+	light.rotation = Vector3(deg_to_rad(pitch), deg_to_rad(yaw), 0)
+	grade_tex.gradient = grade_curve(shade, glint)
+
+# Settings "Golden hour" switched: relight the current world (no rebuild, no new shaders)
+func set_golden(on: bool) -> void:
+	golden = on
+	if not th.is_empty():
+		_apply_light()
 
 # The colour grade as a per-channel curve (the Environment's colour correction reads each of
 # red, green and blue through it): the darks lean towards `shade`, the highlights towards
@@ -1686,6 +1713,8 @@ func set_quality(q: int) -> void:
 	var sh := shadow_setup(quality)
 	light.shadow_enabled = sh["on"]
 	env.glow_enabled = quality > 0
+	if clouds != null and is_instance_valid(clouds):
+		clouds.visible = quality > 0
 	var vp := get_viewport()
 	vp.scaling_3d_scale = [0.7, 0.85, 1.0][quality]
 	vp.msaa_3d = Viewport.MSAA_DISABLED if quality == 0 else Viewport.MSAA_2X
@@ -2109,7 +2138,61 @@ func _build_gems() -> void:
 		dyn_root.add_child(mi)
 		gem_nodes.append(mi)
 
+# Soft cloud shadows drifting over the land (Medium and High). One big plane a few metres up,
+# multiplied over what is under it; each pixel looks the cloud up where its view ray meets
+# the ground, so the shadows stay put on the land as the camera moves. It fades out when the
+# camera drops near it (the low cinematic shots). One draw call and no triangles to speak of.
+const CLOUD_Y := 6.0          # metres up: above the tallest tree
+const CLOUD_SHADE := 0.24     # how dark a cloud's middle gets (faint: the scene stays bright)
+var clouds: MeshInstance3D
+func _build_clouds() -> void:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, blend_mul, cull_disabled, depth_draw_never, depth_test_disabled, shadows_disabled, fog_disabled;
+uniform vec3 shade : source_color;
+uniform float amount = 0.24;
+uniform float plane_y = 6.0;
+varying vec3 wp;
+void vertex() { wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+void fragment() {
+	vec3 cam = CAMERA_POSITION_WORLD;
+	float fade = smoothstep(plane_y + 2.0, plane_y + 7.0, cam.y);
+	// where this pixel's view ray meets the ground (height 0)
+	vec2 g = cam.xz + (wp.xz - cam.xz) * (cam.y / max(cam.y - wp.y, 0.01));
+	vec2 p = g * 0.04 + TIME * vec2(0.012, 0.006);
+	float n = vnoise(p) * 0.62 + vnoise(p * 2.3 + 7.1) * 0.38;
+	float c = smoothstep(0.5, 0.7, n) * amount * fade;
+	ALBEDO = mix(vec3(1.0), shade, c);
+}
+"""
+	var sm := ShaderMaterial.new()
+	sm.shader = sh
+	sm.set_shader_parameter("shade", cloud_tint(th.get("shade", Color(0.2, 0.25, 0.35))))
+	sm.set_shader_parameter("amount", CLOUD_SHADE)
+	sm.set_shader_parameter("plane_y", CLOUD_Y)
+	var r := track.bounds.grow(1600.0)
+	var pm := PlaneMesh.new()
+	pm.size = r.size * U
+	clouds = MeshInstance3D.new()
+	clouds.mesh = pm
+	clouds.material_override = sm
+	clouds.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	clouds.position = Vector3(r.get_center().x * U, CLOUD_Y, r.get_center().y * U)
+	clouds.visible = quality > 0
+	dyn_root.add_child(clouds)
+
+# a cloud's shadow: the world's shade colour, lifted a lot (a soft cool dimming, not a stain)
+static func cloud_tint(shade: Color) -> Color:
+	return shade.lerp(Color.WHITE, 0.35)
+
 func _build_fx() -> void:
+	_build_clouds()
 	# sparks: a small pool of plain boxes with one shared unshaded material per colour
 	# (no per-instance colours, which some mobile GPUs rendered as a stray green cube)
 	spark_pool.clear()

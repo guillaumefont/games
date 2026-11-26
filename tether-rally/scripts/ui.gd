@@ -688,7 +688,7 @@ func _make_options() -> Dictionary:
 	box.add_child(q)
 	o["quality"] = q
 	var grid := _grid(2)
-	for t in [["ghost", "GHOST", "ghost"], ["haptics", "VIBRATION", "vibrate"]]:
+	for t in [["ghost", "GHOST", "ghost"], ["haptics", "VIBRATION", "vibrate"], ["golden", "GOLDEN HOUR", "sunset"]]:
 		var b := icon_button(t[2], t[1], "card", false, 50)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
