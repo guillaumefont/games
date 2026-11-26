@@ -643,6 +643,11 @@ const LANDMARKS := ["lighthouse", "house", "boat", "pyramid", "duck", "water tow
 ## a seaplane a minigun, a lighthouse a turret. It's a foe then, and pays HACK_PAY times its due.
 const CIVILIANS := ["gull", "paramotor", "heli", "blimp", "balloon", "boat", "house", "lighthouse"]
 const HACK_PAY := 2.0
+## A real flying civilian's hit points, whatever the world (Guillaume, 2026-11-26: "they die very
+## quickly, and we cannot see the animation... make him more durable"). About a second of the twin
+## gun, half that at full power, so its hit flashes and its getaway (`Blasts.escape`) are seen.
+## A hacked one keeps its foe's due (`FOES`).
+const CIVILIAN_HP := 18.0
 ## Chance a lighthouse is hacked (a seaplane's: `Foes.HACK_P`).
 const HACK_LIGHTHOUSE := 0.4
 
