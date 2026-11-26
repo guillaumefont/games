@@ -523,6 +523,8 @@ static func block(c: Ctx, k: int, m: int) -> void:
 	var hb := Models.hash2(k * 7.31 + 0.5, m * 3.17 + 0.5)
 	if midtown(k, m) > 0.0:
 		hb = 1.0   # a tower block: no park, plaza or stadium
+	else:
+		hb *= 0.4   # the low blocks hold the city's parks, plazas and stadiums
 	var dry := true
 	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
 		var w := to_world(q.x, q.y)
