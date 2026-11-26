@@ -299,6 +299,9 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   course has a downtown peak that falls away to low streets. City gun towers stand on a building that rises
   from the streets (`Towers.FOOT`); the city's moving shadows fall at `Game.CITY_SHADOW_Y`, between roofs and
   streets. Tested in `relief_test.gd`.
+  Towers cast soft shadows across the streets: `City.shade_streets` darkens each street, plaza and park vertex
+  whose ray toward the sun runs into a building under its roof (`cast_at`, buildings bucketed by block,
+  neighbouring chunks' edge blocks worked out "dry" without drawing). ~8 ms a chunk on desktop.
 - The city is at war (Guillaume: "grey, dark and on fire"): an ash and soot palette, a smoky sky, and magenta
   enemy shots that stand apart from the flames. About 30% of buildings burn (orange windows, roof fires).
   There are also ruins (`City.ruin`), road craters, burnt-out wrecks, tank traps, dead trees and rubble.

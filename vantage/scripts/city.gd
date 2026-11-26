@@ -126,6 +126,12 @@ class Ctx:
 	var cap := 9.0
 	## The building being built is on fire (its windows glow).
 	var burning := false
+	## Only working out where the buildings stand (a neighbouring chunk's, for their shadows).
+	var dry := false
+	## The block being built, and the buildings that cast shadows, by block:
+	## Vector2i(k, m) -> [[u0, u1, v0, v1, top (world)], ...].
+	var km := Vector2i.ZERO
+	var casters := {}
 	var gv := []
 	var gn := []
 	var gc := []
@@ -163,6 +169,8 @@ class Ctx:
 
 	## A rectangle u0..u1 x v0..v1 draped on the ground in tiles of about `tile` metres.
 	func pad(u0: float, u1: float, v0: float, v1: float, up: float, col: Color, tile := 2.5, col2 := Color(0, 0, 0, 0)) -> void:
+		if dry:
+			return
 		var nu := maxi(1, ceili((u1 - u0) / tile))
 		var nv := maxi(1, ceili((v1 - v0) / tile))
 		for i in nu:
@@ -220,9 +228,91 @@ static func build(b: Models.Builder, z0: float, size: Vector2, hgt: Callable, he
 	for k in range(floori(lo.x / AVE) - 1, ceili(hi.x / AVE) + 1):
 		for m in range(floori(lo.y / STR) - 1, ceili(hi.y / STR) + 1):
 			block(c, k, m)
+	# the neighbouring chunks' buildings near the edges cast shadows over this one's streets too
+	c.dry = true
+	for k in range(floori(lo.x / AVE) - 1, ceili(hi.x / AVE) + 1):
+		for m in range(floori(lo.y / STR) - 2, ceili(hi.y / STR) + 2):
+			var mid := to_world((k + 0.5) * AVE, (m + 0.5) * STR)
+			if not c.owns(mid) and absf(mid.x) <= c.hw and mid.z < c.z0 + AVE + CAST_REACH and mid.z > c.z1 - AVE - CAST_REACH:
+				block(c, k, m)
+	c.dry = false
+	shade_streets(c)
 	b.xf = Transform3D.IDENTITY
 	b.bevels = true
 	return [c.gv, c.gn, c.gc]
+
+
+# ---------------------------------------------------------------- shadows
+
+## How far (m) a tower's shadow may reach across the streets, at most.
+const CAST_REACH := 9.0
+## How dark a street lies in a tower's full shadow, and over how much height the shadow's tip fades.
+const CAST_DARK := 0.8
+const CAST_SOFT := 1.1
+
+
+## Towers cast their shadows across the streets, plazas and parks (Guillaume, 2026-11-26): every
+## vertex of the city's ground surface that a building hides from the sun is darkened, blended
+## over each 2 m step like the land's baked shadows, so they stay soft.
+static func shade_streets(c: Ctx) -> void:
+	var slide := Models.sun_slide
+	var l := slide.length()
+	if l < 0.01 or c.casters.is_empty():
+		return
+	var dir := to_local(-slide.x / l, -slide.y / l)
+	var top := Rules.PY
+	var memo := {}
+	for i in c.gv.size():
+		var p: Vector3 = c.gv[i]
+		# road markings lie a hair over the road: one look serves every layer at a spot
+		var key := Vector2i(roundi(p.x * 8.0), roundi(p.z * 8.0))
+		var k: float = memo.get(key, -1.0)
+		if k < 0.0:
+			k = cast_at(c, to_local(p.x, p.z), p.y, dir, l, minf((top - p.y) * l, CAST_REACH))
+			memo[key] = k
+		if k > 0.0:
+			var col: Color = c.gc[i]
+			c.gc[i] = Color(col.r * (1.0 - CAST_DARK * k * 0.96), col.g * (1.0 - CAST_DARK * k * 0.98), col.b * (1.0 - CAST_DARK * k * 0.85), col.a)
+
+
+## How deep (0..1) the point at city coordinates o, height y, lies in a building's shadow: the ray
+## toward the sun (dir, rising 1/l a metre) runs into a building below its roof.
+static func cast_at(c: Ctx, o: Vector2, y: float, dir: Vector2, l: float, reach: float) -> float:
+	# the blocks the ray crosses: its two ends and its middle cover them (a block is 12 m or more)
+	var q1 := o + dir * reach
+	var a0 := Vector2i(floori(o.x / AVE), floori(o.y / STR))
+	var a1 := Vector2i(floori(q1.x / AVE), floori(q1.y / STR))
+	var cells: Array[Vector2i] = [a0]
+	if a1 != a0:
+		cells.append(a1)
+		for e: Vector2i in [Vector2i(a0.x, a1.y), Vector2i(a1.x, a0.y)]:
+			if e != a0 and e != a1:
+				cells.append(e)
+	var best := 0.0
+	for cell: Vector2i in cells:
+		for f: Array in c.casters.get(cell, []):
+			var t0 := 0.0
+			var t1 := reach
+			for a in 2:
+				var lo: float = f[a * 2]
+				var hi: float = f[a * 2 + 1]
+				var oo: float = o[a]
+				var dd: float = dir[a]
+				if absf(dd) < 1e-5:
+					if oo < lo or oo > hi:
+						t1 = -1.0
+					continue
+				var e0 := (lo - oo) / dd
+				var e1 := (hi - oo) / dd
+				t0 = maxf(t0, minf(e0, e1))
+				t1 = minf(t1, maxf(e0, e1))
+			if t1 < t0:
+				continue
+			# how far under the roof the ray passes where it enters
+			best = maxf(best, smoothstep(0.0, CAST_SOFT, float(f[4]) - (y + t0 / l)))
+			if best >= 1.0:
+				return 1.0
+	return best
 
 
 # ---------------------------------------------------------------- roads
@@ -387,9 +477,12 @@ static func block(c: Ctx, k: int, m: int) -> void:
 	var cu := (u0 + u1) * 0.5
 	var cv := (v0 + v1) * 0.5
 	var mid := to_world(cu, cv)
-	if not c.owns(mid):
+	if not c.dry and not c.owns(mid):
 		return
+	c.km = Vector2i(k, m)
 	if c.raw(mid.x, mid.z) < 0.03:
+		if c.dry:
+			return
 		# a canal runs through it: trees on its grassy banks
 		for i in 6:
 			var tu := lerpf(u0 + 1.0, u1 - 1.0, Models.hash2(k * 1.1 + i, m * 0.9))
@@ -403,6 +496,8 @@ static func block(c: Ctx, k: int, m: int) -> void:
 	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
 		var w := to_world(q.x, q.y)
 		dry = dry and c.raw(w.x, w.z) > 0.02
+	if c.dry and hb < 0.2 and (hb < 0.16 or dry):
+		return
 	if hb < 0.1:
 		park(c, u0, u1, v0, v1, hb * 10.0)
 	elif hb < 0.16:
@@ -476,15 +571,25 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 ## One building on a lot w x d (metres) centred on (u, v), `h` tall (before PROP_V), in a style:
 ## 0 a setback tower, 1 a glass tower, 2 a brick mid-rise, 3 a shop with an awning.
 static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r: float, style: int, col: Color) -> void:
-	Models.count("building")
 	var base := INF
 	for q: Vector2 in [Vector2(u - w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v + d * 0.5),
 			Vector2(u - w * 0.5, v + d * 0.5), Vector2(u, v)]:
 		var p := to_world(q.x, q.y)
 		base = minf(base, c.ground(p.x, p.z))
-	c.at(u, v, base)
+	if not c.dry:
+		c.at(u, v, base)
 	c.cap = (Rules.PY - 0.65 - base) / Models.PROP_V
 	h = minf(h, c.cap - 0.12)
+	# its shadow over the streets (shops are a low row: about their mean height)
+	var fw := w * (0.9 if style == 1 else 1.0)
+	var fd := d * (0.9 if style == 1 else 1.0)
+	var ft := base + (0.45 if style == 3 else h + (0.1 if style == 1 else 0.0)) * Models.PROP_V
+	if not c.casters.has(c.km):
+		c.casters[c.km] = []
+	c.casters[c.km].append([u - fw * 0.5, u + fw * 0.5, v - fd * 0.5, v + fd * 0.5, ft])
+	if c.dry:
+		return
+	Models.count("building")
 	# a few roofs burn: fire and smoke everywhere made the foes hard to see
 	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.08
 	var glow := BLAZE if c.burning else Models.GLASS
@@ -641,6 +746,8 @@ static func ac_units(c: Ctx, w: float, d: float, y: float, r: float) -> void:
 
 ## A round tree on a stubby trunk at (u, v), ground height y.
 static func tree(c: Ctx, u: float, v: float, y: float, s: float, r: float) -> void:
+	if c.dry:
+		return
 	Models.count("city tree")
 	c.at(u, v, y)
 	var col := Models.LEAF.darkened(0.4 + fmod(r, 1.0) * 0.2).lerp(Color8(0x4a, 0x44, 0x34), 0.35)
@@ -651,6 +758,8 @@ static func tree(c: Ctx, u: float, v: float, y: float, s: float, r: float) -> vo
 
 ## Parked cars in rows on a lot.
 static func car_park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
+	if c.dry:
+		return
 	Models.count("car park")
 	c.pad(u0, u1, v0, v1, 0.19, Models.ASPHALT.lightened(0.08), 2.0)
 	var n := int((u1 - u0) / 1.4)
@@ -854,6 +963,8 @@ static func hedgehog(c: Ctx, u: float, v: float, y: float, r: float) -> void:
 
 ## A bare, burnt tree.
 static func dead_tree(c: Ctx, u: float, v: float, y: float, r: float) -> void:
+	if c.dry:
+		return
 	Models.count("dead tree")
 	c.at(u, v, y)
 	var col := Color8(0x2e, 0x28, 0x24)
@@ -864,6 +975,8 @@ static func dead_tree(c: Ctx, u: float, v: float, y: float, r: float) -> void:
 
 ## A ruined building on a w x d lot at (u, v): broken walls, burnt floors and rubble, still burning.
 static func ruin(c: Ctx, u: float, v: float, w: float, d: float, r: float) -> void:
+	if c.dry:
+		return
 	Models.count("ruin")
 	var base := INF
 	for q: Vector2 in [Vector2(u - w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v - d * 0.5), Vector2(u + w * 0.5, v + d * 0.5),
