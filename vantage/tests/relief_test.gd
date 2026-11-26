@@ -275,9 +275,19 @@ func city(g: Game) -> void:
 	var sat := 0.0
 	var fires := 0
 	var top := -INF
+	var glows := 0
+	var neons := 0
+	var shots_like := 0
 	for k in 10:
 		var m := Models.ground_chunk(g.noise, -k * Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
 		fires += City.fires.size()
+		glows += City.glows.size()
+		for gl: Array in City.glows:
+			var gc: Color = gl[1]
+			neons += 1 if gl[2] else 0
+			# never the foes' magenta nor the player's blue
+			if (gc.r > 0.6 and gc.b > 0.5 and gc.g < 0.5) or (gc.b > gc.r + 0.15):
+				shots_like += 1
 		for s in m.get_surface_count():
 			for v: Vector3 in m.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
 				top = maxf(top, v.y)
@@ -290,6 +300,9 @@ func city(g: Game) -> void:
 	check(n > 0 and out < n * 0.03, "city: its colours stay in a calm mid band (%d of %d outside)" % [out, n])
 	check(sat / n < 0.12, "city: muted colours (saturation %.2f)" % (sat / n))
 	check(fires > 0 and fires <= 80, "city: a few fires, not everywhere (%d in 10 chunks)" % fires)
+	# Guillaume (2026-11-26): a few dim lit windows and neon signs, warm accents in the grey
+	check(glows > 200 and neons > 10 and neons < glows / 4, "city: lit windows (%d) and the odd neon sign (%d)" % [glows - neons, neons])
+	check(shots_like == 0, "city: no light looks like a shot (%d)" % shots_like)
 	# Guillaume (2026-11-26): "the city world is very flat... it doesn't go as high as a city should".
 	# Its streets lie deep, so its towers rise far from them, and still under the ship
 	var street := g.ground_y(3.0, -30.0)
