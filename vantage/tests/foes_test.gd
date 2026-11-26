@@ -430,6 +430,10 @@ func worlds() -> void:
 			check(f.kind == want and not f.hacked and g.civilian(f) and g.shy(f), "%s from the %s: a real %s" % [want, from, want])
 			check(not f.ground, "%s: a simple flying craft, nothing on the ground" % want)
 			check(not g.on_screen(f), "%s: comes in from off-screen" % want)
+			# Guillaume (2026-11-26): they died too quickly to see their getaway
+			var twin: Dictionary = Rules.cannon(0)
+			var dps: float = twin.shots.size() * float(twin.dmg) / float(twin.period)
+			check(f.hp >= Rules.CIVILIAN_HP and f.hp / dps > 0.8, "%s: takes about a second of the twin gun (%.0f hp, %.1f s)" % [want, f.hp, f.hp / dps])
 			f.hp = 1e6
 			var hp0 := g.hp
 			var x0 := f.pos.x

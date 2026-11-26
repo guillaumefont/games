@@ -70,6 +70,10 @@ static func spawn(g: Game, f: Game.Obj, s: float) -> void:
 	if f.kind == "heli":
 		Foes.add_part(g, f, "heli blades", Vector3(0, 0.66, 0.2))
 	f.hacked = g.stage_t > Foes.HACK_AFTER and g.rng.randf() < Foes.HACK_P
+	if not f.hacked:
+		# sturdy, so its getaway is seen instead of popping at the first volley
+		f.hp = Rules.CIVILIAN_HP
+		f.max_hp = Rules.CIVILIAN_HP
 
 
 static func think(g: Game, f: Game.Obj, dt: float) -> void:
