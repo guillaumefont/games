@@ -68,7 +68,7 @@ var save_path := Rules.SAVE_PATH
 var rng := RandomNumberGenerator.new()
 var s: Dictionary
 
-## hangar, vert, approach, pov, core, escape, down, clear, results
+## hangar, vert, approach, pov, core, escape, down, clear, results, credits
 var phase := "hangar"
 var phase_t := 0.0
 var stage_t := 0.0
@@ -619,6 +619,47 @@ func end_run(cleared: bool) -> void:
 	sound.music("sortie", true)
 
 
+# ---------------------------------------------------------------- the ending
+
+## The finale's victory flight after the last fortress breaks up (seconds), before the results.
+const FINALE_T := 7.0
+
+
+## The level being flown is the campaign's last (5-3): clearing it ends the game.
+func finale() -> bool:
+	return level == Campaign.count() - 1
+
+
+## A tap on the results: after the campaign's last level, the credits; otherwise the hangar.
+func after_results() -> void:
+	if run.get("cleared", false) and int(run.get("level", -1)) == Campaign.count() - 1:
+		start_credits()
+	else:
+		to_hangar()
+
+
+## The credits roll over the land flying by (the ending, or the hangar's Credits button).
+func start_credits() -> void:
+	clear_all()
+	phase = "credits"
+	phase_t = 0.0
+	time_k = 1.0
+	set_cam("top", 0.0)
+	hud.show_credits()
+	sound.music("sortie", false)
+
+
+func step_credits(dt: float) -> void:
+	frame_z -= Rules.SCROLL * dt
+	# low on the screen, under the names rolling up
+	prel = Vector2(sin(phase_t * 0.35) * 2.0, maxf(view_bot - 6.0, 4.0) + sin(phase_t * 0.6) * 0.6)
+	ppos = Vector3(prel.x, Rules.PY, frame_z + prel.y)
+	bank = -cos(phase_t * 0.35) * 0.25
+	hud.credits.roll(phase_t)
+	if hud.credits.done(phase_t):
+		to_hangar()
+
+
 func clear_all() -> void:
 	blasts.clear()
 	if husk:
@@ -749,6 +790,8 @@ func handle(event: InputEvent) -> void:
 		touching = event.pressed
 		last_touch = event.position
 		if event.pressed and phase == "results" and phase_t > 0.8:
+			after_results()
+		elif event.pressed and phase == "credits" and phase_t > Credits.SKIP_AFTER:
 			to_hangar()
 	elif event is InputEventMouseMotion and touching:
 		drag_by(event.position - last_touch)
@@ -788,7 +831,7 @@ func keys(dt: float) -> void:
 	if phase == "hangar" and Input.is_key_pressed(KEY_ENTER):
 		launch()
 	if phase == "results" and phase_t > 0.8 and (Input.is_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_SPACE)):
-		to_hangar()
+		after_results()
 
 
 func view_size() -> Vector2:
@@ -829,7 +872,7 @@ func step(dt: float) -> void:
 			# the final boss went down: fly on over the coast, then the results
 			ppos.z -= Rules.RAIL * dt
 			frame_z = ppos.z - 6.0
-			if phase_t > 3.0:
+			if phase_t > (FINALE_T if finale() else 3.0):
 				end_run(true)
 		"clear":
 			frame_z -= Rules.SCROLL * dt
@@ -839,6 +882,8 @@ func step(dt: float) -> void:
 				end_run(true)
 		"results":
 			frame_z -= 2.0 * dt
+		"credits":
+			step_credits(dt)
 	if phase in ["vert", "approach", "pov", "core", "escape", "clear"]:
 		update_objs(dt)
 	elif phase == "down":
@@ -2591,7 +2636,10 @@ func step_pov(dt: float) -> void:
 			phase = "clear"
 			phase_t = 0.0
 			run.score += 5000
-			say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
+			if finale():
+				say("VICTORY", "The last fortress is down  +5,000", FINALE_T)
+			else:
+				say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
 			return
 	else:
 		drone_t -= dt
