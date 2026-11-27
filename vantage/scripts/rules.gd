@@ -424,6 +424,8 @@ const RAIL := 18.0
 ## about 2 s; a big drop at once, then a gentle tail, see `Game.time_speed`); touching again brings it back up to full speed over `SLOW_RESUME` s.
 const SLOW_STOP := 2.0
 const SLOW_RESUME := 0.25
+## The first-run hint stays this many seconds (real time) after the first touch, fading out.
+const HINT_T := 3.5
 const APPROACH := 2.8
 const AIM_AHEAD := 32.0
 const AIM_DIP := 0.12
@@ -466,7 +468,7 @@ const UPGRADES := {
 
 
 static func fresh() -> Dictionary:
-	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
+	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0, "hinted": false,
 		"up": {"cannon": 0, "missile": 0, "hull": 0, "magnet": 0}}
 	Campaign.fresh_into(s)
 	return s
@@ -480,6 +482,8 @@ static func migrate(d: Variant) -> Dictionary:
 	for k in ["scrap", "best", "runs", "clears"]:
 		if d.has(k):
 			s[k] = maxi(0, int(d[k]))
+	# the first-run hint (`Game.hint_t`): a save from before it that has flown already knows the controls
+	s.hinted = bool(d.get("hinted", false)) or s.runs > 0 or s.clears > 0
 	if typeof(d.get("up")) == TYPE_DICTIONARY:
 		for k: String in ORDER:
 			s.up[k] = clampi(int(d.up.get(k, 0)), 0, UPGRADES[k].max)
@@ -821,17 +825,55 @@ static func grade(kills: int, total: int, hits: int, cleared: bool) -> String:
 	return "C"
 
 
-static func save_game(s: Dictionary, path := SAVE_PATH) -> void:
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(s))
+## Saves never write over the only good copy: the new save goes to a temp file first, the old
+## one is kept as a backup, and only then does the temp file take the save's name. If the app is
+## killed at any point, one of the three files still holds a whole save.
+static func save_game(s: Dictionary, path := SAVE_PATH) -> bool:
+	var tmp := path + ".tmp"
+	var bak := path + ".bak"
+	var text := JSON.stringify(s)
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		return false
+	var ok := f.store_string(text)
+	f.flush()
+	ok = ok and f.get_error() == OK
+	f.close()
+	if not ok or _read_save(tmp) == null:
+		DirAccess.remove_absolute(tmp)
+		return false
+	if FileAccess.file_exists(path) and _read_save(path) != null:
+		DirAccess.remove_absolute(bak)
+		DirAccess.rename_absolute(path, bak)
+	return DirAccess.rename_absolute(tmp, path) == OK
 
 
+## The save, or else a whole temp file left by a save that was cut short, or else the backup
+## when a save or temp file is there but broken. A save that was deleted on purpose (no save and
+## no temp file) is a fresh start: a save in progress always has one of the two on disk.
 static func load_game(path := SAVE_PATH) -> Dictionary:
+	for p: String in [path, path + ".tmp"]:
+		var d: Variant = _read_save(p)
+		if d != null:
+			return migrate(d)
+	if FileAccess.file_exists(path) or FileAccess.file_exists(path + ".tmp"):
+		var b: Variant = _read_save(path + ".bak")
+		if b != null:
+			return migrate(b)
+	return fresh()
+
+
+## A save file's contents, or null when it is missing, empty or not a whole save.
+static func _read_save(path: String) -> Variant:
 	if not FileAccess.file_exists(path):
-		return fresh()
+		return null
 	var f := FileAccess.open(path, FileAccess.READ)
-	return migrate(JSON.parse_string(f.get_as_text()) if f else null)
+	if f == null:
+		return null
+	var json := JSON.new()
+	if json.parse(f.get_as_text()) != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return null
+	return json.data
 
 
 static func fmt(n: int) -> String:

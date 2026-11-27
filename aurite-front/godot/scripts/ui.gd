@@ -1,6 +1,7 @@
 class_name UI
 extends Control
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
+const Squads := preload("res://scripts/squads.gd")
 ## All screen UI, built in code: HUD, side panel, overlays. Game logic lives in main.gd.
 
 const C_BG := Color("0b0f12")
@@ -80,9 +81,17 @@ var place_hint: Label
 var panel: PanelContainer
 var mini: Control
 var big_map: Control      # enlarged minimap floating over the view (MAP button)
-var prod_chips := {}      # cat -> ProdChip: what is being built, shown in the top bar while the panel is hidden
+var prod_chips := {}      # building type -> ProdChip in the top bar: what that kind of producer is making
+var chip_box: HBoxContainer
+var ctx_box: Plate        # side panel header: what is selected
+var ctx_kick: Label
+var ctx_name: Label
+var ctx_sub: Label
+var ctx_hp: HpBar
+var ctx_tabs: HBoxContainer   # sub-tabs of a producer that makes several kinds (Landing Zone, Garden)
+var ctx_acts: GridContainer   # what the selected building or units can do
 var obj_btn: Button       # brings the objective back after it hides itself
-var groups_box: VBoxContainer
+var type_btns: Array = []   # type chips of a mixed selection (keep only that type)
 var tabs := {}
 var grid: GridContainer
 var grid_scroll: ScrollContainer
@@ -222,10 +231,9 @@ func _build_hud() -> void:
 	sh.add_child(_glyph_box("launch", 22, Color("ff9a8c")))
 	var sv := _stat(sh, "SKYFALL"); sw_name = sv.get_child(0); sw_time = lbl("0:00", f_disp7, 18, Color("ffd0cc")); sv.add_child(sw_time); sw_box.visible = false
 	var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL; sp.mouse_filter = Control.MOUSE_FILTER_IGNORE; top.add_child(sp)
-	# hides the side panel (build menu + minimap) for a wider view; stays in the top bar either way
-	for cat in ["bld", "inf", "veh", "air"]:
-		var pc := ProdChip.new(); pc.ui = self; pc.cat = cat; pc.custom_minimum_size = Vector2(58, 48); pc.visible = false
-		top.add_child(pc); prod_chips[cat] = pc
+	# one chip per kind of producer you own (Yard, Barracks, ...): what it is making; tap to select it
+	chip_box = HBoxContainer.new(); chip_box.add_theme_constant_override("separation", 6); chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(chip_box)
 	var mp := mkbtn("Map", func(): main.toggle_big_map(), 56, 48, 12, "map"); top.add_child(mp); btn["map"] = mp
 	var pb := mkbtn("", func(): main.toggle_panel(), 48, 48, 13, "hide"); top.add_child(pb); btn["panel"] = pb
 	var mb := mkbtn("", func(): main.open_menu(), 48, 48, 16, "pause"); top.add_child(mb); btn["pause"] = mb
@@ -261,20 +269,8 @@ func _build_hud() -> void:
 	radio_l = lbl("", f_body, 16, W_KHAKI); radio_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; radio_l.custom_minimum_size.x = 380; rdv.add_child(radio_l)
 	radio_box.anchor_left = 0.5; radio_box.anchor_right = 0.5; radio_box.offset_top = 66; radio_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	radio_box.visible = false; hud.add_child(radio_box)
-	# army groups on the left edge: tap selects the group, tap again centres the camera, hold stores the selection
-	# pinned under the OBJECTIVE button: at the phone's 1.5x scale the HUD is only ~400 units tall, so 4 x 36 fits above the command rows
-	groups_box = VBoxContainer.new(); groups_box.add_theme_constant_override("separation", 4); groups_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	groups_box.position = Vector2(8, 114)
-	hud.add_child(groups_box)
-	for i in 4:
-		var g := GroupChip.new(); g.ui = self; g.idx = i; g.focus_mode = Control.FOCUS_NONE; g.custom_minimum_size = Vector2(58, 36)
-		for st in ["normal", "hover", "pressed", "disabled"]: g.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-		g.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		g.button_down.connect(func(): g.set_meta("t0", Time.get_ticks_msec()))
-		g.button_up.connect(func(): main.group_btn(i, Time.get_ticks_msec() - int(g.get_meta("t0", 0)) > 500))
-		groups_box.add_child(g); btn["grp%d" % i] = g
-	hud.move_child(obj_box, -1)  # the objective box opens over the group chips for its few seconds
-	# two rows in the bottom-left corner, close to the thumb: unit groups at the bottom, orders above
+	hud.move_child(obj_box, -1)
+	# two rows in the bottom-left corner, close to the thumb: the squad strip at the bottom, orders above
 	cmd_row = VBoxContainer.new(); cmd_row.add_theme_constant_override("separation", 6); cmd_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cmd_row.anchor_top = 1; cmd_row.anchor_bottom = 1; cmd_row.offset_left = 8; cmd_row.offset_bottom = -8
 	cmd_row.grow_vertical = Control.GROW_DIRECTION_BEGIN; cmd_row.alignment = BoxContainer.ALIGNMENT_END
@@ -283,15 +279,27 @@ func _build_hud() -> void:
 	cmd_bot = HBoxContainer.new(); cmd_bot.add_theme_constant_override("separation", 6); cmd_bot.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_bot)
 	var fb := mkbtn("Formation", func(): main.toggle_formation(), 150.0, 48.0, 12, "form"); cmd_bot.add_child(fb); btn["form"] = fb
 	var gap := Rule.new(); gap.vertical = true; gap.custom_minimum_size = Vector2(6, 0); cmd_bot.add_child(gap)
-	for k in ["all", "inf", "veh", "air", "idle"]:
-		var b := mkbtn(k, func(): main.squad_btn(k), 76.0, 48.0, 12, k)
-		cmd_bot.add_child(b); btn[k] = b
-	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["upgrade", "Upgrade", "up"], ["muster", "Muster", "inf"], ["fuse", "Fuse", "inf"], ["repair", "Repair", "repair"], ["sell", "Sell", "sell"], ["desel", "", "x"]]:
+	# squad strip: ALL, squads 1 to 5 (only those that exist), NEW (units in no squad). See scripts/squads.gd.
+	for n in range(0, Squads.MAX + 2):
+		var key := n if n <= Squads.MAX else -1
+		var c := SquadChip.new(); c.ui = self; c.key = key; c.focus_mode = Control.FOCUS_NONE
+		c.custom_minimum_size = Vector2(76 if key == 0 else (84 if key == -1 else 100), 48)
+		for st in ["normal", "hover", "pressed", "disabled", "focus"]: c.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+		c.pressed.connect(func(): main.squad_tap(key))
+		c.visible = false
+		cmd_bot.add_child(c); btn["sq_all" if key == 0 else ("sq_new" if key == -1 else "sq%d" % key)] = c
+	# what the selection can do lives in the side panel (`_build_panel`); this row keeps the orders every army needs
+	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["desel", "", "x"]]:
 		var k: String = pair[0]
 		var b := mkbtn(pair[1], func(): main.cmd_btn(k), 0, 44, 12, pair[2]); cmd_top.add_child(b); btn[k] = b; b.visible = false
 	set_on(btn.sw, true)
 	selinfo = lbl("", f_body6, 12, W_SAND); selinfo.size_flags_vertical = Control.SIZE_SHRINK_CENTER; cmd_top.add_child(selinfo)
 	selinfo.add_theme_constant_override("outline_size", 4); selinfo.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	for i in 4:
+		var tb := mkbtn("", func(): main.type_btn(type_btns[i].get_meta("type", "")), 0, 40, 11); tb.visible = false
+		cmd_top.add_child(tb); type_btns.append(tb)
+	var jb := mkbtn("Join", func(): main.join_btn(), 0, 44, 12, "all"); jb.visible = false; set_on(jb, true)
+	cmd_top.add_child(jb); btn["join"] = jb
 	mode_btn = ModeDial.new(); mode_btn.ui = self; mode_btn.focus_mode = Control.FOCUS_NONE; mode_btn.custom_minimum_size = Vector2(88, 88)
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]: mode_btn.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 	mode_btn.anchor_left = 1; mode_btn.anchor_right = 1; mode_btn.anchor_top = 1; mode_btn.anchor_bottom = 1
@@ -401,18 +409,27 @@ func _build_panel() -> void:
 	panel.anchor_left = 1; panel.anchor_right = 1; panel.anchor_bottom = 1; panel.offset_left = -PANEL_W
 	panel.draw.connect(_draw_panel_bg)
 	add_child(panel)
-	var v := VBoxContainer.new(); v.add_theme_constant_override("separation", 8); panel.add_child(v)
-	mini = MiniMap.new(); mini.ui = self; mini.custom_minimum_size = Vector2(PANEL_W - 16, PANEL_W - 16); v.add_child(mini)
-	var tb := HBoxContainer.new(); tb.add_theme_constant_override("separation", 4); v.add_child(tb)
-	for c in ["bld", "inf", "veh", "air"]:
-		var b := HudBtn.new(); b.cap = {"bld": "BASE", "inf": "INF", "veh": "VEH", "air": "AIR"}[c]; b.glyph = c; b.focus_mode = Control.FOCUS_NONE
+	var v := VBoxContainer.new(); v.add_theme_constant_override("separation", 6); panel.add_child(v)
+	mini = MiniMap.new(); mini.ui = self; mini.custom_minimum_size = Vector2(PANEL_W - 16, PANEL_W - 60); v.add_child(mini)
+	# header: what is selected (the Yard when nothing is), its health and one line about it
+	ctx_box = Plate.new(); ctx_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ctx_box.add_theme_stylebox_override("panel", plate_sb(7.0, H_BG, W_LINE, W_BRASS)); v.add_child(ctx_box)
+	var cv := VBoxContainer.new(); cv.add_theme_constant_override("separation", 1); cv.mouse_filter = Control.MOUSE_FILTER_IGNORE; ctx_box.add_child(cv)
+	ctx_kick = lbl("", f_wide, 9, W_BRASS); cv.add_child(ctx_kick)
+	ctx_name = lbl("", f_disp7, 15, Color("f4ecd6")); ctx_name.clip_text = true; ctx_name.custom_minimum_size.x = 140; cv.add_child(ctx_name)
+	ctx_hp = HpBar.new(); ctx_hp.custom_minimum_size = Vector2(0, 4); ctx_hp.mouse_filter = Control.MOUSE_FILTER_IGNORE; cv.add_child(ctx_hp)
+	ctx_sub = lbl("", f_body, 11, W_SAND); ctx_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; ctx_sub.custom_minimum_size.x = 140
+	ctx_sub.max_lines_visible = 2; ctx_sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS; cv.add_child(ctx_sub)
+	ctx_tabs = HBoxContainer.new(); ctx_tabs.add_theme_constant_override("separation", 4); v.add_child(ctx_tabs)
+	for c in ["inf", "veh", "air"]:
+		var b := HudBtn.new(); b.cap = {"inf": "INF", "veh": "VEH", "air": "AIR"}[c]; b.glyph = c; b.focus_mode = Control.FOCUS_NONE
 		b.add_theme_font_override("font", f_disp); b.add_theme_font_size_override("font_size", 10)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.custom_minimum_size.y = 46
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL; b.custom_minimum_size.y = 44
 		b.pressed.connect(func(): main.select_tab(c))
 		var dot := ColorRect.new(); dot.color = C_ACC; dot.size = Vector2(6, 6); dot.position = Vector2(5, 5); dot.visible = false; dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		b.add_child(dot); b.set_meta("dot", dot)
 		restyle(b)
-		tb.add_child(b); tabs[c] = b
+		ctx_tabs.add_child(b); tabs[c] = b
 	grid_scroll = ScrollContainer.new(); grid_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; grid_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var vsb := grid_scroll.get_v_scroll_bar(); vsb.custom_minimum_size.x = 4
 	vsb.add_theme_stylebox_override("scroll", cut(Color(W_OLIVE2, 0.6), Color(0, 0, 0, 0), 0, 0, 0))
@@ -426,6 +443,14 @@ func _build_panel() -> void:
 			var it := BuildItem.new(); it.ui = self; it.cat = cat; it.type = type
 			it.custom_minimum_size = Vector2((PANEL_W - 16 - 6) / 2.0, 82)
 			grid.add_child(it); items[cat + ":" + type] = it
+	# what the selection can do: building orders, and unit orders
+	ctx_acts = GridContainer.new(); ctx_acts.columns = 3; ctx_acts.add_theme_constant_override("h_separation", 4); ctx_acts.add_theme_constant_override("v_separation", 6)
+	v.add_child(ctx_acts)
+	for pair in [["upgrade", "Upgrade", "up"], ["repair", "Repair", "repair"], ["muster", "Muster", "inf"], ["fuse", "Fuse", "inf"], ["sell", "Sell", "sell"]]:
+		var k: String = pair[0]
+		var b := mkbtn("", func(): main.cmd_btn(k), 0, 46, 11, pair[2]); b.custom_minimum_size.x = (PANEL_W - 16 - 8) / 3.0
+		b.cap = String(pair[1]).to_upper(); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ctx_acts.add_child(b); btn[k] = b; b.visible = false
 
 ## Side panel backdrop: dark olive steel with a faint map grid and a brass seam along its inner edge.
 func _draw_panel_bg() -> void:
@@ -678,7 +703,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "» in the top bar hides the build menu and minimap for a wider view; « BUILD brings them back. While it is hidden, the top bar shows what is in production (tap a ready building to place it). MAP opens a large minimap: tap or drag on it to look there."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["GROUPS", "Select units, then hold 1 to 4 on the left edge to store them. Tap a group to select it, tap again to jump to it. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
+	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building or units for their orders (Upgrade, Repair, Sell, Muster, Fuse). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected. MAP opens a large minimap."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -1927,34 +1952,52 @@ class BuildItem extends Control:
 		if is_ready:
 			UI.ready_banner(self, ui, Rect2(0, 18, size.x, 18))
 
-## Top-bar chip for one production line while the side panel is hidden: icon, progress, queue size.
-## Tap: place a ready building, otherwise open the panel on that tab.
+## Top-bar chip for one kind of producer you own (bt: "hq" for the Yard, else a building type): what it is making,
+## its progress and queue. Tap: place a ready building, otherwise select that building (tap again: the next one).
 class ProdChip extends Control:
 	var ui
-	var cat := ""
-	var type := ""
+	var bt := ""
+	var cat := ""     # the production line its current item is on ("" when idle)
+	var type := ""    # what it is making ("" when idle)
 	var prog := 0.0
 	var n := 0
 	var is_ready := false
+	var lit := false  # that building is selected
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 	func _gui_input(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
-			ui.main.prod_chip_tap(cat); accept_event()
+			ui.main.prod_chip_tap(bt); accept_event()
 	func _draw() -> void:
-		draw_style_box(ui.hsb("normal", false, 6, 6), Rect2(Vector2.ZERO, size))
+		draw_style_box(ui.hsb("normal", lit, 6, 6), Rect2(Vector2.ZERO, size))
 		if is_ready: draw_style_box(UI.cut(Color(0, 0, 0, 0), UI.C_AUR, 2, 7, 0), Rect2(Vector2.ZERO, size))
-		var it = ui.items.get(cat + ":" + type)
 		var ir := Rect2(4, 3, size.x - 8, size.y - 13)
+		var it = ui.items.get(cat + ":" + type) if type != "" else null
 		if it and it.icon: draw_texture_rect(it.icon, ir, false)
-		draw_rect(Rect2(5, size.y - 8, size.x - 10, 4), Color(0, 0, 0, 0.7))
-		draw_rect(Rect2(5, size.y - 8, (size.x - 10) * clampf(prog, 0, 1), 4), UI.C_AUR)
-		UI.ticks(self, size, Color(Color("d9a441"), 0.5), 6.0)
+		else:
+			# idle: the building itself, dimmed (a crane for the Yard)
+			var own = ui.items.get("bld:" + bt)
+			if own and own.icon: draw_texture_rect(own.icon, ir, false, Color(1, 1, 1, 0.55))
+			else:
+				var gs := minf(ir.size.x, ir.size.y) * 0.7
+				UI.glyph(self, "bld_crane" if bt == "hq" else "bld", Rect2(ir.get_center() - Vector2(gs, gs) / 2, Vector2(gs, gs)), Color(Color("d9a441"), 0.7))
+		if type != "":
+			draw_rect(Rect2(5, size.y - 8, size.x - 10, 4), Color(0, 0, 0, 0.7))
+			draw_rect(Rect2(5, size.y - 8, (size.x - 10) * clampf(prog, 0, 1), 4), UI.C_AUR)
+		UI.ticks(self, size, Color(Color("e5483f") if lit else Color("d9a441"), 0.7 if lit else 0.5), 6.0)
 		if n > 1:
 			var br := Rect2(size.x - 22, 3, 19, 14)
 			draw_style_box(UI.cut(Color("d9a441"), Color(0, 0, 0, 0), 0, 4, 0), br)
 			draw_string(ui.f_disp7, Vector2(br.position.x, br.position.y + 11.5), str(n), HORIZONTAL_ALIGNMENT_CENTER, br.size.x, 11, Color("1a1408"))
 		if is_ready: UI.ready_banner(self, ui, Rect2(0, size.y / 2 - 9, size.x, 16))
+
+## Builds the top-bar chips for this match's producers (list of building types, the Yard first).
+func set_producers(list: Array) -> void:
+	for c in chip_box.get_children(): c.queue_free()
+	prod_chips.clear()
+	for bt in list:
+		var pc := ProdChip.new(); pc.ui = self; pc.bt = bt; pc.custom_minimum_size = Vector2(58, 48); pc.visible = false
+		chip_box.add_child(pc); prod_chips[bt] = pc
 
 ## READY strip across a build card or chip: hazard stripes behind white text, blinking.
 static func ready_banner(c: CanvasItem, ui, r: Rect2) -> void:
@@ -2081,6 +2124,17 @@ static func glyph(c: CanvasItem, k: String, r: Rect2, col: Color, lw := 2.0) -> 
 				c.draw_line(o, o + Vector2(q[2] * r.size.x * 0.3, 0), col, lw); c.draw_line(o, o + Vector2(0, q[3] * r.size.y * 0.3), col, lw)
 			c.draw_rect(Rect2(P.call(0.38, 0.38), r.size * 0.24), col)
 
+## Thin health bar under the panel header (val 0..1, hidden below 0).
+class HpBar extends Control:
+	var val := -1.0
+	func set_val(x: float) -> void:
+		if absf(x - val) < 0.005: return
+		val = x; queue_redraw()
+	func _draw() -> void:
+		if val < 0: return
+		draw_rect(Rect2(Vector2.ZERO, size), Color("2a2f22"))
+		draw_rect(Rect2(0, 0, size.x * clampf(val, 0, 1), size.y), Color("8fcf7a") if val > 0.5 else (Color("f0b93f") if val > 0.25 else Color("ff5a52")))
+
 class Glyph extends Control:
 	var kind := ""
 	var col := Color.WHITE
@@ -2136,24 +2190,43 @@ class HudBtn extends Button:
 			var gs := 18.0
 			UI.glyph(self, glyph, Rect2(12, (size.y - gs) / 2, gs, gs), col)
 
-## Army group chip: number, then the unit count as a brass tally; dim while empty.
-class GroupChip extends Button:
+## A chip on the squad strip. key > 0: a squad (number, count, main unit type, health bar, a red mark under fire, a
+## dim one while idle). 0: ALL. -1: NEW, the units in no squad.
+class SquadChip extends Button:
 	var ui
-	var idx := 0
-	var n := 0
+	var key := 0
+	var st := {}
+	var lit := false
+	func set_state(s: Dictionary, on: bool) -> void:
+		if s == st and on == lit: return
+		st = s.duplicate(); lit = on; queue_redraw()
 	func _draw() -> void:
-		var st := "pressed" if button_pressed else ("hover" if is_hovered() else "normal")
-		draw_style_box(ui.hsb(st, false, 6, 6), Rect2(Vector2.ZERO, size))
-		var a := 1.0 if n else 0.5
-		UI.ticks(self, size, Color(Color("d9a441"), 0.45 * a), 6.0)
-		var f: Font = ui.f_disp7
-		draw_string(f, Vector2(10, size.y / 2 + 7), str(idx + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(Color("d8cba3"), a))
-		if n:
-			draw_string(ui.f_disp, Vector2(28, size.y / 2 - 3), "×%d" % n, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, 11, Color("d9a441"))
-			for i in mini(n, 5):
-				draw_rect(Rect2(29 + i * 4.5, size.y / 2 + 3, 3, 7), Color("d9a441", 0.9))
-		else:
-			draw_string(ui.f_disp, Vector2(28, size.y / 2 + 4), "—", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(Color("a99c78"), 0.6))
+		var state := "pressed" if button_pressed else ("hover" if is_hovered() else "normal")
+		draw_style_box(ui.hsb(state, lit, 6, 6), Rect2(Vector2.ZERO, size))
+		var n: int = st.get("n", 0)
+		var kh := Color("ffd8d2") if lit else Color("d8cba3")
+		var brass := Color("d9a441")
+		if key == 0:
+			UI.glyph(self, "all", Rect2(9, size.y / 2 - 13, 16, 16), kh)
+			draw_string(ui.f_disp, Vector2(29, size.y / 2 + 1), "ALL", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, kh)
+			draw_string(ui.f_body, Vector2(10, size.y - 8), "%d units" % n, HORIZONTAL_ALIGNMENT_LEFT, size.x - 14, 10, Color("a99c78"))
+			return
+		if key == -1:
+			draw_string(ui.f_disp, Vector2(9, size.y / 2 + 1), "NEW", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, brass)
+			draw_string(ui.f_disp, Vector2(0, size.y / 2 + 1), "×%d" % n, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 9, 12, brass)
+			draw_string(ui.f_body, Vector2(9, size.y - 8), "no squad", HORIZONTAL_ALIGNMENT_LEFT, size.x - 14, 10, Color("a99c78"))
+			return
+		draw_string(ui.f_disp7, Vector2(9, size.y / 2 + 9), str(key), HORIZONTAL_ALIGNMENT_LEFT, -1, 24, kh)
+		draw_string(ui.f_disp, Vector2(0, 17), "×%d" % n, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 8, 12, brass)
+		if st.get("hit", false):
+			draw_string(ui.f_disp, Vector2(28, 17), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("ff5a52"))
+		elif st.get("idle", false):
+			draw_string(ui.f_body, Vector2(28, 16), "idle", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("a99c78"))
+		draw_string(ui.f_body, Vector2(0, size.y - 13), String(st.get("name", "")).to_upper().left(13), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 8, 9, Color("a99c78"))
+		var hp: float = st.get("hp", 0.0)
+		var bw := size.x - 16
+		draw_rect(Rect2(8, size.y - 8, bw, 3), Color("2a2f22"))
+		draw_rect(Rect2(8, size.y - 8, bw * hp, 3), Color("8fcf7a") if hp > 0.5 else (Color("f0b93f") if hp > 0.25 else Color("ff5a52")))
 
 ## Round MOVE / SELECT toggle (hidden by default since select is a hold-and-drag).
 class ModeDial extends Button:

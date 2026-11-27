@@ -239,8 +239,17 @@ in your PR, keep it short, and mention the change in the PR description.
   taps select/order, hold-then-drag boxes (or faces a formation when units are selected and the hold starts on open
   ground). Pinch zooms past a 12% dead zone. `main.gd PAN_FINGERS = 2` is the two-finger variant. The side panel
   hides with the `»` button in the top bar (`UI.set_panel`, `user://prefs.json`); use `U.panel_px()` for its width.
-- Phone HUD extras (2026-11-14): production chips in the top bar while the panel is hidden (`UI.ProdChip`,
-  `main._prod_chips`), MAP = enlarged minimap (`UI.big_map`, draws the panel minimap's texture), army groups
+- Contextual side panel (Guillaume 2026-11-27: "build for workers, hire on barracks ... custom actions on units"; no
+  worker units, the Command Yard stays the builder, C&C style): `main.show_ctx()` picks the panel's context from the
+  selection (`ctx_key`: "yard" for nothing or the Yard, "b<id>" a building, "u" units, "e<id>" an enemy) and only then
+  re-filters the items; `_ctx_head` fills the header (`UI.ctx_box`), `sel_line(e)` gives a selection's one-line hint.
+  A producer lists the units whose `S.unit_from` is its type; `prod_cats(bt)` > 1 shows sub-tabs (`UI.tabs`, now only
+  INF/VEH/AIR). Production is still one queue per category per team. Building and unit orders (upgrade, repair, muster,
+  fuse, sell) live in `UI.ctx_acts` in the panel; the bottom-left `cmd_top` keeps Launch, Attack, Stop, deselect and the
+  squad strip's type chips. With the panel hidden, selecting a building (or Thralls that can fuse) "peeks" it open
+  (`peek`, `_show_panel`) until the selection clears. `AF_MODE=ctx` (AF_FAC=one) shoots every context per army.
+- Phone HUD extras (2026-11-14): producer chips in the top bar (`UI.ProdChip`, one per kind of producer you own,
+  `main.producers` from `_setup_producers`, `_prod_chips`, `prod_chip_tap(bt)` selects it, 2026-11-27), MAP = enlarged minimap (`UI.big_map`, draws the panel minimap's texture), army groups
   (`main.groups`, `group_btn`), objective auto-hide (`obj_t`, `OBJ_SHOW`), drag-to-build from `BuildItem`
   (`drag_build_*`, `GHOST_LIFT`), hold a unit item = queue five, corner ✕ cancels. `AF_INPUT=1` replays all of them.
 - HUD look (2026-11-14, "UI too simple, keep low poly but increase quality"): HUD buttons are `UI.HudBtn` made by `mkbtn(text, cb, w, h, size, glyph)`;
@@ -300,3 +309,14 @@ in your PR, keep it short, and mention the change in the PR description.
 - Battle effects (phase 6): smoke, flashes and flames use `Nature.puff()` (a smooth round puff) with
   rims that fade by `dot(NORMAL, VIEW)`, so smoke reads soft and fire as glowing balls. `View3D.apply_gfx` rebuilds the
   effect batches. `AF_MODE=battle` shoots two armies trading fire.
+
+## Squads (Guillaume 2026-11-27: "auto groups that would merge the bottom and numbered group")
+
+- One squad strip at the bottom left replaces the old army groups 1-4 (left edge, hold to store) and the
+  ALL/INF/VEH/AIR/IDLE buttons. Rules live in `scripts/squads.gd` (preloaded as `Squads`, no class_name):
+  a selection of 2+ units that gets an order (`main.command` calls `_squad_order`) becomes a squad; a unit is in one
+  squad; part of a squad splits off, whole squads merge into the lowest number; five squads at most; deaths only shrink.
+  A selection made by ALL (`main.sel_src == "all"`) never reshuffles squads.
+- Chips: `UI.SquadChip` (key > 0 squad, 0 ALL, -1 NEW). JOIN (`U.btn.join`) and type chips (`U.type_btns`) sit in
+  cmd_top. Tutorial drills use the `group_recall` event (a squad chip selecting squad i + 1).
+- `squad_tests()` in `tests/sim_test.gd`; `AF_MODE=squads` shoots the strip, JOIN and type chips at phone size.

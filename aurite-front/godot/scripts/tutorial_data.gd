@@ -53,8 +53,8 @@ const CARDS := {
 	# ---- mission 4: Refugee Road
 	"truck": {"job": "Carries the families. No gun. Two must arrive.", "tip": "Clear the road first, then move the trucks", "gw": "No weapon, heavy armour",
 		"who": "vey", "say": "Every truck is forty people. Guard it like it's me.", "home": ["ashen", 3]},
-	"l_groups": {"name": "Army groups", "job": "Store a squad on 1 to 4, call it back with a tap.", "tip": "Hold a number to store, tap it to select", "gw": "",
-		"who": "foreman", "say": "Squad one, squad two! Hold the button to name them.", "home": ["ashen", 3], "glyph": "all"},
+	"l_groups": {"name": "Squads", "job": "Order a few units together: they become a squad.", "tip": "Tap a squad's chip to select, again to jump", "gw": "",
+		"who": "foreman", "say": "Move them as one and they're a squad. Number one!", "home": ["ashen", 3], "glyph": "all"},
 	# ---- mission 5: Ironpine Pass
 	"flak": {"job": "Anti-air guns. Shreds aircraft, ignores the ground.", "tip": "Build two so they cover each other", "gw": "Hits aircraft only",
 		"who": "foreman", "say": "Flak Nest! Gunships hate it. Tanks don't care.", "home": ["ashen", 4]},
@@ -108,7 +108,7 @@ const CARDS := {
 		"who": "van_hq", "say": "Mast up. Signal is green, Command is rising.", "home": ["vanguard", 0]},
 	"drill": {"job": "Lands on a field and pumps aurite. No harvesters.", "tip": "It kills the field in time: sell it, drill another", "gw": "No weapon",
 		"who": "dace", "say": "Deep Drill is down. The valley pays its own way.", "home": ["vanguard", 0]},
-	"lz": {"job": "Dropships land vehicles and aircraft here.", "tip": "Order on the VEH tab: it flies in from the map edge", "gw": "No weapon",
+	"lz": {"job": "Dropships land vehicles and aircraft here.", "tip": "Select it to order: it flies in from the map edge", "gw": "No weapon",
 		"who": "van_hq", "say": "Landing Zone marked. Orders arrive by air.", "home": ["vanguard", 0]},
 	"sentry": {"job": "Automatic gun behind an Aegis shield.", "tip": "It needs Signal: lose the Mast and it goes dark",
 		"who": "van_hq", "say": "Auto-Sentry online. It does not sleep.", "home": ["vanguard", 0]},
@@ -271,7 +271,7 @@ const ENEMY := {
 ##   the step is skipped when the player already has one).
 ## ptr: {"hero"} own hero · {"unit": type} first own unit of a type · {"enemy"} nearest enemy in sight · {"ahead"} a spot
 ##   up the map from the hero · {"view"} the middle of the map view · {"ui": name} a HUD control (power, ready, place, sw) ·
-##   {"item": "cat:type"} a build button (or its tab, or the panel button while hidden) · {"bld": type} own building.
+##   {"item": "cat:type"} a build button (or the top-bar chip of the building that makes it, or the panel button while hidden) · {"bld": type} own building.
 ## done: {"ev": name, ...} an event (see Tutor.ev) · {"t": seconds} after a while.
 const LESSONS := {
 	"controls": {"who": "foreman", "steps": [
@@ -333,7 +333,7 @@ const MISSIONS := {
 			{"text": "Build a second Ore Crawler", "check": {"have": "crawler", "n": 2}},
 			{"text": "Wipe out a buggy raid", "check": {"raid": true}}]},
 		{"cards": ["l_groups"], "drills": [
-			{"text": "Put your army in group 1 and call it back", "check": {"ev": "group_recall", "i": 0}},
+			{"text": "Order squad 1, then call it with its chip", "check": {"ev": "group_recall", "i": 0}},
 			{"text": "Bring all three trucks home", "check": {"arrived": 3}}]},
 		{"cards": ["l_upgrades"], "drills": [
 			{"text": "Shell a column with a Big Howler", "check": {"ev": "kill", "by": "howler"}},
@@ -354,7 +354,7 @@ const MISSIONS := {
 		{"cards": ["l_aegis"], "drills": [
 			{"text": "Pick off a guard with a Ranger", "check": {"ev": "kill", "by": "ranger"}, "ptr": "ranger"}]},
 		{"cards": ["l_recover"], "drills": [
-			{"text": "Put your tanks in group 1 and call them", "check": {"ev": "group_recall", "i": 0}}]},
+			{"text": "Call squad 1 with its chip", "check": {"ev": "group_recall", "i": 0}}]},
 		{"drills": [
 			{"text": "Run two Deep Drills at once", "check": {"have": "drill", "n": 2}},
 			{"text": "Fly in a Warden Tank", "check": {"ev": "made", "type": "tank"}}]},

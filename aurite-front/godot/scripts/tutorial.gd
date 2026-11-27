@@ -34,7 +34,6 @@ var step_on := false
 var step_t := 0.0
 var step_spot = null      # world point for an "ahead" pointer
 var cam0 := Vector3()
-var grp_stored := {}
 var queue: Array = []     # card keys waiting
 var last_card := -99.0
 var card_open := false
@@ -227,7 +226,7 @@ func _start_extras() -> void:
 
 func stop() -> void:
 	M = null; camp = ""; mi = -1; made = {}; drills = []; lesson = null; step_i = -1; step_on = false
-	queue = []; enemy_q = []; grp_stored = {}; pulse_t = 0.0
+	queue = []; enemy_q = []; pulse_t = 0.0
 	if card_open: close_card()
 	if hint_box: hint_box.visible = false; enemy_box.visible = false
 
@@ -243,14 +242,11 @@ func obj_extra() -> String:
 	return s
 
 # ---------------- events ----------------
-## Things that happen in the game: main.gd (select, move, box, attack, dbl, rally, order, queue5, placing, made, group,
+## Things that happen in the game: main.gd (select, move, box, attack, dbl, rally, order, queue5, placing, made, squad, group_recall,
 ## aim) and the sim (kill, heal, made, eng_fix, upgrade, launch).
 func ev(kind: String, a = null, b = null) -> void:
 	if not active(): return
 	if kind == "made": made[a] = made.get(a, 0) + 1
-	if kind == "group":
-		if b == "store": grp_stored[a] = true
-		elif b == "select" and grp_stored.get(a, false): kind = "group_recall"
 	# the lesson step waiting for this
 	if lesson != null and step_on:
 		var dn: Dictionary = lesson.steps[step_i].done
@@ -474,7 +470,12 @@ func _ptr_of(p: Dictionary):
 		var cat: String = p.item.split(":")[0]
 		var it: Control = U.items.get(p.item)
 		if it == null: return null
-		if not it.is_visible_in_tree(): return ["r", U.tabs[cat].get_global_rect()]
+		if not it.is_visible_in_tree():
+			# the panel shows something else: point at the building that makes it (its top-bar chip), or its sub-tab
+			var bt: String = "hq" if cat == "bld" else S.unit_from(0, it.type)
+			if U.tabs.has(cat) and U.tabs[cat].is_visible_in_tree(): return ["r", U.tabs[cat].get_global_rect()]
+			var pc = U.prod_chips.get(bt)
+			return ["r", pc.get_global_rect()] if pc != null and pc.is_visible_in_tree() else null
 		return ["r", it.get_global_rect()]
 	return null
 
