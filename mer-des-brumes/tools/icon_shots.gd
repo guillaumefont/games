@@ -20,7 +20,7 @@ func _initialize() -> void:
 	sun.light_color = Color8(0xff, 0xf0, 0xda)
 	w.add_child(sun)
 	sun.look_at_from_position(Vector3(-6, 10, 8), Vector3.ZERO, Vector3.UP)
-	var ship := Models.ship(Models.ship_cfg("sloop", {"voiles": 3, "rameurs": 0, "canons": 1}, [], {}))
+	var ship := Models.ship(Models.ship_cfg("sloop", {"voiles": 3, "canons": 1}, [], {}))
 	w.add_child(ship)
 	ship.rotation.y = -0.75
 	Models.billow(ship, 0.55, 0.0)

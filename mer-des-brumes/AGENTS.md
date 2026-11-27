@@ -28,6 +28,18 @@ Guillaume's decisions so far (keep them unless he changes his mind):
   Attacking (online) enemies grapple too; ones that only defend never do. "Couper les cordes" ends it.
   The old automatic crew damage when ships touched is gone. The ship defends itself (manoeuvres and fires alone) **only while the player is
   disconnected** (`Game.connected`, false on app pause / focus loss), never while connected.
+- No oars (2026-11-27): every hull sails from the start (the chaloupe with one sail); the "Voiles" upgrade
+  adds visible sails (a jib, then topsails: `Models.extra_sails`). Old saves get the rowers' price back.
+- The grapple is a paid option (2026-11-27), bought once with coins (`Rules.buy_hook`, never real money) in
+  the Équipage tab; it stays from hull to hull. Without it there is no purple stick; "Grappin plus long" in
+  the Chantier lengthens it. Small enemies (level 1) have none and never grapple.
+- The crew is seen and moves on deck (2026-11-27, `scripts/crew.gd`): each kind has its own figure and moves
+  (sabres brandish and slash, pistols and muskets aim with recoil, grenadiers toss and throw, the captain
+  holds the wheel); they face the foe in a fight and the fallen lie on deck during a boarding.
+- Ship styles (2026-11-27, `Rules.SKINS`, colours in `scripts/looks.gd`): Classique, Forêt, Glace, Magie,
+  Abysses, Volcan. They change the hull, sails, crew clothes and weapons, the balls (snowballs, fireballs...)
+  and the boarding puffs. Never bought: each unlocks by a feat (`need`, counted in `s.stats`) when you next
+  enter the port, then is chosen for free in the Chantier. Some enemies (level 2+) show styles too.
 - Upgrades are capped per hull; past the caps you buy a new hull (Sloop: fast; Frégate: better armed, bow
   and stern guns; Galion). A new hull starts without upgrades.
 - Coins only: the diamond currency was dropped ("stupide"); never reintroduce a premium storage currency.
@@ -64,13 +76,16 @@ under an `## AGENTS.md` heading in the PR body.
 
 ```
 godot --headless --path . --import
-godot --headless --path . --script tests/game_test.gd    # rules, joystick, aim and grapple sticks, boarding, broadsides, AI, sinking, treasure, port
+godot --headless --path . --script tests/game_test.gd    # rules, joystick, aim and grapple sticks, boarding, crew, styles, broadsides, AI, sinking, treasure, port
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd    # project icon and Android launcher layers
 ```
 
 Screenshots (needs a display):
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x1170 --script tools/shots.gd -- /tmp/shots`
+Close-ups of every style and of a boarding: same command with `tools/style_shots.gd`. Tools must `await` a
+frame after `root.add_child(game)` before touching `game.s` (`_ready` hasn't run yet; an error there hangs
+the tool silently).
 
 ## Code map
 
@@ -80,6 +95,8 @@ Screenshots (needs a display):
   parts into one mesh). The hull is lofted from frames; sails billow and the sea waves in shaders, which
   take flat normals from screen derivatives. Heading h faces (sin h, cos h); `rotation.y = h`.
 - `scripts/game.gd` (`Game`): world, player, enemies (`Game.Boat`), combat, balls, effects, treasure, camera.
+- `scripts/crew.gd` (`Crew`): the men on deck (figures per kind and style, places, animation, the port lineup).
+- `scripts/looks.gd` (`Looks`): the colours and weapon shapes of each ship style.
 - `scripts/hud.gd` (`Hud`): glass HUD, gauge, joystick, edge arrows, labels, toasts, prompt, the port.
 
 ## Self-update (Android)
