@@ -398,7 +398,7 @@ func to_hangar() -> void:
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
 	hud.show_hangar()
-	sound.music("sortie", true)
+	sound.music(world.theme, true)
 	if not driven and not checked_update:
 		checked_update = true
 		check_update()
@@ -434,6 +434,8 @@ func pick_level(lv: int) -> void:
 	mid = Rules.MIDBOSSES[mid_id]
 	fort_id = Campaign.fortress_of(lv)
 	fort = Rules.FORTRESSES[fort_id]
+	if phase == "hangar":
+		sound.music(world.theme, true)
 	if Relief.level != lv:
 		# each level lays out its set pieces in its own order past the land the hangar shows; any
 		# chunk built that far ahead is rebuilt
@@ -512,7 +514,7 @@ func launch(lv := -1) -> void:
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
-	sound.music("sortie")
+	sound.music(world.theme)
 
 
 # ---------------------------------------------------------------- updates
@@ -524,9 +526,10 @@ var checked_update := false
 
 ## The launch check (scripts/boot.gd) already updated the game if it could; this one runs
 ## in the hangar, so a build published while the game was open still gets offered.
+## Store builds (feature tag "store") never look: only the store may update them.
 func check_update() -> void:
 	var url: String = ProjectSettings.get_setting("vantage/update_url", "")
-	if url == "":
+	if url == "" or OS.has_feature("store"):
 		return
 	var http := HTTPRequest.new()
 	http.timeout = 5
@@ -549,6 +552,8 @@ func check_update() -> void:
 ## The version on the title screen was tapped: reload into a newer build, or check for one.
 func version_tap() -> void:
 	sound.play("tap")
+	if OS.has_feature("store"):
+		return
 	if new_build > 0:
 		refresh_game()
 		return
@@ -616,7 +621,7 @@ func end_run(cleared: bool) -> void:
 	hud.show_results()
 	if cleared:
 		sound.play("clear")
-	sound.music("sortie", true)
+	sound.music(world.theme, true)
 
 
 func clear_all() -> void:
@@ -699,6 +704,30 @@ func _notification(what: int) -> void:
 	# switching apps lifts the finger as far as we're concerned: the game pauses
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		touching = false
+	elif what == NOTIFICATION_WM_GO_BACK_REQUEST and not driven:
+		go_back()
+
+
+## The Android back button (Escape on a keyboard): in flight it pauses at once; on the pause
+## screen it works the Main menu button (a second press within `Hud.RESET_ARM` s quits the run);
+## a level still on "Touch to start" goes straight back to the hangar; the results go to the
+## hangar; in the hangar a first press asks ("Press back again to quit") and a second one quits.
+## The cut-scenes between (the fortress breaking up, the escape) ignore it.
+func go_back() -> void:
+	if phase == "hangar":
+		if hud.back_tap():
+			get_tree().quit()
+	elif phase == "results":
+		if phase_t > 0.8:
+			to_hangar()
+	elif pausable():
+		if not started:
+			quit_run()
+		elif paused():
+			hud.quit_tap()
+		else:
+			touching = false
+			time_k = 0.0
 
 
 ## In flight the world only runs while the player holds a finger (or a direction key) down. Once
@@ -745,7 +774,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Pointer input (touch is emulated as mouse). Dragging moves the ship 1:1 in the vertical
 ## stage and the reticle inside the fortress.
 func handle(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		go_back()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		touching = event.pressed
 		last_touch = event.position
 		if event.pressed and phase == "results" and phase_t > 0.8:
@@ -1001,7 +1032,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			open_section()
 			say("WARNING", mid.title)
 			sound.play("warning")
-			sound.music("carrier")
+			sound.music("boss")
 		_:
 			Foes.spawn(self, kind, x, i, n, from)
 			# each level brings in a new kind of foe: announced the first time it shows
@@ -1070,7 +1101,8 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())) \
+				and ahead(ppos, Vector3.FORWARD, f, Rules.MISSILE_CONE):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1080,7 +1112,8 @@ func fire_missiles(dt: float) -> void:
 	targets.sort_custom(func(a: Obj, b: Obj) -> bool: return a.pos.distance_squared_to(ppos) < b.pos.distance_squared_to(ppos))
 	for k in Rules.missile_count(lv):
 		var side := -1.0 if k % 2 == 0 else 1.0
-		var v := Vector3(side * 6.0, 0, -4.0) if pov_mode() == false else Vector3(side * 3.0, 2.0, -12.0)
+		# out forward with a little splay, never sideways
+		var v := Vector3(side * 2.5, 0, -14.0) if pov_mode() == false else Vector3(side * 2.0, 1.0, -20.0)
 		var m := new_shot(ppos + Vector3(side * 0.6, -0.1, 0.2), v, Rules.MISSILE_DMG, true)
 		m.rel = not pov_mode()
 		m.target = targets[mini(k, targets.size() - 1)]
@@ -1377,8 +1410,8 @@ func think(f: Obj, dt: float) -> void:
 				# a rocket: steers for the ship for a while (in the frame flying with it)
 				f.homing -= dt
 				var rel := f.vel + Vector3(0, 0, rail_speed())
-				var want := (ppos - f.pos).normalized() * 10.0 * float(world.fire)
-				rel = rel.lerp(want, minf(1.0, dt * 1.6))
+				var top := 10.0 * float(world.fire)
+				rel = Rules.turn_toward(rel, ppos - f.pos, Rules.ROCKET_TURN * dt, move_toward(rel.length(), top, dt * 8.0))
 				f.vel = rel - Vector3(0, 0, rail_speed())
 		"panel":
 			if core:
@@ -1582,7 +1615,7 @@ func part_down(f: Obj) -> void:
 			pts.append(mount_point(Vector3(rng.randf_range(-4, 4), 1.0, lerpf(7.0, -6.0, k / 9.0) + rng.randf_range(-1, 1))))
 		blasts.chain(pts, 3.5, 1.0, fx_carry(), 7.0)
 		sound.play("crash")
-		sound.music("sortie")
+		sound.music(world.theme)
 		kill(b)
 
 
@@ -1681,24 +1714,41 @@ func orb(at: Vector3, speed: float) -> Obj:
 	return o
 
 
+## Whether foe `f` is within `cone` radians of `dir` seen from `at` (on the flight plane in the
+## vertical stage).
+func ahead(at: Vector3, dir: Vector3, f: Obj, cone: float) -> bool:
+	var to := seen(f.pos) - at
+	if not pov_mode():
+		to.y = 0
+		dir.y = 0
+	if to.length_squared() < 0.01 or dir.length_squared() < 1e-6:
+		return true
+	return dir.angle_to(to) <= cone
+
+
 func steer_missile(m: Obj, dt: float) -> void:
-	if m.target == null or m.target.dead or not m.target in foes:
+	# a target that slipped past the nose is let go: no looping back for it
+	if m.target != null and (m.target.dead or not m.target in foes or not ahead(m.pos, m.vel, m.target, Rules.MISSILE_LOSE)):
 		m.target = null
+	if m.target == null:
 		var best := 1e9
 		for f in foes:
 			if f.dead or f.kind == "orb" or shy(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
+				continue
+			if not ahead(m.pos, m.vel, f, Rules.MISSILE_CONE):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
 				best = d
 				m.target = f
 	var speed := 26.0 if not pov_mode() else 45.0
-	var want := m.vel.normalized() * speed
+	var want := m.vel
 	if m.target:
-		want = (seen(m.target.pos) - m.pos).normalized() * speed
+		want = seen(m.target.pos) - m.pos
 	if not pov_mode():
 		want.y = 0
-	m.vel = m.vel.lerp(want, minf(1.0, dt * 5.0))
+	var cur := m.vel.length()
+	m.vel = Rules.turn_toward(m.vel, want, Rules.MISSILE_TURN * dt, move_toward(cur, speed, dt * 40.0))
 
 
 func collide(_dt: float) -> void:
@@ -2315,7 +2365,7 @@ func spawn_fortress() -> void:
 			spawn_gun(i, g)
 	say("FORTRESS AHEAD", fort.title)
 	sound.play("warning")
-	sound.music("carrier")
+	sound.music("fortress")
 
 
 ## The frame of the hull segment section i rides on (the fortress's own: its body undoes the

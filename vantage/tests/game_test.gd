@@ -39,6 +39,14 @@ func rules() -> void:
 	check(bought.shots.size() * bought.dmg / bought.period < 0.5 * top.shots.size() * top.dmg / top.period,
 		"a maxed Cannon at the start of a level has under half the fire of a bare ship at full power")
 	check(Rules.missile_period(0) == 0.0 and Rules.missile_period(4) < Rules.missile_period(1), "missiles only once bought")
+	# missiles turn like rockets (Guillaume, 2026-11-27: no shooting backwards)
+	var tv := Rules.turn_toward(Vector3(0, 0, -26), Vector3(0, 0, 1), Rules.MISSILE_TURN / 60.0, 26.0)
+	check(is_equal_approx(tv.length(), 26.0) and absf(tv.angle_to(Vector3(0, 0, -1)) - Rules.MISSILE_TURN / 60.0) < 1e-4, "a missile turns at most MISSILE_TURN a second")
+	var hv := Vector3(0, 0, -26)
+	for i in 30:
+		hv = Rules.turn_toward(hv, Vector3(0, 0, 1), Rules.MISSILE_TURN / 60.0, 26.0)
+	check(hv.z < 0.0, "half a second on, a missile chasing a foe behind it still flies forward")
+	check(Rules.MISSILE_CONE < PI / 3.0 and Rules.MISSILE_LOSE < PI * 0.6, "missiles only lock onto foes ahead")
 	var m := Rules.migrate({"scrap": -5, "up": {"cannon": 99, "magnet": 2}})
 	check(m.scrap == 0 and m.up.cannon == 5 and m.up.magnet == 2 and m.up.hull == 0, "saves are clamped")
 	check(Rules.migrate("garbage") == Rules.fresh(), "a broken save starts over")
@@ -232,6 +240,40 @@ func pause_menu() -> void:
 	check(int(g.s.runs) == 0, "a quit run isn't counted")
 	g.tick(DT)
 	check(not g.hud.quit_btn.visible and g.time_k == 1.0, "the hangar shows no pause menu")
+	g.queue_free()
+	await process_frame
+
+
+## The Android back button (go_back): pauses in flight, works the Main menu button when paused,
+## leaves "Touch to start" and the results for the hangar, and asks before quitting the game.
+func back_button() -> void:
+	print("back button")
+	var g := make_game()
+	await process_frame
+	g.go_back()
+	check(g.hud.back_armed and g.phase == "hangar", "in the hangar a first back only asks")
+	check(g.hud.back_tap(), "and a second one in time quits")
+	g.hud.back_tap()
+	for i in int(Hud.RESET_ARM / DT) + 2:
+		g.tick(DT)
+	check(not g.hud.back_armed, "the question lapses after %.0f s" % Hud.RESET_ARM)
+	g.launch()
+	g.tick(DT)
+	g.go_back()
+	check(g.phase == "hangar", "back on touch to start returns to the hangar")
+	g.launch()
+	g.touching = true
+	for i in 30:
+		g.tick(DT)
+	g.go_back()
+	check(g.paused() and not g.touching, "back in flight pauses at once")
+	g.touching = false
+	g.tick(DT)
+	check(g.hud.quit_btn.visible, "and the pause screen shows its main menu button")
+	g.go_back()
+	check(g.phase == "vert" and g.hud.quit_armed, "back on the pause screen arms Main menu")
+	g.go_back()
+	check(g.phase == "hangar", "a second back quits to the hangar")
 	g.queue_free()
 	await process_frame
 
@@ -899,6 +941,7 @@ func _initialize() -> void:
 	await controls()
 	await slow_pause()
 	await pause_menu()
+	await back_button()
 	await aiming()
 	await ramming()
 	await swipe()
