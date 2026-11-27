@@ -301,6 +301,10 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   never across an expressway or a boulevard): a whole tile holds a capitol, stadium, park or square
   (`QUAD_KINDS`), a pair a mall, square or park (`PAIR_KINDS`). Squares (`square`) have a monument, lawns,
   tree rows and kiosks; canal blocks (`canal`) quays, barges and boats, and the canals keep more colour.
+  Kept clean (Guillaume, 2026-11-27: the city looked "dirty"): no contact-shadow patches under the towers
+  (`ao_mesh` is null in the city, they smeared dark haze over the streets), no ground mottle or cloud shadows on
+  its paving (`ground_mat`), softer street shadows (`CAST_DARK`), and the war shown sparingly: few burning
+  roofs, ruins, craters, wrecks and tank traps.
   Each road step, span and block is built by the chunk holding its centre.
   Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
 - The city rises from sunken streets (Guillaume, 2026-11-26: "very flat... it doesn't go as high as a city
