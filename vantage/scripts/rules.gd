@@ -569,6 +569,30 @@ static func missile_count(lv: int) -> int:
 
 
 const MISSILE_DMG := 4.0
+## Missiles leave forward and steer like rockets, not darts (Guillaume, 2026-11-27: "missiles
+## should shoot forward and have a limited turning radius; shooting backwards is cheating"):
+## they only lock onto foes within MISSILE_CONE (radians off dead ahead), turn at most
+## MISSILE_TURN rad/s, and let go of a target that ends up MISSILE_LOSE off their heading.
+const MISSILE_CONE := 0.75
+const MISSILE_TURN := 2.2
+const MISSILE_LOSE := 1.6
+## The foes' homing rockets turn at most this fast too, so a dodge sticks.
+const ROCKET_TURN := 1.5
+
+
+## `v` turned toward `want` by at most `max_angle` radians, at length `speed`.
+static func turn_toward(v: Vector3, want: Vector3, max_angle: float, speed: float) -> Vector3:
+	if want.length_squared() < 1e-8:
+		return v.normalized() * speed
+	if v.length_squared() < 1e-8:
+		return want.normalized() * speed
+	var a := v.angle_to(want)
+	if a <= max_angle:
+		return want.normalized() * speed
+	var axis := v.cross(want)
+	if axis.length_squared() < 1e-8:
+		axis = Vector3.UP
+	return v.normalized().rotated(axis.normalized(), max_angle) * speed
 
 # ---------------------------------------------------------------- foes
 ## hp, hit radius, score and scrap of each kind of foe.

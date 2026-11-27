@@ -1101,7 +1101,8 @@ func fire_missiles(dt: float) -> void:
 		return
 	var targets := []
 	for f in foes:
-		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())):
+		if not f.dead and f.kind != "orb" and not shy(f) and not f.under and on_screen(f) and not (f.on_fort and (not live_sec(f) or not pov_mode())) \
+				and ahead(ppos, Vector3.FORWARD, f, Rules.MISSILE_CONE):
 			targets.append(f)
 	if targets.is_empty():
 		miss_cd = 0.2
@@ -1111,7 +1112,8 @@ func fire_missiles(dt: float) -> void:
 	targets.sort_custom(func(a: Obj, b: Obj) -> bool: return a.pos.distance_squared_to(ppos) < b.pos.distance_squared_to(ppos))
 	for k in Rules.missile_count(lv):
 		var side := -1.0 if k % 2 == 0 else 1.0
-		var v := Vector3(side * 6.0, 0, -4.0) if pov_mode() == false else Vector3(side * 3.0, 2.0, -12.0)
+		# out forward with a little splay, never sideways
+		var v := Vector3(side * 2.5, 0, -14.0) if pov_mode() == false else Vector3(side * 2.0, 1.0, -20.0)
 		var m := new_shot(ppos + Vector3(side * 0.6, -0.1, 0.2), v, Rules.MISSILE_DMG, true)
 		m.rel = not pov_mode()
 		m.target = targets[mini(k, targets.size() - 1)]
@@ -1408,8 +1410,8 @@ func think(f: Obj, dt: float) -> void:
 				# a rocket: steers for the ship for a while (in the frame flying with it)
 				f.homing -= dt
 				var rel := f.vel + Vector3(0, 0, rail_speed())
-				var want := (ppos - f.pos).normalized() * 10.0 * float(world.fire)
-				rel = rel.lerp(want, minf(1.0, dt * 1.6))
+				var top := 10.0 * float(world.fire)
+				rel = Rules.turn_toward(rel, ppos - f.pos, Rules.ROCKET_TURN * dt, move_toward(rel.length(), top, dt * 8.0))
 				f.vel = rel - Vector3(0, 0, rail_speed())
 		"panel":
 			if core:
@@ -1712,24 +1714,41 @@ func orb(at: Vector3, speed: float) -> Obj:
 	return o
 
 
+## Whether foe `f` is within `cone` radians of `dir` seen from `at` (on the flight plane in the
+## vertical stage).
+func ahead(at: Vector3, dir: Vector3, f: Obj, cone: float) -> bool:
+	var to := seen(f.pos) - at
+	if not pov_mode():
+		to.y = 0
+		dir.y = 0
+	if to.length_squared() < 0.01 or dir.length_squared() < 1e-6:
+		return true
+	return dir.angle_to(to) <= cone
+
+
 func steer_missile(m: Obj, dt: float) -> void:
-	if m.target == null or m.target.dead or not m.target in foes:
+	# a target that slipped past the nose is let go: no looping back for it
+	if m.target != null and (m.target.dead or not m.target in foes or not ahead(m.pos, m.vel, m.target, Rules.MISSILE_LOSE)):
 		m.target = null
+	if m.target == null:
 		var best := 1e9
 		for f in foes:
 			if f.dead or f.kind == "orb" or shy(f) or f.under or not on_screen(f) or (f.on_fort and not live_sec(f)):
+				continue
+			if not ahead(m.pos, m.vel, f, Rules.MISSILE_CONE):
 				continue
 			var d := seen(f.pos).distance_squared_to(m.pos)
 			if d < best:
 				best = d
 				m.target = f
 	var speed := 26.0 if not pov_mode() else 45.0
-	var want := m.vel.normalized() * speed
+	var want := m.vel
 	if m.target:
-		want = (seen(m.target.pos) - m.pos).normalized() * speed
+		want = seen(m.target.pos) - m.pos
 	if not pov_mode():
 		want.y = 0
-	m.vel = m.vel.lerp(want, minf(1.0, dt * 5.0))
+	var cur := m.vel.length()
+	m.vel = Rules.turn_toward(m.vel, want, Rules.MISSILE_TURN * dt, move_toward(cur, speed, dt * 40.0))
 
 
 func collide(_dt: float) -> void:
