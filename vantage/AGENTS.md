@@ -294,7 +294,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   makes about 82% tower blocks (no car parks or empty squares on them, `RUINS` of lots ruined) and the rest
   parks full of trees, stadiums, shopping malls (`mall`: roof car park, skylights), domed capitols (`capitol`)
   and columned halls (`hall`), shares in `BLOCK_KINDS`; the big buildings need dry ground, else towers. No
-  empty plazas. Each road step, span and block is built by the chunk holding its centre.
+  empty plazas. Not a perfect grid (Guillaume, 2026-11-27: "like a proper city"): avenues and streets sit up
+  to 2 m off their lines (`ave_u`, `str_v`, `col_of`, `row_of`), every third street is a 6 m `boulevard`
+  (the city's tanks drive along one, `boulevard_z`, and the row below it stays low so they show), and the
+  blocks go in 2 x 2 tiles that may join (`superblock`; the road between stops, `avenue_at`/`street_at`,
+  never across an expressway or a boulevard): a whole tile holds a capitol, stadium, park or square
+  (`QUAD_KINDS`), a pair a mall, square or park (`PAIR_KINDS`). Squares (`square`) have a monument, lawns,
+  tree rows and kiosks; canal blocks (`canal`) quays, barges and boats, and the canals keep more colour.
+  Each road step, span and block is built by the chunk holding its centre.
   Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
 - The city rises from sunken streets (Guillaume, 2026-11-26: "very flat... it doesn't go as high as a city
   should"). Nothing may rise past the ship, so its whole floor (streets, canals, `Game.ground_y`, the ground
