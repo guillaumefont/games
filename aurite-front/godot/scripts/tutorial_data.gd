@@ -108,7 +108,7 @@ const CARDS := {
 		"who": "van_hq", "say": "Mast up. Signal is green, Command is rising.", "home": ["vanguard", 0]},
 	"drill": {"job": "Lands on a field and pumps aurite. No harvesters.", "tip": "It kills the field in time: sell it, drill another", "gw": "No weapon",
 		"who": "dace", "say": "Deep Drill is down. The valley pays its own way.", "home": ["vanguard", 0]},
-	"lz": {"job": "Dropships land vehicles and aircraft here.", "tip": "Order on the VEH tab: it flies in from the map edge", "gw": "No weapon",
+	"lz": {"job": "Dropships land vehicles and aircraft here.", "tip": "Select it to order: it flies in from the map edge", "gw": "No weapon",
 		"who": "van_hq", "say": "Landing Zone marked. Orders arrive by air.", "home": ["vanguard", 0]},
 	"sentry": {"job": "Automatic gun behind an Aegis shield.", "tip": "It needs Signal: lose the Mast and it goes dark",
 		"who": "van_hq", "say": "Auto-Sentry online. It does not sleep.", "home": ["vanguard", 0]},
@@ -271,7 +271,7 @@ const ENEMY := {
 ##   the step is skipped when the player already has one).
 ## ptr: {"hero"} own hero · {"unit": type} first own unit of a type · {"enemy"} nearest enemy in sight · {"ahead"} a spot
 ##   up the map from the hero · {"view"} the middle of the map view · {"ui": name} a HUD control (power, ready, place, sw) ·
-##   {"item": "cat:type"} a build button (or its tab, or the panel button while hidden) · {"bld": type} own building.
+##   {"item": "cat:type"} a build button (or the top-bar chip of the building that makes it, or the panel button while hidden) · {"bld": type} own building.
 ## done: {"ev": name, ...} an event (see Tutor.ev) · {"t": seconds} after a while.
 const LESSONS := {
 	"controls": {"who": "foreman", "steps": [
