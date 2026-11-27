@@ -289,8 +289,12 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   piers) over the canals; every third avenue carries an elevated expressway (deck at `HWY_Y` on pillars).
   Blocks are split into lots of setback towers, glass towers, brick mid-rises and shop rows (or a courtyard
   ring); roofs get antennas, spires, helipads, water tanks, gardens or AC units, picked to fit under the
-  flight altitude (`Ctx.cap`). Some blocks are parks (fountain, water tower landmark), plazas (obelisk or
-  fountain, kiosks) or a stadium. Each road step, span and block is built by the chunk holding its centre.
+  flight altitude (`Ctx.cap`). Every block is filled (Guillaume, 2026-11-27: "all city blocks should be
+  filled with something... mainly Manhattan like buildings... bigger buildings like a capitol"): `City.block_kind`
+  makes about 82% tower blocks (no car parks or empty squares on them, `RUINS` of lots ruined) and the rest
+  parks full of trees, stadiums, shopping malls (`mall`: roof car park, skylights), domed capitols (`capitol`)
+  and columned halls (`hall`), shares in `BLOCK_KINDS`; the big buildings need dry ground, else towers. No
+  empty plazas. Each road step, span and block is built by the chunk holding its centre.
   Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
 - The city rises from sunken streets (Guillaume, 2026-11-26: "very flat... it doesn't go as high as a city
   should"). Nothing may rise past the ship, so its whole floor (streets, canals, `Game.ground_y`, the ground
