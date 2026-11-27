@@ -5,6 +5,7 @@ const T := 32
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
+const Squads := preload("res://scripts/squads.gd")  # squads on the bottom strip
 const GFX := preload("res://scripts/gfx.gd")    # graphics level: Low, Medium, High
 
 var S: Sim
@@ -43,9 +44,10 @@ var mini_t := 0.0
 var preview_slots: Array = []
 var pv_from = null
 var pv_to = null
-var squad_key := ""   # squad button that made the current selection (lit until the selection changes)
-var squad_set: Array = []
-var groups := [[], [], [], []]   # army groups: unit ids per chip on the left edge
+var sq := Squads.new()           # squads on the bottom strip (scripts/squads.gd)
+var sel_src := ""                # "all", "sq" or "new" while the selection is (part of) what a chip picked, else ""
+var sel_set: Array = []          # what that chip picked
+var sq_full_t := -99.0           # when the "five squads" warning last showed
 var obj_t := 0.0                 # seconds the objective box stays open
 var obj_gi := -1
 const OBJ_SHOW := 8.0
@@ -175,38 +177,78 @@ func show_objective() -> void:
 func hide_objective() -> void:
 	obj_t = 0; _obj_vis()
 
-# ---------------- army groups ----------------
-func _group_units(i: int) -> Array:
-	return S.ents.filter(func(e): return e.alive and e.kind == "u" and e.team == 0 and not e.captive and groups[i].has(e.id))
-
-## Tap: select the group; tap again (already selected): centre the camera on it.
-## Hold (or tap an empty group with units selected): store the selected units in it.
-func group_btn(i: int, hold: bool) -> void:
+# ---------------- squads ----------------
+## A chip on the bottom strip: n > 0 a squad, 0 ALL, -1 NEW (units in no squad).
+## Tap: select those units; tap again (already selected): centre the camera on them.
+func squad_tap(n: int) -> void:
 	if S.teams.is_empty(): return
-	var units := _group_units(i)
-	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
-	if hold or units.is_empty():
-		if sel_u.size():
-			groups[i] = sel_u.map(func(e): return e.id)
-			toast("Group %d · %d units" % [i + 1, sel_u.size()]); buzz(25); sfx("click"); tut.ev("group", i, "store")
-		elif hold:
-			groups[i] = []; toast("Group %d cleared" % (i + 1))
-		else: toast("Select units, then hold %d to store them" % (i + 1))
-		_group_chips(); return
+	sq.prune(S)
+	var units: Array
+	if n > 0: units = sq.members(S, n)
+	elif n == 0: units = S.ents.filter(func(e): return Squads.eligible(e) and not e.d.eng)
+	else: units = sq.fresh(S)
+	units = units.filter(func(e): return e.intun <= 0)
+	if units.is_empty():
+		toast("No units of yours in the field" if n == 0 else "Every unit is in a squad"); _squad_chips(); return
 	var ids := units.map(func(e): return e.id); ids.sort()
-	var cur := sel_u.map(func(e): return e.id); cur.sort()
+	var cur := S.sel.map(func(e): return e.id); cur.sort()
 	if ids == cur:
 		var c := Vector2()
 		for e in units: c += Vector2(e.x, e.y)
-		c /= units.size(); V.center_on(c.x, c.y)
+		c /= units.size(); V.center_on(c.x, c.y); sfx("click")
 	else:
+		sel_src = "sq" if n > 0 else ("all" if n == 0 else "new"); sel_set = units
 		S.set_sel(units); sfx("click"); buzz(10)
-	tut.ev("group", i, "select")
+		var on := units.any(func(e): return V.on_screen(e.x, e.y))
+		if not on: V.center_on(units[0].x, units[0].y)
+	if n > 0: tut.ev("group_recall", n - 1)
 
-func _group_chips() -> void:
-	for i in 4:
-		var n := _group_units(i).size(); var b = U.btn["grp%d" % i]
-		if b.n != n: b.n = n; b.queue_redraw()
+## The selection is a squad and fresh units wait: JOIN sends them to it.
+func join_btn() -> void:
+	var n := sq.matching(S, S.sel)
+	var add := sq.fresh(S).filter(func(e): return e.intun <= 0)
+	if n == 0 or add.is_empty(): return
+	sq.join(S, n, add)
+	var m := sq.members(S, n)
+	var c := Vector2()
+	for e in S.sel: c += Vector2(e.x, e.y)
+	c /= max(1, S.sel.size())
+	S.group_move(add, c.x, c.y, "move")
+	sel_src = "sq"; sel_set = m
+	S.set_sel(m.filter(func(e): return e.intun <= 0))
+	toast("%d units join squad %d" % [add.size(), n]); sfx("ack"); buzz(12); _squad_chips()
+
+## A type chip: keep only the selected units of that type.
+func type_btn(t: String) -> void:
+	var keep := S.sel.filter(func(e): return e.kind == "u" and e.type == t)
+	if keep.is_empty(): return
+	S.set_sel(keep); sfx("click"); buzz(8)
+
+## Units of a selection that just got an order become (or stay) a squad.
+func _squad_order(units: Array) -> void:
+	if sel_src == "all": return
+	var before := sq.matching(S, units)
+	var n := sq.formed(S, units)
+	if n == -1:
+		if S.time - sq_full_t > 20: toast("Five squads already: order two together to merge them", "warn"); sq_full_t = S.time
+	elif n > 0 and n != before:
+		toast("Squad %d · %d units" % [n, sq.members(S, n).size()]); tut.ev("squad", n - 1)
+	_squad_chips()
+
+func _squad_chips() -> void:
+	sq.prune(S)
+	var lit := sq.matching(S, S.sel)
+	for n in range(1, Squads.MAX + 1):
+		var b = U.btn["sq%d" % n]
+		var st := sq.status(S, n) if sq.find(n) != null else {}
+		b.visible = not st.is_empty()
+		b.set_state(st, lit == n)
+	var all := S.ents.filter(func(e): return Squads.eligible(e) and not e.d.eng)
+	U.btn.sq_all.visible = all.size() > 0
+	U.btn.sq_all.set_state({"n": all.size()}, sel_src == "all" and S.sel.size() == all.size())
+	var fr := sq.fresh(S)
+	U.btn.sq_new.visible = fr.size() > 0
+	U.btn.sq_new.set_state({"n": fr.size()}, sel_src == "new" and S.sel.size() == fr.size())
 
 ## A short vibration on phones to confirm an order or a selection.
 func buzz(ms: int) -> void:
@@ -251,7 +293,7 @@ func on_world_changed() -> void:
 	V.refresh_decor()
 
 func on_sel_changed() -> void:
-	if squad_key != "" and S.sel != squad_set: squad_key = ""
+	if sel_src != "" and not S.sel.all(func(e): return sel_set.has(e)): sel_src = ""
 	update_cmd()
 
 func on_vision() -> void:
@@ -467,7 +509,7 @@ func play(opt: Dictionary) -> void:
 
 func new_game(d: String, opt: Dictionary) -> void:
 	placing = null; amove = false; box_mode = false; sw_aim = false; gest = null; ptrs.clear()
-	groups = [[], [], [], []]; obj_t = OBJ_SHOW; obj_gi = -1
+	sq.reset(); sel_src = ""; sel_set = []; sq_full_t = -99.0; obj_t = OBJ_SHOW; obj_gi = -1
 	S.new_game(d, opt)
 	diff = S.diff
 	V.build_world()
@@ -604,7 +646,7 @@ func refresh_panel(_force := false) -> void:
 	_obj_vis()
 	_panel_alert()
 	_prod_chips(tm)
-	_group_chips()
+	_squad_chips()
 
 func hud_tick(dt: float) -> void:
 	var tm: Dictionary = S.teams[0]
@@ -715,21 +757,6 @@ func confirm_place() -> void:
 	end_placing(); refresh_panel(true)
 
 # ---------------- commands ----------------
-func squad_btn(k: String) -> void:
-	if S.teams.is_empty(): return
-	var a := S.ents.filter(func(e): return e.alive and e.kind == "u" and e.team == 0 and not e.captive and e.intun <= 0 and not e.d.harv and not e.d.eng and (k == "all" or ((e.order == "none" and e.target == null) if k == "idle" else e.d.cat == k)))
-	squad_key = k if a.size() else ""; squad_set = a
-	S.set_sel(a)
-	update_cmd()
-	if a.size():
-		sfx("click")
-		var x := 0.0; var y := 0.0; var any_on := false
-		for u in a:
-			x += u.x; y += u.y
-			if V.on_screen(u.x, u.y): any_on = true
-		if k == "idle" or not any_on: V.center_on(x / a.size(), y / a.size())
-	else: toast("No idle units" if k == "idle" else "No units of that kind")
-
 func toggle_formation() -> void:
 	S.formation = not S.formation; sfx("click"); update_cmd()
 	toast("Formation moves on" if S.formation else "Formation off: units go straight to the spot")
@@ -748,7 +775,10 @@ func cmd_btn(k: String) -> void:
 					if u.d.harv: u.hs = "idle"
 		"desel": S.set_sel([])
 		"fuse":
-			if S.fuse(0, S.sel) == null: toast("Fusion needs %d Thralls" % D.HUM.fuse, "warn")
+			var ids := S.sel.map(func(e): return e.id)
+			var knot = S.fuse(0, S.sel)
+			if knot == null: toast("Fusion needs %d Thralls" % D.HUM.fuse, "warn")
+			else: sq.replace(ids.filter(func(i): return not S.ents.any(func(e): return e.id == i and e.alive)), knot); _squad_chips()
 			update_cmd()
 		"muster":
 			if S.muster(0) == 0: toast("The Hearths have already answered this battle", "warn")
@@ -775,6 +805,24 @@ func cmd_btn(k: String) -> void:
 			var ref := S.sell(b)
 			S.set_sel([]); toast("Sold for %d" % ref, "gold"); sfx("place"); refresh_panel(true)
 
+## JOIN (the selection is a squad and fresh units wait) and the type chips of a mixed selection.
+func _squad_cmd(units: Array) -> void:
+	var n := sq.matching(S, S.sel) if units.size() == S.sel.size() else 0
+	var fr := sq.fresh(S).size() if n else 0
+	U.btn.join.visible = fr > 0
+	if fr: U.btn.join.text = "JOIN +%d" % fr
+	var by := {}; var order := []
+	for u in units:
+		if not by.has(u.type): by[u.type] = 0; order.append(u.type)
+		by[u.type] += 1
+	order.sort_custom(func(a, b): return by[a] > by[b])
+	for i in U.type_btns.size():
+		var b: Button = U.type_btns[i]
+		b.visible = order.size() > 1 and i < order.size()
+		if b.visible:
+			var t: String = order[i]
+			b.set_meta("type", t); b.text = "%s %d" % [String(D.UN[t].name).get_slice(" ", String(D.UN[t].name).get_slice_count(" ") - 1).to_upper(), by[t]]
+
 func toggle_mode() -> void:
 	box_mode = not box_mode; update_cmd(); sfx("click")
 
@@ -796,10 +844,7 @@ func update_cmd() -> void:
 	U.btn.fuse.visible = units.filter(func(u): return u.team == 0 and u.d.fuse != "").size() >= D.HUM.fuse
 	U.set_on(U.btn.amove, amove)
 	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
-	for k in ["all", "inf", "veh", "air", "idle"]:
-		var lit: bool = squad_key == k
-		U.set_on(U.btn[k], lit)
-		U.btn[k].text = k.to_upper() + (" · %d" % S.sel.size() if lit else "")
+	_squad_cmd(units)
 	U.update_mode(box_mode)
 	if S.sel.size():
 		U.selinfo.visible = true
@@ -919,6 +964,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 	S.set_sel([])
 
 func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width := 0.0) -> void:
+	_squad_order(units)
 	var combat := units.filter(func(u): return u.d.dmg > 0)
 	var harvs := units.filter(func(u): return u.d.harv)
 	var engs := units.filter(func(u): return u.d.eng)
@@ -988,6 +1034,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 	elif ev is InputEventKey:
 		var k: String = OS.get_keycode_string(ev.keycode).to_lower()
 		keys[k] = ev.pressed
+		if ev.pressed and not ev.echo and ev.keycode >= KEY_1 and ev.keycode <= KEY_5: squad_tap(ev.keycode - KEY_0)
 		if ev.pressed and ev.keycode == KEY_ESCAPE:
 			if placing != null: end_placing()
 			elif amove: amove = false; update_cmd()
@@ -1412,6 +1459,8 @@ func _autotest(dir: String) -> void:
 		await _radio_shots(dir); get_tree().quit(); return
 	if mode == "fields":
 		await _field_shots(dir); get_tree().quit(); return
+	if mode == "squads":
+		await _squad_shots(dir); get_tree().quit(); return
 	if mode == "themes":
 		await _theme_shots(dir); get_tree().quit(); return
 	if mode == "battle":
@@ -1759,6 +1808,51 @@ func _theme_shots(dir: String) -> void:
 			V.cam_z = 1.6; V.center_on(best.x * T, best.y * T)
 			await get_tree().create_timer(.35).timeout
 			await _shot(dir + "/theme_%s_river.png" % th)
+
+## AF_MODE=squads: the squad strip. Three squads formed by orders (one under fire, one idle), fresh units in NEW,
+## squad 1 selected with JOIN showing, then a mixed selection with its type chips. AF_FAC picks the army.
+func _squad_shots(dir: String) -> void:
+	play({"fac": OS.get_environment("AF_FAC") if OS.get_environment("AF_FAC") != "" else "ashen", "enemy": "vanguard", "diff": "normal"})
+	for i in 20 * 150:
+		S.step(0.05)
+		if i % 20 == 0: S.ai_think(S.teams[0])
+	S.teams[0].auto = false
+	var c := Vector2(S.p0.x * T + 16, (S.p0.y - 1) * T)
+	var army := S.ents.filter(func(e): return Squads.eligible(e) and not e.d.eng and e.intun <= 0)
+	for t in army.map(func(e): return e.type).slice(-2):   # a few more of the rarer types, so three squads fit
+		for i in 3: S.spawn_unit(0, t, c.x + randf_range(-40, 40), c.y + randf_range(20, 60))
+	army = S.ents.filter(func(e): return Squads.eligible(e) and not e.d.eng and e.intun <= 0)
+	var by := {}
+	for e in army: by[e.type] = by.get(e.type, []) + [e]
+	var types := by.keys(); types.sort_custom(func(a, b): return by[a].size() > by[b].size())
+	print("SQUADS army ", army.size(), " types ", types.map(func(t): return [t, by[t].size()]))
+	# squad 1: the biggest type plus one of the second (mixed), squad 2: the rest of the second, squad 3: two of the third
+	var s1: Array = by[types[0]].slice(0, 6) + (by[types[1]].slice(0, 2) if types.size() > 1 else [])
+	S.set_sel(s1); command(null, c.x + 60, c.y + 30, s1)
+	if types.size() > 1 and by[types[1]].size() > 3:
+		var s2: Array = by[types[1]].slice(2, 5)
+		S.set_sel(s2); command(null, c.x + 120, c.y - 40, s2)
+	if types.size() > 2 and by[types[2]].size() >= 2:
+		var s3: Array = by[types[2]].slice(0, 2)
+		S.set_sel(s3); command(null, c.x - 40, c.y + 60, s3)
+	for i in 60: S.step(0.05)
+	var q2 = sq.find(2)
+	if q2 != null:
+		for e in sq.members(S, 2): e.hit_t = 3.0; e.hp = e.max_hp * 0.45
+	print("SQUADS ", sq.list.map(func(q): return [q.n, q.ids.size()]), " new ", sq.fresh(S).size())
+	S.set_sel([]); squad_tap(1); V.center_on(c.x + 60, c.y + 30)
+	_squad_chips(); update_cmd()
+	await get_tree().create_timer(0.6).timeout
+	await _shot(dir + "/squads_1_join.png")
+	S.set_sel(sq.members(S, 1)); sel_src = ""; update_cmd()
+	await get_tree().create_timer(0.3).timeout
+	print("SQUADS type chips ", U.type_btns.filter(func(b): return b.visible).map(func(b): return b.text))
+	join_btn()
+	await get_tree().create_timer(0.4).timeout
+	await _shot(dir + "/squads_2_joined.png")
+	squad_tap(0)
+	await get_tree().create_timer(0.3).timeout
+	await _shot(dir + "/squads_3_all_types.png")
 
 ## AF_MODE=fields: living fields. One ore field fresh, one tired (half its vitality), one killed (grey stumps).
 func _field_shots(dir: String) -> void:
@@ -2308,10 +2402,11 @@ func _input_test() -> void:
 	queue_many("inf", inf_t, 5)
 	print("INPUT queue five: ", S.teams[0].prod.inf.queue.size() + (1 if S.teams[0].prod.inf.cur != "" else 0))
 	var rifles := S.ents.filter(func(e): return e.alive and e.team == 0 and e.type == "rifle")
-	S.set_sel(rifles); group_btn(1, true); S.set_sel([])
-	group_btn(1, false); print("INPUT group 2 select: ", S.sel.size(), " of ", rifles.size())
-	V.center_on(D.WW / 2.0, D.WH / 2.0); group_btn(1, false)
-	print("INPUT group 2 recentre: cam ", Vector2(V.cam_x, V.cam_y), " group at ", Vector2(rifles[0].x, rifles[0].y))
+	# squads: an order forms squad 1; its chip selects it, a second tap centres the camera on it
+	S.set_sel(rifles); command(null, rifles[0].x + 20, rifles[0].y, rifles); S.set_sel([])
+	squad_tap(1); print("INPUT squad 1 select: ", S.sel.size(), " of ", rifles.size(), " squads ", sq.list.size())
+	V.center_on(D.WW / 2.0, D.WH / 2.0); squad_tap(1)
+	print("INPUT squad 1 recentre: cam ", Vector2(V.cam_x, V.cam_y), " squad at ", Vector2(rifles[0].x, rifles[0].y))
 	click_item("bld", "power"); S.step(0.5)
 	if U.panel_open: toggle_panel()
 	toggle_big_map(); refresh_panel(true); render_mini()

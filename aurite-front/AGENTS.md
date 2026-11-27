@@ -300,3 +300,14 @@ in your PR, keep it short, and mention the change in the PR description.
 - Battle effects (phase 6): smoke, flashes and flames use `Nature.puff()` (a smooth round puff) with
   rims that fade by `dot(NORMAL, VIEW)`, so smoke reads soft and fire as glowing balls. `View3D.apply_gfx` rebuilds the
   effect batches. `AF_MODE=battle` shoots two armies trading fire.
+
+## Squads (Guillaume 2026-11-27: "auto groups that would merge the bottom and numbered group")
+
+- One squad strip at the bottom left replaces the old army groups 1-4 (left edge, hold to store) and the
+  ALL/INF/VEH/AIR/IDLE buttons. Rules live in `scripts/squads.gd` (preloaded as `Squads`, no class_name):
+  a selection of 2+ units that gets an order (`main.command` calls `_squad_order`) becomes a squad; a unit is in one
+  squad; part of a squad splits off, whole squads merge into the lowest number; five squads at most; deaths only shrink.
+  A selection made by ALL (`main.sel_src == "all"`) never reshuffles squads.
+- Chips: `UI.SquadChip` (key > 0 squad, 0 ALL, -1 NEW). JOIN (`U.btn.join`) and type chips (`U.type_btns`) sit in
+  cmd_top. Tutorial drills use the `group_recall` event (a squad chip selecting squad i + 1).
+- `squad_tests()` in `tests/sim_test.gd`; `AF_MODE=squads` shoots the strip, JOIN and type chips at phone size.
