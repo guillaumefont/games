@@ -446,7 +446,10 @@ func _build_panel() -> void:
 	# what the selection can do: building orders, and unit orders
 	ctx_acts = GridContainer.new(); ctx_acts.columns = 3; ctx_acts.add_theme_constant_override("h_separation", 4); ctx_acts.add_theme_constant_override("v_separation", 6)
 	v.add_child(ctx_acts)
-	for pair in [["upgrade", "Upgrade", "up"], ["repair", "Repair", "repair"], ["muster", "Muster", "inf"], ["fuse", "Fuse", "inf"], ["sell", "Sell", "sell"]]:
+	# building orders, then unit orders (stances for every army, then each army's own)
+	for pair in [["upgrade", "Upgrade", "up"], ["repair", "Repair", "repair"], ["muster", "Muster", "inf"], ["sell", "Sell", "sell"],
+			["hold", "Hold", "hold"], ["nofire", "No fire", "nofire"], ["scatter", "Scatter", "scatter"], ["home", "To base", "home"],
+			["jump", "Jump", "jump"], ["strip", "Strip", "strip"], ["fuse", "Fuse", "fuse"]]:
 		var k: String = pair[0]
 		var b := mkbtn("", func(): main.cmd_btn(k), 0, 46, 11, pair[2]); b.custom_minimum_size.x = (PANEL_W - 16 - 8) / 3.0
 		b.cap = String(pair[1]).to_upper(); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -703,7 +706,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building or units for their orders (Upgrade, Repair, Sell, Muster, Fuse). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected. MAP opens a large minimap."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
+	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected. MAP opens a large minimap."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -2106,6 +2109,38 @@ static func glyph(c: CanvasItem, k: String, r: Rect2, col: Color, lw := 2.0) -> 
 		"obj":  # pennant on a pole
 			c.draw_line(P.call(0.22, 0.04), P.call(0.22, 0.98), col, lw)
 			c.draw_colored_polygon(_pts(r, [0.22, 0.06, 0.9, 0.2, 0.64, 0.33, 0.9, 0.48, 0.22, 0.48]), col)
+		"hold":  # shield
+			c.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.88, 0.18, 0.84, 0.56, 0.5, 0.96, 0.16, 0.56, 0.12, 0.18]), col)
+			c.draw_colored_polygon(_pts(r, [0.5, 0.18, 0.74, 0.27, 0.71, 0.54, 0.5, 0.8]), dk)
+		"nofire":  # crosshair struck through
+			var ctr: Vector2 = P.call(0.5, 0.5)
+			c.draw_arc(ctr, r.size.x * 0.34, 0, TAU, 24, col, lw, true)
+			for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+				c.draw_line(ctr + d * r.size.x * 0.2, ctr + d * r.size.x * 0.48, col, lw)
+			c.draw_line(P.call(0.12, 0.88), P.call(0.88, 0.12), Color("ff5a52"), lw + 1.0, true)
+		"scatter":  # four arrows out from the middle
+			var ctr: Vector2 = P.call(0.5, 0.5)
+			for kk in 4:
+				var dv := Vector2.from_angle(PI / 4 + kk * PI / 2)
+				var tip := ctr + dv * r.size.x * 0.48; var base := ctr + dv * r.size.x * 0.14
+				c.draw_line(base, tip, col, lw, true)
+				c.draw_colored_polygon(PackedVector2Array([tip, tip - dv * r.size.x * 0.2 + dv.orthogonal() * r.size.x * 0.1, tip - dv * r.size.x * 0.2 - dv.orthogonal() * r.size.x * 0.1]), col)
+		"home":  # house
+			c.draw_colored_polygon(_pts(r, [0.5, 0.06, 0.96, 0.46, 0.84, 0.46, 0.84, 0.94, 0.16, 0.94, 0.16, 0.46, 0.04, 0.46]), col)
+			c.draw_rect(Rect2(P.call(0.42, 0.62), r.size * Vector2(0.16, 0.32)), dk)
+		"jump":  # arc with an arrow at its end
+			c.draw_arc(P.call(0.5, 0.8), r.size.x * 0.4, PI, TAU - 0.35, 18, col, lw + 0.5, true)
+			c.draw_colored_polygon(_pts(r, [0.98, 0.66, 0.72, 0.62, 0.9, 0.42]), col)
+			c.draw_rect(Rect2(P.call(0.04, 0.82), r.size * Vector2(0.92, 0.08)), dk)
+		"strip":  # pickaxe
+			c.draw_line(P.call(0.2, 0.92), P.call(0.66, 0.34), col, lw + 1.0, true)
+			c.draw_arc(P.call(0.6, 0.48), r.size.x * 0.42, -PI * 0.95, -PI * 0.2, 14, col, lw + 1.5, true)
+		"fuse":  # three dots drawn into one
+			for kk in 3:
+				var a := -PI / 2 + kk * TAU / 3
+				c.draw_circle(P.call(0.5, 0.52) + Vector2.from_angle(a) * r.size.x * 0.36, r.size.x * 0.11, dk)
+				c.draw_line(P.call(0.5, 0.52) + Vector2.from_angle(a) * r.size.x * 0.24, P.call(0.5, 0.52) + Vector2.from_angle(a) * r.size.x * 0.12, col, lw)
+			c.draw_circle(P.call(0.5, 0.52), r.size.x * 0.17, col)
 		"lock":
 			c.draw_arc(P.call(0.5, 0.42), r.size.x * 0.2, PI, TAU, 12, col, lw)
 			c.draw_line(P.call(0.3, 0.42), P.call(0.3, 0.5), col, lw); c.draw_line(P.call(0.7, 0.42), P.call(0.7, 0.5), col, lw)

@@ -134,6 +134,8 @@ func _ready():
 		print("ONLY ", choir_tests(s, h, OS.get_environment("AF_ONLY") == "choirsoak")); get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "vanguard":
 		print("ONLY ", vanguard_tests(s, h)); get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "orders":
+		print("ONLY ", order_tests(s, h)); get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "gfx":
 		print("ONLY ", gfx_tests()); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
@@ -205,6 +207,7 @@ func _ready():
 	if not cutscene_tests(s, h): get_tree().quit(1); return
 	if not tutorial_tests(s, h): get_tree().quit(1); return
 	if not squad_tests(s, h): get_tree().quit(1); return
+	if not order_tests(s, h): get_tree().quit(1); return
 	if not gfx_tests(): get_tree().quit(1); return
 	print("SIM TEST DONE")
 	get_tree().quit()
@@ -1098,4 +1101,49 @@ func squad_tests(s, h) -> bool:
 	var st: Dictionary = q.status(s, 1)
 	if st.n != 6 or st.hp <= 0.9 or st.name == "": return _qfail("bad status for squad 1: " + str(st))
 	print("squads ok")
+	return true
+
+func _ofail(msg: String) -> bool:
+	print("ORDER TEST FAILED: ", msg); return false
+
+## Unit orders from the side panel: Hold ground (fights only what is in reach), Hold fire, JUMP and the Scrapper's strip.
+func order_tests(s, h) -> bool:
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 91})
+	for e in s.ents:
+		if e.team == 1: e.alive = false
+	s.ents = s.ents.filter(func(e): return e.alive)
+	var x := 20.0 * D.T + 16; var y := 30.0 * D.T + 16
+	# an enemy in sight but out of reach: a free rifle goes for it, a holding one stays put
+	var free = s.spawn_unit(0, "rifle", x, y); var held = s.spawn_unit(0, "rifle", x, y + 0.6 * D.T); var quiet = s.spawn_unit(0, "rifle", x, y - 0.6 * D.T)
+	held.hold = true; quiet.nofire = true
+	var foe = s.spawn_unit(1, "militia", x + (free.d.range + free.d.sight) / 2.0 * D.T, y)
+	foe.post = true; foe.d = foe.d.duplicate(); foe.d.dmg = 0; foe.d.spd = 0.0
+	var h0 := Vector2(held.x, held.y)
+	for i in 60: s.step(0.05)
+	print("orders: free moved ", snappedf(Vector2(free.x, free.y).distance_to(Vector2(x, y)) / D.T, 0.1), " held moved ", snappedf(Vector2(held.x, held.y).distance_to(h0) / D.T, 0.1), " quiet target ", quiet.target != null)
+	if free.target != foe: return _ofail("a free rifle did not take the enemy in sight")
+	if Vector2(held.x, held.y).distance_to(h0) > D.T * 0.6: return _ofail("a rifle holding ground chased an enemy out of reach")
+	if quiet.target != null: return _ofail("a rifle holding fire picked a target")
+	# JUMP: a Jump Trooper leaps toward the spot at once, then must wait for its jets
+	var j = s.spawn_unit(0, "jump", x, y + 8 * D.T)
+	var j0 := Vector2(j.x, j.y)
+	if not s.jump_to(j, x + 10 * D.T, y + 8 * D.T): return _ofail("jump_to refused a ready Jump Trooper")
+	for i in 20: s.step(0.05)
+	if Vector2(j.x, j.y).distance_to(j0) < 3 * D.T: return _ofail("the Jump Trooper did not leap")
+	if s.jump_to(j, x, y + 8 * D.T): return _ofail("a second jump went off during the cooldown")
+	# Strip: a Scrapper set to strip takes a fresh wreck apart for aurite instead of reviving it
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 92})
+	var sc = s.spawn_unit(0, "scrapper", x, y)
+	sc.strip = true
+	var tank = s.spawn_unit(1, "tank", x + D.T, y)
+	s.kill(tank)
+	if s.wrecks.is_empty(): return _ofail("a destroyed tank left no wreck")
+	var w: Dictionary = s.wrecks[-1]
+	if w.intact < D.WRECK.revive: return _ofail("the fresh wreck could not be revived anyway")
+	var c0: float = s.teams[0].credits; var n0: int = s.count(0, w.type)
+	s.scrap_order([sc], w)
+	for i in 20 * 30: s.step(0.05)
+	print("orders: strip credits +", int(s.teams[0].credits - c0), " ", w.type, " ", n0, " -> ", s.count(0, w.type), " wreck left ", s.wrecks.has(w))
+	if s.wrecks.has(w) or s.count(0, w.type) > n0: return _ofail("a stripping Scrapper revived the wreck or left it")
+	print("ORDER TESTS OK")
 	return true

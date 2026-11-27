@@ -248,6 +248,12 @@ in your PR, keep it short, and mention the change in the PR description.
   fuse, sell) live in `UI.ctx_acts` in the panel; the bottom-left `cmd_top` keeps Launch, Attack, Stop, deselect and the
   squad strip's type chips. With the panel hidden, selecting a building (or Thralls that can fuse) "peeks" it open
   (`peek`, `_show_panel`) until the selection clears. `AF_MODE=ctx` (AF_FAC=one) shoots every context per army.
+- Unit orders in the panel (phase 2, same day): stances `Ent.hold` (Hold ground: auto-targets only within weapon range
+  and walks back to its spot, via the leash in `Sim.upd_unit`) and `Ent.nofire` (no auto targets; an attack order still
+  fires), Scatter, To base (the Yard's rally point), JUMP (`main.jump_aim`, then `Sim.jump_to`, 12 s cooldown shown on
+  the button), STRIP (`Ent.strip`: a Scrapper strips even a revivable wreck) and FUSE. `main._unit_btns` shows the ones
+  the selection can use; an army's own button acts only on the units that have it. The AI never sets these.
+  `order_tests` in `tests/sim_test.gd` (`AF_ONLY=orders`).
 - Phone HUD extras (2026-11-14): producer chips in the top bar (`UI.ProdChip`, one per kind of producer you own,
   `main.producers` from `_setup_producers`, `_prod_chips`, `prod_chip_tap(bt)` selects it, 2026-11-27), MAP = enlarged minimap (`UI.big_map`, draws the panel minimap's texture), army groups
   (`main.groups`, `group_btn`), objective auto-hide (`obj_t`, `OBJ_SHOW`), drag-to-build from `BuildItem`
