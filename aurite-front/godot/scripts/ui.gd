@@ -1,6 +1,7 @@
 class_name UI
 extends Control
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
+const Squads := preload("res://scripts/squads.gd")
 ## All screen UI, built in code: HUD, side panel, overlays. Game logic lives in main.gd.
 
 const C_BG := Color("0b0f12")
@@ -82,7 +83,7 @@ var mini: Control
 var big_map: Control      # enlarged minimap floating over the view (MAP button)
 var prod_chips := {}      # cat -> ProdChip: what is being built, shown in the top bar while the panel is hidden
 var obj_btn: Button       # brings the objective back after it hides itself
-var groups_box: VBoxContainer
+var type_btns: Array = []   # type chips of a mixed selection (keep only that type)
 var tabs := {}
 var grid: GridContainer
 var grid_scroll: ScrollContainer
@@ -261,20 +262,8 @@ func _build_hud() -> void:
 	radio_l = lbl("", f_body, 16, W_KHAKI); radio_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; radio_l.custom_minimum_size.x = 380; rdv.add_child(radio_l)
 	radio_box.anchor_left = 0.5; radio_box.anchor_right = 0.5; radio_box.offset_top = 66; radio_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	radio_box.visible = false; hud.add_child(radio_box)
-	# army groups on the left edge: tap selects the group, tap again centres the camera, hold stores the selection
-	# pinned under the OBJECTIVE button: at the phone's 1.5x scale the HUD is only ~400 units tall, so 4 x 36 fits above the command rows
-	groups_box = VBoxContainer.new(); groups_box.add_theme_constant_override("separation", 4); groups_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	groups_box.position = Vector2(8, 114)
-	hud.add_child(groups_box)
-	for i in 4:
-		var g := GroupChip.new(); g.ui = self; g.idx = i; g.focus_mode = Control.FOCUS_NONE; g.custom_minimum_size = Vector2(58, 36)
-		for st in ["normal", "hover", "pressed", "disabled"]: g.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-		g.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		g.button_down.connect(func(): g.set_meta("t0", Time.get_ticks_msec()))
-		g.button_up.connect(func(): main.group_btn(i, Time.get_ticks_msec() - int(g.get_meta("t0", 0)) > 500))
-		groups_box.add_child(g); btn["grp%d" % i] = g
-	hud.move_child(obj_box, -1)  # the objective box opens over the group chips for its few seconds
-	# two rows in the bottom-left corner, close to the thumb: unit groups at the bottom, orders above
+	hud.move_child(obj_box, -1)
+	# two rows in the bottom-left corner, close to the thumb: the squad strip at the bottom, orders above
 	cmd_row = VBoxContainer.new(); cmd_row.add_theme_constant_override("separation", 6); cmd_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cmd_row.anchor_top = 1; cmd_row.anchor_bottom = 1; cmd_row.offset_left = 8; cmd_row.offset_bottom = -8
 	cmd_row.grow_vertical = Control.GROW_DIRECTION_BEGIN; cmd_row.alignment = BoxContainer.ALIGNMENT_END
@@ -283,15 +272,26 @@ func _build_hud() -> void:
 	cmd_bot = HBoxContainer.new(); cmd_bot.add_theme_constant_override("separation", 6); cmd_bot.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_bot)
 	var fb := mkbtn("Formation", func(): main.toggle_formation(), 150.0, 48.0, 12, "form"); cmd_bot.add_child(fb); btn["form"] = fb
 	var gap := Rule.new(); gap.vertical = true; gap.custom_minimum_size = Vector2(6, 0); cmd_bot.add_child(gap)
-	for k in ["all", "inf", "veh", "air", "idle"]:
-		var b := mkbtn(k, func(): main.squad_btn(k), 76.0, 48.0, 12, k)
-		cmd_bot.add_child(b); btn[k] = b
+	# squad strip: ALL, squads 1 to 5 (only those that exist), NEW (units in no squad). See scripts/squads.gd.
+	for n in range(0, Squads.MAX + 2):
+		var key := n if n <= Squads.MAX else -1
+		var c := SquadChip.new(); c.ui = self; c.key = key; c.focus_mode = Control.FOCUS_NONE
+		c.custom_minimum_size = Vector2(76 if key == 0 else (84 if key == -1 else 100), 48)
+		for st in ["normal", "hover", "pressed", "disabled", "focus"]: c.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+		c.pressed.connect(func(): main.squad_tap(key))
+		c.visible = false
+		cmd_bot.add_child(c); btn["sq_all" if key == 0 else ("sq_new" if key == -1 else "sq%d" % key)] = c
 	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["upgrade", "Upgrade", "up"], ["muster", "Muster", "inf"], ["fuse", "Fuse", "inf"], ["repair", "Repair", "repair"], ["sell", "Sell", "sell"], ["desel", "", "x"]]:
 		var k: String = pair[0]
 		var b := mkbtn(pair[1], func(): main.cmd_btn(k), 0, 44, 12, pair[2]); cmd_top.add_child(b); btn[k] = b; b.visible = false
 	set_on(btn.sw, true)
 	selinfo = lbl("", f_body6, 12, W_SAND); selinfo.size_flags_vertical = Control.SIZE_SHRINK_CENTER; cmd_top.add_child(selinfo)
 	selinfo.add_theme_constant_override("outline_size", 4); selinfo.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	for i in 4:
+		var tb := mkbtn("", func(): main.type_btn(type_btns[i].get_meta("type", "")), 0, 40, 11); tb.visible = false
+		cmd_top.add_child(tb); type_btns.append(tb)
+	var jb := mkbtn("Join", func(): main.join_btn(), 0, 44, 12, "all"); jb.visible = false; set_on(jb, true)
+	cmd_top.add_child(jb); btn["join"] = jb
 	mode_btn = ModeDial.new(); mode_btn.ui = self; mode_btn.focus_mode = Control.FOCUS_NONE; mode_btn.custom_minimum_size = Vector2(88, 88)
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]: mode_btn.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 	mode_btn.anchor_left = 1; mode_btn.anchor_right = 1; mode_btn.anchor_top = 1; mode_btn.anchor_bottom = 1
@@ -678,7 +678,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "» in the top bar hides the build menu and minimap for a wider view; « BUILD brings them back. While it is hidden, the top bar shows what is in production (tap a ready building to place it). MAP opens a large minimap: tap or drag on it to look there."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["GROUPS", "Select units, then hold 1 to 4 on the left edge to store them. Tap a group to select it, tap again to jump to it. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
+	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "» in the top bar hides the build menu and minimap for a wider view; « BUILD brings them back. While it is hidden, the top bar shows what is in production (tap a ready building to place it). MAP opens a large minimap: tap or drag on it to look there."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -2136,24 +2136,43 @@ class HudBtn extends Button:
 			var gs := 18.0
 			UI.glyph(self, glyph, Rect2(12, (size.y - gs) / 2, gs, gs), col)
 
-## Army group chip: number, then the unit count as a brass tally; dim while empty.
-class GroupChip extends Button:
+## A chip on the squad strip. key > 0: a squad (number, count, main unit type, health bar, a red mark under fire, a
+## dim one while idle). 0: ALL. -1: NEW, the units in no squad.
+class SquadChip extends Button:
 	var ui
-	var idx := 0
-	var n := 0
+	var key := 0
+	var st := {}
+	var lit := false
+	func set_state(s: Dictionary, on: bool) -> void:
+		if s == st and on == lit: return
+		st = s.duplicate(); lit = on; queue_redraw()
 	func _draw() -> void:
-		var st := "pressed" if button_pressed else ("hover" if is_hovered() else "normal")
-		draw_style_box(ui.hsb(st, false, 6, 6), Rect2(Vector2.ZERO, size))
-		var a := 1.0 if n else 0.5
-		UI.ticks(self, size, Color(Color("d9a441"), 0.45 * a), 6.0)
-		var f: Font = ui.f_disp7
-		draw_string(f, Vector2(10, size.y / 2 + 7), str(idx + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(Color("d8cba3"), a))
-		if n:
-			draw_string(ui.f_disp, Vector2(28, size.y / 2 - 3), "×%d" % n, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, 11, Color("d9a441"))
-			for i in mini(n, 5):
-				draw_rect(Rect2(29 + i * 4.5, size.y / 2 + 3, 3, 7), Color("d9a441", 0.9))
-		else:
-			draw_string(ui.f_disp, Vector2(28, size.y / 2 + 4), "—", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(Color("a99c78"), 0.6))
+		var state := "pressed" if button_pressed else ("hover" if is_hovered() else "normal")
+		draw_style_box(ui.hsb(state, lit, 6, 6), Rect2(Vector2.ZERO, size))
+		var n: int = st.get("n", 0)
+		var kh := Color("ffd8d2") if lit else Color("d8cba3")
+		var brass := Color("d9a441")
+		if key == 0:
+			UI.glyph(self, "all", Rect2(9, size.y / 2 - 13, 16, 16), kh)
+			draw_string(ui.f_disp, Vector2(29, size.y / 2 + 1), "ALL", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, kh)
+			draw_string(ui.f_body, Vector2(10, size.y - 8), "%d units" % n, HORIZONTAL_ALIGNMENT_LEFT, size.x - 14, 10, Color("a99c78"))
+			return
+		if key == -1:
+			draw_string(ui.f_disp, Vector2(9, size.y / 2 + 1), "NEW", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, brass)
+			draw_string(ui.f_disp, Vector2(0, size.y / 2 + 1), "×%d" % n, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 9, 12, brass)
+			draw_string(ui.f_body, Vector2(9, size.y - 8), "no squad", HORIZONTAL_ALIGNMENT_LEFT, size.x - 14, 10, Color("a99c78"))
+			return
+		draw_string(ui.f_disp7, Vector2(9, size.y / 2 + 9), str(key), HORIZONTAL_ALIGNMENT_LEFT, -1, 24, kh)
+		draw_string(ui.f_disp, Vector2(0, 17), "×%d" % n, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 8, 12, brass)
+		if st.get("hit", false):
+			draw_string(ui.f_disp, Vector2(28, 17), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("ff5a52"))
+		elif st.get("idle", false):
+			draw_string(ui.f_body, Vector2(28, 16), "idle", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("a99c78"))
+		draw_string(ui.f_body, Vector2(0, size.y - 13), String(st.get("name", "")).to_upper().left(13), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 8, 9, Color("a99c78"))
+		var hp: float = st.get("hp", 0.0)
+		var bw := size.x - 16
+		draw_rect(Rect2(8, size.y - 8, bw, 3), Color("2a2f22"))
+		draw_rect(Rect2(8, size.y - 8, bw * hp, 3), Color("8fcf7a") if hp > 0.5 else (Color("f0b93f") if hp > 0.25 else Color("ff5a52")))
 
 ## Round MOVE / SELECT toggle (hidden by default since select is a hold-and-drag).
 class ModeDial extends Button:

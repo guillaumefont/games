@@ -1,5 +1,6 @@
 extends Node
 const Cutscenes := preload("res://scripts/cutscenes.gd")
+const Squads := preload("res://scripts/squads.gd")
 const TD := preload("res://scripts/tutorial_data.gd")  # no class_name: an installed shell would not know a new global class
 class Host:
 	var log := []
@@ -203,6 +204,7 @@ func _ready():
 	if not upgrade_tests(s, h): get_tree().quit(1); return
 	if not cutscene_tests(s, h): get_tree().quit(1); return
 	if not tutorial_tests(s, h): get_tree().quit(1); return
+	if not squad_tests(s, h): get_tree().quit(1); return
 	if not gfx_tests(): get_tree().quit(1); return
 	print("SIM TEST DONE")
 	get_tree().quit()
@@ -1046,4 +1048,54 @@ func gfx_tests() -> bool:
 	GFX.level = keep
 	Models.init_materials(fog)
 	print("GFX TESTS OK")
+	return true
+
+func _qfail(msg: String) -> bool:
+	print("SQUAD TEST FAILED: ", msg); return false
+
+## Squads (scripts/squads.gd): forming on an order, split, merge, the five-squad limit, deaths, NEW and JOIN.
+func squad_tests(s, h) -> bool:
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 77})
+	var q := Squads.new()
+	var mk := func(n: int) -> Array:
+		var a := []
+		for i in n: a.append(s.spawn_unit(0, "rifle", 300 + i * 8, 300))
+		return a
+	var a: Array = mk.call(6); var b: Array = mk.call(4)
+	if q.formed(s, [a[0]]) != 0: return _qfail("one unit formed a squad")
+	if q.formed(s, a) != 1 or q.formed(s, b) != 2: return _qfail("the first two orders should form squads 1 and 2")
+	if q.formed(s, a) != 1 or q.list.size() != 2: return _qfail("ordering squad 1 again changed the squads")
+	if q.fresh(s).any(func(e): return a.has(e) or b.has(e)): return _qfail("squad members are listed as new")
+	# split three off squad 1: they become squad 3, squad 1 keeps three
+	if q.formed(s, a.slice(0, 3)) != 3 or q.members(s, 1).size() != 3: return _qfail("splitting three off squad 1 failed")
+	# merge squads 1 and 2: the lowest number takes everyone
+	if q.formed(s, a.slice(3) + b) != 1 or q.find(2) != null or q.members(s, 1).size() != 7: return _qfail("merging squads 1 and 2 failed")
+	# a split that leaves one unit behind breaks that squad up
+	if q.formed(s, a.slice(1, 3)) != 2 or q.find(3) != null or q.of(a[0]) != 0: return _qfail("a squad cut down to one unit should break up")
+	# deaths shrink a squad; a lone survivor keeps its number, nobody left frees it
+	q.reset(); q.formed(s, a.slice(0, 2)); q.formed(s, a.slice(2, 4))
+	s.kill(a[0])
+	for i in 5: s.step(0.05)
+	q.prune(s)
+	if q.members(s, 1).size() != 1: return _qfail("a lone survivor should keep squad 1")
+	q.formed(s, b.slice(0, 2))
+	if q.find(1) == null: return _qfail("an unrelated order broke up a lone survivor's squad")
+	s.kill(a[1])
+	for i in 5: s.step(0.05)
+	q.prune(s)
+	if q.find(1) != null or q.find(2) == null: return _qfail("an emptied squad should go away and the others keep their numbers")
+	# five squads at most
+	q.reset()
+	var more: Array = mk.call(12)
+	for i in 5: q.formed(s, more.slice(i * 2, i * 2 + 2))
+	if q.list.size() != 5 or q.formed(s, more.slice(10, 12)) != -1: return _qfail("a sixth squad should be refused")
+	if q.formed(s, more.slice(0, 4)) != 1 or q.list.size() != 4: return _qfail("merging two squads should free a number")
+	# NEW and JOIN
+	var fr: Array = q.fresh(s)
+	if not fr.has(more[10]) or fr.has(more[0]): return _qfail("NEW should hold exactly the units in no squad")
+	if q.join(s, 1, [more[10], more[11]]) != 2 or q.of(more[11]) != 1: return _qfail("JOIN did not add the new units to the squad")
+	if q.matching(s, q.members(s, 1)) != 1: return _qfail("matching does not find squad 1")
+	var st: Dictionary = q.status(s, 1)
+	if st.n != 6 or st.hp <= 0.9 or st.name == "": return _qfail("bad status for squad 1: " + str(st))
+	print("squads ok")
 	return true

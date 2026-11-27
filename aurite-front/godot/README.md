@@ -58,8 +58,11 @@ Copy it to the phone and open it (allow "install unknown apps"). It installs nex
   remembered in `user://prefs.json`); **« BUILD** shows it again and reads **« READY** when a building waits to be placed.
   While hidden, top-bar chips show each busy production line (tap a ready building to place it). **MAP** opens a large
   minimap (tap/drag to look there). Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
-  building out of the menu to place it (drawn 70 UI units above the finger). Army groups 1–4 on the left edge: hold to
-  store the selection, tap to select, tap again to centre. The objective box folds into an OBJECTIVE button after 8 s
+  building out of the menu to place it (drawn 70 UI units above the finger). **Squads** on the bottom strip form by themselves: give two
+  or more selected units an order and they become a squad (numbers 1 to 5, keys 1 to 5 on a keyboard). Tap a squad to
+  select it, tap again to centre. Ordering part of a squad splits it off, ordering whole squads together merges them.
+  ALL selects everyone without changing squads; NEW holds units in no squad, and JOIN (with a squad selected) adds them.
+  A mixed selection shows type chips above the strip: tap one to keep only that type. The objective box folds into an OBJECTIVE button after 8 s
   and comes back for each new goal. Tap targets around units are wider (32 UI units), and orders give a short vibration.
 - **Mouse**: click to select or command, drag to box-select, **double-click** for the whole type,
   **right-drag** to face a formation, middle-drag or WASD to scroll, wheel to zoom, right-click a build button to cancel.
