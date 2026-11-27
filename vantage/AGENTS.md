@@ -374,9 +374,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 
 ## Audio
 
-All original and generated: `tools/audio/compose.py` (numpy + ffmpeg, DSP after perigee's) writes the two music
-tracks (`audio/music/sortie.ogg` for the hangar and stage, `carrier.ogg` for both bosses) and every effect in
-`audio/sfx/`. Edit the script and rerun it rather than editing the files. Music loops through `loop=true` in its
+All original and generated: `tools/audio/compose.py` (numpy + ffmpeg, DSP after perigee's) writes the music
+and every effect in `audio/sfx/`. One track per world (Guillaume, 2026-11-27: "at least a music per world, with
+a change for bosses and fortress"), keyed by the world's `theme` in `Sound.TRACKS`: `sortie.ogg` (Glass Coast),
+`dunes`, `city`, `ice`, `volcano`; `carrier.ogg` is the mid-boss track ("boss") and `fortress.ogg` the final
+boss's. The hangar plays the selected world's track, ducked (`Game.pick_level`), the stage its world's, and the
+mid-boss and fortress switch on their warning. New tracks are levelled to `sortie`'s loudness. Edit the script
+and rerun it rather than editing the files (`compose.py city ice` renders only those; "sfx" for the effects,
+so untouched files aren't re-encoded). Music loops through `loop=true` in its
 `.import` file. `scripts/sound.gd` (`Sound`, `Game.sound`) crossfades the tracks on the "Music" bus and plays
 effects from a pool on "Sfx", each with its own level and a minimum gap (the cannon fires many times a second).
 

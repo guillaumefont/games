@@ -398,7 +398,7 @@ func to_hangar() -> void:
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
 	hud.show_hangar()
-	sound.music("sortie", true)
+	sound.music(world.theme, true)
 	if not driven and not checked_update:
 		checked_update = true
 		check_update()
@@ -434,6 +434,8 @@ func pick_level(lv: int) -> void:
 	mid = Rules.MIDBOSSES[mid_id]
 	fort_id = Campaign.fortress_of(lv)
 	fort = Rules.FORTRESSES[fort_id]
+	if phase == "hangar":
+		sound.music(world.theme, true)
 	if Relief.level != lv:
 		# each level lays out its set pieces in its own order past the land the hangar shows; any
 		# chunk built that far ahead is rebuilt
@@ -512,7 +514,7 @@ func launch(lv := -1) -> void:
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
-	sound.music("sortie")
+	sound.music(world.theme)
 
 
 # ---------------------------------------------------------------- updates
@@ -619,7 +621,7 @@ func end_run(cleared: bool) -> void:
 	hud.show_results()
 	if cleared:
 		sound.play("clear")
-	sound.music("sortie", true)
+	sound.music(world.theme, true)
 
 
 func clear_all() -> void:
@@ -1030,7 +1032,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			open_section()
 			say("WARNING", mid.title)
 			sound.play("warning")
-			sound.music("carrier")
+			sound.music("boss")
 		_:
 			Foes.spawn(self, kind, x, i, n, from)
 			# each level brings in a new kind of foe: announced the first time it shows
@@ -1611,7 +1613,7 @@ func part_down(f: Obj) -> void:
 			pts.append(mount_point(Vector3(rng.randf_range(-4, 4), 1.0, lerpf(7.0, -6.0, k / 9.0) + rng.randf_range(-1, 1))))
 		blasts.chain(pts, 3.5, 1.0, fx_carry(), 7.0)
 		sound.play("crash")
-		sound.music("sortie")
+		sound.music(world.theme)
 		kill(b)
 
 
@@ -2344,7 +2346,7 @@ func spawn_fortress() -> void:
 			spawn_gun(i, g)
 	say("FORTRESS AHEAD", fort.title)
 	sound.play("warning")
-	sound.music("carrier")
+	sound.music("fortress")
 
 
 ## The frame of the hull segment section i rides on (the fortress's own: its body undoes the
