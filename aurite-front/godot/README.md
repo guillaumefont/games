@@ -59,7 +59,10 @@ Copy it to the phone and open it (allow "install unknown apps"). It installs nex
   The side panel follows the selection: nothing selected (or the Yard) lists structures, a producer lists the units it
   trains (sub-tabs on a Landing Zone or Garden), a building or units show their orders (Upgrade, Repair, Sell, Muster,
   Fuse). Top-bar chips, one per kind of producer you own, show what each is making: tap one to select it (again: the
-  next one), tap a ready building to place it. While the panel is hidden it peeks out for a selected building. **MAP** opens a large
+  next one), tap a ready building to place it. While the panel is hidden it peeks out for a selected building.
+  Selected units get orders in the panel: **Hold** (fight only what is in reach, never chase), **No fire**, **Scatter**,
+  **To base**, plus **Jump** (Jump Troopers: tap where to land), **Strip** (Scrappers strip wrecks instead of
+  reviving them) and **Fuse** (Thralls). **MAP** opens a large
   minimap (tap/drag to look there). Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
   building out of the menu to place it (drawn 70 UI units above the finger). **Squads** on the bottom strip form by themselves: give two
   or more selected units an order and they become a squad (numbers 1 to 5, keys 1 to 5 on a keyboard). Tap a squad to

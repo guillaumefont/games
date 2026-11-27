@@ -17,6 +17,7 @@ var placing = null  # {type, tx, ty, ldx, ldy}
 var amove := false
 var box_mode := false
 var sw_aim := false
+var jump_aim := false   # JUMP pressed: the next tap is where the Jump Troopers land
 var diff := "normal"
 var sk_fac := "vanguard"
 var sk_enemy := "random"
@@ -515,7 +516,7 @@ func start_cutscene(id: String, done: Callable) -> void:
 	_cine_mark(id)
 	var sc := Cutscenes.scene(id)
 	var M: Dictionary = D.camp(sc.camp).missions[sc.map]
-	placing = null; amove = false; box_mode = false; sw_aim = false; gest = null; ptrs.clear()
+	placing = null; amove = false; box_mode = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
 	U.show_overlay(""); U.hud.visible = false; U.panel.visible = false
 	S.new_game("normal", {"mission": M, "level": camp_level(), "cine": true, "bare": sc.get("bare", false)})
 	V.build_world(); V.panel_px = 0.0
@@ -555,7 +556,7 @@ func play(opt: Dictionary) -> void:
 	A.set_paused(false)
 
 func new_game(d: String, opt: Dictionary) -> void:
-	placing = null; amove = false; box_mode = false; sw_aim = false; gest = null; ptrs.clear()
+	placing = null; amove = false; box_mode = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
 	sq.reset(); sel_src = ""; sel_set = []; sq_full_t = -99.0; obj_t = OBJ_SHOW; obj_gi = -1
 	S.new_game(d, opt)
 	diff = S.diff
@@ -657,7 +658,7 @@ func show_ctx() -> void:
 		refresh_panel(true)
 	_ctx_head(key, b, units, sel)
 	# a hidden panel peeks out while the selection has something in it to use
-	var want: bool = (key.begins_with("b") or (b != null and b.type == "hq" and b.team == 0)) or (key == "u" and U.btn.fuse.visible)
+	var want: bool = (key.begins_with("b") or (b != null and b.type == "hq" and b.team == 0)) or (key == "u" and (U.btn.fuse.visible or U.btn.jump.visible or U.btn.strip.visible))
 	if want and not U.panel_open and placing == null: peek = true; _show_panel(true)
 	elif peek and not want: peek = false; _show_panel(false)
 
@@ -802,7 +803,7 @@ func hud_tick(dt: float) -> void:
 			obj_t -= dt
 			if obj_t <= 0: _obj_vis()
 	panel_t -= dt
-	if panel_t <= 0: panel_t = .12; refresh_panel(); _upg_btn()
+	if panel_t <= 0: panel_t = .12; refresh_panel(); _upg_btn(); _unit_btns()
 	mini_t -= dt
 	if mini_t <= 0: mini_t = .15; render_mini()
 
@@ -900,6 +901,44 @@ func cmd_btn(k: String) -> void:
 					u.path = []; u.order = "none"; u.target = null; u.guard = Vector2(u.x, u.y); u.face = null
 					if u.d.harv: u.hs = "idle"
 		"desel": S.set_sel([])
+		"hold", "nofire":
+			var us := _my_units().filter(func(u): return u.d.dmg > 0)
+			if us.is_empty(): return
+			var on: bool = not us.all(func(u): return u.get(k))
+			for u in us:
+				u.set(k, on)
+				if on and k == "hold": u.guard = Vector2(u.x, u.y)
+				if on and k == "nofire" and u.auto: u.target = null; u.auto = false
+			toast(("Holding ground: they fight only what is in reach" if on else "Free to chase again") if k == "hold" else ("Holding fire" if on else "Weapons free"))
+			sfx("click"); update_cmd()
+		"scatter":
+			var us := _my_units()
+			if us.is_empty(): return
+			var c := Vector2()
+			for u in us: c += Vector2(u.x, u.y)
+			c /= us.size()
+			for u in us:
+				var dv := Vector2(u.x, u.y) - c
+				if dv.length() < 4: dv = Vector2.from_angle(randf() * TAU)
+				var to: Vector2 = Vector2(u.x, u.y) + dv.normalized().rotated(randf_range(-0.4, 0.4)) * T * randf_range(2.5, 3.5)
+				S.group_move([u], clampf(to.x, T, D.WW - T), clampf(to.y, T, D.WH - T), "move")
+			sfx("ack"); buzz(12); update_cmd()
+		"home":
+			var us := _my_units()
+			var hq := S.find_hq(0)
+			if us.is_empty() or hq == null: return
+			var to: Vector2 = hq.rally if hq.rally != null else Vector2(hq.x, hq.y + T * 3)
+			S.group_move(us, to.x, to.y, "move"); ring(to.x, to.y, Color("7fd68e"))
+			sfx("ack"); buzz(12); update_cmd()
+		"jump":
+			jump_aim = not jump_aim; amove = false; sfx("click"); update_cmd()
+		"strip":
+			var us := _my_units().filter(func(u): return u.d.get("scrap", false))
+			if us.is_empty(): return
+			var on: bool = not us.all(func(u): return u.strip)
+			for u in us: u.strip = on
+			toast("Strip every wreck for aurite" if on else "Revive wrecks that still hold together")
+			sfx("click"); update_cmd()
 		"fuse":
 			var ids := S.sel.map(func(e): return e.id)
 			var knot = S.fuse(0, S.sel)
@@ -949,6 +988,9 @@ func _squad_cmd(units: Array) -> void:
 			var t: String = order[i]
 			b.set_meta("type", t); b.text = "%s %d" % [String(D.UN[t].name).get_slice(" ", String(D.UN[t].name).get_slice_count(" ") - 1).to_upper(), by[t]]
 
+func _my_units() -> Array:
+	return S.sel.filter(func(e): return e.alive and e.kind == "u" and e.team == 0)
+
 func toggle_mode() -> void:
 	box_mode = not box_mode; update_cmd(); sfx("click")
 
@@ -968,6 +1010,7 @@ func update_cmd() -> void:
 	_upg_btn()
 	U.btn.muster.visible = sb != null and sb.d.get("muster", 0) > 0 and not S.teams[0].get("mustered", false)
 	U.btn.fuse.visible = units.filter(func(u): return u.team == 0 and u.d.fuse != "").size() >= D.HUM.fuse
+	_unit_btns()
 	U.set_on(U.btn.amove, amove)
 	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
 	_squad_cmd(units)
@@ -978,6 +1021,29 @@ func update_cmd() -> void:
 	if mine.size() == 1: U.selinfo.text = sel_line(mine[0], true)
 	elif mine.size() > 1: U.selinfo.text = "%d units" % mine.size()
 	show_ctx()
+
+## Unit orders in the panel: stances for every army (Hold ground, Hold fire), Scatter, To base, then each army's own
+## (Jump for Jump Troopers, Strip for Scrappers, Fuse for Thralls). A stance lights while every unit that fights has it.
+func _unit_btns() -> void:
+	var us := _my_units()
+	var fighters := us.filter(func(u): return u.d.dmg > 0)
+	for k in ["hold", "nofire"]:
+		U.btn[k].visible = fighters.size() > 0
+		U.set_on(U.btn[k], fighters.size() > 0 and fighters.all(func(u): return u.get(k)))
+	U.btn.scatter.visible = us.size() > 0
+	U.btn.home.visible = us.size() > 0 and S.find_hq(0) != null
+	var jumpers := us.filter(func(u): return u.d.jump > 0)
+	U.btn.jump.visible = jumpers.size() > 0
+	if jumpers.size():
+		var wait: float = jumpers.map(func(u): return u.jump_t - S.time).min()
+		var cap := "JUMP" if wait <= 0 else "JUMP %ds" % ceili(wait)
+		if U.btn.jump.cap != cap: U.btn.jump.cap = cap; U.btn.jump.queue_redraw()
+		U.btn.jump.modulate.a = 1.0 if wait <= 0 else 0.55
+	if jump_aim and jumpers.is_empty(): jump_aim = false
+	U.set_on(U.btn.jump, jump_aim)
+	var scr := us.filter(func(u): return u.d.get("scrap", false))
+	U.btn.strip.visible = scr.size() > 0
+	U.set_on(U.btn.strip, scr.size() > 0 and scr.all(func(u): return u.strip))
 
 ## One line about a selected unit or building: what it does, or what is wrong with it. full: with its name first.
 func sel_line(e: Ent, full := false) -> String:
@@ -1059,6 +1125,14 @@ func tap(sx: float, sy: float, right: bool) -> void:
 		return
 	var hit := pick(sx, sy, wx, wy)
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
+	if jump_aim and not right:
+		jump_aim = false
+		var n := 0
+		for u in sel_u:
+			if S.jump_to(u, wx, wy): n += 1
+		if n > 0: ring(wx, wy, Color("7fd68e")); sfx("ack"); buzz(12); tut.ev("jump")
+		else: toast("Jets still cooling down", "warn")
+		update_cmd(); return
 	if sw_aim and not right:
 		var b: Ent = null
 		for e in S.ents:
@@ -1111,7 +1185,7 @@ func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width :=
 	if wk != null:
 		# Scrappers sent to a wreck: rebuild it while it holds together, otherwise strip it for aurite
 		S.scrap_order(scr, wk); ring(wk.x, wk.y, Color("f0b93f")); sfx("click")
-		toast("Reviving the " + D.UN[wk.type].name if wk.intact >= D.WRECK.revive else "Stripping the wreck")
+		toast("Reviving the " + D.UN[wk.type].name if (wk.intact >= D.WRECK.revive and not scr.all(func(u): return u.strip)) else "Stripping the wreck")
 		units = units.filter(func(u): return not u.d.scrap)
 		if units.is_empty(): update_cmd(); return
 		combat = units.filter(func(u): return u.d.dmg > 0); harvs = units.filter(func(u): return u.d.harv); others = others.filter(func(u): return not u.d.scrap)
@@ -1389,6 +1463,7 @@ func draw_hud(c: Control) -> void:
 		c.draw_arc(gest.s, 22, 0, TAU, 32, Color("7fd68e"), 2)
 	if sw_aim: _order_banner(c, "launch", "SUPERWEAPON: TAP A TARGET", Color(.94, .73, .25))
 	elif amove: _order_banner(c, "atk", "ATTACK-MOVE: TAP A DESTINATION", Color(.95, .32, .28))
+	elif jump_aim: _order_banner(c, "jump", "JUMP: TAP WHERE TO LAND", Color(.56, .84, .48))
 	elif gest != null and gest.mode == "face" and pv_from != null: _order_banner(c, "form", "RELEASE TO FORM UP FACING THIS WAY", Color(.56, .84, .48))
 
 ## Health bar over a unit or building: dark frame, team-coloured cap, fill from green to red, quarter ticks.
@@ -1998,12 +2073,25 @@ func _ctx_shots(dir: String) -> void:
 			await _shot(dir + "/%s_%d_building.png" % [fac, n]); n += 1
 		# units: a few of the main infantry (Thralls: enough to fuse)
 		var inf: String = S.tr_t(0, "rifle")
+		var special: String = {"vanguard": "jump", "ashen": "scrapper", "choir": "thrall"}[fac]
 		var us := []
-		for i in 4: us.append(S.spawn_unit(0, inf, hq.x + 60 + i * 12, hq.y + 70))
-		S.set_sel(us.filter(func(e): return e != null)); V.center_on(hq.x + 60, hq.y + 60); update_cmd()
+		for i in 3: us.append(S.spawn_unit(0, inf, hq.x + 60 + i * 12, hq.y + 70))
+		for i in 2: us.append(S.spawn_unit(0, special, hq.x + 60 + i * 12, hq.y + 86))
+		us = us.filter(func(e): return e != null)
+		S.set_sel(us); V.center_on(hq.x + 60, hq.y + 60); update_cmd()
+		cmd_btn("hold")
+		if fac == "vanguard": cmd_btn("jump")
 		await get_tree().create_timer(0.4).timeout
 		print("CTX ", fac, " units head=", U.ctx_name.text, " acts=", U.ctx_acts.get_children().filter(func(b): return b.visible).map(func(b): return b.cap))
 		await _shot(dir + "/%s_%d_units.png" % [fac, n]); n += 1
+		print("CTX ", fac, " hold=", us.filter(func(u): return u.hold).size(), " jump_aim=", jump_aim)
+		if jump_aim:
+			var jt := us.filter(func(u): return u.d.jump > 0)
+			var p0 := Vector2(jt[0].x, jt[0].y)
+			var sp := V.w2s(p0.x + 5 * T, p0.y, S.h_at(p0.x + 5 * T, p0.y)); tap(sp.x, sp.y, false)
+			for i in 30: S.step(0.05)
+			print("CTX jump moved ", Vector2(jt[0].x, jt[0].y).distance_to(p0) / T, " tiles, cooldown cap ", U.btn.jump.cap)
+		cmd_btn("scatter"); cmd_btn("hold")
 		# hidden panel: selecting a building peeks it out, deselecting puts it away
 		toggle_panel(); S.set_sel([]); update_cmd()
 		await get_tree().create_timer(0.3).timeout
