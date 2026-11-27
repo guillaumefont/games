@@ -55,7 +55,7 @@ const PAIR_KINDS := [["mall", 0.25], ["square", 0.12], ["park", 0.1]]
 const QUAD_KINDS := [["capitol", 0.3], ["stadium", 0.25], ["park", 0.25], ["square", 0.2]]
 ## The share of a block's lots left as ruins (broken walls, rubble): the war shows, but the block
 ## still reads as built.
-const RUINS := 0.07
+const RUINS := 0.03
 ## The share of mid-rise and shop lots turned into towers on the low blocks.
 const TOWER_MORE := 0.35
 ## The expressway deck's height (world), above the highest ground and under the flight altitude.
@@ -399,7 +399,7 @@ static func build(b: Models.Builder, z0: float, size: Vector2, hgt: Callable, he
 ## How far (m) a tower's shadow may reach across the streets, at most.
 const CAST_REACH := 9.0
 ## How dark a street lies in a tower's full shadow, and over how much height the shadow's tip fades.
-const CAST_DARK := 0.8
+const CAST_DARK := 0.65
 const CAST_SOFT := 1.1
 
 
@@ -524,13 +524,13 @@ static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
 		if r < 0.05:
 			var side: float = [1.4, 0.55, -0.55, -1.4][int(r * 307.0) % 4]
 			var w := to_world(u + side, vm)
-			if r < 0.018:
+			if r < 0.008:
 				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 40.0, r * 22.0)
 			else:
 				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (0.0 if side > 0.0 else PI), r)
-		elif r > 0.965 and dry and to_street > 3.0:
+		elif r > 0.992 and dry and to_street > 3.0:
 			crater(c, u + (r - 0.98) * 60.0, vm, 1.1, r)
-		elif r > 0.9 and r < 0.94 and to_street > 1.0 and to_street < 3.0 and dry:
+		elif r > 0.9 and r < 0.91 and to_street > 1.0 and to_street < 3.0 and dry:
 			# tank traps across the mouth of the junction
 			for t in 2:
 				hedgehog(c, u - 0.9 + t * 1.8, vm, y + 0.08, r + t)
@@ -582,11 +582,11 @@ static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
 		if r < 0.035:
 			var side := (0.55 if r < 0.018 else -0.55) * (3.9 if wide else 1.0)
 			var w := to_world(um, v + side)
-			if r < 0.012:
+			if r < 0.005:
 				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 50.0, r * 15.0)
 			else:
 				Models.car(c.b, Vector3(w.x, y + 0.08, w.z), ANGLE + (PI * 0.5 if side > 0.0 else -PI * 0.5), r)
-		elif r > 0.96 and c.raw(mid.x, mid.z) >= 0.02:
+		elif r > 0.992 and c.raw(mid.x, mid.z) >= 0.02:
 			crater(c, um, v, 0.9, r)
 
 
@@ -880,7 +880,7 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 		return
 	Models.count("building")
 	# a few roofs burn: fire and smoke everywhere made the foes hard to see
-	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.08
+	c.burning = Models.hash2(u * 0.37 + 1.0, v * 0.53) < 0.035
 	var glow := BLAZE if c.burning else Models.GLASS
 	var b := c.b
 	b.bevels = true
@@ -1125,10 +1125,11 @@ static func park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -
 						dead_tree(c, tu, tv, c.ground(w.x, w.z), a)
 					else:
 						tree(c, tu, tv, c.ground(w.x, w.z), 0.9 + a * 0.5, a)
-	# a shell landed in the park
-	var hu := lerpf(u0 + 2.0, u1 - 2.0, Models.hash2(r * 3.0, 1.0))
-	var hv := lerpf(v0 + 2.0, v1 - 2.0, Models.hash2(2.0, r * 3.0))
-	crater(c, hu, hv, 1.3, r)
+	# now and then a shell landed in the park
+	if r < 0.3:
+		var hu := lerpf(u0 + 2.0, u1 - 2.0, Models.hash2(r * 3.0, 1.0))
+		var hv := lerpf(v0 + 2.0, v1 - 2.0, Models.hash2(2.0, r * 3.0))
+		crater(c, hu, hv, 1.3, r)
 	if r < 0.5:
 		var w := to_world(u0 + 1.6, v0 + 1.6)
 		Models.mark("water tower", Vector3(w.x, c.ground(w.x, w.z), w.z), ANGLE, r)
@@ -1626,7 +1627,7 @@ static func ruin(c: Ctx, u: float, v: float, w: float, d: float, r: float) -> vo
 	b.box(Vector3(w * 0.2, 0.42, -d * 0.1), Vector3(w * 0.35, 0.05, d * 0.4), DARK)
 	var mid := to_world(u, v)
 	rubble(c, u, v, base + 0.1, minf(w, d) * 0.45, 9, r)
-	if Models.hash2(r * 5.0, u * 0.3) < 0.3:
+	if Models.hash2(r * 5.0, u * 0.3) < 0.12:
 		fire(Vector3(mid.x, base + 0.4, mid.z), 0.9 + minf(w, d) * 0.12)
 
 

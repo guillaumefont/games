@@ -153,6 +153,10 @@ static func ground_mat() -> ShaderMaterial:
 	_cache["ground"].set_shader_parameter("water", lq[0])
 	_cache["ground"].set_shader_parameter("lava", lq[1])
 	_cache["ground"].set_shader_parameter("rock_c", rock_col(0.0))
+	# the city's paving stays clean (Guillaume, 2026-11-27: the city looked "dirty"): no mottle, no
+	# cloud shadows blotching its streets
+	_cache["ground"].set_shader_parameter("detail", 0.0 if theme == "city" else GROUND_DETAIL)
+	_cache["ground"].set_shader_parameter("clouds", 0.0 if theme == "city" else CLOUD_SHADE)
 	return _cache["ground"]
 
 
@@ -1700,6 +1704,10 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			gc[i] = City.calm(gc[i]) if gv[i].y > water_y else gc[i].lerp(City.calm(gc[i]), 0.55)
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	ao_mesh = ao_blobs(b.take_spots(), ground_h)
+	if theme == "city":
+		# the towers' contact patches smeared dark haze over the sunken streets (Guillaume,
+		# 2026-11-27: "dirty"); the baked street shadows and wall occlusion ground them instead
+		ao_mesh = null
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = gv
