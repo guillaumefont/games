@@ -7,6 +7,7 @@ const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
 const Squads := preload("res://scripts/squads.gd")  # squads on the bottom strip
 const GFX := preload("res://scripts/gfx.gd")    # graphics level: Low, Medium, High
+const Radar := preload("res://scripts/radar.gd")  # radar mode: the whole map as icons when zoomed far out
 
 var S: Sim
 var V: View3D
@@ -44,7 +45,9 @@ var keys := {}
 var last_tap := {"id": 0, "t": 0}
 var shown_cr := 0.0
 var panel_t := 0.0
-var mini_t := 0.0
+var rd := Radar.new()            # radar drawing and its squad badges (scripts/radar.gd)
+var fly = null                   # a short camera flight (radar dive): {x0, y0, z0, x, y, z, t}
+var radar_tap := {"p": Vector2(), "t": 0}
 var preview_slots: Array = []
 var pv_from = null
 var pv_to = null
@@ -252,6 +255,47 @@ func squad_tap(n: int) -> void:
 		if not on: V.center_on(units[0].x, units[0].y)
 	if n > 0: tut.ev("group_recall", n - 1)
 
+## Radar: a squad badge was tapped. While the selection is made of whole squads (picked on the radar or the strip),
+## the tap adds that squad, or drops it if it is already in; otherwise the squad alone is selected. Squads picked
+## together this way keep their numbers when they get an order (`_squad_order` skips "multi").
+func radar_badge(n: int) -> void:
+	var mem := sq.members(S, n).filter(func(e): return e.intun <= 0)
+	if mem.is_empty(): return
+	var cur: Array = S.sel.filter(func(e): return e.kind == "u") if sel_src in ["sq", "multi"] else []
+	if cur.size() and mem.all(func(e): return e.sel): cur = cur.filter(func(e): return not mem.has(e))
+	else:
+		for e in mem:
+			if not cur.has(e): cur.append(e)
+	S.set_sel(cur)
+	sel_src = "sq" if sq.matching(S, cur) > 0 else ("multi" if cur.size() else ""); sel_set = cur.duplicate()
+	sfx("click"); buzz(8); _squad_chips(); update_cmd()
+
+## Radar: a squad badge dragged and let go: that squad alone gets the order there; the selection is left as it was.
+func radar_send(n: int, p: Vector2) -> void:
+	var mem := sq.members(S, n).filter(func(e): return e.intun <= 0)
+	if mem.is_empty() or not _in_view(p): return
+	var w := V.s2w(p.x, p.y)
+	var hit := pick(p.x, p.y, w.x, w.y)
+	if hit != null and hit.team == 0: hit = null
+	var keep_src := sel_src; var keep_set := sel_set; var keep := S.sel.duplicate()
+	sel_src = "multi"   # the squad keeps its number and nobody else's changes
+	command(hit, w.x, w.y, mem)
+	sel_src = keep_src; sel_set = keep_set
+	if S.sel != keep: S.set_sel(keep.filter(func(e): return e.alive))
+
+## Radar: fly down to a spot (double-tap).
+func dive(wx: float, wy: float) -> void:
+	fly = {"x0": V.cam_x, "y0": V.cam_y, "z0": V.cam_z, "x": wx, "y": wy, "z": 1.0, "t": 0.0}
+	sfx("click")
+
+func _fly_tick(dt: float) -> void:
+	if fly == null: return
+	fly.t = minf(1.0, fly.t + dt / 0.45)
+	var k: float = fly.t * fly.t * (3.0 - 2.0 * fly.t)
+	V.cam_z = lerpf(fly.z0, fly.z, k)
+	V.cam_x = lerpf(fly.x0, fly.x, k); V.cam_y = lerpf(fly.y0, fly.y, k); V.clamp_cam()
+	if fly.t >= 1.0: fly = null
+
 ## The selection is a squad and fresh units wait: JOIN sends them to it.
 func join_btn() -> void:
 	var n := sq.matching(S, S.sel)
@@ -275,7 +319,7 @@ func type_btn(t: String) -> void:
 
 ## Units of a selection that just got an order become (or stay) a squad.
 func _squad_order(units: Array) -> void:
-	if sel_src == "all": return
+	if sel_src == "all" or sel_src == "multi": return   # squads picked together on the radar keep their numbers
 	var before := sq.matching(S, units)
 	var n := sq.formed(S, units)
 	if n == -1:
@@ -291,7 +335,8 @@ func _squad_chips() -> void:
 		var b = U.btn["sq%d" % n]
 		var st := sq.status(S, n) if sq.find(n) != null else {}
 		b.visible = not st.is_empty()
-		b.set_state(st, lit == n)
+		var all_in := sel_src == "multi" and not st.is_empty() and sq.members(S, n).all(func(e): return e.sel)
+		b.set_state(st, lit == n or all_in)
 	var all := S.ents.filter(func(e): return Squads.eligible(e) and not e.d.eng)
 	U.btn.sq_all.visible = all.size() > 0
 	U.btn.sq_all.set_state({"n": all.size()}, sel_src == "all" and S.sel.size() == all.size())
@@ -302,11 +347,6 @@ func _squad_chips() -> void:
 ## A short vibration on phones to confirm an order or a selection.
 func buzz(ms: int) -> void:
 	if OS.has_feature("mobile"): Input.vibrate_handheld(ms)
-
-# ---------------- enlarged minimap ----------------
-func toggle_big_map() -> void:
-	U.big_map.visible = not U.big_map.visible
-	U.set_on(U.btn.map, U.big_map.visible); sfx("click")
 
 ## While the panel is hidden its button lights up when a building is ready to place.
 func _panel_alert() -> void:
@@ -808,8 +848,6 @@ func hud_tick(dt: float) -> void:
 			if obj_t <= 0: _obj_vis()
 	panel_t -= dt
 	if panel_t <= 0: panel_t = .12; refresh_panel(); _upg_btn(); _unit_btns()
-	mini_t -= dt
-	if mini_t <= 0: mini_t = .15; render_mini()
 
 # ---------------- placement ----------------
 func start_placing(type: String) -> void:
@@ -1106,7 +1144,9 @@ func pick(sx: float, sy: float, wx: float, wy: float) -> Ent:
 		if p.z < 0: continue
 		var q := V.w2s(e.x + T, e.y, h); var o := V.w2s(e.x, e.y, h); var ppt: float = abs(q.x - o.x)
 		# generous: a fingertip is about 30 UI units wide, small infantry far less
-		var rad: float = max(32.0, e.r / T * ppt * 1.8); var dd := Vector2(p.x - sx, p.y - sy).length()
+		var rad: float = max(32.0, e.r / T * ppt * 1.8)
+		if V.radar_on: rad = 14.0 if e.team == 0 else 20.0   # icons sit close together: tapping near your own should still order
+		var dd := Vector2(p.x - sx, p.y - sy).length()
 		if dd < rad and dd < bd: bd = dd; best = e
 	if best: return best
 	var rr := V.ray(sx, sy); var ro: Vector3 = rr[0]; var rn: Vector3 = rr[1]
@@ -1137,6 +1177,19 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			placing.tx = int(round(wx / T - d.w / 2.0)); placing.ty = int(round(wy / T - d.h / 2.0))
 		return
 	var hit := pick(sx, sy, wx, wy)
+	if V.radar_k() >= 0.5 and not right:
+		# a badge, unless the tap lands right on an enemy icon (badges sit where the fighting is)
+		var n := rd.badge_at(Vector2(sx, sy))
+		if n > 0 and hit != null and hit.team != 0:
+			var hp3 := V.w2s(hit.x, hit.y, S.h_at(hit.x, hit.y))
+			if Vector2(hp3.x, hp3.y).distance_to(Vector2(sx, sy)) < 10: n = 0
+		if n > 0: radar_badge(n); return
+	if V.radar_k() >= 0.5 and not right and not (hit != null and hit.team == 0 and hit.kind == "u"):
+		# radar: a second tap on the same spot dives down to it (the first one already gave its order)
+		var now := Time.get_ticks_msec()
+		if now - radar_tap.t < 450 and Vector2(sx, sy).distance_to(radar_tap.p) < 40:
+			radar_tap.t = 0; dive(wx, wy); return
+		radar_tap = {"p": Vector2(sx, sy), "t": now}
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
 	if jump_aim and not right:
 		jump_aim = false
@@ -1281,7 +1334,11 @@ func _down(id: int, p: Vector2, mouse: bool, button: int) -> void:
 		gest = {"mode": "pinch", "d0": max(1.0, a.distance_to(b)), "z0": V.cam_z, "w": V.s2w(m.x, m.y), "zoom": false, "upd": {}}
 		_clear_preview(); return
 	if ptrs.size() > 2: return
+	fly = null
 	gest = {"mode": "pending", "s": p, "e": p, "l": p, "mouse": mouse, "btn": button, "t0": Time.get_ticks_msec()}
+	if V.radar_k() >= 0.5 and placing == null and (not mouse or button == MOUSE_BUTTON_LEFT):
+		var n := rd.badge_at(p)
+		if n > 0: gest.mode = "bpending"; gest.n = n; return
 	if mouse and (button == MOUSE_BUTTON_MIDDLE or button == MOUSE_BUTTON_RIGHT): gest.mode = "rpending"
 
 func _sel_movers() -> Array:
@@ -1311,8 +1368,9 @@ func _move(id: int, p: Vector2) -> void:
 		if gest.mouse: gest.mode = "box"
 		elif placing != null:
 			gest.mode = "ghost"; gest.g0 = Vector2(placing.tx, placing.ty); gest.w0 = V.s2w(gest.s.x, gest.s.y)
-		elif box_mode or PAN_FINGERS == 2: gest.mode = "box"
+		elif box_mode or PAN_FINGERS == 2 or V.radar_k() >= 0.5: gest.mode = "box"   # radar: nothing to scroll, one finger boxes
 		else: gest.mode = "pan"
+	elif gest.mode == "bpending" and moved: gest.mode = "bdrag"
 	elif gest.mode == "rpending" and moved:
 		gest.mode = "face" if (gest.btn == MOUSE_BUTTON_RIGHT and _sel_movers().size() and placing == null) else "pan"
 		if gest.mode == "face": gest.from = V.s2w(gest.s.x, gest.s.y)
@@ -1326,7 +1384,7 @@ func _move(id: int, p: Vector2) -> void:
 		"pan":
 			var a := V.s2w(gest.l.x, gest.l.y); var b := V.s2w(p.x, p.y)
 			V.cam_x += a.x - b.x; V.cam_y += a.y - b.y; V.clamp_cam()
-		"box": gest.e = p
+		"box", "bdrag": gest.e = p
 		"ghost":
 			# the building moves with the finger from where it was, so it can be dragged from below without hiding it
 			var dw: Vector2 = (V.s2w(p.x, p.y) - gest.w0) / T
@@ -1370,7 +1428,8 @@ func _up(id: int, p: Vector2, cancel: bool) -> void:
 		return
 	if cancel: gest = null; _clear_preview(); return
 	match gest.mode:
-		"pending": tap(p.x, p.y, false)
+		"pending", "bpending": tap(p.x, p.y, false)
+		"bdrag": radar_send(gest.n, p)
 		"rpending":
 			if placing != null: end_placing()
 			elif gest.btn == MOUSE_BUTTON_RIGHT: tap(p.x, p.y, true)
@@ -1432,9 +1491,17 @@ func _draw_hum(c: Control) -> void:
 
 # ---------------- HUD drawing ----------------
 func draw_hud(c: Control) -> void:
-	if S.teams.is_empty() or U.overlays.start.visible: return
+	if S.teams.is_empty() or U.overlays.start.visible:
+		U.radar_tint.visible = false; return
 	var f: Font = U.f_disp
+	var rk := V.radar_k()
+	U.radar_tint.visible = rk > 0.0
+	if rk > 0.0: (U.radar_tint.material as ShaderMaterial).set_shader_parameter("k", rk)
+	rd.drag_n = gest.n if gest != null and gest.mode == "bdrag" else 0
+	if rd.drag_n: rd.drag_p = gest.e
+	rd.draw(c, self, rk)
 	for e in S.ents:
+		if V.radar_on: break   # radar: icons and badges instead of health bars
 		if not e.alive or not (e.sel or e.hit_t > 0 or (e.sh_max > 0 and e.sh < e.sh_max) or (e.kind == "b" and (e.repairing or (e.upg >= 0 and e.team == 0)))): continue
 		if e.team != 0 and not S.visible_to_player(e): continue
 		var is_b: bool = e.kind == "b"
@@ -1543,61 +1610,6 @@ func _draw_mission_marks(c: Control) -> void:
 		c.draw_string_outline(U.f_disp, Vector2(q.x - tw / 2, q.y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 4, Color(0, 0, 0, .75))
 		c.draw_string(U.f_disp, Vector2(q.x - tw / 2, q.y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("f0b93f"))
 
-# ---------------- minimap ----------------
-func render_mini() -> void:
-	var m = U.mini; var img: Image = m.img
-	var data := PackedByteArray(); data.resize(64 * 64 * 4)
-	for i in 64 * 64:
-		var v: int = S.vis[i]; var k := i * 4
-		if v == 0:
-			data[k] = 4; data[k + 1] = 6; data[k + 2] = 8; data[k + 3] = 255; continue
-		var col: Color = D.tcol(S.theme)[S.terr[i]] * 0.9
-		if S.ore[i]: col = Color8(220, 170, 60)
-		elif S.field_dead(i): col = Color8(120, 116, 108)
-		if v == 1: col = col * 0.55
-		data[k] = int(col.r * 255); data[k + 1] = int(col.g * 255); data[k + 2] = int(col.b * 255); data[k + 3] = 255
-	for e in S.ents:
-		if not e.alive or (e.team != 0 and not S.visible_to_player(e)): continue
-		var c: Color = D.MINI_COL[e.team]
-		var r := Rect2i(e.tx, e.ty, e.w, e.h) if e.kind == "b" else Rect2i(int(e.x / T), int(e.y / T), 1, 1)
-		for y in range(r.position.y, r.end.y):
-			for x in range(r.position.x, r.end.x):
-				if x < 0 or y < 0 or x > 63 or y > 63: continue
-				var k := (y * 64 + x) * 4
-				data[k] = int(c.r * 255); data[k + 1] = int(c.g * 255); data[k + 2] = int(c.b * 255)
-	img.set_data(64, 64, false, Image.FORMAT_RGBA8, data)
-	m.tex.update(img)
-	m.queue_redraw()
-	if U.big_map.visible: U.big_map.queue_redraw()
-
-func draw_mini_overlay(c: Control) -> void:
-	if S.teams.is_empty(): return
-	var s := c.size / 64.0
-	var vr := V.view_rect()
-	var cs := [Vector2(0, 0), Vector2(vr.size.x, 0), Vector2(vr.size.x, vr.size.y), Vector2(0, vr.size.y)].map(func(p): return (V.s2w(p.x, p.y) / T * s).clamp(Vector2.ZERO, c.size))
-	cs.append(cs[0])
-	c.draw_polyline(PackedVector2Array(cs), Color.WHITE, 1.0)
-	var pulse := 0.6 + 0.4 * sin(S.time * 4)
-	for m in S.marks():
-		var col: Color = [Color("f0b93f"), Color("7fd68e"), Color("ff5a52"), Color("f0b93f")][m[3] + 1]
-		c.draw_arc(Vector2(m[0] + .5, m[1] + .5) * s, max(3.0, m[2] * s.x), 0, TAU, 20, Color(col, pulse), 1.5)
-	var g = S.goal()
-	if g != null and (g.k == "kill" or g.k == "capture"):
-		for e in S.goal_targets(g):
-			if e.kind == "b" or S.visible_to_player(e):
-				var q := Vector2(e.x / T, e.y / T) * s
-				c.draw_colored_polygon(PackedVector2Array([q + Vector2(0, -4), q + Vector2(4, 0), q + Vector2(0, 4), q + Vector2(-4, 0)]), Color(Color("ff5a52") if g.k == "kill" else Color("f0b93f"), pulse))
-	for e in S.ents:
-		if e.alive and e.captive:
-			c.draw_circle(Vector2(e.x / T, e.y / T) * s, 2.5, Color(Color("f0b93f"), pulse))
-	if S.ping != null and S.time - S.ping.t < 4:
-		var f := fmod(S.time - S.ping.t, 1.0)
-		c.draw_arc(Vector2(S.ping.x, S.ping.y) / T * s, 4 + f * 14, 0, TAU, 24, Color(1, .35, .32, 1 - f), 2)
-
-func mini_go(f: Vector2) -> void:
-	if S.teams.is_empty(): return
-	V.center_on(f.x * D.WW, f.y * D.WH)
-
 # ---------------- build icons ----------------
 func render_icons(fac: String) -> void:
 	icons_for = fac
@@ -1649,7 +1661,7 @@ func _process(delta: float) -> void:
 			if placing != null and not S.teams[0].prod.bld.ready: end_placing()
 		elif S.over: S.upd_parts(dt)
 		_check_long_press()
-		key_pan(dt)
+		key_pan(dt); _fly_tick(dt)
 		A.intensity = A.intensity + (S.combat - A.intensity) * min(1.0, dt * 0.5)
 		V.render(dt, placing, preview_slots, pv_from, pv_to)
 		hud_tick(dt)
@@ -1686,6 +1698,8 @@ func _autotest(dir: String) -> void:
 		await _field_shots(dir); get_tree().quit(); return
 	if mode == "squads":
 		await _squad_shots(dir); get_tree().quit(); return
+	if mode == "radar":
+		await _radar_shots(dir); get_tree().quit(); return
 	if mode == "ctx":
 		await _ctx_shots(dir); get_tree().quit(); return
 	if mode == "themes":
@@ -2124,6 +2138,92 @@ func _ctx_items() -> Array:
 		if U.items[k].visible: out.append(U.items[k].type)
 	return out
 
+## AF_MODE=radar: radar mode. A skirmish with five squads spread over the map and enemies at two of them; shots from
+## today's closest zoom out to the whole map (near, the blend, radar), then real touches: tap badge 2, tap badge 3 (both
+## selected, squads unchanged), tap the enemy (both attack, still squads 2 and 3), drag badge 1 elsewhere (only squad
+## 1 moves, the selection stays), a one-finger box, a double-tap dive. The log lines start with RADAR.
+func _radar_shots(dir: String) -> void:
+	seed(7)
+	play({"fac": OS.get_environment("AF_FAC") if OS.get_environment("AF_FAC") != "" else "ashen", "enemy": "vanguard", "diff": "normal"})
+	for i in 20 * 240:
+		S.step(0.05)
+		if i % 20 == 0: S.ai_think(S.teams[0])
+	S.teams[0].auto = false
+	var types := {}
+	for e in S.ents:
+		if Squads.eligible(e) and not e.d.eng: types[e.type] = true
+	var pk: Array = types.keys()
+	if pk.size() < 2: pk = ["rifle", "brute", "grenadier", "boars", "scorpion"].filter(func(t): return D.UN.has(t) and not D.UN[t].get("no", []).has(S.fac_of(0)))
+	var etypes := ["tank", "lancer", "rifle", "buggy"]
+	var spots := [Vector2(22 * T, 30 * T), Vector2(38 * T, 40 * T), Vector2(14 * T, 38 * T), Vector2(30 * T, 18 * T), Vector2(46 * T, 50 * T)]
+	var sizes := [9, 7, 5, 6, 4]
+	for g in 5:
+		var part := []
+		for i in sizes[g]:
+			var u := S.spawn_unit(0, pk[(g + i) % pk.size()], spots[g].x + randf_range(-50, 50), spots[g].y + randf_range(10, 90))
+			if u != null: part.append(u)
+		S.set_sel(part); sel_src = ""; command(null, spots[g].x, spots[g].y, part)
+	var foes := []
+	for i in 6: foes.append(S.spawn_unit(1, etypes[i % 4], 30 * T + randf_range(-40, 40), 13 * T + randf_range(-40, 40)))
+	for i in 4: foes.append(S.spawn_unit(1, etypes[i % 4], 47 * T + randf_range(-40, 40), 44 * T + randf_range(-40, 40)))
+	for i in 20 * 8: S.step(0.05)
+	S.set_sel([]); _squad_chips(); update_cmd()
+	print("RADAR squads ", sq.list.map(func(q): return [q.n, q.ids.size()]))
+	var shots := [["1_near", 0.5], ["2_blend", 0.42], ["3_radar", V.Z_MIN]]
+	for z in shots:
+		V.cam_z = z[1]; V.center_on(28 * T, 34 * T)
+		await get_tree().create_timer(0.5).timeout
+		await _shot(dir + "/radar_" + z[0] + ".png")
+		print("RADAR zoom ", z[1], " k=", V.radar_k(), " on=", V.radar_on, " badges ", rd.badges.size())
+	var bpos := func(n: int) -> Vector2:
+		for b in rd.badges:
+			if b.n == n: return (b.rect as Rect2).get_center()
+		return Vector2(-1, -1)
+	var tap_at := func(p: Vector2) -> void:
+		_touch(0, p, true); await get_tree().process_frame; _touch(0, p, false); await get_tree().process_frame
+	await tap_at.call(bpos.call(2)); await get_tree().create_timer(0.45).timeout
+	await tap_at.call(bpos.call(3)); await get_tree().create_timer(0.45).timeout
+	var n2 := sq.members(S, 2).size(); var n3 := sq.members(S, 3).size()
+	print("RADAR badges 2+3 selected ", S.sel.size(), " of ", n2 + n3, " src ", sel_src)
+	await get_tree().create_timer(0.3).timeout
+	await _shot(dir + "/radar_4_two_squads.png")
+	var f: Ent = foes.filter(func(e): return e != null and e.alive)[0]
+	f.x = sq.members(S, 2)[0].x; f.y = sq.members(S, 2)[0].y + 120
+	for i in 10: S.step(0.05)
+	var fp3 := V.w2s(f.x, f.y, S.h_at(f.x, f.y)); var fp := Vector2(fp3.x, fp3.y)
+	print("RADAR enemy visible ", S.visible_to_player(f))
+	await tap_at.call(fp); await get_tree().create_timer(0.45).timeout
+	print("RADAR order on enemy: orders ", S.sel.map(func(e): return e.order), " squads ", sq.list.map(func(q): return [q.n, q.ids.size()]), " sel ", S.sel.size())
+	# drag badge 1 to an empty spot: only squad 1 moves, the selection stays on squads 2 and 3
+	var b1: Vector2 = bpos.call(1); var to := b1 + Vector2(-60, 80); var keep := S.sel.size()
+	_touch(0, b1, true); await get_tree().process_frame
+	for i in 6:
+		_drag(0, b1.lerp(to, (i + 1) / 6.0)); await get_tree().process_frame
+	await _shot(dir + "/radar_5_drag_badge.png")
+	_touch(0, to, false); await get_tree().process_frame
+	print("RADAR drag badge 1: squad 1 orders ", sq.members(S, 1).map(func(e): return e.order), " sel kept ", S.sel.size() == keep, " squads ", sq.list.map(func(q): return [q.n, q.ids.size()]))
+	for i in 20: S.step(0.05)
+	await get_tree().create_timer(0.3).timeout
+	await _shot(dir + "/radar_6_orders.png")
+	# one finger drags a box around squad 4
+	var c4 := Vector2(); var m4 := sq.members(S, 4)
+	for e in m4:
+		var q := V.w2s(e.x, e.y, S.h_at(e.x, e.y)); c4 += Vector2(q.x, q.y)
+	c4 /= max(1, m4.size())
+	var a := c4 + Vector2(-45, -40); var bb := c4 + Vector2(45, 40)
+	_touch(0, a, true); await get_tree().process_frame
+	for i in 6:
+		_drag(0, a.lerp(bb, (i + 1) / 6.0)); await get_tree().process_frame
+	_touch(0, bb, false); await get_tree().process_frame
+	print("RADAR box: sel ", S.sel.size(), " squad 4 has ", m4.size())
+	# double-tap open ground: dive back down
+	var g3 := V.w2s(8 * T, 12 * T, 0.0); var g := Vector2(g3.x, g3.y)
+	tap(g.x, g.y, false); tap(g.x, g.y, false)   # straight to tap(): the software renderer here is too slow for real double-taps
+	print("RADAR fps ", Engine.get_frames_per_second())
+	await get_tree().create_timer(0.8).timeout
+	print("RADAR dive: cam_z ", V.cam_z, " radar ", V.radar_on)
+	await _shot(dir + "/radar_7_dived.png")
+
 ## AF_MODE=squads: the squad strip. Three squads formed by orders (one under fire, one idle), fresh units in NEW,
 ## squad 1 selected with JOIN showing, then a mixed selection with its type chips. AF_FAC picks the army.
 func _squad_shots(dir: String) -> void:
@@ -2192,7 +2292,7 @@ func _field_shots(dir: String) -> void:
 		for i in fields[k]:
 			if k == 1: S.take_ore(i, S.ore[i] * 6 / 10, 80.0)
 			if k == 2: S.take_ore(i, S.ore[i], 100.0)
-	V.upd_ore(); render_mini()
+	V.upd_ore()
 	for k in mini(3, fields.size()):
 		var c: int = fields[k][fields[k].size() / 2]
 		V.cam_z = 1.6; V.center_on((c % D.MW) * T + 16.0, (c / D.MW) * T + 16.0)
@@ -2724,8 +2824,8 @@ func _input_test() -> void:
 	print("INPUT squad 1 recentre: cam ", Vector2(V.cam_x, V.cam_y), " squad at ", Vector2(rifles[0].x, rifles[0].y))
 	click_item("bld", "power"); S.step(0.5)
 	if U.panel_open: toggle_panel()
-	toggle_big_map(); refresh_panel(true); render_mini()
+	refresh_panel(true)
 	await get_tree().create_timer(0.3).timeout
 	print("INPUT chips: ", U.prod_chips.keys().filter(func(c): return U.prod_chips[c].visible))
 	await _shot(OS.get_environment("AF_SHOT") + "/04_chips_map_groups.png")
-	toggle_big_map(); toggle_panel()
+	toggle_panel()

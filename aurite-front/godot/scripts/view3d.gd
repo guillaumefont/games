@@ -11,6 +11,14 @@ const MW := 64
 const MH := 64
 const HN := MW * 2 + 1
 const PITCH := 0.95
+## Radar (Guillaume 2026-11-27: "a radar mode by zooming out, to handle units in bulk"). Pinching out past Z_NEAR keeps
+## pulling the camera back and tilting it toward top-down until the whole map fits at Z_MIN. Between Z_NEAR and Z_RADAR
+## the 3D units give way to flat icons drawn by main.gd (`draw_radar`); below Z_RADAR it is all radar.
+const Z_NEAR := 0.5
+const Z_RADAR := 0.34
+const Z_MIN := 0.13
+const PITCH_TOP := 1.35
+var radar_on := false   # 3D units, trees and shadows are put away (set by render from radar_k)
 
 var S: Sim
 var cam_x := 1024.0
@@ -291,6 +299,7 @@ func build_world() -> void:
 	for id in recs: recs[id].n.queue_free()
 	for id in wrecks_n: wrecks_n[id].queue_free()
 	recs.clear(); scorches.clear(); wrecks_n.clear()
+	radar_on = false; ents_root.visible = true
 	var TH: Dictionary = D.THEMES[S.theme]
 	_apply_light(TH)
 	ground_mi = Ground.build(S, fog_tex, MW, MH, HN); world.add_child(ground_mi)
@@ -491,8 +500,20 @@ func set_cine_look(on: bool) -> void:
 	(under.material_override as StandardMaterial3D).albedo_color = haze if on else Color("10161a")
 
 func clamp_cam() -> void:
-	cam_z = clamp(cam_z, 0.5, 2.4)
-	cam_x = clamp(cam_x, T, D.WW - T); cam_y = clamp(cam_y, T * 2, D.WH - T)
+	cam_z = clamp(cam_z, Z_MIN, 2.4)
+	# zoomed far out, the view is drawn toward the middle of the map so the whole of it stays in sight
+	var m: float = radar_pull() * (D.WW / 2.0 - T * 4)
+	cam_x = clamp(cam_x, T + m, D.WW - T - m); cam_y = clamp(cam_y, T * 2 + m, D.WH - T - m)
+
+## 0 at Z_NEAR and closer, 1 at Z_MIN: how far into the radar zoom range the camera is (pitch, centring).
+func radar_pull() -> float:
+	if cine != null: return 0.0
+	return clampf((Z_NEAR - cam_z) / (Z_NEAR - Z_MIN), 0.0, 1.0)
+
+## 0 down to Z_NEAR, 1 from Z_RADAR on: how much of the radar look shows.
+func radar_k() -> float:
+	if cine != null: return 0.0
+	return clampf((Z_NEAR - cam_z) / (Z_NEAR - Z_RADAR), 0.0, 1.0)
 
 func update_cam() -> void:
 	var d := cam_dist(); var fx := cam_x / T; var fz := cam_y / T
@@ -504,7 +525,8 @@ func update_cam() -> void:
 		camera.look_at(Vector3(fx, gy, fz), Vector3.UP)
 		camera.h_offset = 0.0
 	else:
-		camera.position = Vector3(fx, sin(PITCH) * d, fz + cos(PITCH) * d)
+		var pk := radar_pull(); var pitch: float = lerpf(PITCH, PITCH_TOP, pk * pk * (3.0 - 2.0 * pk))
+		camera.position = Vector3(fx, sin(pitch) * d, fz + cos(pitch) * d)
 		camera.look_at(Vector3(fx, 0, fz), Vector3.UP)
 		var vh := get_viewport().get_visible_rect().size.y
 		camera.h_offset = panel_px / 2.0 * (2.0 * d * tan(deg_to_rad(camera.fov) / 2.0)) / max(1.0, vh)
@@ -1028,9 +1050,20 @@ func sync_wrecks() -> void:
 	for id in wrecks_n.keys():
 		if not live.has(id): wrecks_n[id].queue_free(); wrecks_n.erase(id)
 
+## Radar: the units become icons (main.gd draws them), and trees and shadows go too, which makes the whole-map view
+## cheaper to draw than normal play.
+func _radar_look(on: bool) -> void:
+	if on == radar_on: return
+	radar_on = on
+	ents_root.visible = not on
+	for k in ["trunk", "crown", "rk", "bu"]:
+		if decor.has(k): decor[k].visible = not on
+	sun.shadow_enabled = not on and GFX.level >= GFX.MEDIUM
+
 func render(dt: float, placing, preview_slots: Array, pv_from, pv_to) -> void:
 	update_cam()
 	if S == null: return
+	_radar_look(radar_k() >= 0.6)
 	sync_ents(S.time); sync_wrecks(); draw_parts(); upd_marks(); upd_ghost(placing); upd_rally(); upd_preview(preview_slots, pv_from, pv_to)
 	ore_t -= dt
 	if ore_t <= 0: ore_t = .3; upd_ore()

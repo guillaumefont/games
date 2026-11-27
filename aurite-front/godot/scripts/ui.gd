@@ -40,6 +40,15 @@ static func glow(ci: CanvasItem, c: Vector2, r: Vector2, col: Color) -> void:
 const C_OK := Color("7fd68e")
 const C_BAD := Color("ff5a52")
 const PANEL_W := 188.0
+const RADAR_TINT := """shader_type canvas_item;
+uniform sampler2D scr : hint_screen_texture, filter_linear_mipmap;
+uniform float k = 0.0;
+void fragment() {
+	vec3 c = texture(scr, SCREEN_UV).rgb;
+	float g = dot(c, vec3(0.3, 0.59, 0.11));
+	vec3 t = vec3(g) * vec3(0.66, 0.84, 0.78) + vec3(0.02, 0.05, 0.045);
+	COLOR = vec4(mix(c, t, 0.6 * k) * (1.0 - 0.2 * k), 1.0);
+}"""
 
 var main  # main.gd
 var f_disp: FontFile
@@ -79,8 +88,7 @@ var mode_btn: ModeDial
 var place_bar: HBoxContainer
 var place_hint: Label
 var panel: PanelContainer
-var mini: Control
-var big_map: Control      # enlarged minimap floating over the view (MAP button)
+var radar_tint: ColorRect  # greys and cools the 3D view while zoomed out to radar (main.gd sets its "k")
 var prod_chips := {}      # building type -> ProdChip in the top bar: what that kind of producer is making
 var chip_box: HBoxContainer
 var ctx_box: Plate        # side panel header: what is selected
@@ -203,6 +211,10 @@ func _build_hud() -> void:
 	hud = Control.new(); hud.name = "HUD"; hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.anchor_right = 1; hud.anchor_bottom = 1; hud.offset_right = -PANEL_W
 	add_child(hud)
+	# radar: a screen pass under every HUD control that greys the view as the camera pulls back
+	radar_tint = ColorRect.new(); radar_tint.set_anchors_preset(Control.PRESET_FULL_RECT); radar_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rs := Shader.new(); rs.code = RADAR_TINT; var rm := ShaderMaterial.new(); rm.shader = rs; radar_tint.material = rm
+	radar_tint.visible = false; hud.add_child(radar_tint)
 	var draw := HudDraw.new(); draw.ui = self; draw.set_anchors_preset(Control.PRESET_FULL_RECT); draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(draw); hud.set_meta("draw", draw)
 	var top := HBoxContainer.new(); top.position = Vector2(8, 8); top.add_theme_constant_override("separation", 6); top.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -234,12 +246,8 @@ func _build_hud() -> void:
 	# one chip per kind of producer you own (Yard, Barracks, ...): what it is making; tap to select it
 	chip_box = HBoxContainer.new(); chip_box.add_theme_constant_override("separation", 6); chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(chip_box)
-	var mp := mkbtn("Map", func(): main.toggle_big_map(), 56, 48, 12, "map"); top.add_child(mp); btn["map"] = mp
 	var pb := mkbtn("", func(): main.toggle_panel(), 48, 48, 13, "hide"); top.add_child(pb); btn["panel"] = pb
 	var mb := mkbtn("", func(): main.open_menu(), 48, 48, 16, "pause"); top.add_child(mb); btn["pause"] = mb
-	big_map = MiniMap.new(); big_map.ui = self; big_map.src = true
-	big_map.anchor_left = 1; big_map.anchor_right = 1; big_map.offset_left = -8 - 280; big_map.offset_right = -8; big_map.offset_top = 64; big_map.offset_bottom = 64 + 280
-	big_map.visible = false; hud.add_child(big_map)
 	# the objective shows for a few seconds, then folds into this button (tap the box to fold it sooner)
 	obj_btn = mkbtn("Objective", func(): main.show_objective(), 0, 40, 11, "obj"); obj_btn.position = Vector2(8, 70); obj_btn.visible = false
 	hud.add_child(obj_btn)
@@ -410,7 +418,6 @@ func _build_panel() -> void:
 	panel.draw.connect(_draw_panel_bg)
 	add_child(panel)
 	var v := VBoxContainer.new(); v.add_theme_constant_override("separation", 6); panel.add_child(v)
-	mini = MiniMap.new(); mini.ui = self; mini.custom_minimum_size = Vector2(PANEL_W - 16, PANEL_W - 60); v.add_child(mini)
 	# header: what is selected (the Yard when nothing is), its health and one line about it
 	ctx_box = Plate.new(); ctx_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ctx_box.add_theme_stylebox_override("panel", plate_sb(7.0, H_BG, W_LINE, W_BRASS)); v.add_child(ctx_box)
@@ -706,7 +713,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "Drag to move the map, pinch to zoom · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected. MAP opens a large minimap."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."]]:
+	for row in [["TOUCH", "Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box; two fingers pan and zoom. Double-tap a spot, or pinch in, to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -1810,46 +1817,6 @@ class HudDraw extends Control:
 	var ui
 	func _draw() -> void:
 		if ui.main: ui.main.draw_hud(self)
-
-class MiniMap extends Control:
-	var ui
-	var src := false   # draws the side panel minimap's texture (the enlarged copy)
-	var tex: ImageTexture
-	var img: Image
-	var dragging := false
-	func _ready() -> void:
-		mouse_filter = Control.MOUSE_FILTER_STOP
-		img = Image.create(64, 64, false, Image.FORMAT_RGBA8)
-		tex = ImageTexture.create_from_image(img)
-	func _draw() -> void:
-		var r := Rect2(Vector2.ZERO, size)
-		if src: draw_rect(r.grow(4), Color(0.055, 0.062, 0.045, 0.94))
-		draw_rect(r, Color.BLACK)
-		draw_texture_rect(ui.mini.tex if src else tex, r, false)
-		# plotting-table grid and a light vignette
-		for i in range(1, 8):
-			var x := size.x * i / 8.0; var y := size.y * i / 8.0
-			draw_line(Vector2(x, 0), Vector2(x, size.y), Color(0.85, 0.8, 0.64, 0.07), 1.0)
-			draw_line(Vector2(0, y), Vector2(size.x, y), Color(0.85, 0.8, 0.64, 0.07), 1.0)
-		for k in 3:
-			draw_rect(r.grow(-k * 2.0), Color(0, 0, 0, 0.22 - k * 0.06), false, 2.0)
-		if ui.main: ui.main.draw_mini_overlay(self)
-		draw_rect(r, Color("4a5238"), false, 1.0)
-		# brass corner brackets and a north mark
-		var L := 14.0; var b := Color("d9a441"); var o := r.grow(3)
-		for q in [[o.position, 1, 1], [Vector2(o.end.x, o.position.y), -1, 1], [o.end, -1, -1], [Vector2(o.position.x, o.end.y), 1, -1]]:
-			var p: Vector2 = q[0]
-			draw_line(p, p + Vector2(q[1] * L, 0), b, 2.0); draw_line(p, p + Vector2(0, q[2] * L), b, 2.0)
-		draw_colored_polygon(PackedVector2Array([Vector2(size.x / 2 - 5, -3), Vector2(size.x / 2 + 5, -3), Vector2(size.x / 2, 5)]), b)
-	func _gui_input(ev: InputEvent) -> void:
-		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
-			dragging = ev.pressed
-			if ev.pressed: _go(ev.position)
-			accept_event()
-		elif ev is InputEventMouseMotion and dragging:
-			_go(ev.position); accept_event()
-	func _go(p: Vector2) -> void:
-		ui.main.mini_go(p / size)
 
 class BuildItem extends Control:
 	var ui

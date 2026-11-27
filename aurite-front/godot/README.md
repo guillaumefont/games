@@ -48,13 +48,15 @@ so on Hard, so Easy and Normal play as before.
 Copy it to the phone and open it (allow "install unknown apps"). It installs next to the older WebView app.
 
 ## Controls
-- **Touch**: drag moves the map, pinch to zoom (past a 12% dead zone). Tap a unit to select it, then tap ground to move
+- **Touch**: drag moves the map, pinch to zoom (past a 12% dead zone). **Radar**: pinch far out and the whole map shows
+  as icons, each squad a numbered badge: tap badges to select several squads, tap a target, drag a badge to send that
+  squad alone, one finger boxes, double-tap (or pinch in) to dive back down. It replaces the old minimap and MAP button. Tap a unit to select it, then tap ground to move
   or an enemy to attack; tap another own unit to switch to it. **Hold, then drag** box-selects; with units selected,
   a hold that starts on open ground sets formation facing instead, one that starts on your own unit still boxes.
   Hold and let go deselects. `main.gd PAN_FINGERS = 2` switches to two-finger panning with a plain one-finger box
   (Guillaume tried it and preferred one finger). **Double-tap a unit** selects every unit of that type on screen.
   **Hold on open ground, then drag** (units selected) to place a formation along the drag line; it faces away from you for a left-to-right drag. You see a preview while dragging.
-  Long-press a build button to cancel it. **»** in the top bar hides the side panel (build menu + minimap,
+  Long-press a build button to cancel it. **»** in the top bar hides the side panel (build menu,
   remembered in `user://prefs.json`); **« BUILD** shows it again and reads **« READY** when a building waits to be placed.
   The side panel follows the selection: nothing selected (or the Yard) lists structures, a producer lists the units it
   trains (sub-tabs on a Landing Zone or Garden), a building or units show their orders (Upgrade, Repair, Sell, Muster,
@@ -62,8 +64,7 @@ Copy it to the phone and open it (allow "install unknown apps"). It installs nex
   next one), tap a ready building to place it. While the panel is hidden it peeks out for a selected building.
   Selected units get orders in the panel: **Hold** (fight only what is in reach, never chase), **No fire**, **Scatter**,
   **To base**, plus **Jump** (Jump Troopers: tap where to land), **Strip** (Scrappers strip wrecks instead of
-  reviving them) and **Fuse** (Thralls). A selected producer's **Loop** repeats its queue: each finished unit goes back to the end. **MAP** opens a large
-  minimap (tap/drag to look there). Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
+  reviving them) and **Fuse** (Thralls). A selected producer's **Loop** repeats its queue: each finished unit goes back to the end. Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
   building out of the menu to place it (drawn 70 UI units above the finger). **Squads** on the bottom strip form by themselves: give two
   or more selected units an order and they become a squad (numbers 1 to 5, keys 1 to 5 on a keyboard). Tap a squad to
   select it, tap again to centre. Ordering part of a squad splits it off, ordering whole squads together merges them.
