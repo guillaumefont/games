@@ -264,6 +264,60 @@ func towns(g: Game) -> void:
 		check(stray == 0, "%s: no stray landmarks inside" % theme)
 
 
+## Ember Dunes' cliff dwellings (Guillaume, 2026-11-27: "more houses hidden around in the mountain
+## flanks"): hamlets down the flanks of the canyon, mesas and crater, below the plain with rock
+## behind them, under the ship; none out on the open sand, in the town or in other worlds.
+func dwellings(g: Game) -> void:
+	print("dwellings")
+	Models.theme = "dunes"
+	Relief.level = 0
+	var per := {}
+	var shallow := 0
+	var bare := 0
+	var high := 0.0
+	for n in 8:
+		var kind := Relief.kind_of(n)
+		var z_near := Relief.START - n * Relief.SEG
+		var gz := ceilf(-z_near / Dwellings.STEP) * -Dwellings.STEP
+		while gz > z_near - Relief.SEG:
+			for i in range(-9, 10):
+				var s := Dwellings.spot(g.noise, i * Dwellings.STEP, gz)
+				if s.is_empty():
+					continue
+				per[kind] = int(per.get(kind, 0)) + 1
+				var p: Vector3 = s.p
+				var h := Relief.raw(g.noise, p.x, p.z)
+				if Relief.base_y(h) - p.y < Dwellings.DEPTH - 0.6:
+					shallow += 1
+				var d := Vector2(sin(s.a), cos(s.a))
+				var behind := maxf(Relief.y_at(g.noise, p.x - d.x * 2.0, p.z - d.y * 2.0), Relief.y_at(g.noise, p.x - d.x * 3.0, p.z - d.y * 3.0))
+				if behind - p.y < 1.0:
+					bare += 1
+				if Relief.in_town(p.x, p.z):
+					bare += 1
+				high = maxf(high, p.y + 2.6 * Dwellings.V)
+			gz -= Dwellings.STEP
+	for kind: String in Dwellings.HOSTS:
+		check(int(per.get(kind, 0)) >= 6, "dunes: cliff dwellings down the %s's flanks (%d)" % [kind, per.get(kind, 0)])
+	check(not per.has("stream") and not per.has("open"), "dunes: none out on the open sand")
+	check(shallow == 0 and bare == 0, "dunes: each sits down a flank, rock behind it (%d shallow, %d bare)" % [shallow, bare])
+	check(high < Rules.PY - 1.0, "dunes: the highest stays under the ship (%.1f m)" % high)
+	Models.scenery.clear()
+	Models.ground_chunk(g.noise, -Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+	check(Models.scenery.get("cliff dwelling", 0) > 0, "dunes: the chunks build them")
+	for theme: String in ["coast", "ice", "volcano"]:
+		Models.theme = theme
+		var any := 0
+		for n in 4:
+			for i in range(-9, 10):
+				for j in 50:
+					if not Dwellings.spot(g.noise, i * Dwellings.STEP, Relief.START - n * Relief.SEG - j * Dwellings.STEP).is_empty():
+						any += 1
+		Models.scenery.clear()
+		Models.ground_chunk(g.noise, -Game.CHUNK, Vector2(Game.CHUNK_W, Game.CHUNK), 2.0)
+		check(any == 0 and Models.scenery.get("cliff dwelling", 0) == 0, "%s: no cliff dwellings (desert only)" % theme)
+
+
 ## The city is a calm backdrop: its colours in a narrow, muted band and few fires, so foes and
 ## bullets stand out (Guillaume, 2026-11-24: "the city landscape is too messy... not very easy to
 ## see the enemies on the very heavy background").
@@ -389,6 +443,7 @@ func _initialize() -> void:
 	city(g)
 	shadows(g)
 	towns(g)
+	dwellings(g)
 	Models.theme = "coast"
 	g.queue_free()
 	await process_frame

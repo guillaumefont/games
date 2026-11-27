@@ -1684,6 +1684,7 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 			scatter(b, hs4, cen, cy)
 	if shaped:
 		Towns.build(b, z0, z0 - size.y)
+		Dwellings.build(b, noise, z0, z0 - size.y)
 		Relief.fx = Relief.events(z0, z0 - size.y, noise)
 		for ev: Dictionary in Relief.fx:
 			if ev.t == "rock":
