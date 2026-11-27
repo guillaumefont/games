@@ -424,6 +424,8 @@ const RAIL := 18.0
 ## about 2 s; a big drop at once, then a gentle tail, see `Game.time_speed`); touching again brings it back up to full speed over `SLOW_RESUME` s.
 const SLOW_STOP := 2.0
 const SLOW_RESUME := 0.25
+## The first-run hint stays this many seconds (real time) after the first touch, fading out.
+const HINT_T := 3.5
 const APPROACH := 2.8
 const AIM_AHEAD := 32.0
 const AIM_DIP := 0.12
@@ -466,7 +468,7 @@ const UPGRADES := {
 
 
 static func fresh() -> Dictionary:
-	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0,
+	var s := {"scrap": 0, "best": 0, "runs": 0, "clears": 0, "hinted": false,
 		"up": {"cannon": 0, "missile": 0, "hull": 0, "magnet": 0}}
 	Campaign.fresh_into(s)
 	return s
@@ -480,6 +482,8 @@ static func migrate(d: Variant) -> Dictionary:
 	for k in ["scrap", "best", "runs", "clears"]:
 		if d.has(k):
 			s[k] = maxi(0, int(d[k]))
+	# the first-run hint (`Game.hint_t`): a save from before it that has flown already knows the controls
+	s.hinted = bool(d.get("hinted", false)) or s.runs > 0 or s.clears > 0
 	if typeof(d.get("up")) == TYPE_DICTIONARY:
 		for k: String in ORDER:
 			s.up[k] = clampi(int(d.up.get(k, 0)), 0, UPGRADES[k].max)
