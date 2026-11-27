@@ -62,6 +62,12 @@ func _init() -> void:
 	check(Rules._read_save(SAVE + ".bak").scrap == 10, "the good backup is kept")
 	check(Rules.load_game(SAVE).scrap == 50, "and the new save loads")
 
+	print("a deleted save is a fresh start")
+	DirAccess.remove_absolute(SAVE)
+	check(FileAccess.file_exists(SAVE + ".bak"), "even with a backup left over")
+	check(Rules.load_game(SAVE) == Rules.fresh(), "the backup is not brought back")
+	Rules.save_game(progress(50), SAVE)
+
 	print("reset")
 	check(Rules.save_game(Rules.fresh(), SAVE), "a progress reset saves")
 	check(Rules.load_game(SAVE) == Rules.fresh(), "and loads as fresh, not from the backup")

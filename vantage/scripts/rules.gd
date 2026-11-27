@@ -844,13 +844,18 @@ static func save_game(s: Dictionary, path := SAVE_PATH) -> bool:
 	return DirAccess.rename_absolute(tmp, path) == OK
 
 
-## The save, or else a whole temp file left by a save that was cut short, or else the backup.
-## A missing or broken save never quietly turns into a fresh one while a good copy exists.
+## The save, or else a whole temp file left by a save that was cut short, or else the backup
+## when a save or temp file is there but broken. A save that was deleted on purpose (no save and
+## no temp file) is a fresh start: a save in progress always has one of the two on disk.
 static func load_game(path := SAVE_PATH) -> Dictionary:
-	for p: String in [path, path + ".tmp", path + ".bak"]:
+	for p: String in [path, path + ".tmp"]:
 		var d: Variant = _read_save(p)
 		if d != null:
 			return migrate(d)
+	if FileAccess.file_exists(path) or FileAccess.file_exists(path + ".tmp"):
+		var b: Variant = _read_save(path + ".bak")
+		if b != null:
+			return migrate(b)
 	return fresh()
 
 
