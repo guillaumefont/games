@@ -1,11 +1,17 @@
 class_name Sound
 extends Node
 ## Music and sound effects. All audio is original, synthesised by tools/audio/compose.py:
-## two looping tracks (loop=true in their .import files) that crossfade, and short effects
+## a looping track per world theme, one for the mid-bosses and one for the fortresses (loop=true in
+## their .import files) that crossfade, and short effects
 ## played from a small pool of players, each with its own level and a minimum gap so rapid
 ## fire doesn't stack into noise. Music plays on the "Music" bus, effects on "Sfx".
 
-const TRACKS := {"sortie": "res://audio/music/sortie.ogg", "carrier": "res://audio/music/carrier.ogg"}
+## Track name -> file. The world tracks are named after `Campaign.WORLDS[].theme`.
+const TRACKS := {
+	"coast": "res://audio/music/sortie.ogg", "dunes": "res://audio/music/dunes.ogg",
+	"city": "res://audio/music/city.ogg", "ice": "res://audio/music/ice.ogg",
+	"volcano": "res://audio/music/volcano.ogg", "boss": "res://audio/music/carrier.ogg",
+	"fortress": "res://audio/music/fortress.ogg"}
 ## Effect: [volume dB, minimum seconds between two plays, pitch jitter].
 const FX := {
 	"shot": [-16.0, 0.07, 0.06], "missile": [-11.0, 0.12, 0.05], "hit": [-15.0, 0.05, 0.12],

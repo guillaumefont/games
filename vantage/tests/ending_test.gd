@@ -58,6 +58,7 @@ func ending(g: Game) -> void:
 	check(g.phase == "credits" and g.hud.credits.visible and not g.hud.results.visible, "a tap rolls the credits")
 	g.step(DT)
 	check(g.ship.visible, "the ship flies on under them")
+	check(Sound.TRACKS.has(g.sound.track) and not g.sound.ducked, "music plays under them (%s)" % g.sound.track)
 	print("    roll %.0f px over a %s screen" % [g.hud.credits.roll_h(), g.hud.credits.size])
 	tap(g)
 	check(g.phase == "credits", "a tap at once doesn't skip them")
