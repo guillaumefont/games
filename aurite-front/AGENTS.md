@@ -254,6 +254,9 @@ in your PR, keep it short, and mention the change in the PR description.
   the button), STRIP (`Ent.strip`: a Scrapper strips even a revivable wreck) and FUSE. `main._unit_btns` shows the ones
   the selection can use; an army's own button acts only on the units that have it. The AI never sets these.
   `order_tests` in `tests/sim_test.gd` (`AF_ONLY=orders`).
+- LOOP (Guillaume 2026-11-27, "build units loops"): a selected producer's LOOP button sets `tm.loop[building type]`;
+  `Sim.upd_prod` puts a finished unit back at the end of its line while it is on (never one-of-a-kind units). Paid per
+  unit as usual; waits when broke or capped (the header says UNIT CAP FULL). The top-bar chip shows a loop mark.
 - Phone HUD extras (2026-11-14): producer chips in the top bar (`UI.ProdChip`, one per kind of producer you own,
   `main.producers` from `_setup_producers`, `_prod_chips`, `prod_chip_tap(bt)` selects it, 2026-11-27), MAP = enlarged minimap (`UI.big_map`, draws the panel minimap's texture), army groups
   (`main.groups`, `group_btn`), objective auto-hide (`obj_t`, `OBJ_SHOW`), drag-to-build from `BuildItem`

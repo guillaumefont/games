@@ -15,6 +15,10 @@ Guillaume's decisions so far (keep them unless he changes his mind):
   aiming, a red line runs from the ship until the first ship or island it meets (2026-11-25); letting go
   fires every loaded battery that bears that way at what the line meets (nothing if it's beyond range,
   the guns' range if it meets nothing). Balls fly fast (`Game.BALL_SPM`, `BALL_T0`, `BALL_ARC`).
+- 2026-11-27: the player's guns reach 50 m (`Rules.PLAYER_RANGE`; the AI keeps 24 m) and fire at any
+  bearing: the loaded battery facing closest to the aim fires (no arcs shown for the player). Each ball
+  leaves from its own gun (`Models.gun_spots`, `Game.gun_mouths`) and homes on the ship the red line
+  meets. No ring on the target of the red or purple line; a line fades when it can't act there.
 - Grapple and boarding (2026-11-25): a purple stick (bottom left) and purple line, same handling; letting
   go throws the grapple at the first ship on the line within `st.grapple` (10 m + 4 per Grappins level).
   Caught: the ships are pulled side by side, guns stop, and the crews and captains fight

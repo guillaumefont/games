@@ -120,6 +120,7 @@ func make_game() -> Game:
 	g.driven = true
 	root.add_child(g)
 	g.rng.seed = 3
+	check(g != null, "the game scene loads")
 	return g
 
 
@@ -259,7 +260,7 @@ func game() -> void:
 	var ray := g.aim_ray()
 	check(ray.boat == e and absf(float(ray.dist) - (12 - Game.HIT_R)) < 0.3, "the red line runs until it meets the enemy")
 	check(absf(at.x - (g.P.pos().x + 12)) < 0.3 and absf(at.z - g.P.pos().z) < 0.3, "the balls go for the ship the line meets")
-	check(g.aim_mark.visible and g._aim_ring.visible and absf(g._aim_line.scale.z - float(ray.dist)) < 0.3, "the red line shows on the water and stops at the enemy")
+	check(g.aim_mark.visible and absf(g._aim_line.scale.z - float(ray.dist)) < 0.3, "the red line shows on the water and stops at the enemy")
 	touch(ac + Vector2(Hud.AIM_R, 0), true, true)
 	await process_frame
 	g.step(1.0 / 60)
@@ -268,11 +269,15 @@ func game() -> void:
 	await process_frame
 	check(g.s.balls == balls - 1 and g.balls.size() >= 1 and not g.hud.aim_active, "letting go fires the battery that bears")
 	var b0: Dictionary = g.balls[0]
-	check(float(b0.dur) < 0.4, "the balls are fast: under 0.4 s for 12 m")
+	check(float(b0.dur) < 0.2, "the balls are very fast: under 0.2 s for 12 m")
+	var from: Vector3 = b0.from
+	check(from.x - g.P.pos().x > 1.2 and absf(from.z - g.P.pos().z) < 2.5 and from.y > 0.9, "each ball leaves from a gun on the side, not from the middle of the ship")
+	# the ball follows its target: move the enemy while the ball flies
 	for i in 120:
-		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
+		e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z + 5.0)   # 5 m off the point aimed at
 		g.step(1.0 / 60)
-	check(e.hp < ehp, "the aimed broadside hits")
+	check(e.hp < ehp, "the aimed ball goes to the target of the red line, even when it moves")
+	e.node.position = Vector3(g.P.pos().x + 12, 0, g.P.pos().z)
 	# a miss: aiming at empty sea on the other side
 	g.P.rl = {}
 	balls = g.s.balls
@@ -290,7 +295,7 @@ func game() -> void:
 	touch(ac + Vector2(-Hud.AIM_R, 0), true, true)
 	await process_frame
 	g.step(1.0 / 60)
-	check(g.aim_ray().boat == null and is_equal_approx(float(g.aim_ray().dist), Game.LINE_LEN) and not g._aim_ring.visible, "nothing in the way: an endless red line")
+	check(g.aim_ray().boat == null and is_equal_approx(float(g.aim_ray().dist), Game.LINE_LEN), "nothing in the way: an endless red line")
 	# an island in the way: the line stops on it and the guns fire at it
 	g.isles = [{"x": g.P.pos().x - 15, "z": g.P.pos().z, "r": 5.0}]
 	g.step(1.0 / 60)
@@ -311,15 +316,27 @@ func game() -> void:
 	touch(ac + Vector2(-Hud.AIM_R, 0), false)
 	await process_frame
 	check(g.s.balls == balls, "an obstacle beyond range: no shot")
+	# 50 m range: an island 45 m away can be shot
+	check(is_equal_approx(float(g.P.st.range), 50.0), "the guns reach 50 m")
+	g.isles = [{"x": g.P.pos().x - 48, "z": g.P.pos().z, "r": 4.0}]
+	touch(ac, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), true, true)
+	touch(ac + Vector2(-Hud.AIM_R, 0), false)
+	await process_frame
+	check(g.s.balls == balls - 1, "a target 44 m away is in range")
+	g.P.rl = {}
+	balls = g.s.balls
 	g.isles = []
-	# straight astern: the chaloupe has no gun there
+	# straight astern: the chaloupe has no stern gun, but its guns now fire any way
 	g.P.rl = {}
 	balls = g.s.balls
 	touch(ac, true)
 	touch(ac + Vector2(0, -Hud.AIM_R), true, true)
 	touch(ac + Vector2(0, -Hud.AIM_R), false)
 	await process_frame
-	check(g.s.balls == balls, "no gun bears astern: nothing fires")
+	check(g.s.balls == balls - 1, "the guns fire all around the ship, astern too")
+	g.P.rl = {}
+	balls = g.s.balls
 	# let go in the middle: cancelled
 	touch(ac, true)
 	touch(ac + Vector2(8, 0), true, true)
@@ -505,7 +522,7 @@ func boarding() -> void:
 	await process_frame
 	g.step(1.0 / 60)
 	check(g.hud.hook_active and not g.hud.aim_active and not g.hud.joy_active, "a thumb on the purple stick aims the grapple")
-	check(g.hook_mark.visible and g._hook_ring.visible, "a purple line runs to the ship ahead")
+	check(g.hook_mark.visible and g._hook_line.material_override == Models.flat_mat(Game.HOOK_PURPLE, 0.9), "a bright purple line runs to the ship in reach")
 	# a strong crew boards a weak one
 	g.s.crew = {"sabre": 0, "pistolet": 0, "fusil": 6, "grenade": 0}
 	e.fighters = Rules.fighters({"sabre": 2}, 0)

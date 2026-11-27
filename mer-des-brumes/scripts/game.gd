@@ -91,7 +91,6 @@ var _lit := {}
 var aim_mark: Node3D
 var hook_mark: Node3D
 var _hook_line: MeshInstance3D
-var _hook_ring: MeshInstance3D
 const HOOK_PURPLE := Color8(0xa0, 0x5c, 0xe0)
 ## Grapples in flight: {n, rope, from: Boat, to: Vector3, boat, t, dur}
 var hooks := []
@@ -99,16 +98,15 @@ var hook_cd := 0.0
 var _rope: MeshInstance3D
 var _clash_t := 0.0
 var _aim_line: MeshInstance3D
-var _aim_ring: MeshInstance3D
 const AIM_RED := Color8(0xe2, 0x3b, 0x2e)
 ## How far the red line reaches when nothing is in the way (lost in the fog: "infinite").
 const LINE_LEN := 220.0
 ## A ship's size for the red line and for balls landing on it.
 const HIT_R := 3.0
 ## Ball flight: seconds per metre and a fixed part (faster balls, flatter arc).
-const BALL_SPM := 1.0 / 60.0
-const BALL_T0 := 0.15
-const BALL_ARC := 2.2
+const BALL_SPM := 1.0 / 120.0
+const BALL_T0 := 0.06
+const BALL_ARC := 1.2
 
 
 func _ready() -> void:
@@ -208,7 +206,7 @@ func _update_gulls(t: float) -> void:
 
 
 ## The aim on the water: a red line from the ship that runs on until it meets a ship or an
-## island, with a red ring on what it meets.
+## island (no ring on the target).
 func _build_aim_mark() -> void:
 	aim_mark = Node3D.new()
 	aim_mark.visible = false
@@ -217,23 +215,12 @@ func _build_aim_mark() -> void:
 	bm.size = Vector3(0.4, 0.08, 1.0)
 	_aim_line = Models.instance(bm, Models.flat_mat(AIM_RED, 0.9), false)
 	aim_mark.add_child(_aim_line)
-	var tm := TorusMesh.new()
-	tm.inner_radius = 2.3
-	tm.outer_radius = 2.9
-	tm.rings = 24
-	tm.ring_segments = 4
-	_aim_ring = Models.instance(tm, Models.flat_mat(AIM_RED, 0.9), false)
-	_aim_ring.scale = Vector3(1, 0.15, 1)
-	aim_mark.add_child(_aim_ring)
 	# the purple grapple line, the same way
 	hook_mark = Node3D.new()
 	hook_mark.visible = false
 	add_child(hook_mark)
 	_hook_line = Models.instance(bm, Models.flat_mat(HOOK_PURPLE, 0.9), false)
 	hook_mark.add_child(_hook_line)
-	_hook_ring = Models.instance(tm, Models.flat_mat(HOOK_PURPLE, 0.9), false)
-	_hook_ring.scale = Vector3(1, 0.15, 1)
-	hook_mark.add_child(_hook_ring)
 	# the rope between two ships at a boarding (and behind a flying grapple)
 	var rm := BoxMesh.new()
 	rm.size = Vector3(0.12, 0.12, 1.0)
@@ -402,22 +389,37 @@ func _update_parts(dt: float) -> void:
 ## A volley of n balls from `from` (the battery's side when `ang` is given) at the target,
 ## leading it, along an arc.
 ## With `at`, the balls fall around that point instead (the player's aimed shots).
-func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang := NAN, at := Vector3.INF) -> void:
+## `mouths`: where the balls leave (each gun of the battery, see gun_mouths); `home`: each ball
+## keeps flying at the target ship wherever it goes (the player's aimed shots).
+func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang := NAN, at := Vector3.INF, mouths := [], home := false) -> void:
 	var sx := from.x + (0.0 if is_nan(ang) else sin(ang) * 1.5)
 	var sz := from.z + (0.0 if is_nan(ang) else cos(ang) * 1.5)
 	var aimed := at.is_finite()
 	var tp := at if aimed else target.pos()
-	var dist := Vector2(tp.x - sx, tp.z - sz).length()
-	var dur := dist * BALL_SPM + BALL_T0
 	var tv := Vector3.ZERO if aimed else Vector3(sin(target.h), 0, cos(target.h)) * target.v
-	var spread := 1.2 if aimed else 1.8
+	var spread := 0.0 if aimed else 1.8
 	for i in n:
+		var start: Vector3 = Vector3(sx, 1.4, sz) if mouths.is_empty() else mouths[i % mouths.size()]
+		var dur := Vector2(tp.x - start.x, tp.z - start.z).length() * BALL_SPM + BALL_T0
 		var to := Vector3(tp.x + tv.x * dur * 0.85 + rng.randf_range(-spread, spread), 0, tp.z + tv.z * dur * 0.85 + rng.randf_range(-spread, spread))
 		var mi := _ball_node(by_player)
 		mi.visible = false
 		add_child(mi)
-		balls.append({"n": mi, "from": Vector3(sx, 1.4, sz), "to": to, "t": -i * 0.12, "dur": dur, "dmg": dmg, "target": target, "by_player": by_player})
-	puff(Vector3(sx, 1.6, sz), Color8(0xd8, 0xdc, 0xd9), 3 + mini(n, 4), 0.6, 1.2, 1.5, 1.2)
+		balls.append({"n": mi, "from": start, "to": to, "t": -i * 0.05, "dur": dur, "dmg": dmg, "target": target, "by_player": by_player, "home": home})
+		puff(start, Color8(0xd8, 0xdc, 0xd9), 2, 0.45, 1.0, 1.2, 0.9)
+
+
+## Where the guns of a battery are in the world, a little out from the hull (their muzzles).
+func gun_mouths(me: Boat, k: String) -> Array:
+	var hk: String = s.ship if me.is_player else me.hk
+	var sc: Vector3 = Rules.HULLS[hk].scale
+	var out := []
+	var bas := Basis(Vector3.UP, me.h)
+	var outward := {"bab": Vector3(1, 0, 0), "tri": Vector3(-1, 0, 0), "av": Vector3(0, 0, 1), "ar": Vector3(0, 0, -1)}
+	for g in Models.gun_spots(me.st, k):
+		var local: Vector3 = g * sc + outward[k] * 0.45
+		out.append(me.pos() + bas * local)
+	return out
 
 
 ## A cannonball in the player's style: snowballs, fireballs, giant acorns, magic orbs...
@@ -446,7 +448,7 @@ func shoot_batteries(me: Boat, foe: Boat, dt: float, ammo := Callable()) -> Arra
 			continue
 		if ammo.is_valid() and not ammo.call():
 			continue
-		fire(mp, foe, b.n, me.st.dmg, me.is_player, me.h + b.c)
+		fire(mp, foe, b.n, me.st.dmg, me.is_player, me.h + b.c, Vector3.INF, gun_mouths(me, b.k))
 		me.rl[b.k] = me.st.reload
 	return bearing
 
@@ -544,24 +546,26 @@ func fire_aimed() -> int:
 	var ray := aim_ray()
 	var foe: Boat = ray.boat if ray.boat else combat.e
 	var at := aim_point()
-	var bats := aim_batteries()
-	if bats.is_empty():
-		hud.toast("Aucun canon de ce côté : tournez le bateau.")
-		return 0
 	if (ray.boat or ray.isle) and float(ray.dist) > float(P.st.range):
-		hud.toast("Trop loin pour les canons : approchez-vous.")
+		hud.toast("Trop loin pour les canons (%d m) : approchez-vous." % int(P.st.range))
 		return 0
-	var n := 0
-	for b in bats:
+	# any bearing: the loaded battery facing closest to the aim fires
+	var pp := P.pos()
+	var rel := Rules.rel_bearing(pp.x, pp.z, P.h, at.x, at.z)
+	var best := {}
+	for b in Rules.batteries(P.st):
 		if P.rl.get(b.k, 0.0) > 0:
 			continue
-		if not _pay_ball():
-			break
-		fire(P.pos(), foe, b.n, P.st.dmg, true, P.h + b.c, at)
-		P.rl[b.k] = P.st.reload
-		n += 1
-	if n == 0 and s.balls > 0:
+		if best.is_empty() or absf(Rules.wrap_a(rel - b.c)) < absf(Rules.wrap_a(rel - best.c)):
+			best = b
+	if best.is_empty():
 		hud.toast("Les canons rechargent…")
+		return 0
+	if not _pay_ball():
+		return 0
+	fire(pp, foe, best.n, P.st.dmg, true, P.h + best.c, at, gun_mouths(P, best.k), ray.boat != null)
+	P.rl[best.k] = P.st.reload
+	var n := 1
 	if n > 0 and combat.mode == "pending":
 		combat.mode = "fight"
 		hud.hide_prompt()
@@ -580,17 +584,14 @@ func _update_aim_mark() -> void:
 	_aim_line.position = Vector3((pp.x + end.x) / 2, 0.6, (pp.z + end.z) / 2)
 	_aim_line.rotation = Vector3(0, atan2(end.x - pp.x, end.z - pp.z), 0)
 	_aim_line.scale = Vector3(1, 1, len)
+	# no ring on the target (Guillaume, 2026-11-27): the line fades when it can't fire there
 	var hit: bool = ray.boat != null or ray.isle
-	_aim_ring.visible = hit
-	if hit:
-		var at := aim_point()
-		var ready: bool = float(ray.dist) <= float(P.st.range) and s.balls > 0
-		_aim_ring.material_override = Models.flat_mat(AIM_RED, 0.9 if ready else 0.4)
-		_aim_ring.position = Vector3(at.x, 0.6, at.z) if ray.boat else Vector3(end.x, 0.6, end.z)
+	var ready: bool = s.balls > 0 and (not hit or float(ray.dist) <= float(P.st.range))
+	_aim_line.material_override = Models.flat_mat(AIM_RED, 0.9 if ready else 0.35)
 
 
 ## The purple line: like the red one, from the ship along the purple stick to the first ship
-## or island; a purple ring when a ship is in the grapple's reach.
+## or island.
 func _update_hook_mark() -> void:
 	var on := hooking()
 	hook_mark.visible = on
@@ -603,12 +604,9 @@ func _update_hook_mark() -> void:
 	_hook_line.position = Vector3((pp.x + end.x) / 2, 0.62, (pp.z + end.z) / 2)
 	_hook_line.rotation = Vector3(0, atan2(end.x - pp.x, end.z - pp.z), 0)
 	_hook_line.scale = Vector3(1, 1, len)
-	_hook_ring.visible = ray.boat != null
-	if ray.boat:
-		var bp: Vector3 = ray.boat.pos()
-		var ok: bool = float(ray.dist) <= float(P.st.grapple)
-		_hook_ring.material_override = Models.flat_mat(HOOK_PURPLE, 0.9 if ok else 0.35)
-		_hook_ring.position = Vector3(bp.x, 0.62, bp.z)
+	# bright when a ship on the line is within the grapple's reach, faded otherwise
+	var ok: bool = ray.boat != null and float(ray.dist) <= float(P.st.grapple)
+	_hook_line.material_override = Models.flat_mat(HOOK_PURPLE, 0.9 if ok else 0.35)
 
 
 ## The purple stick was released: the grapple flies along the purple line. It catches the
@@ -833,9 +831,13 @@ func _update_balls(dt: float) -> void:
 		if b.t < 0:
 			continue
 		b.n.visible = true
+		if b.get("home", false):
+			var ht: Boat = b.target
+			if ht.state != "sink" and enemies.has(ht):
+				b.to = Vector3(ht.pos().x, 0, ht.pos().z)
 		var k := minf(1.0, b.t / b.dur)
 		var p: Vector3 = b.from.lerp(b.to, k)
-		p.y = 1.4 + sin(PI * k) * BALL_ARC * (1 - k * 0.3)
+		p.y = lerpf(b.from.y, 1.2, k) + sin(PI * k) * BALL_ARC
 		b.n.position = p
 		if k >= 1:
 			b.n.queue_free()
@@ -880,7 +882,7 @@ func start_combat(e: Boat, mode: String) -> void:
 		e.arcs = Models.arcs(e.st)
 		e.node.add_child(e.arcs)
 	e.arcs.visible = true
-	P.arcs.visible = true
+	P.arcs.visible = false   # the player's guns fire any way now: no arcs to show
 	auto_flee = false
 	last_input = time
 	e.state = "defend" if e.offline else "attack"

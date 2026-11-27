@@ -696,6 +696,28 @@ static func extra_sails(n: int, lv: int) -> Array:
 	return order.slice(0, mini(lv, order.size()))
 
 
+## Where each gun of a battery sits on the hull (before the hull's scale), so balls can leave
+## from the guns themselves. bab = +x (port, bearing +PI/2), tri = -x, av = bow (+z), ar = stern.
+static func gun_spots(c: Dictionary, k: String) -> Array:
+	var out := []
+	var hk: String = str(c.get("hull_k", c.get("hull", "chaloupe")))
+	var qd: bool = hk != "chaloupe"
+	match k:
+		"bab", "tri":
+			var ng: int = clampi(int(c.side), 1, 8)
+			var side := 1.0 if k == "bab" else -1.0
+			for i in ng:
+				var gz: float = 0.4 if ng == 1 else 1.6 - i * (3.0 / (ng - 1))
+				out.append(Vector3(side * (_half_w(gz) + 0.05), _top(gz) + 0.1, gz))
+		"av":
+			for i in int(c.bow):
+				out.append(Vector3((i - (c.bow - 1) / 2.0) * 0.4, 1.45, 2.85))
+		"ar":
+			for i in int(c.stern):
+				out.append(Vector3((i - (c.stern - 1) / 2.0) * 0.4, 1.3 + (QD_H if qd else 0.0), -2.95))
+	return out
+
+
 ## A ship: root (turned by heading) > body (scaled, rolls) > one mesh for the wood and guns,
 ## one for its glowing bits, the sails and flag (each with its own shader) and the crew.
 static func ship(c: Dictionary) -> Node3D:
@@ -776,18 +798,16 @@ static func ship(c: Dictionary) -> Node3D:
 	flags.append(fm)
 	b.prim(cyl(0.02, 0.02, 0.6, 4), at(0, mast_tops[main_i].y + 0.2, mast_tops[main_i].z), wood)
 	# guns in their ports
-	var ng: int = clampi(c.side, 1, 8)
-	for side in [-1, 1]:
-		for k in ng:
-			var gz: float = 0.4 if ng == 1 else 1.6 - k * (3.0 / (ng - 1))
-			var hw := _half_w(gz)
-			b.prim(box(0.06, 0.24, 0.32), at(side * (hw * 0.97 + 0.01), _top(gz) + 0.11, gz), Color8(0x14, 0x12, 0x10))
-			b.prim(cyl(0.11, 0.14, 0.75, 6), at(side * (hw + 0.05), _top(gz) + 0.1, gz, Vector3(0, 0, PI / 2)), iron)
-			b.prim(box(0.3, 0.12, 0.36), at(side * (hw - 0.3), deck_y(gz) + 0.06, gz), wood)
-	for k in int(c.bow):
-		b.prim(cyl(0.11, 0.14, 0.8, 6), at((k - (c.bow - 1) / 2.0) * 0.4, 1.45, 2.85, Vector3(PI / 2, 0, 0)), iron)
-	for k in int(c.stern):
-		b.prim(cyl(0.11, 0.14, 0.8, 6), at((k - (c.stern - 1) / 2.0) * 0.4, 1.3 + (QD_H if qd else 0.0), -2.95, Vector3(PI / 2, 0, 0)), iron)
+	for bk in ["bab", "tri"]:
+		for gs: Vector3 in gun_spots(c, bk):
+			var sd := signf(gs.x)
+			var hw := _half_w(gs.z)
+			b.prim(box(0.06, 0.24, 0.32), at(sd * (hw * 0.97 + 0.01), gs.y + 0.01, gs.z), Color8(0x14, 0x12, 0x10))
+			b.prim(cyl(0.11, 0.14, 0.75, 6), at(gs.x, gs.y, gs.z, Vector3(0, 0, PI / 2)), iron)
+			b.prim(box(0.3, 0.12, 0.36), at(sd * (hw - 0.3), deck_y(gs.z) + 0.06, gs.z), wood)
+	for bk in ["av", "ar"]:
+		for gs: Vector3 in gun_spots(c, bk):
+			b.prim(cyl(0.11, 0.14, 0.8, 6), at(gs.x, gs.y, gs.z, Vector3(PI / 2, 0, 0)), iron)
 	# the stern: quarterdeck, cabin, lit windows, lantern; the wheel
 	var dq := deck_y(-2.2)
 	if qd:

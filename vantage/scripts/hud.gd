@@ -26,6 +26,8 @@ var sub_l: Label
 var hangar: Control
 var hangar_panel: PanelContainer
 var results: Control
+## The ending's credits roll (`Credits`).
+var credits: Credits
 var hangar_scrap: Label
 var hangar_best: Label
 var update_btn: Button
@@ -77,6 +79,8 @@ func _ready() -> void:
 	build_hangar()
 	build_results()
 	build_quit()
+	credits = Credits.new()
+	add_child(credits)
 	get_viewport().size_changed.connect(fit_hangar)
 	hangar_panel.resized.connect(fit_hangar)
 	# wrapped lines settle their height once the panel has its width: refit then
@@ -232,6 +236,16 @@ func build_hangar() -> void:
 	hangar_best.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hangar_best.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hangar_best.reparent(foot)
+	var credits_btn := Button.new()
+	credits_btn.flat = true
+	credits_btn.focus_mode = Control.FOCUS_NONE
+	credits_btn.custom_minimum_size = Vector2(0, 48)
+	credits_btn.add_theme_font_size_override("font_size", 22)
+	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
+		credits_btn.add_theme_color_override(c, DIM)
+	credits_btn.text = "Credits"
+	credits_btn.pressed.connect(func() -> void: game.start_credits())
+	foot.add_child(credits_btn)
 	reset_btn = Button.new()
 	reset_btn.flat = true
 	reset_btn.focus_mode = Control.FOCUS_NONE
@@ -439,6 +453,14 @@ func show_hangar() -> void:
 	refresh_hangar()
 	hangar.visible = true
 	results.visible = false
+	credits.visible = false
+
+
+func show_credits() -> void:
+	hangar.visible = false
+	results.visible = false
+	credits.visible = true
+	credits.roll(0.0)
 
 
 func show_play() -> void:
@@ -478,7 +500,9 @@ func show_results() -> void:
 	hangar.visible = false
 	results.visible = true
 	var last: bool = int(r.level) % Campaign.PER_WORLD == Campaign.PER_WORLD - 1
-	res_title.text = ("WORLD CLEAR" if last else "LEVEL CLEAR") if r.cleared else "SHOT DOWN"
+	var ending: bool = r.cleared and int(r.level) == Campaign.count() - 1
+	res_title.text = "CAMPAIGN COMPLETE" if ending else ("WORLD CLEAR" if last else "LEVEL CLEAR") if r.cleared else "SHOT DOWN"
+	res_hint.text = "Tap for the credits" if ending else "Tap to return to the hangar"
 	res_title.add_theme_color_override("font_color", CY if r.cleared else RED)
 	var lines := ["%s  ·  %s" % [Campaign.code(r.level), Campaign.level_name(r.level)],
 		"Score  %s%s" % [Rules.fmt(r.score), "  (best!)" if r.new_best else ""],
@@ -568,7 +592,7 @@ func sync() -> void:
 	back_t = maxf(0.0, back_t - dt)
 	if back_t <= 0.0 or game.phase != "hangar":
 		back_armed = false
-	var playing := game.phase not in ["hangar", "results"]
+	var playing := game.phase not in ["hangar", "results", "credits"]
 	quit_btn.visible = game.paused() and game.started
 	if not quit_btn.visible and quit_armed:
 		quit_armed = false
@@ -601,7 +625,7 @@ func _draw() -> void:
 			k = 1.0 - smoothstep(0.0, 0.8, game.phase_t)
 		draw_locks()
 		draw_reticle(game.aim, k)
-	if game.phase not in ["hangar", "results"]:
+	if game.phase not in ["hangar", "results", "credits"]:
 		# hull pips
 		var mx := Rules.max_hp(game.s)
 		for i in mx:

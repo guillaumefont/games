@@ -178,8 +178,13 @@ static func ship_stats(hk: String, up: Dictionary, crew_pow: float, hook := true
 	}
 
 
+## The player's guns reach further than the AI's (aimed shots, any bearing).
+const PLAYER_RANGE := 50.0
+
 static func player_stats(s: Dictionary) -> Dictionary:
-	return ship_stats(s.ship, s.up, crew_power(s), bool(s.hook))
+	var st := ship_stats(s.ship, s.up, crew_power(s), bool(s.hook))
+	st.range = PLAYER_RANGE
+	return st
 
 
 ## Broadsides to port (bab) and starboard (tri), plus bow (av) and stern (ar) chasers.

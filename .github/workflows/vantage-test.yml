@@ -53,3 +53,5 @@ jobs:
         run: ./godot --headless --path . --script tests/relief_test.gd
       - name: Battery (frame rate cap by moment, 3D resolution cap)
         run: ./godot --headless --path . --script tests/power_test.gd
+      - name: The ending (victory flight after 5-3, campaign complete, credits)
+        run: ./godot --headless --path . --script tests/ending_test.gd
