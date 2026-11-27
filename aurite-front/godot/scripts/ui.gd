@@ -447,7 +447,7 @@ func _build_panel() -> void:
 	ctx_acts = GridContainer.new(); ctx_acts.columns = 3; ctx_acts.add_theme_constant_override("h_separation", 4); ctx_acts.add_theme_constant_override("v_separation", 6)
 	v.add_child(ctx_acts)
 	# building orders, then unit orders (stances for every army, then each army's own)
-	for pair in [["upgrade", "Upgrade", "up"], ["repair", "Repair", "repair"], ["muster", "Muster", "inf"], ["sell", "Sell", "sell"],
+	for pair in [["loop", "Loop", "loop"], ["upgrade", "Upgrade", "up"], ["repair", "Repair", "repair"], ["muster", "Muster", "inf"], ["sell", "Sell", "sell"],
 			["hold", "Hold", "hold"], ["nofire", "No fire", "nofire"], ["scatter", "Scatter", "scatter"], ["home", "To base", "home"],
 			["jump", "Jump", "jump"], ["strip", "Strip", "strip"], ["fuse", "Fuse", "fuse"]]:
 		var k: String = pair[0]
@@ -1966,6 +1966,7 @@ class ProdChip extends Control:
 	var n := 0
 	var is_ready := false
 	var lit := false  # that building is selected
+	var loop := false # LOOP is on for it
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 	func _gui_input(ev: InputEvent) -> void:
@@ -1992,6 +1993,7 @@ class ProdChip extends Control:
 			var br := Rect2(size.x - 22, 3, 19, 14)
 			draw_style_box(UI.cut(Color("d9a441"), Color(0, 0, 0, 0), 0, 4, 0), br)
 			draw_string(ui.f_disp7, Vector2(br.position.x, br.position.y + 11.5), str(n), HORIZONTAL_ALIGNMENT_CENTER, br.size.x, 11, Color("1a1408"))
+		if loop: UI.glyph(self, "loop", Rect2(4, 3, 14, 14), Color("8fcf7a"))
 		if is_ready: UI.ready_banner(self, ui, Rect2(0, size.y / 2 - 9, size.x, 16))
 
 ## Builds the top-bar chips for this match's producers (list of building types, the Yard first).
@@ -2109,6 +2111,13 @@ static func glyph(c: CanvasItem, k: String, r: Rect2, col: Color, lw := 2.0) -> 
 		"obj":  # pennant on a pole
 			c.draw_line(P.call(0.22, 0.04), P.call(0.22, 0.98), col, lw)
 			c.draw_colored_polygon(_pts(r, [0.22, 0.06, 0.9, 0.2, 0.64, 0.33, 0.9, 0.48, 0.22, 0.48]), col)
+		"loop":  # two arrows chasing round a circle
+			var ctr: Vector2 = P.call(0.5, 0.5); var rad := r.size.x * 0.34
+			c.draw_arc(ctr, rad, 0.3, PI - 0.3, 12, col, lw + 0.5, true)
+			c.draw_arc(ctr, rad, PI + 0.3, TAU - 0.3, 12, col, lw + 0.5, true)
+			for a in [PI - 0.3, TAU - 0.3]:
+				var tip: Vector2 = ctr + Vector2.from_angle(a) * rad; var tg := Vector2.from_angle(a + PI / 2)
+				c.draw_colored_polygon(PackedVector2Array([tip + tg * r.size.x * 0.16, tip + Vector2.from_angle(a) * r.size.x * 0.14, tip - Vector2.from_angle(a) * r.size.x * 0.14]), col)
 		"hold":  # shield
 			c.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.88, 0.18, 0.84, 0.56, 0.5, 0.96, 0.16, 0.56, 0.12, 0.18]), col)
 			c.draw_colored_polygon(_pts(r, [0.5, 0.18, 0.74, 0.27, 0.71, 0.54, 0.5, 0.8]), dk)

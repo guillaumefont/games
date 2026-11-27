@@ -186,6 +186,7 @@ func _prod_chips(tm: Dictionary) -> void:
 				pc.n += mine.size() + (1 if cur_mine else 0)
 				if pc.type == "": pc.cat = cat; pc.type = q.cur if cur_mine else mine[0]; pc.prog = q.prog if cur_mine else 0.0
 		pc.lit = sb != null and (sb.type == bt)
+		pc.loop = tm.get("loop", {}).get(bt, false)
 		if pc.visible: pc.queue_redraw()
 
 ## A producer chip: place a ready building, else select that kind of building (again: the next one of that kind).
@@ -700,6 +701,9 @@ func _ctx_head(key: String, b: Ent, units: Array, sel: Array) -> void:
 			var n := 0
 			for c in cats: n += S.teams[0].prod[c].queue.filter(func(t): return S.unit_from(0, t) == b.type).size() + (1 if S.teams[0].prod[c].cur != "" and S.unit_from(0, S.teams[0].prod[c].cur) == b.type else 0)
 			if n > 0: sub = "%d in queue · %s" % [n, sub]
+			if S.teams[0].get("loop", {}).get(b.type, false): sub = "LOOP · " + sub
+			var head: Array = cats.map(func(c): return S.teams[0].prod[c]).filter(func(q): return q.cur == "" and q.queue.size() > 0 and S.unit_from(0, q.queue[0]) == b.type)
+			if head.any(func(q): return S.cap_full(0, q.queue[0])): sub = "UNIT CAP FULL · " + sub
 	if U.ctx_kick.text != kick: U.ctx_kick.text = kick
 	if U.ctx_name.text != nm:
 		U.ctx_name.text = nm; U.ctx_name.add_theme_font_size_override("font_size", 15 if nm.length() <= 15 else (13 if nm.length() <= 18 else 11))
@@ -930,6 +934,13 @@ func cmd_btn(k: String) -> void:
 			var to: Vector2 = hq.rally if hq.rally != null else Vector2(hq.x, hq.y + T * 3)
 			S.group_move(us, to.x, to.y, "move"); ring(to.x, to.y, Color("7fd68e"))
 			sfx("ack"); buzz(12); update_cmd()
+		"loop":
+			var b: Ent = S.sel[0] if S.sel.size() else null
+			if b == null or b.kind != "b" or b.team != 0 or prod_cats(b.type).is_empty(): return
+			var lp: Dictionary = S.teams[0].get("loop", {}); S.teams[0].loop = lp
+			lp[b.type] = not lp.get(b.type, false)
+			toast(("Loop on: the %s repeats its queue" if lp[b.type] else "Loop off: the %s stops after its queue") % b.d.name)
+			sfx("click"); refresh_panel(true); update_cmd()
 		"jump":
 			jump_aim = not jump_aim; amove = false; sfx("click"); update_cmd()
 		"strip":
@@ -1008,6 +1019,8 @@ func update_cmd() -> void:
 	U.btn.repair.visible = sb != null; U.btn.sell.visible = sb != null and sb.type != "hq"
 	if sb: U.set_on(U.btn.repair, sb.repairing)
 	_upg_btn()
+	U.btn.loop.visible = sb != null and not prod_cats(sb.type).is_empty()
+	if U.btn.loop.visible: U.set_on(U.btn.loop, S.teams[0].get("loop", {}).get(sb.type, false))
 	U.btn.muster.visible = sb != null and sb.d.get("muster", 0) > 0 and not S.teams[0].get("mustered", false)
 	U.btn.fuse.visible = units.filter(func(u): return u.team == 0 and u.d.fuse != "").size() >= D.HUM.fuse
 	_unit_btns()
@@ -2054,6 +2067,7 @@ func _ctx_shots(dir: String) -> void:
 			var own := S.ents.filter(func(e): return e.alive and e.team == 0 and e.kind == "b" and e.type == bt)
 			if own.is_empty(): print("CTX ", fac, " ", bt, ": none built"); continue
 			prod_chip_tap(bt)
+			if n == 2: cmd_btn("loop")
 			for k in U.items:
 				var it = U.items[k]
 				if it.visible and not it.locked and it.cat != "bld": click_item(it.cat, it.type); click_item(it.cat, it.type); break

@@ -1145,5 +1145,19 @@ func order_tests(s, h) -> bool:
 	for i in 20 * 30: s.step(0.05)
 	print("orders: strip credits +", int(s.teams[0].credits - c0), " ", w.type, " ", n0, " -> ", s.count(0, w.type), " wreck left ", s.wrecks.has(w))
 	if s.wrecks.has(w) or s.count(0, w.type) > n0: return _ofail("a stripping Scrapper revived the wreck or left it")
+	# LOOP on the Barracks: a finished Trooper goes back into the line; off: the line empties
+	s.new_game("normal", {"fac": "vanguard", "enemy": "ashen", "seed": 93})
+	var tm: Dictionary = s.teams[0]
+	if s.count(0, "barracks") == 0: s.add_building(0, "barracks", 12, 44)
+	tm.credits = 5000; tm.loop = {"barracks": true}
+	tm.prod.inf.queue = ["rifle"]
+	var r0: int = s.count(0, "rifle")
+	for i in 20 * 12: s.step(0.05)
+	var made: int = s.count(0, "rifle") - r0
+	print("orders: loop made ", made, " queue ", tm.prod.inf.queue, " cur ", tm.prod.inf.cur)
+	if made < 2 or (tm.prod.inf.cur == "" and tm.prod.inf.queue.is_empty()): return _ofail("LOOP did not keep the Barracks training")
+	tm.loop = {}
+	for i in 20 * 12: s.step(0.05)
+	if tm.prod.inf.cur != "" or tm.prod.inf.queue.size(): return _ofail("the line kept going after LOOP was turned off")
 	print("ORDER TESTS OK")
 	return true
