@@ -10,8 +10,9 @@ extends RefCounted
 ## - blocks are split into lots of varied buildings: setback towers, glass towers, brick
 ##   mid-rises with window grids, little shops with awnings, courtyard blocks; roofs carry
 ##   antennas, spires, helipads, water tanks, gardens and air-conditioning units;
-## - some blocks are parks (paths, a fountain, trees, a water tower landmark), paved plazas
-##   (chequered paving, an obelisk, kiosks) or, now and then, a stadium;
+## - every block is filled (Guillaume, 2026-11-27): mostly towers, now and then a park (paths, a
+##   fountain, trees, a water tower landmark), a stadium, a shopping mall (car park on the roof,
+##   glass skylights), a domed capitol on its lawn or a columned hall on its steps;
 ## - comically big cars on the avenues, the streets and the expressway.
 ## Then Guillaume said "this is war, the city should be grey, dark and on fire": the palette is
 ## ash and soot, a share of the buildings burn (glowing windows, flames and smoke on the roof),
@@ -34,11 +35,16 @@ const SINK := 5.0
 const SKY_SEG := 96.0
 const SKY_R := 34.0
 ## Midtown (Guillaume, 2026-11-26: "I want 80% of blocks to be high towers"): the share of blocks
-## left low (parks, plazas, courtyards, low streets), and how high the others' towers climb, near
-## downtown's (see `midtown`). A tower block is all towers, bar the odd square, car park or ruin.
+## left low (mid-rises, shops, courtyards), and how high the others' towers climb, near downtown's
+## (see `midtown`). A tower block is all towers, bar the odd ruin.
 const MIDTOWN_LOW := 0.2
 const MIDTOWN_LO := 0.8
 const MIDTOWN_HI := 1.0
+## The blocks that aren't towers, and their shares (see `block_kind`).
+const BLOCK_KINDS := [["park", 0.05], ["stadium", 0.03], ["mall", 0.045], ["capitol", 0.012], ["hall", 0.03]]
+## The share of a block's lots left as ruins (broken walls, rubble): the war shows, but the block
+## still reads as built.
+const RUINS := 0.07
 ## The share of mid-rise and shop lots turned into towers on the low blocks.
 const TOWER_MORE := 0.35
 ## The expressway deck's height (world), above the highest ground and under the flight altitude.
@@ -221,10 +227,10 @@ class Ctx:
 			bs = bs * Basis.from_scale(Vector3(1, Models.PROP_V, 1))
 		b.xf = Transform3D(bs, Vector3(0, y, 0))
 
-	## Draw round (u, v) at height y, heights scaled by PROP_V.
-	func at(u: float, v: float, y: float) -> void:
+	## Draw round (u, v) at height y, heights scaled by PROP_V (and by sy).
+	func at(u: float, v: float, y: float, sy := 1.0) -> void:
 		var w := City.to_world(u, v)
-		b.xf = Transform3D(Basis(Vector3.UP, City.ANGLE) * Basis.from_scale(Vector3(1, Models.PROP_V, 1)), Vector3(w.x, y, w.z))
+		b.xf = Transform3D(Basis(Vector3.UP, City.ANGLE) * Basis.from_scale(Vector3(1, Models.PROP_V * sy, 1)), Vector3(w.x, y, w.z))
 		b.occlude(Models.AO_H)
 
 
@@ -520,29 +526,46 @@ static func block(c: Ctx, k: int, m: int) -> void:
 			if c.raw(w.x, w.z) > 0.06:
 				tree(c, tu, tv, c.ground(w.x, w.z), 0.9, tu)
 		return
-	var hb := Models.hash2(k * 7.31 + 0.5, m * 3.17 + 0.5)
-	if midtown(k, m) > 0.0:
-		hb = 1.0   # a tower block: no park, plaza or stadium
-	else:
-		hb *= 0.4   # the low blocks hold the city's parks, plazas and stadiums
 	var dry := true
 	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
 		var w := to_world(q.x, q.y)
 		dry = dry and c.raw(w.x, w.z) > 0.02
-	if c.dry and hb < 0.2 and (hb < 0.16 or dry):
-		return
-	if hb < 0.1:
-		park(c, u0, u1, v0, v1, hb * 10.0)
-	elif hb < 0.16:
-		plaza(c, u0, u1, v0, v1, (hb - 0.1) / 0.06)
-	elif hb < 0.2 and dry:
-		stadium(c, u0, u1, v0, v1)
-	else:
-		lots(c, k, m, u0, u1, v0, v1, hb)
+	var kind := block_kind(k, m)
+	if kind != "towers" and kind != "park" and not dry:
+		kind = "towers"   # the big buildings need firm ground under every corner
+	match kind:
+		"park":
+			if not c.dry:
+				park(c, u0, u1, v0, v1, Models.hash2(k * 0.37, m * 0.61))
+		"stadium":
+			if not c.dry:
+				stadium(c, u0, u1, v0, v1)
+		"mall":
+			mall(c, u0, u1, v0, v1, Models.hash2(k * 0.53, m * 0.29))
+		"capitol":
+			capitol(c, u0, u1, v0, v1, Models.hash2(k * 0.71, m * 0.43))
+		"hall":
+			hall(c, u0, u1, v0, v1, Models.hash2(k * 0.19, m * 0.83))
+		_:
+			lots(c, k, m, u0, u1, v0, v1)
+
+
+## What fills block (k, m) (Guillaume, 2026-11-27: "all city blocks should be filled with
+## something... mainly Manhattan like buildings... bigger buildings like a capitol"): mostly
+## "towers" (lots of towers and mid-rises), now and then a "park", a "stadium", a shopping "mall",
+## a domed "capitol" or a columned "hall". Never an empty plaza or a bare block.
+static func block_kind(k: int, m: int) -> String:
+	# hashed twice: one pass of the sine hash runs in streaks down a column of blocks
+	var h := Models.hash2(Models.hash2(k * 0.73 + 0.1, m * 1.31 + 0.2) * 57.1, k * 0.11 + m * 0.07)
+	for kd: Array in BLOCK_KINDS:
+		if h < kd[1]:
+			return kd[0]
+		h -= kd[1]
+	return "towers"
 
 
 ## A built block: a sidewalk all round, then a grid of lots (or a courtyard ring) of buildings.
-static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: float, hb: float) -> void:
+static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: float) -> void:
 	c.pad(u0, u1, v0, v1, 0.16, Models.KERB.darkened(0.08), 2.0)
 	var i0 := u0 + 0.5
 	var i1 := u1 - 0.5
@@ -586,16 +609,16 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 			var bb: float = us[i + 1] - 0.22
 			var cc: float = vs[j] + 0.22
 			var d: float = vs[j + 1] - 0.22
-			# the odd lot is a little square with a tree, or a car park
-			if r < 0.07:
+			# on the low blocks the odd lot is a little square with a tree, or a car park
+			if r < 0.07 and not towers:
 				c.pad(a, bb, cc, d, 0.19, PARK, 2.0)
 				var g := to_world((a + bb) * 0.5, (cc + d) * 0.5)
 				tree(c, (a + bb) * 0.5, (cc + d) * 0.5, c.ground(g.x, g.z), 0.8, r * 9.0)
 				continue
-			if r < 0.11:
+			if r < 0.11 and not towers:
 				car_park(c, a, bb, cc, d, r)
 				continue
-			if Models.hash2(r * 17.0, k * 0.3 + m) < 0.16:
+			if Models.hash2(r * 17.0, k * 0.3 + m) < RUINS:
 				ruin(c, (a + bb) * 0.5, (cc + d) * 0.5, bb - a, d - cc, r)
 				continue
 			var style := int(r * 41.0) % 4
@@ -845,7 +868,7 @@ static func car_park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: floa
 					Models.car(c.b, Vector3(w.x, c.ground(w.x, w.z) + 0.12, w.z), ANGLE, q)
 
 
-# ---------------------------------------------------------------- parks, plazas, stadiums
+# ---------------------------------------------------------------- parks, stadiums, landmarks
 
 static func park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
 	Models.count("park")
@@ -857,18 +880,22 @@ static func park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -
 	var g := to_world(cu, cv)
 	var y := c.ground(g.x, g.z)
 	fountain(c, cu, cv, y)
-	for i in 10:
-		var a := Models.hash2(r * 17.0 + i, i * 1.3)
-		var e := Models.hash2(i * 2.1, r * 5.0 + i)
-		var tu := lerpf(u0 + 1.0, u1 - 1.0, a)
-		var tv := lerpf(v0 + 1.0, v1 - 1.0, e)
-		if absf(tu - cu) < 1.2 or absf(tv - cv) < 1.2:
-			continue
-		var w := to_world(tu, tv)
-		if a < 0.6:
-			dead_tree(c, tu, tv, c.ground(w.x, w.z), a)
-		else:
-			tree(c, tu, tv, c.ground(w.x, w.z), 0.8 + a * 0.5, a)
+	# trees fill each quarter of the park between its paths, mostly alive, the odd one burnt
+	var su := (u1 - u0) * 0.5
+	var sv := (v1 - v0) * 0.5
+	for qu in [-1.0, 1.0]:
+		for qv in [-1.0, 1.0]:
+			for i in 2:
+				for j in 2:
+					var a := Models.hash2(r * 17.0 + i + qu * 3.0, j * 1.3 + qv)
+					var e := Models.hash2(i * 2.1 + qv, r * 5.0 + j + qu)
+					var tu: float = cu + qu * (1.3 + (i + 0.25 + a * 0.5) * (su - 1.9) / 2.0)
+					var tv: float = cv + qv * (1.3 + (j + 0.25 + e * 0.5) * (sv - 1.9) / 2.0)
+					var w := to_world(tu, tv)
+					if Models.hash2(a * 7.0, e * 3.0) < 0.15:
+						dead_tree(c, tu, tv, c.ground(w.x, w.z), a)
+					else:
+						tree(c, tu, tv, c.ground(w.x, w.z), 0.9 + a * 0.5, a)
 	# a shell landed in the park
 	var hu := lerpf(u0 + 2.0, u1 - 2.0, Models.hash2(r * 3.0, 1.0))
 	var hv := lerpf(v0 + 2.0, v1 - 2.0, Models.hash2(2.0, r * 3.0))
@@ -885,38 +912,6 @@ static func fountain(c: Ctx, u: float, v: float, y: float) -> void:
 	c.b.prism(Vector3.ZERO, Models.ngon(1.1, 12), 0.12, 0.13, WATER)
 	c.b.prism(Vector3.ZERO, Models.ngon(0.35, 8), 0.1, 0.3, Color8(0xd8, 0xd2, 0xc4))
 	c.b.prism(Vector3.ZERO, Models.ngon(0.12, 6), 0.3, 0.62, Color8(0xe8, 0xf6, 0xff), Vector2(0.3, 0.3))
-
-
-static func plaza(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
-	Models.count("plaza")
-	var cu := (u0 + u1) * 0.5
-	var cv := (v0 + v1) * 0.5
-	c.pad(u0, u1, v0, v1, 0.16, PAVING, 1.6, PAVING.darkened(0.12))
-	var g := to_world(cu, cv)
-	var y := c.ground(g.x, g.z)
-	c.at(cu, cv, y)
-	if r < 0.5:
-		# an obelisk on a stepped plinth
-		c.b.box(Vector3(0, 0.0, 0), Vector3(2.0, 0.2, 2.0), Color8(0xd8, 0xd2, 0xc4))
-		c.b.box(Vector3(0, 0.12, 0), Vector3(1.4, 0.12, 1.4), Color8(0xe4, 0xde, 0xd0))
-		c.b.prism(Vector3.ZERO, Models.ngon(0.4, 4, PI * 0.25), 0.18, 1.5, Color8(0xe8, 0xe2, 0xd4), Vector2(0.55, 0.55))
-		c.b.prism(Vector3.ZERO, Models.ngon(0.23, 4, PI * 0.25), 1.5, 1.7, Color8(0xf2, 0xc4, 0x2e), Vector2(0.05, 0.05))
-	else:
-		fountain(c, cu, cv, y)
-	rubble(c, cu + (u1 - u0) * 0.25, cv - (v1 - v0) * 0.2, y + 0.1, 1.4, 7, r)
-	# kiosks with striped awnings, trees in planters at the corners
-	for i in 2:
-		var ku := cu + (i * 2 - 1) * (u1 - u0) * 0.3
-		var w := to_world(ku, v1 - 1.4)
-		c.at(ku, v1 - 1.4, c.ground(w.x, w.z))
-		c.b.box(Vector3(0, 0.1, 0), Vector3(1.0, 0.4, 0.8), Color8(0xf4, 0xf0, 0xe6))
-		c.b.box(Vector3(0, 0.33, 0), Vector3(1.2, 0.05, 1.0), SHOPS[(i + int(r * 9.0)) % SHOPS.size()])
-	for q: Vector2 in [Vector2(u0 + 1.0, v0 + 1.0), Vector2(u1 - 1.0, v0 + 1.0), Vector2(u0 + 1.0, v1 - 1.0), Vector2(u1 - 1.0, v1 - 1.0)]:
-		var w := to_world(q.x, q.y)
-		var gy := c.ground(w.x, w.z)
-		c.at(q.x, q.y, gy)
-		c.b.box(Vector3(0, 0.02, 0), Vector3(0.9, 0.14, 0.9), Color8(0xb0, 0xa8, 0x98))
-		tree(c, q.x, q.y, gy + 0.1, 0.8, q.x * 0.1)
 
 
 ## A stadium: an oval of stepped stands in two colours round a pitch, floodlights at the corners.
@@ -964,6 +959,225 @@ static func stadium(c: Ctx, u0: float, u1: float, v0: float, v1: float) -> void:
 			var p := Vector3(sx * ax * 0.9, 0, sz * az * 0.9)
 			b.box(p + Vector3(0, 0.6 + dip * 0.5, 0), Vector3(0.2, 1.4 - dip, 0.2), Color8(0xc8, 0xcc, 0xd2))
 			b.box(p + Vector3(0, 1.32, 0), Vector3(0.9, 0.3, 0.3), Color8(0xff, 0xf2, 0xb0))
+
+
+## The lowest ground under u0..u1 x v0..v1, where a big building stands.
+static func site(c: Ctx, u0: float, u1: float, v0: float, v1: float) -> float:
+	var base := INF
+	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1), Vector2((u0 + u1) * 0.5, (v0 + v1) * 0.5)]:
+		var w := to_world(q.x, q.y)
+		base = minf(base, c.ground(w.x, w.z))
+	return base
+
+
+## How much a big building `h` tall (raw) standing at `base` is squashed to stay under the ship.
+static func fit(base: float, h: float) -> float:
+	return minf(1.0, ((Rules.PY - 0.65 - base) / Models.PROP_V - 0.1) / h)
+
+
+## A big building's shadow over the streets: its footprint u0..u1 x v0..v1 up to `top` (world).
+static func casts(c: Ctx, u0: float, u1: float, v0: float, v1: float, top: float) -> void:
+	if not c.casters.has(c.km):
+		c.casters[c.km] = []
+	c.casters[c.km].append([u0, u1, v0, v1, top])
+
+
+## A shopping mall filling the block: a broad low box with a glass shopfront and shop signs all
+## round, a canopy over its doors, a car park on one half of the roof and glass skylights over
+## the arcade on the other.
+static func mall(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
+	var cu := (u0 + u1) * 0.5
+	var cv := (v0 + v1) * 0.5
+	var w := u1 - u0 - 0.8
+	var d := v1 - v0 - 0.8
+	var h := 1.2 + r * 0.4
+	var base := site(c, u0, u1, v0, v1)
+	var sy := fit(base, h + 0.5)
+	casts(c, cu - w * 0.5, cu + w * 0.5, cv - d * 0.5, cv + d * 0.5, base + h * Models.PROP_V * sy)
+	if c.dry:
+		return
+	Models.count("mall")
+	c.pad(u0, u1, v0, v1, 0.16, Models.KERB.darkened(0.08), 2.0)
+	c.at(cu, cv, base, sy)
+	var b := c.b
+	var col: Color = PASTELS[int(r * 31.0) % PASTELS.size()].lightened(0.1)
+	b.bevels = true
+	b.box(Vector3(0, (h - 0.3) * 0.5, 0), Vector3(w, h + 0.3, d), col)
+	b.bevels = false
+	# the glass shopfront round the ground floor, a band of signs over it
+	for sz in [-1.0, 1.0]:
+		b.box(Vector3(0, 0.3, sz * (d * 0.5 + 0.02)), Vector3(w * 0.94, 0.36, 0.04), Models.GLASS)
+		b.box(Vector3(sz * (w * 0.5 + 0.02), 0.3, 0), Vector3(0.04, 0.36, d * 0.94), Models.GLASS)
+	for i in 4:
+		var x := (i - 1.5) * w * 0.24
+		var q := Models.hash2(r * 7.0 + i, i * 1.3)
+		var sc: Color = SHOPS[int(q * 71.0) % SHOPS.size()]
+		var z := d * 0.5 + 0.05
+		b.box(Vector3(x, 0.66, z - 0.02), Vector3(w * 0.17, 0.16, 0.06), sc)
+		if q < 0.45:
+			var nc: Color = NEONS[int(q * 53.0) % NEONS.size()]
+			glow(c, Vector3(x - w * 0.07, 0.62, z + 0.015), Vector3(x + w * 0.07, 0.62, z + 0.015),
+				Vector3(x + w * 0.07, 0.7, z + 0.015), Vector3(x - w * 0.07, 0.7, z + 0.015), nc, true)
+	b.box(Vector3(0, 0.52, d * 0.5 + 0.45), Vector3(2.6, 0.06, 0.9), DARK.lightened(0.3))   # the entrance canopy
+	for sx in [-1.0, 1.0]:
+		b.box(Vector3(sx * 1.2, 0.2, d * 0.5 + 0.82), Vector3(0.08, 0.6, 0.08), DARK)
+	# the roof: a parapet, a car park deck on one side, stepped glass skylights on the other
+	b.box(Vector3(0, h + 0.03, 0), Vector3(w + 0.1, 0.06, d + 0.1), col.lightened(0.15))
+	var side := -1.0 if r < 0.5 else 1.0
+	var pw := w * 0.5 - 0.5
+	var px := side * w * 0.25
+	b.box(Vector3(px, h + 0.07, 0), Vector3(pw, 0.03, d - 0.8), Models.ASPHALT.lightened(0.12))
+	var rows := int((d - 0.8) / 1.0)
+	for j in rows + 1:
+		var z := -(d - 0.8) * 0.5 + j * (d - 0.8) / rows
+		b.box(Vector3(px - pw * 0.25, h + 0.09, z), Vector3(pw * 0.35, 0.01, 0.04), Models.PAINT)
+		b.box(Vector3(px + pw * 0.25, h + 0.09, z), Vector3(pw * 0.35, 0.01, 0.04), Models.PAINT)
+	for t in 3:
+		b.box(Vector3(-side * w * 0.25, h + 0.1 + t * 0.1, 0), Vector3(w * (0.3 - t * 0.08), 0.1, d * 0.78),
+			Models.GLASS.lightened(0.12 + t * 0.06))
+	for i in 2:
+		b.box(Vector3(-side * w * 0.25 + (i - 0.5) * w * 0.32, h + 0.15, -d * 0.36), Vector3(0.5, 0.18, 0.4), Color8(0xc4, 0xc8, 0xce))
+	# a few cars parked on the deck, nose in to the bays
+	for j in rows:
+		for sx in [-1.0, 1.0]:
+			var q := Models.hash2(r * 11.0 + j, sx + r)
+			if q < 0.55:
+				var cu2: float = cu + px + sx * pw * 0.25
+				var cv2 := cv - (d - 0.8) * 0.5 + (j + 0.5) * (d - 0.8) / rows
+				var p := to_world(cu2, cv2)
+				Models.car(b, Vector3(p.x, base + (h + 0.08) * Models.PROP_V * sy, p.z), ANGLE + PI * 0.5, q)
+	b.xf = Transform3D.IDENTITY
+
+
+## A capitol: a domed hall on a stepped plinth, wings either side, a columned portico at the
+## front, a ring of columns round the drum and a lantern on the dome, set back on its lawn.
+static func capitol(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
+	var cu := (u0 + u1) * 0.5
+	var cv := (v0 + v1) * 0.5
+	var bv := cv - 0.9   # the building stands back, its lawn and walk in front
+	var base := site(c, u0, u1, v0, v1)
+	var sy := fit(base, 3.9)
+	casts(c, cu - 5.0, cu + 5.0, bv - 2.2, bv + 2.2, base + 1.1 * Models.PROP_V * sy)
+	casts(c, cu - 1.4, cu + 1.4, bv - 1.7, bv + 1.1, base + 3.3 * Models.PROP_V * sy)
+	if c.dry:
+		return
+	Models.count("capitol")
+	c.pad(u0, u1, v0, v1, 0.16, PARK, 2.0)
+	c.pad(cu - 0.6, cu + 0.6, bv + 3.4, v1, 0.19, PAVING, 2.0)
+	c.pad(cu - 3.0, cu + 3.0, v1 - 1.6, v1 - 0.6, 0.19, PAVING, 2.0)
+	c.at(cu, bv, base, sy)
+	var b := c.b
+	var stone: Color = [Color8(0xd8, 0xd2, 0xc4), Color8(0xcc, 0xc8, 0xbe), Color8(0xd4, 0xc8, 0xb0)][int(r * 7.0) % 3]
+	var dome: Color = Color8(0x7e, 0xa0, 0x92) if r < 0.6 else Color8(0xb8, 0xa0, 0x5a)
+	b.bevels = true
+	b.box(Vector3(0, -0.05, 0), Vector3(10.6, 0.3, 5.0), stone.darkened(0.12))   # the plinth
+	for i in 3:
+		var top := 0.1 - i * 0.07
+		b.box(Vector3(0, (top - 0.2) * 0.5, 2.5 + i * 0.3 + 0.15), Vector3(3.8 + i * 0.4, top + 0.2, 0.3 + 0.01), stone.darkened(0.06 * i))
+	for sx in [-1.0, 1.0]:
+		b.box(Vector3(sx * 3.4, 0.6, 0), Vector3(3.4, 1.0, 4.2), stone)   # a wing
+		b.box(Vector3(sx * 3.4, 1.12, 0), Vector3(3.55, 0.05, 4.35), stone.lightened(0.12))
+	b.box(Vector3(0, 0.75, -0.1), Vector3(3.4, 1.3, 4.4), stone)   # the central hall
+	b.box(Vector3(0, 1.42, -0.1), Vector3(3.55, 0.05, 4.55), stone.lightened(0.12))
+	b.bevels = false
+	# tall windows along the wings' fronts
+	for sx in [-1.0, 1.0]:
+		for i in 5:
+			var x: float = sx * (1.95 + i * 0.6)
+			for y: float in [0.3, 0.72]:
+				b.quad(Vector3(x - 0.1, y, 2.11), Vector3(x + 0.1, y, 2.11), Vector3(x + 0.1, y + 0.26, 2.11), Vector3(x - 0.1, y + 0.26, 2.11),
+					Color8(0x2c, 0x30, 0x36), Vector3(0, 0, 1))
+	# the portico: six columns, the entablature and a pediment
+	for i in 6:
+		b.prism(Vector3(-1.5 + i * 0.6, 0, 2.45), Models.ngon(0.1, 6), 0.1, 1.15, stone.lightened(0.08))
+	b.box(Vector3(0, 1.22, 2.15), Vector3(3.6, 0.14, 1.0), stone)
+	var fz := 2.65
+	b.tri(Vector3(-1.8, 1.29, fz), Vector3(1.8, 1.29, fz), Vector3(0, 1.7, fz), stone.lightened(0.05), Vector3(0, 0, 1))
+	for sx in [-1.0, 1.0]:
+		b.quad(Vector3(sx * 1.8, 1.29, fz), Vector3(0, 1.7, fz), Vector3(0, 1.7, 1.65), Vector3(sx * 1.8, 1.29, 1.65), stone.darkened(0.1),
+			Vector3(sx * 0.4, 1, 0))
+	# the drum, ringed with columns, then the dome and its lantern
+	var dz := -0.3
+	b.prism(Vector3(0, 0, dz), Models.ngon(1.3, 16), 1.4, 2.05, stone)
+	for i in 16:
+		var a := TAU * (i + 0.5) / 16.0
+		b.box(Vector3(cos(a) * 1.42, 1.72, dz + sin(a) * 1.42), Vector3(0.1, 0.6, 0.1), stone.lightened(0.1))
+	b.prism(Vector3(0, 0, dz), Models.ngon(1.55, 16), 2.02, 2.1, stone.lightened(0.12))
+	var rad := 1.3
+	var steps := 5
+	for i in steps:
+		var a0 := 0.45 * PI * i / steps
+		var a1 := 0.45 * PI * (i + 1) / steps
+		var k := cos(a1) / cos(a0)
+		b.prism(Vector3(0, 0, dz), Models.ngon(rad * cos(a0), 16), 2.1 + rad * sin(a0) * 0.95, 2.1 + rad * sin(a1) * 0.95,
+			dome.lightened(0.04 * i), Vector2(k, k))
+	var ly := 2.1 + rad * sin(0.45 * PI) * 0.95
+	b.prism(Vector3(0, 0, dz), Models.ngon(0.22, 8), ly, ly + 0.35, stone.lightened(0.1))
+	b.prism(Vector3(0, 0, dz), Models.ngon(0.26, 8), ly + 0.35, ly + 0.5, dome, Vector2(0.2, 0.2))
+	b.prism(Vector3(0, 0, dz), Models.ngon(0.04, 4), ly + 0.5, ly + 0.75, Color8(0xf2, 0xc4, 0x2e), Vector2(0.3, 0.3))
+	b.xf = Transform3D.IDENTITY
+	# trees along the lawn
+	for q: Vector2 in [Vector2(u0 + 1.0, v1 - 1.1), Vector2(u1 - 1.0, v1 - 1.1), Vector2(u0 + 1.0, v1 - 2.6), Vector2(u1 - 1.0, v1 - 2.6)]:
+		var w := to_world(q.x, q.y)
+		tree(c, q.x, q.y, c.ground(w.x, w.z), 0.8, q.x * 0.1 + r)
+
+
+## A columned hall (a museum, a library, a court): a temple front on a stepped base, columns all
+## round, a gabled roof with a pediment at each end, its forecourt with a fountain and trees.
+static func hall(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
+	var cu := (u0 + u1) * 0.5
+	var cv := (v0 + v1) * 0.5
+	var bv := cv - 1.35
+	var hw := 3.3
+	var hd := 3.6
+	var base := site(c, u0, u1, v0, v1)
+	var sy := fit(base, 2.3)
+	casts(c, cu - hw, cu + hw, bv - hd, bv + hd, base + 1.8 * Models.PROP_V * sy)
+	if c.dry:
+		return
+	Models.count("hall")
+	c.pad(u0, u1, v0, v1, 0.16, PAVING, 1.6, PAVING.darkened(0.12))
+	var b := c.b
+	c.at(cu, bv, base, sy)
+	var stone: Color = [Color8(0xd8, 0xd2, 0xc4), Color8(0xc8, 0xbe, 0xae), Color8(0xd0, 0xcc, 0xc4)][int(r * 11.0) % 3]
+	var roof_col: Color = Color8(0x5a, 0x6e, 0x66) if r < 0.5 else Color8(0x4a, 0x4c, 0x52)
+	b.bevels = true
+	for i in 3:   # the stepped base
+		var g := 0.3 * (3 - i)
+		b.box(Vector3(0, -0.2 + 0.075 * (i + 1) * 0.5 + 0.0, 0), Vector3((hw + g) * 2.0, 0.075 * (i + 1) + 0.2, (hd + g) * 2.0),
+			stone.darkened(0.12 - i * 0.04))
+	b.box(Vector3(0, 0.8, 0), Vector3((hw - 0.7) * 2.0, 1.3, (hd - 0.7) * 2.0), stone.darkened(0.08))   # the walls behind
+	b.bevels = false
+	var y0 := 0.15
+	var y1 := 1.45
+	for i in 7:
+		for sz in [-1.0, 1.0]:
+			b.prism(Vector3(-hw + 0.3 + i * (hw - 0.3) * 2.0 / 6.0, 0, sz * (hd - 0.3)), Models.ngon(0.12, 6), y0, y1, stone.lightened(0.08))
+	for i in range(1, 7):
+		for sx in [-1.0, 1.0]:
+			b.prism(Vector3(sx * (hw - 0.3), 0, -hd + 0.3 + i * (hd - 0.3) * 2.0 / 7.0), Models.ngon(0.12, 6), y0, y1, stone.lightened(0.08))
+	b.box(Vector3(0, y1 + 0.09, 0), Vector3(hw * 2.0, 0.18, hd * 2.0), stone)   # the entablature
+	b.box(Vector3(0, y1 + 0.05, 0), Vector3(hw * 2.0 + 0.02, 0.05, hd * 2.0 + 0.02), stone.darkened(0.15))   # its frieze
+	var ey := y1 + 0.18
+	var ry := ey + 0.55
+	for sx in [-1.0, 1.0]:
+		b.quad(Vector3(sx * (hw + 0.05), ey, -hd - 0.05), Vector3(0, ry, -hd - 0.05), Vector3(0, ry, hd + 0.05), Vector3(sx * (hw + 0.05), ey, hd + 0.05),
+			roof_col, Vector3(sx * 0.4, 1, 0))
+	for sz in [-1.0, 1.0]:
+		b.tri(Vector3(-hw, ey, sz * hd), Vector3(hw, ey, sz * hd), Vector3(0, ry - 0.04, sz * hd), stone.lightened(0.05), Vector3(0, 0, sz))
+	# a banner between the front columns
+	var bc: Color = SHOPS[int(r * 13.0) % SHOPS.size()]
+	b.quad(Vector3(-0.35, 0.5, hd - 0.2), Vector3(0.35, 0.5, hd - 0.2), Vector3(0.35, 1.25, hd - 0.2), Vector3(-0.35, 1.25, hd - 0.2), bc, Vector3(0, 0, 1))
+	b.xf = Transform3D.IDENTITY
+	# the forecourt: a fountain and trees in planters
+	var fv := v1 - 1.45
+	var w := to_world(cu, fv)
+	fountain(c, cu, fv, c.ground(w.x, w.z))
+	for su in [-1.0, 1.0]:
+		var tu: float = cu + su * 4.4
+		var tw := to_world(tu, fv)
+		tree(c, tu, fv, c.ground(tw.x, tw.z), 0.8, tu * 0.1 + r)
+	b.xf = Transform3D.IDENTITY
 
 
 # ---------------------------------------------------------------- war
