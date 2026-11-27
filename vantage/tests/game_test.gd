@@ -39,6 +39,14 @@ func rules() -> void:
 	check(bought.shots.size() * bought.dmg / bought.period < 0.5 * top.shots.size() * top.dmg / top.period,
 		"a maxed Cannon at the start of a level has under half the fire of a bare ship at full power")
 	check(Rules.missile_period(0) == 0.0 and Rules.missile_period(4) < Rules.missile_period(1), "missiles only once bought")
+	# missiles turn like rockets (Guillaume, 2026-11-27: no shooting backwards)
+	var tv := Rules.turn_toward(Vector3(0, 0, -26), Vector3(0, 0, 1), Rules.MISSILE_TURN / 60.0, 26.0)
+	check(is_equal_approx(tv.length(), 26.0) and absf(tv.angle_to(Vector3(0, 0, -1)) - Rules.MISSILE_TURN / 60.0) < 1e-4, "a missile turns at most MISSILE_TURN a second")
+	var hv := Vector3(0, 0, -26)
+	for i in 30:
+		hv = Rules.turn_toward(hv, Vector3(0, 0, 1), Rules.MISSILE_TURN / 60.0, 26.0)
+	check(hv.z < 0.0, "half a second on, a missile chasing a foe behind it still flies forward")
+	check(Rules.MISSILE_CONE < PI / 3.0 and Rules.MISSILE_LOSE < PI * 0.6, "missiles only lock onto foes ahead")
 	var m := Rules.migrate({"scrap": -5, "up": {"cannon": 99, "magnet": 2}})
 	check(m.scrap == 0 and m.up.cannon == 5 and m.up.magnet == 2 and m.up.hull == 0, "saves are clamped")
 	check(Rules.migrate("garbage") == Rules.fresh(), "a broken save starts over")
