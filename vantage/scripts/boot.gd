@@ -12,6 +12,10 @@ extends Control
 ##
 ## Must not reference any game class (Diag, Hud, ...): loading one here would keep the
 ## bundled version of it instead of the updated one.
+##
+## Store builds (the "Android Store" export preset, feature tag "store") never update
+## themselves: Google Play and the App Store only allow updates through the store. They
+## skip the check, download nothing and ignore any pack a sideloaded build left behind.
 
 const DIR := "user://update/"
 const PACK := DIR + "game.pck"
@@ -26,6 +30,7 @@ var fallback_url: String = ProjectSettings.get_setting("vantage/update_fallback_
 var own_build: int = ProjectSettings.get_setting("vantage/build", 0)
 var own_shell: String = ProjectSettings.get_setting("vantage/shell", "")
 var go_to_main := true
+var store_build: bool = OS.has_feature("store")
 
 var apk_url := ""
 var status := ""            # what happened, for tests and the crash report
@@ -106,6 +111,9 @@ func _ready() -> void:
 	add_child(_label)
 	_http = HTTPRequest.new()
 	add_child(_http)
+	if store_build:
+		_start("store build")
+		return
 	if base_url == "" or OS.has_feature("web"):
 		_start("no update url")
 		return
@@ -130,7 +138,7 @@ func _ready() -> void:
 
 
 func _start(why: String) -> void:
-	var id := apply(own_build, own_shell)
+	var id := "" if store_build else apply(own_build, own_shell)
 	status = why + (" | running pack " + id if id != "" else "")
 	ProjectSettings.set_setting("vantage/update_status", status)
 	print("update: ", status)
