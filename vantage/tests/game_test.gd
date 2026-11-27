@@ -236,6 +236,40 @@ func pause_menu() -> void:
 	await process_frame
 
 
+## The Android back button (go_back): pauses in flight, works the Main menu button when paused,
+## leaves "Touch to start" and the results for the hangar, and asks before quitting the game.
+func back_button() -> void:
+	print("back button")
+	var g := make_game()
+	await process_frame
+	g.go_back()
+	check(g.hud.back_armed and g.phase == "hangar", "in the hangar a first back only asks")
+	check(g.hud.back_tap(), "and a second one in time quits")
+	g.hud.back_tap()
+	for i in int(Hud.RESET_ARM / DT) + 2:
+		g.tick(DT)
+	check(not g.hud.back_armed, "the question lapses after %.0f s" % Hud.RESET_ARM)
+	g.launch()
+	g.tick(DT)
+	g.go_back()
+	check(g.phase == "hangar", "back on touch to start returns to the hangar")
+	g.launch()
+	g.touching = true
+	for i in 30:
+		g.tick(DT)
+	g.go_back()
+	check(g.paused() and not g.touching, "back in flight pauses at once")
+	g.touching = false
+	g.tick(DT)
+	check(g.hud.quit_btn.visible, "and the pause screen shows its main menu button")
+	g.go_back()
+	check(g.phase == "vert" and g.hud.quit_armed, "back on the pause screen arms Main menu")
+	g.go_back()
+	check(g.phase == "hangar", "a second back quits to the hangar")
+	g.queue_free()
+	await process_frame
+
+
 func controls() -> void:
 	print("controls")
 	var g := make_game()
@@ -899,6 +933,7 @@ func _initialize() -> void:
 	await controls()
 	await slow_pause()
 	await pause_menu()
+	await back_button()
 	await aiming()
 	await ramming()
 	await swipe()
