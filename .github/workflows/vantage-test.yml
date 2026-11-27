@@ -29,6 +29,8 @@ jobs:
         run: ./godot --headless --path . --import
       - name: The game (rules, controls, the fortress episode, boss, death, results)
         run: ./godot --headless --path . --script tests/game_test.gd
+      - name: Saves (temp file, backup, recovery when the app is killed mid-save)
+        run: ./godot --headless --path . --script tests/saves_test.gd
       - name: Campaign (worlds and levels, unlocks, level select, world looks, a full level, every mid-boss and fortress)
         run: ./godot --headless --path . --script tests/campaign_test.gd
       - name: Campaign foes (one new kind a level, entries, attacks, hit flash, flak, borers)
