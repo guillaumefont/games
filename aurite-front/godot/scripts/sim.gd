@@ -2200,6 +2200,8 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 					q.ready = true
 					if tm.id == 0: host.toast("Construction complete", "gold"); host.sfx("ready")
 				else:
+					# LOOP on its producer: what just finished goes back to the end of the line (not one-of-a-kind units)
+					if tm.get("loop", {}).get(unit_from(tm.id, q.cur), false) and D.def_of(q.cur).lim <= 0: q.queue.append(q.cur)
 					produce_done(tm, q.cur); q.cur = ""
 		elif tm.id == 0:
 			tm.noFundsT -= dt

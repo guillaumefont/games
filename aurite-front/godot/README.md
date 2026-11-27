@@ -62,7 +62,7 @@ Copy it to the phone and open it (allow "install unknown apps"). It installs nex
   next one), tap a ready building to place it. While the panel is hidden it peeks out for a selected building.
   Selected units get orders in the panel: **Hold** (fight only what is in reach, never chase), **No fire**, **Scatter**,
   **To base**, plus **Jump** (Jump Troopers: tap where to land), **Strip** (Scrappers strip wrecks instead of
-  reviving them) and **Fuse** (Thralls). **MAP** opens a large
+  reviving them) and **Fuse** (Thralls). A selected producer's **Loop** repeats its queue: each finished unit goes back to the end. **MAP** opens a large
   minimap (tap/drag to look there). Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
   building out of the menu to place it (drawn 70 UI units above the finger). **Squads** on the bottom strip form by themselves: give two
   or more selected units an order and they become a squad (numbers 1 to 5, keys 1 to 5 on a keyboard). Tap a squad to
