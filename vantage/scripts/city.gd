@@ -89,10 +89,12 @@ static var glows: Array = []
 ## Lit windows (Guillaume, 2026-11-26: a few dim lit windows and neon signs against the grey): a
 ## dim warm light, and the odd neon in colours that stay apart from the foes' magenta shots and
 ## the player's blue ones. Dim and sparse: they're accents, the foes stay the brightest things.
-const LAMP := Color8(0xe0, 0xae, 0x6a)
+## Then (2026-11-27, "the city is still bland", no new colours) about three times as many lit
+## offices, in a pale cream rather than orange, so they stay apart from the fires and the shots.
+const LAMP := Color8(0xd6, 0xcc, 0xa4)
 const NEONS := [Color8(0xd0, 0x8a, 0x3c), Color8(0x6c, 0xb0, 0x78), Color8(0xc0, 0x58, 0x44), Color8(0xb8, 0xb0, 0x70)]
 ## The share of a calm building's windows lit, and of buildings with a neon sign.
-const LIT := 0.16
+const LIT := 0.45
 const NEON := 0.22
 ## The highest point smoke may reach (world), so it never hides the shots at the flight altitude.
 const SMOKE_TOP := 5.3
@@ -1017,12 +1019,36 @@ static func grid(c: Ctx, w: float, d: float, y0: float, y1: float, r: float) -> 
 		y += 0.22
 
 
+## The roofs' gravel tones and their parapets (see `roof`).
+const ROOF_GRAVEL := [Color8(0x5a, 0x5c, 0x60), Color8(0x88, 0x84, 0x7c), Color8(0x6a, 0x70, 0x74), Color8(0x4c, 0x50, 0x56)]
+const PARAPET := Color8(0xa6, 0xa6, 0xa4)
+
+
 ## Something on the roof (w x d at raw height y): an antenna, a spire, a helipad, a water tank,
 ## a garden or air-conditioning units.
 static func roof(c: Ctx, w: float, d: float, y: float, r: float) -> void:
 	var b := c.b
 	var s := minf(w, d)
 	var kind := int(r * 89.0) % 6
+	# every roof gets its working clutter in the city's greys (Guillaume, 2026-11-27: "the city is
+	# still bland", with no new colours): a gravel tone of its own, a parapet round the edge, the
+	# stair and lift house where it fits, vents and a duct; then its feature
+	var gravel: Color = ROOF_GRAVEL[int(r * 37.0) % ROOF_GRAVEL.size()]
+	b.box(Vector3(0, y + 0.01, 0), Vector3(w - 0.12, 0.02, d - 0.12), gravel)
+	for sx in [-1.0, 1.0]:
+		b.box(Vector3(sx * (w * 0.5 - 0.04), y + 0.05, 0), Vector3(0.08, 0.1, d), PARAPET)
+		b.box(Vector3(0, y + 0.05, sx * (d * 0.5 - 0.04)), Vector3(w, 0.1, 0.08), PARAPET)
+	if c.cap - y > 0.3 and s > 1.0:
+		b.box(Vector3(-w * 0.2, y + 0.14, d * 0.18), Vector3(w * 0.28, 0.28, d * 0.24), Color8(0x8e, 0x90, 0x94))
+		b.box(Vector3(-w * 0.2, y + 0.1, d * 0.3 + 0.005), Vector3(0.14, 0.2, 0.01), DARK)   # its door
+	for i in 3:
+		var p := Vector3((Models.hash2(r * 5.0, i + 9.0) - 0.5) * w * 0.7, y, (Models.hash2(i + 4.0, r * 3.0) - 0.5) * d * 0.7)
+		b.prism(p, Models.ngon(0.07, 6), 0.0, 0.14, Color8(0x6a, 0x6e, 0x76))
+	b.box(Vector3(w * 0.12, y + 0.05, -d * 0.28), Vector3(w * 0.5, 0.08, 0.1), Color8(0xb0, 0xb4, 0xba))
+	y += 0.02
+	# a plain slab added nothing to all that: a water tank where it fits, else more AC units
+	if kind == 2:
+		kind = 3 if c.cap - y > 0.6 and s > 1.2 else 5
 	# what fits under the ship: tall roofs get flat features
 	if [0.66, 0.52, 0.06, 0.53, 0.3, 0.13][kind] > c.cap - y:
 		kind = 2 if s > 1.2 else 5
