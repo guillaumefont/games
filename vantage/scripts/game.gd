@@ -119,6 +119,9 @@ var time_k := 1.0
 ## False from a level's launch until the first touch: the stage waits on "Touch to start", not
 ## the pause screen (no dimming, no Main menu).
 var started := false
+## Real seconds left of the first-run hint (`Hud.HINTS`) once the first ever level has started. It shows
+## on "Touch to start" while the save hasn't `hinted` yet; the first touch saves `hinted` and fades it out.
+var hint_t := 0.0
 var run := {}
 ## The level being played (index in the campaign, see Campaign), its world and its waves.
 var level := 0
@@ -501,6 +504,7 @@ func launch(lv := -1) -> void:
 	# the launch tap is lifted already: wait, still, for the finger that flies the ship
 	time_k = 0.0
 	started = false
+	hint_t = 0.0
 	set_cam("top", 0.0)
 	# nothing steps until that touch, so put the ship (and the ground under it) where it starts
 	# now: it waits in view on "Touch to start", not wherever the hangar left it
@@ -688,6 +692,7 @@ func fit_render_scale() -> void:
 func tick(dt: float) -> void:
 	keys(dt)
 	slow_down(dt)
+	hint_t = maxf(0.0, hint_t - dt)
 	var k := time_speed()
 	if k <= 0.0001:
 		hud.sync()
@@ -720,6 +725,10 @@ func holding() -> bool:
 ## Moves `time_k` towards 1 (held, or out of flight) or 0 (lifted) over real time `dt`.
 func slow_down(dt: float) -> void:
 	if holding() and pausable():
+		if not started and not s.hinted:
+			s.hinted = true
+			Rules.save_game(s, save_path)
+			hint_t = Rules.HINT_T
 		started = true
 	var want := 1.0 if holding() or not pausable() else 0.0
 	var rate := 1.0 / Rules.SLOW_STOP if want < time_k else 1.0 / Rules.SLOW_RESUME

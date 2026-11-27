@@ -8,6 +8,8 @@ const INK := Color8(0xf2, 0xf6, 0xfa)
 const DIM := Color(0.86, 0.92, 1.0, 0.7)
 const GOLD := Color8(0xff, 0xd2, 0x4a)
 const CY := Color8(0x5f, 0xe2, 0xff)
+## The first-run hint, under "Touch to start" until the save is `hinted` (see `Game.hint_t`).
+const HINTS := ["Drag anywhere to fly", "Your guns fire on their own", "Lift your finger to pause"]
 const RED := Color8(0xff, 0x4d, 0x6d)
 ## In-level power steps (the cores are the same cyan-white).
 const POWER := Color8(0x6a, 0xf4, 0xff)
@@ -607,6 +609,8 @@ func _draw() -> void:
 	if hurt_t > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, v), Color(1, 0.2, 0.25, hurt_t * 0.5))
 	draw_pause(v)
+	if game.hint_t > 0.0 and game.started:
+		draw_hints(v, clampf(game.hint_t / 1.2, 0.0, 1.0))
 
 
 ## Before the first touch of a level, "Touch to start". Then, the finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
@@ -623,6 +627,8 @@ func draw_pause(v: Vector2) -> void:
 		var p := Vector2(0, v.y * 0.62)
 		draw_string(FONT, p + Vector2(0, 3), "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(0, 0, 0, 0.45 * a))
 		draw_string(FONT, p, "Touch to start", HORIZONTAL_ALIGNMENT_CENTER, v.x, 44, Color(INK, a))
+		if not game.s.hinted:
+			draw_hints(v, 1.0)
 		return
 	draw_rect(Rect2(Vector2.ZERO, v), Color(0.02, 0.04, 0.08, 0.35 * still))
 	var pulse := 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.004)
@@ -630,6 +636,19 @@ func draw_pause(v: Vector2) -> void:
 	var y := v.y * 0.42
 	draw_string(FONT, Vector2(0, y), "PAUSED", HORIZONTAL_ALIGNMENT_CENTER, v.x, 56, c)
 	draw_string(FONT, Vector2(0, y + 50), "Touch to fly", HORIZONTAL_ALIGNMENT_CENTER, v.x, 28, Color(DIM, c.a))
+
+
+## The first-run hint, on a dark glass card below the waiting ship so it reads on any ground.
+func draw_hints(v: Vector2, a: float) -> void:
+	var w := minf(v.x - 48.0, 440.0)
+	var box := Rect2((v.x - w) * 0.5, v.y * 0.72, w, 32.0 + HINTS.size() * 44.0)
+	var st := glass(24)
+	st.bg_color.a *= a
+	st.border_color.a *= a
+	draw_style_box(st, box)
+	for i in HINTS.size():
+		var y := box.position.y + 50.0 + i * 44.0
+		draw_string(FONT, Vector2(box.position.x, y), HINTS[i], HORIZONTAL_ALIGNMENT_CENTER, w, 28, Color(INK, a))
 
 
 func draw_reticle(p: Vector2, k: float) -> void:

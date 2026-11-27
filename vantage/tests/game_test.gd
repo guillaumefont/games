@@ -23,6 +23,9 @@ func rules() -> void:
 	var s := Rules.fresh()
 	check(s.scrap == 0 and Rules.max_hp(s) == 3, "a new pilot has no scrap and 3 hull")
 	check(not Rules.buy(s, "cannon"), "can't buy without scrap")
+	check(not s.hinted, "a new pilot hasn't seen the first-run hint")
+	check(Rules.migrate({"runs": 4}).hinted, "a save from before the hint that has flown skips it")
+	check(Rules.migrate(JSON.parse_string(JSON.stringify({"hinted": true}))).hinted, "the hint is seen once, kept in the save")
 	s.scrap = 500
 	check(Rules.buy(s, "cannon") and s.scrap == 380 and Rules.level(s, "cannon") == 1, "the first cannon level costs 120")
 	s.scrap = 99999
@@ -210,6 +213,7 @@ func pause_menu() -> void:
 	g.launch()
 	g.tick(DT)
 	check(g.paused() and not g.started, "a level waits for its first touch")
+	check(not g.s.hinted and g.hint_t == 0.0, "a first run shows the hint on touch to start")
 	check(not g.hud.quit_btn.visible, "touch to start isn't the pause screen: no main menu button")
 	check(g.ship.visible and g.ship.position.is_equal_approx(g.ppos), "the ship waits on touch to start where it will fly from")
 	check(g.cam.is_position_in_frustum(g.ship.global_position), "the waiting ship is in view")
@@ -217,6 +221,8 @@ func pause_menu() -> void:
 	for i in 30:
 		g.tick(DT)
 	check(g.started, "the first touch starts it")
+	check(g.s.hinted and g.hint_t > 0.0, "the first touch marks the first-run hint seen, and it fades out")
+	check(Rules.load_game(SAVE).hinted, "the hint being seen is saved")
 	check(not g.hud.quit_btn.visible, "no main menu button while flying")
 	g.run.scrap = 7
 	var scrap0: int = g.s.scrap
@@ -232,6 +238,10 @@ func pause_menu() -> void:
 	check(int(g.s.runs) == 0, "a quit run isn't counted")
 	g.tick(DT)
 	check(not g.hud.quit_btn.visible and g.time_k == 1.0, "the hangar shows no pause menu")
+	g.launch()
+	g.touching = true
+	g.tick(DT)
+	check(g.started and g.hint_t == 0.0, "the next level doesn't show the hint again")
 	g.queue_free()
 	await process_frame
 
