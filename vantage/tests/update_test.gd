@@ -70,8 +70,9 @@ func serve() -> void:
 
 
 ## Runs the boot screen against `url` until it decides, without leaving for the game.
-func run_boot(url: String, build: int, shell: String, fallback := "") -> Node:
+func run_boot(url: String, build: int, shell: String, fallback := "", store := false) -> Node:
 	var b: Node = load("res://scenes/boot.tscn").instantiate()
+	b.store_build = store
 	b.base_url = url
 	b.fallback_url = fallback
 	b.own_build = build
@@ -97,6 +98,11 @@ func _initialize() -> void:
 	var presets := ConfigFile.new()
 	presets.load("res://export_presets.cfg")
 	check(presets.get_value("preset.0.options", "permissions/internet", false) == true, "the Android build may use the network")
+	check(presets.get_value("preset.2", "name", "") == "Android Store" and presets.get_value("preset.2", "custom_features", "") == "store",
+		"a store preset carries the store feature tag")
+	check(presets.get_value("preset.2.options", "permissions/internet", true) == false, "the store build asks for no network access")
+	check(presets.get_value("preset.2.options", "package/unique_name", "") == presets.get_value("preset.0.options", "package/unique_name", "-"),
+		"the store build keeps the app's package name")
 
 	# decisions
 	var m := {"build": 12, "shell": "s1", "sha256": "x"}
@@ -139,6 +145,14 @@ func _initialize() -> void:
 	hits.clear()
 	b = await run_boot(url, 10, "s1")
 	check(b.status.begins_with("up to date") and not hits.has("/vantage.pck"), "already installed: no download: " + b.status)
+	b.queue_free()
+
+	# a store build never checks, downloads or loads a pack, even one left installed
+	hits.clear()
+	ProjectSettings.set_setting("application/config/version", "store test")
+	b = await run_boot(url, 10, "s1", "", true)
+	check(b.status == "store build" and hits.is_empty(), "a store build skips the update check: " + b.status)
+	check(ProjectSettings.get_setting("application/config/version") == "store test", "and ignores the installed pack")
 	b.queue_free()
 
 	# a new APK that is newer than the pack drops it
