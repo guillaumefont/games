@@ -383,6 +383,25 @@ static func player_cfg(s: Dictionary) -> Dictionary:
 	return ship_cfg(s.ship, s.up, crew, {})
 
 
+## Where each gun of a battery sits on the hull (before the hull's scale), so balls can leave
+## from the guns themselves. bab = +x (port, bearing +PI/2), tri = -x, av = bow (+z), ar = stern.
+static func gun_spots(c: Dictionary, k: String) -> Array:
+	var out := []
+	match k:
+		"bab", "tri":
+			var ng: int = clampi(int(c.side), 1, 8)
+			var side := 1.0 if k == "bab" else -1.0
+			for i in ng:
+				out.append(Vector3(side * 1.15, 1.05, 0.4 if ng == 1 else 1.6 - i * (3.0 / (ng - 1))))
+		"av":
+			for i in int(c.bow):
+				out.append(Vector3((i - (c.bow - 1) / 2.0) * 0.4, 1.3, 2.75))
+		"ar":
+			for i in int(c.stern):
+				out.append(Vector3((i - (c.stern - 1) / 2.0) * 0.4, 1.2, -2.9))
+	return out
+
+
 ## A ship: root (turned by heading) > body (scaled, rolls) > one mesh for the wood and guns,
 ## the sails (each with its billow material) and the oars (pivots that row).
 static func ship(c: Dictionary) -> Node3D:
@@ -415,14 +434,10 @@ static func ship(c: Dictionary) -> Node3D:
 		b.prim(cyl(0.06, 0.06, w + 0.4, 5), at(0, y - sh / 2 - 0.02, z + 0.14, Vector3(0, 0, PI / 2)), WOOD)
 		if i == 0:
 			b.prim(box(0.9, 0.5, 0.05), at(0.5, 1 + h + 0.1, z), c.flag)
-	var ng: int = clampi(c.side, 1, 8)
-	for side in [-1, 1]:
-		for k in ng:
-			b.prim(cyl(0.13, 0.15, 0.7, 6), at(side * 1.15, 1.05, 0.4 if ng == 1 else 1.6 - k * (3.0 / (ng - 1)), Vector3(0, 0, PI / 2)), IRON)
-	for k in int(c.bow):
-		b.prim(cyl(0.12, 0.14, 0.8, 6), at((k - (c.bow - 1) / 2.0) * 0.4, 1.3, 2.75, Vector3(PI / 2, 0, 0)), IRON)
-	for k in int(c.stern):
-		b.prim(cyl(0.12, 0.14, 0.8, 6), at((k - (c.stern - 1) / 2.0) * 0.4, 1.2, -2.9, Vector3(PI / 2, 0, 0)), IRON)
+	for bk in ["bab", "tri", "av", "ar"]:
+		for gs in gun_spots(c, bk):
+			var axis := Vector3(0, 0, PI / 2) if bk == "bab" or bk == "tri" else Vector3(PI / 2, 0, 0)
+			b.prim(cyl(0.13, 0.15, 0.7, 6), at(gs.x, gs.y, gs.z, axis), IRON)
 	if c.grappin:
 		b.prim(cyl(0.05, 0.05, 1.2, 4), at(0, 1.3, 3.2, Vector3(PI / 2.6, 0, 0)), Color8(0x3b, 0x3f, 0x42))
 		b.prim(box(0.5, 0.1, 0.1), at(0, 1.75, 3.65, Vector3(0.4, 0, 0)), Color8(0x3b, 0x3f, 0x42))
