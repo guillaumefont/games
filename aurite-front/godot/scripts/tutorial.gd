@@ -470,7 +470,12 @@ func _ptr_of(p: Dictionary):
 		var cat: String = p.item.split(":")[0]
 		var it: Control = U.items.get(p.item)
 		if it == null: return null
-		if not it.is_visible_in_tree(): return ["r", U.tabs[cat].get_global_rect()]
+		if not it.is_visible_in_tree():
+			# the panel shows something else: point at the building that makes it (its top-bar chip), or its sub-tab
+			var bt: String = "hq" if cat == "bld" else S.unit_from(0, it.type)
+			if U.tabs.has(cat) and U.tabs[cat].is_visible_in_tree(): return ["r", U.tabs[cat].get_global_rect()]
+			var pc = U.prod_chips.get(bt)
+			return ["r", pc.get_global_rect()] if pc != null and pc.is_visible_in_tree() else null
 		return ["r", it.get_global_rect()]
 	return null
 
