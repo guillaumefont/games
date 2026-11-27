@@ -81,6 +81,15 @@ func _initialize() -> void:
 		_mouse(ac + di.normalized() * Hud.AIM_R, true, true)
 		await process_frame
 	await shot("3-aim-ile")
+	# a shot: the balls leave the guns and fly at the red line's target
+	for i in 6:
+		var d3 := e.xz() - g.P.xz()
+		_mouse(ac + d3.normalized() * Hud.AIM_R, true, true)
+		await process_frame
+	g.P.rl = {}
+	_mouse(ac, false)
+	await frames(3)
+	await shot("3-tir")
 	_mouse(ac, false)
 	# the purple grapple line, then a boarding
 	var hc := g.hud.hook_center()
