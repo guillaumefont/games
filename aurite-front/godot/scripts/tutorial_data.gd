@@ -53,8 +53,8 @@ const CARDS := {
 	# ---- mission 4: Refugee Road
 	"truck": {"job": "Carries the families. No gun. Two must arrive.", "tip": "Clear the road first, then move the trucks", "gw": "No weapon, heavy armour",
 		"who": "vey", "say": "Every truck is forty people. Guard it like it's me.", "home": ["ashen", 3]},
-	"l_groups": {"name": "Army groups", "job": "Store a squad on 1 to 4, call it back with a tap.", "tip": "Hold a number to store, tap it to select", "gw": "",
-		"who": "foreman", "say": "Squad one, squad two! Hold the button to name them.", "home": ["ashen", 3], "glyph": "all"},
+	"l_groups": {"name": "Squads", "job": "Order a few units together: they become a squad.", "tip": "Tap a squad's chip to select, again to jump", "gw": "",
+		"who": "foreman", "say": "Move them as one and they're a squad. Number one!", "home": ["ashen", 3], "glyph": "all"},
 	# ---- mission 5: Ironpine Pass
 	"flak": {"job": "Anti-air guns. Shreds aircraft, ignores the ground.", "tip": "Build two so they cover each other", "gw": "Hits aircraft only",
 		"who": "foreman", "say": "Flak Nest! Gunships hate it. Tanks don't care.", "home": ["ashen", 4]},
@@ -333,7 +333,7 @@ const MISSIONS := {
 			{"text": "Build a second Ore Crawler", "check": {"have": "crawler", "n": 2}},
 			{"text": "Wipe out a buggy raid", "check": {"raid": true}}]},
 		{"cards": ["l_groups"], "drills": [
-			{"text": "Put your army in group 1 and call it back", "check": {"ev": "group_recall", "i": 0}},
+			{"text": "Order squad 1, then call it with its chip", "check": {"ev": "group_recall", "i": 0}},
 			{"text": "Bring all three trucks home", "check": {"arrived": 3}}]},
 		{"cards": ["l_upgrades"], "drills": [
 			{"text": "Shell a column with a Big Howler", "check": {"ev": "kill", "by": "howler"}},
@@ -354,7 +354,7 @@ const MISSIONS := {
 		{"cards": ["l_aegis"], "drills": [
 			{"text": "Pick off a guard with a Ranger", "check": {"ev": "kill", "by": "ranger"}, "ptr": "ranger"}]},
 		{"cards": ["l_recover"], "drills": [
-			{"text": "Put your tanks in group 1 and call them", "check": {"ev": "group_recall", "i": 0}}]},
+			{"text": "Call squad 1 with its chip", "check": {"ev": "group_recall", "i": 0}}]},
 		{"drills": [
 			{"text": "Run two Deep Drills at once", "check": {"have": "drill", "n": 2}},
 			{"text": "Fly in a Warden Tank", "check": {"ev": "made", "type": "tank"}}]},
