@@ -132,6 +132,10 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
 - The pause screen (finger lifted) has a "Main menu" button (Guillaume, 2026-11-24), shown only once time has
   fully stopped, under the PAUSED title and its hint. Two taps (`RESET_ARM` s) quit the run
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
+- The ending (release audit, 2026-11-27): when 5-3's fortress breaks up (`Game.finale`), a
+  `FINALE_T` s victory flight under a VICTORY banner, then the results say CAMPAIGN COMPLETE and a tap
+  rolls the credits (`Credits`, phase "credits") over the land flying by, back to the hangar at the end
+  or on a tap. The hangar's footer has a "Credits" button too (engine and font licence notices live there).
 - A level starts on "Touch to start" (`Game.started` false until the first touch), not on the pause screen
   (Guillaume, 2026-11-24): no dimming, no PAUSED, no Main menu.
 - First-run hint (2026-11-27): until the save has `hinted`, "Touch to start" also shows `Hud.HINTS` (drag to
@@ -178,6 +182,7 @@ godot --headless --path . --script tests/bosses_test.gd # final bosses: one a le
 godot --headless --path . --script tests/clearance_test.gd # every fortress's whole fight: the ship never passes through its meshes, ship and camera never jump
 godot --headless --path . --script tests/relief_test.gd # the land's set pieces: course, seams, depth, moving parts, ground foes' footing
 godot --headless --path . --script tests/power_test.gd  # battery: frame rate cap by moment, 3D resolution cap
+godot --headless --path . --script tests/ending_test.gd # the ending: victory flight after 5-3, CAMPAIGN COMPLETE, credits back to the hangar
 ```
 
 Screenshots (needs a display; one per key moment of a full run):
@@ -197,6 +202,8 @@ Scenery close-ups with no HUD or foes (top view and a low view per stretch of co
 `xvfb-run -a godot --path . --rendering-method gl_compatibility --resolution 540x960 --script tools/scenery.gd -- /tmp/scenery [theme]`
 
 In-level power (start, a core, full power): same command with `tools/power_shots.gd -- /tmp/power`.
+
+The ending (victory flight, CAMPAIGN COMPLETE, credits): same command with `tools/ending_shots.gd -- /tmp/ending`.
 
 Every campaign foe in play over its world: same command with `tools/foe_shots.gd -- /tmp/foes`. Every
 gun tower in every world: `tools/tower_shots.gd -- /tmp/towers`.
