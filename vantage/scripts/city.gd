@@ -26,6 +26,14 @@ const AVE := 16.0
 const STR := 14.0
 const AVE_W := 4.0
 const STR_W := 2.0
+## Every third street is a boulevard (Guillaume, 2026-11-27: "some city streets should be made
+## wider to allow tanks passing"): BLVD_W wide, two lanes each way; the city's tanks drive along them.
+const BLVD_W := 6.0
+## How often a 2 x 2 tile of blocks is one big superblock, or has two of its blocks joined across
+## an avenue or across a street (the road between them stops): see `superblock`.
+const MERGE_QUAD := 0.14
+const MERGE_U := 0.16
+const MERGE_V := 0.16
 ## How far the city's streets lie below the other worlds' plain (Guillaume, 2026-11-26: "the city
 ## world is very flat... it doesn't go as high as a city should"). Nothing may rise past the ship,
 ## so the city goes down instead, like the canyons: its towers rise from deep streets.
@@ -41,7 +49,10 @@ const MIDTOWN_LOW := 0.2
 const MIDTOWN_LO := 0.8
 const MIDTOWN_HI := 1.0
 ## The blocks that aren't towers, and their shares (see `block_kind`).
-const BLOCK_KINDS := [["park", 0.05], ["stadium", 0.03], ["mall", 0.045], ["capitol", 0.012], ["hall", 0.03]]
+const BLOCK_KINDS := [["park", 0.035], ["square", 0.035], ["mall", 0.025], ["hall", 0.035]]
+## What two joined blocks hold, and what a whole 2 x 2 superblock holds (towers otherwise).
+const PAIR_KINDS := [["mall", 0.25], ["square", 0.12], ["park", 0.1]]
+const QUAD_KINDS := [["capitol", 0.3], ["stadium", 0.25], ["park", 0.25], ["square", 0.2]]
 ## The share of a block's lots left as ruins (broken walls, rubble): the war shows, but the block
 ## still reads as built.
 const RUINS := 0.07
@@ -140,7 +151,110 @@ static func to_world(u: float, v: float) -> Vector3:
 ## On (or within `margin` of) a road.
 static func on_road(x: float, z: float, margin := 0.0) -> bool:
 	var l := to_local(x, z)
-	return absf(l.x - roundf(l.x / AVE) * AVE) < AVE_W * 0.5 + margin or absf(l.y - roundf(l.y / STR) * STR) < STR_W * 0.5 + margin
+	var k := col_of(l.x)
+	var m := row_of(l.y)
+	return l.x - ave_u(k) < AVE_W * 0.5 + margin or ave_u(k + 1) - l.x < AVE_W * 0.5 + margin \
+		or l.y - str_v(m) < str_hw(m) + margin or str_v(m + 1) - l.y < str_hw(m + 1) + margin
+
+
+# ---------------------------------------------------------------- the grid
+# Not a perfect grid (Guillaume, 2026-11-27: "not like a perfect grid but like a proper city"):
+# the avenues and streets wander a little off their lines, every third street is a boulevard,
+# and here and there a road stops so blocks join into bigger ones (a capitol's grounds, a
+# stadium, a park, a square, a mall). Roads stay on even metres so they keep their 2 m steps.
+
+## Avenue k's centre line (u): 2 m either side of its place, the expressways' kept straight.
+static func ave_u(k: int) -> float:
+	if elevated(k):
+		return k * AVE
+	return k * AVE + (floorf(Models.hash2(k * 0.91 + 0.3, 4.7) * 3.0) - 1.0) * 2.0
+
+
+static func boulevard(m: int) -> bool:
+	return posmod(m, 3) == 0
+
+
+## Street m's centre line (v): 2 m either side of its place; a boulevard keeps its own and the
+## streets beside it only move away from it, so the blocks along it stay deep.
+static func str_v(m: int) -> float:
+	if boulevard(m):
+		return m * STR
+	var j := floorf(Models.hash2(m * 1.13 + 0.7, 2.9) * 3.0) - 1.0
+	if boulevard(m - 1):
+		j = maxf(j, 0.0)
+	if boulevard(m + 1):
+		j = minf(j, 0.0)
+	return m * STR + j * 2.0
+
+
+static func str_hw(m: int) -> float:
+	return (BLVD_W if boulevard(m) else STR_W) * 0.5
+
+
+## The column (k) holding u: between avenues k and k + 1.
+static func col_of(u: float) -> int:
+	var k := floori(u / AVE)
+	if u < ave_u(k):
+		return k - 1
+	if u >= ave_u(k + 1):
+		return k + 1
+	return k
+
+
+## The row (m) holding v: between streets m and m + 1.
+static func row_of(v: float) -> int:
+	var m := floori(v / STR)
+	if v < str_v(m):
+		return m - 1
+	if v >= str_v(m + 1):
+		return m + 1
+	return m
+
+
+## The (super)block that the cell (k, m) belongs to: Rect2i(first cell, cells across). The cells
+## go in 2 x 2 tiles; a tile is one big block, or two of its cells join across the avenue or the
+## street between them, or it stays four blocks. Never across an expressway or a boulevard.
+static func superblock(k: int, m: int) -> Rect2i:
+	var tk := floori(k / 2.0) * 2
+	var tm := floori(m / 2.0) * 2
+	var h := Models.hash2(Models.hash2(tk * 0.37 + 0.6, tm * 0.53 + 0.2) * 61.7, tk * 0.07 + tm * 0.13)
+	var g := Models.hash2(h * 13.1, tk * 0.21 + 1.0)
+	var across_u := not elevated(tk + 1)
+	var across_v := not boulevard(tm + 1)
+	if h < MERGE_QUAD and across_u and across_v:
+		return Rect2i(tk, tm, 2, 2)
+	h -= MERGE_QUAD
+	if h >= 0.0 and h < MERGE_U and across_u:
+		var row := tm + (0 if g < 0.5 else 1)
+		if m == row:
+			return Rect2i(tk, row, 2, 1)
+	h -= MERGE_U
+	if h >= 0.0 and h < MERGE_V and across_v:
+		var col := tk + (0 if g < 0.5 else 1)
+		if k == col:
+			return Rect2i(col, tm, 1, 2)
+	return Rect2i(k, m, 1, 1)
+
+
+## Where a tank at world x near world z drives: on the nearest boulevard (never more than half
+## their spacing off, so still on the screen), `lane` metres off its middle. Returns the world z.
+static func boulevard_z(x: float, z: float, lane: float) -> float:
+	var l := to_local(x, z)
+	var step := 3.0 * STR
+	var v := roundf(l.y / step) * step + lane
+	# the point at world x on the line v: x = u cos + v sin
+	var u := (x - v * _sa) / _ca
+	return to_world(u, v).z
+
+
+## Avenue k runs past row m (it doesn't when the blocks either side are one).
+static func avenue_at(k: int, m: int) -> bool:
+	return superblock(k - 1, m) != superblock(k, m)
+
+
+## Street m runs past column k.
+static func street_at(m: int, k: int) -> bool:
+	return superblock(k, m - 1) != superblock(k, m)
 
 
 static func elevated(k: int) -> bool:
@@ -227,10 +341,10 @@ class Ctx:
 			bs = bs * Basis.from_scale(Vector3(1, Models.PROP_V, 1))
 		b.xf = Transform3D(bs, Vector3(0, y, 0))
 
-	## Draw round (u, v) at height y, heights scaled by PROP_V (and by sy).
-	func at(u: float, v: float, y: float, sy := 1.0) -> void:
+	## Draw round (u, v) at height y, heights scaled by PROP_V (and by sy), widths by sxz.
+	func at(u: float, v: float, y: float, sy := 1.0, sxz := 1.0) -> void:
 		var w := City.to_world(u, v)
-		b.xf = Transform3D(Basis(Vector3.UP, City.ANGLE) * Basis.from_scale(Vector3(1, Models.PROP_V * sy, 1)), Vector3(w.x, y, w.z))
+		b.xf = Transform3D(Basis(Vector3.UP, City.ANGLE) * Basis.from_scale(Vector3(sxz, Models.PROP_V * sy, sxz)), Vector3(w.x, y, w.z))
 		b.occlude(Models.AO_H)
 
 
@@ -260,15 +374,18 @@ static func build(b: Models.Builder, z0: float, size: Vector2, hgt: Callable, he
 			expressway(c, k, lo.y - 2.0, hi.y + 2.0)
 	for m in range(floori(lo.y / STR) - 1, ceili(hi.y / STR) + 2):
 		street(c, m, lo.x - 2.0, hi.x + 2.0)
-	for k in range(floori(lo.x / AVE) - 1, ceili(hi.x / AVE) + 1):
-		for m in range(floori(lo.y / STR) - 1, ceili(hi.y / STR) + 1):
+	for k in range(floori(lo.x / AVE) - 2, ceili(hi.x / AVE) + 1):
+		for m in range(floori(lo.y / STR) - 2, ceili(hi.y / STR) + 1):
 			block(c, k, m)
 	# the neighbouring chunks' buildings near the edges cast shadows over this one's streets too
 	c.dry = true
-	for k in range(floori(lo.x / AVE) - 1, ceili(hi.x / AVE) + 1):
-		for m in range(floori(lo.y / STR) - 2, ceili(hi.y / STR) + 2):
-			var mid := to_world((k + 0.5) * AVE, (m + 0.5) * STR)
-			if not c.owns(mid) and absf(mid.x) <= c.hw and mid.z < c.z0 + AVE + CAST_REACH and mid.z > c.z1 - AVE - CAST_REACH:
+	for k in range(floori(lo.x / AVE) - 2, ceili(hi.x / AVE) + 1):
+		for m in range(floori(lo.y / STR) - 3, ceili(hi.y / STR) + 2):
+			var sb := superblock(k, m)
+			if sb.position != Vector2i(k, m):
+				continue
+			var mid := to_world((ave_u(k) + ave_u(sb.end.x)) * 0.5, (str_v(m) + str_v(sb.end.y)) * 0.5)
+			if not c.owns(mid) and absf(mid.x) <= c.hw and mid.z < c.z0 + 2.0 * AVE + CAST_REACH and mid.z > c.z1 - 2.0 * AVE - CAST_REACH:
 				block(c, k, m)
 	c.dry = false
 	shade_streets(c)
@@ -315,8 +432,8 @@ static func shade_streets(c: Ctx) -> void:
 static func cast_at(c: Ctx, o: Vector2, y: float, dir: Vector2, l: float, reach: float) -> float:
 	# the blocks the ray crosses: its two ends and its middle cover them (a block is 12 m or more)
 	var q1 := o + dir * reach
-	var a0 := Vector2i(floori(o.x / AVE), floori(o.y / STR))
-	var a1 := Vector2i(floori(q1.x / AVE), floori(q1.y / STR))
+	var a0 := Vector2i(col_of(o.x), row_of(o.y))
+	var a1 := Vector2i(col_of(q1.x), row_of(q1.y))
 	var cells: Array[Vector2i] = [a0]
 	if a1 != a0:
 		cells.append(a1)
@@ -353,13 +470,28 @@ static func cast_at(c: Ctx, o: Vector2, y: float, dir: Vector2, l: float, reach:
 # ---------------------------------------------------------------- roads
 
 static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
-	var u := k * AVE
+	var u := ave_u(k)
 	var hw := AVE_W * 0.5
-	# 2 m steps centred on even metres: a street (every STR, an even number) gets one whole step
+	# 2 m steps centred on even metres: a street (on even metres, an odd number of steps wide)
+	# gets whole steps
 	var v := floorf(v_lo / 2.0) * 2.0 - 1.0
 	while v < v_hi:
 		var vm := v + 1.0
 		v += 2.0
+		var m := row_of(vm)
+		# crossing street xs? where the avenue stops, or the street does, the crossing is a T
+		var xs := m
+		var crossing := vm - str_v(m) < str_hw(m)
+		if not crossing and str_v(m + 1) - vm < str_hw(m + 1):
+			xs = m + 1
+			crossing = true
+		var open_l := crossing and street_at(xs, k - 1)
+		var open_r := crossing and street_at(xs, k)
+		if crossing:
+			if not (open_l or open_r or avenue_at(k, xs - 1) or avenue_at(k, xs)):
+				continue
+		elif not avenue_at(k, m):
+			continue
 		var mid := to_world(u, vm)
 		if not c.owns(mid):
 			continue
@@ -374,10 +506,13 @@ static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
 			var f1 := (a1 + hw) / AVE_W
 			return [lerpf(hs[0], hs[1], f0), lerpf(hs[0], hs[1], f1), lerpf(hs[3], hs[2], f1), lerpf(hs[3], hs[2], f0)]
 		c.lay(quad.call(-hw, hw), hs, 0.08, Models.ASPHALT)
-		var to_street := absf(vm - roundf(vm / STR) * STR)
-		if to_street > 1.0:
+		# how far from the nearest street's middle, as if it were a plain 2 m street
+		var to_street := minf(vm - str_v(m) - str_hw(m), str_v(m + 1) - str_hw(m + 1) - vm) + 1.0
+		if not open_l:
 			c.lay(quad.call(-hw, -hw + 0.3), across.call(-hw, -hw + 0.3), 0.11, Models.KERB)
+		if not open_r:
 			c.lay(quad.call(hw - 0.3, hw), across.call(hw - 0.3, hw), 0.11, Models.KERB)
+		if not open_l and not open_r:
 			c.lay(quad.call(-0.1, -0.04), across.call(-0.1, -0.04), 0.1, YELLOW)
 			c.lay(quad.call(0.04, 0.1), across.call(0.04, 0.1), 0.1, YELLOW)
 		var y: float = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25
@@ -402,15 +537,19 @@ static func avenue(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
 
 
 static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
-	var v := m * STR
-	var hw := STR_W * 0.5
-	# 2 m steps from even metres: each wholly in or out of an avenue (whose edges are at 16k +- 2)
+	var v := str_v(m)
+	var hw := str_hw(m)
+	var wide := boulevard(m)
+	# 2 m steps from even metres: each wholly in or out of an avenue (whose edges are on even metres)
 	var u := floorf(u_lo / 2.0) * 2.0
 	while u < u_hi:
 		var um := u + 1.0
 		u += 2.0
-		if absf(um - roundf(um / AVE) * AVE) < AVE_W * 0.5:
+		var k := col_of(um)
+		if um - ave_u(k) < AVE_W * 0.5 or ave_u(k + 1) - um < AVE_W * 0.5:
 			continue   # the avenue covers the junction
+		if not street_at(m, k):
+			continue   # the street stops: the blocks either side are one
 		var mid := to_world(um, v)
 		if not c.owns(mid):
 			continue
@@ -421,20 +560,27 @@ static func street(c: Ctx, m: int, u_lo: float, u_hi: float) -> void:
 		var quad := func(a0: float, a1: float) -> Array:
 			return [Vector2(um - 1.0, v + a0), Vector2(um + 1.0, v + a0), Vector2(um + 1.0, v + a1), Vector2(um - 1.0, v + a1)]
 		var across := func(a0: float, a1: float) -> Array:
-			var f0 := (a0 + hw) / STR_W
-			var f1 := (a1 + hw) / STR_W
+			var f0 := (a0 + hw) / (hw * 2.0)
+			var f1 := (a1 + hw) / (hw * 2.0)
 			return [lerpf(hs[0], hs[3], f0), lerpf(hs[1], hs[2], f0), lerpf(hs[1], hs[2], f1), lerpf(hs[0], hs[3], f1)]
 		c.lay(quad.call(-hw, hw), hs, 0.08, Models.ASPHALT)
 		c.lay(quad.call(-hw, -hw + 0.25), across.call(-hw, -hw + 0.25), 0.11, Models.KERB)
 		c.lay(quad.call(hw - 0.25, hw), across.call(hw - 0.25, hw), 0.11, Models.KERB)
-		if posmod(um, 4.0) < 2.0:
+		if wide:
+			# a boulevard: a double yellow line down the middle, a dashed one between each pair of lanes
+			c.lay(quad.call(-0.1, -0.04), across.call(-0.1, -0.04), 0.1, YELLOW)
+			c.lay(quad.call(0.04, 0.1), across.call(0.04, 0.1), 0.1, YELLOW)
+			if posmod(um, 4.0) < 2.0:
+				for lane in [-1.45, 1.45]:
+					c.lay(quad.call(lane - 0.05, lane + 0.05), across.call(lane - 0.05, lane + 0.05), 0.1, Models.PAINT)
+		elif posmod(um, 4.0) < 2.0:
 			c.lay(quad.call(-0.06, 0.06), across.call(-0.06, 0.06), 0.1, Models.PAINT)
 		var y: float = (hs[0] + hs[1] + hs[2] + hs[3]) * 0.25
 		if c.raw(mid.x, mid.z) < 0.02:
 			bridge_bits(c, false, v, um, hw, y)
 		var r := Models.hash2(um * 2.3, v * 0.7 + 0.4)
 		if r < 0.035:
-			var side := 0.55 if r < 0.018 else -0.55
+			var side := (0.55 if r < 0.018 else -0.55) * (3.9 if wide else 1.0)
 			var w := to_world(um, v + side)
 			if r < 0.012:
 				wreck(c, Vector3(w.x, y + 0.08, w.z), ANGLE + r * 50.0, r * 15.0)
@@ -465,7 +611,7 @@ static func bridge_bits(c: Ctx, along_v: bool, c0: float, s: float, hw: float, y
 ## The expressway over avenue k: a deck on pillars at HWY_Y, barriers, lane lines and traffic,
 ## in 8 m spans (each owned by the chunk holding its middle).
 static func expressway(c: Ctx, k: int, v_lo: float, v_hi: float) -> void:
-	var u := k * AVE
+	var u := ave_u(k)
 	var v := floorf(v_lo / 8.0) * 8.0
 	while v < v_hi:
 		var v0 := v
@@ -505,10 +651,13 @@ static func flat(c: Ctx, u0: float, u1: float, v0: float, v1: float, y: float, c
 # ---------------------------------------------------------------- blocks
 
 static func block(c: Ctx, k: int, m: int) -> void:
-	var u0 := k * AVE + AVE_W * 0.5
-	var u1 := (k + 1) * AVE - AVE_W * 0.5
-	var v0 := m * STR + STR_W * 0.5
-	var v1 := (m + 1) * STR - STR_W * 0.5
+	var sb := superblock(k, m)
+	if sb.position != Vector2i(k, m):
+		return   # built with the superblock's first cell
+	var u0 := ave_u(k) + AVE_W * 0.5
+	var u1 := ave_u(sb.end.x) - AVE_W * 0.5
+	var v0 := str_v(m) + str_hw(m)
+	var v1 := str_v(sb.end.y) - str_hw(sb.end.y)
 	var cu := (u0 + u1) * 0.5
 	var cv := (v0 + v1) * 0.5
 	var mid := to_world(cu, cv)
@@ -518,19 +667,13 @@ static func block(c: Ctx, k: int, m: int) -> void:
 	if c.raw(mid.x, mid.z) < 0.03:
 		if c.dry:
 			return
-		# a canal runs through it: trees on its grassy banks
-		for i in 6:
-			var tu := lerpf(u0 + 1.0, u1 - 1.0, Models.hash2(k * 1.1 + i, m * 0.9))
-			var tv := lerpf(v0 + 1.0, v1 - 1.0, Models.hash2(m * 1.3 + i, k * 0.7 + i))
-			var w := to_world(tu, tv)
-			if c.raw(w.x, w.z) > 0.06:
-				tree(c, tu, tv, c.ground(w.x, w.z), 0.9, tu)
+		canal(c, k, m, u0, u1, v0, v1)
 		return
 	var dry := true
 	for q: Vector2 in [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]:
 		var w := to_world(q.x, q.y)
 		dry = dry and c.raw(w.x, w.z) > 0.02
-	var kind := block_kind(k, m)
+	var kind := block_kind(k, m, sb.size)
 	if kind != "towers" and kind != "park" and not dry:
 		kind = "towers"   # the big buildings need firm ground under every corner
 	match kind:
@@ -546,18 +689,96 @@ static func block(c: Ctx, k: int, m: int) -> void:
 			capitol(c, u0, u1, v0, v1, Models.hash2(k * 0.71, m * 0.43))
 		"hall":
 			hall(c, u0, u1, v0, v1, Models.hash2(k * 0.19, m * 0.83))
+		"square":
+			if not c.dry:
+				square(c, u0, u1, v0, v1, Models.hash2(k * 0.83, m * 0.17))
 		_:
 			lots(c, k, m, u0, u1, v0, v1)
+	# the shadows a superblock casts are looked up by any of its cells
+	if sb.size != Vector2i.ONE and c.casters.has(c.km):
+		for i in sb.size.x:
+			for j in sb.size.y:
+				c.casters[Vector2i(k + i, m + j)] = c.casters[c.km]
+
+
+## A block the canals run through: stone quays along the roads where they meet the water, barges
+## and boats moored on it (so it reads as a canal basin, not an empty block), trees on its banks.
+static func canal(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: float) -> void:
+	Models.count("canal")
+	var wy := Models.SEA_Y - SINK
+	var top := 0.5 - SINK
+	c.frame()
+	var b := c.b
+	var stone := CONCRETE.lightened(0.08)
+	for e in 4:
+		var along_u := e < 2
+		var fixed: float = [v0 + 0.3, v1 - 0.3, u0 + 0.3, u1 - 0.3][e]
+		var a0: float = u0 if along_u else v0
+		var a1: float = u1 if along_u else v1
+		var a := a0
+		while a < a1 - 0.01:
+			var a2 := minf(a + 2.0, a1)
+			var am := (a + a2) * 0.5
+			var w := to_world(am, fixed) if along_u else to_world(fixed, am)
+			if c.raw(w.x, w.z) < 0.02:
+				var cen := Vector3(am, (wy - 0.3 + top) * 0.5, fixed) if along_u else Vector3(fixed, (wy - 0.3 + top) * 0.5, am)
+				var sz := Vector3(a2 - a + 0.02, top - wy + 0.3, 0.6) if along_u else Vector3(0.6, top - wy + 0.3, a2 - a + 0.02)
+				b.box(cen, sz, stone)
+				# a bollard now and then on the quay's edge
+				if posmod(am, 6.0) < 2.0:
+					var bp := cen + (Vector3(0, top - cen.y + 0.1, (0.2 if e == 0 else -0.2)) if along_u else Vector3((0.2 if e == 2 else -0.2), top - cen.y + 0.1, 0))
+					b.box(bp, Vector3(0.14, 0.2, 0.14), DARK)
+			a = a2
+	# barges and boats moored along the water
+	var long_u := u1 - u0 >= v1 - v0
+	for i in 3:
+		var h := Models.hash2(k * 2.7 + i * 1.9, m * 1.7 + i * 0.3)
+		var bu := lerpf(u0 + 3.0, u1 - 3.0, Models.hash2(h * 9.0, i * 1.1))
+		var bv := lerpf(v0 + 3.0, v1 - 3.0, Models.hash2(i * 2.3, h * 7.0))
+		var big := i == 0 or h < 0.4
+		var ln := 4.6 if big else 1.8
+		var half := Vector2(ln * 0.5, 0.0) if long_u else Vector2(0.0, ln * 0.5)
+		var ok := true
+		for q: Vector2 in [Vector2(bu, bv) - half, Vector2(bu, bv), Vector2(bu, bv) + half]:
+			var w := to_world(q.x, q.y)
+			ok = ok and c.raw(w.x, w.z) < -0.03
+		if not ok:
+			continue
+		Models.count("barge" if big else "boat")
+		c.at(bu, bv, wy, 1.0 / Models.PROP_V)
+		if not long_u:
+			b.xf = b.xf * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3.ZERO)
+		if big:
+			b.box(Vector3(0, 0.12, 0), Vector3(4.6, 0.5, 1.3), Color8(0x3a, 0x34, 0x30))   # the hull
+			b.box(Vector3(0, 0.38, 0), Vector3(4.4, 0.04, 1.14), Color8(0x5a, 0x50, 0x46))   # the deck
+			for j in 3:
+				var cc: Color = SHOPS[int(h * 31.0 + j) % SHOPS.size()].darkened(0.15)
+				if Models.hash2(h * 5.0 + j, 2.0) < 0.75:
+					b.box(Vector3(-1.3 + j * 0.95, 0.62, 0), Vector3(0.85, 0.45, 0.95), cc)   # containers
+			b.box(Vector3(1.85, 0.75, 0), Vector3(0.7, 0.7, 0.9), Color8(0xd8, 0xd4, 0xcc))   # the wheelhouse
+			b.box(Vector3(1.85, 1.13, 0), Vector3(0.8, 0.06, 1.0), DARK)
+		else:
+			b.box(Vector3(0, 0.1, 0), Vector3(1.8, 0.3, 0.7), Color8(0xd8, 0xd4, 0xcc))
+			b.box(Vector3(-0.2, 0.32, 0), Vector3(0.6, 0.2, 0.5), Color8(0x3a, 0x48, 0x58))
+	b.xf = Transform3D.IDENTITY
+	# trees on its grassy banks
+	for i in 6:
+		var tu := lerpf(u0 + 1.0, u1 - 1.0, Models.hash2(k * 1.1 + i, m * 0.9))
+		var tv := lerpf(v0 + 1.0, v1 - 1.0, Models.hash2(m * 1.3 + i, k * 0.7 + i))
+		var w := to_world(tu, tv)
+		if c.raw(w.x, w.z) > 0.06:
+			tree(c, tu, tv, c.ground(w.x, w.z), 0.9, tu)
 
 
 ## What fills block (k, m) (Guillaume, 2026-11-27: "all city blocks should be filled with
 ## something... mainly Manhattan like buildings... bigger buildings like a capitol"): mostly
 ## "towers" (lots of towers and mid-rises), now and then a "park", a "stadium", a shopping "mall",
 ## a domed "capitol" or a columned "hall". Never an empty plaza or a bare block.
-static func block_kind(k: int, m: int) -> String:
+static func block_kind(k: int, m: int, size := Vector2i.ONE) -> String:
 	# hashed twice: one pass of the sine hash runs in streaks down a column of blocks
 	var h := Models.hash2(Models.hash2(k * 0.73 + 0.1, m * 1.31 + 0.2) * 57.1, k * 0.11 + m * 0.07)
-	for kd: Array in BLOCK_KINDS:
+	var kinds: Array = BLOCK_KINDS if size == Vector2i.ONE else (QUAD_KINDS if size == Vector2i(2, 2) else PAIR_KINDS)
+	for kd: Array in kinds:
 		if h < kd[1]:
 			return kd[0]
 		h -= kd[1]
@@ -577,6 +798,11 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 	# downtowns most blocks still hold a few high towers, so the whole city stands tall, not just its peaks
 	var rise := maxf(tall, midtown(k, m))
 	var towers := midtown(k, m) > 0.0
+	if boulevard(m):
+		# the row just below a boulevard (on the camera's side) stays low, mid-rises and shops, so
+		# the tanks driving along it aren't hidden behind towers
+		rise = minf(rise, 0.15)
+		towers = false
 	var sd := Models.hash2(k * 1.7 + 4.0, m * 5.3 + 1.0)
 	if sd < 0.14 and not towers:
 		# a courtyard block: four wings round a green court with a tree
@@ -592,8 +818,9 @@ static func lots(c: Ctx, k: int, m: int, u0: float, u1: float, v0: float, v1: fl
 		dead_tree(c, (i0 + i1) * 0.5, (j0 + j1) * 0.5, c.ground(g.x, g.z), sd)
 		Models.count("courtyard")
 		return
-	var nu := 2 + int(sd * 7.0) % 2
-	var nv := 2 + int(sd * 13.0) % 2
+	# lots about 5-6 m across, so a joined block holds more towers, not fatter ones
+	var nu := maxi(2, roundi((i1 - i0) / 5.5)) + int(sd * 7.0) % 2
+	var nv := maxi(2, roundi((j1 - j0) / 5.5)) + int(sd * 13.0) % 2
 	var us := [i0]
 	for i in range(1, nu):
 		us.append(lerpf(i0, i1, (i + (Models.hash2(sd * 9.0, i) - 0.5) * 0.35) / nu))
@@ -641,7 +868,7 @@ static func building(c: Ctx, u: float, v: float, w: float, d: float, h: float, r
 	if not c.dry:
 		c.at(u, v, base)
 	c.cap = (Rules.PY - 0.65 - base) / Models.PROP_V
-	h = minf(h, c.cap - 0.12)
+	h = minf(h, c.cap - 0.25)   # room for the roof slab or AC units
 	# its shadow over the streets (shops are a low row: about their mean height)
 	var fw := w * (0.9 if style == 1 else 1.0)
 	var fd := d * (0.9 if style == 1 else 1.0)
@@ -885,12 +1112,14 @@ static func park(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -
 	var sv := (v1 - v0) * 0.5
 	for qu in [-1.0, 1.0]:
 		for qv in [-1.0, 1.0]:
-			for i in 2:
-				for j in 2:
+			var ni := maxi(2, int((su - 1.9) / 2.4))
+			var nj := maxi(2, int((sv - 1.9) / 2.4))
+			for i in ni:
+				for j in nj:
 					var a := Models.hash2(r * 17.0 + i + qu * 3.0, j * 1.3 + qv)
 					var e := Models.hash2(i * 2.1 + qv, r * 5.0 + j + qu)
-					var tu: float = cu + qu * (1.3 + (i + 0.25 + a * 0.5) * (su - 1.9) / 2.0)
-					var tv: float = cv + qv * (1.3 + (j + 0.25 + e * 0.5) * (sv - 1.9) / 2.0)
+					var tu: float = cu + qu * (1.3 + (i + 0.25 + a * 0.5) * (su - 1.9) / ni)
+					var tv: float = cv + qv * (1.3 + (j + 0.25 + e * 0.5) * (sv - 1.9) / nj)
 					var w := to_world(tu, tv)
 					if Models.hash2(a * 7.0, e * 3.0) < 0.15:
 						dead_tree(c, tu, tv, c.ground(w.x, w.z), a)
@@ -912,6 +1141,105 @@ static func fountain(c: Ctx, u: float, v: float, y: float) -> void:
 	c.b.prism(Vector3.ZERO, Models.ngon(1.1, 12), 0.12, 0.13, WATER)
 	c.b.prism(Vector3.ZERO, Models.ngon(0.35, 8), 0.1, 0.3, Color8(0xd8, 0xd2, 0xc4))
 	c.b.prism(Vector3.ZERO, Models.ngon(0.12, 6), 0.3, 0.62, Color8(0xe8, 0xf6, 0xff), Vector2(0.3, 0.3))
+
+
+## A proper square (Guillaume, 2026-11-27: "some place here and there but that should look like a
+## proper square, not an empty block"): bordered, patterned paving, lawns in its corners between
+## a cross of paths, a monument (an obelisk, a column with a statue) or a big fountain at its heart
+## on a round step, rows of trees all round its edge, lamps, benches and kiosks.
+static func square(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
+	Models.count("square")
+	var cu := (u0 + u1) * 0.5
+	var cv := (v0 + v1) * 0.5
+	var w := u1 - u0
+	var d := v1 - v0
+	var stone := Color8(0xd8, 0xd2, 0xc4)
+	c.pad(u0, u1, v0, v1, 0.16, PAVING.darkened(0.08), 2.0)
+	c.pad(u0 + 1.6, u1 - 1.6, v0 + 1.6, v1 - 1.6, 0.17, PAVING, 1.6, PAVING.darkened(0.12))
+	var pw := 1.0 + minf(w, d) * 0.04
+	var rr := minf(w, d) * 0.1 + 0.9
+	for su in [-1.0, 1.0]:
+		for sv in [-1.0, 1.0]:
+			var a: float = cu + su * pw
+			var bb: float = u1 - 2.4 if su > 0.0 else u0 + 2.4
+			var e: float = cv + sv * pw
+			var f: float = v1 - 2.4 if sv > 0.0 else v0 + 2.4
+			c.pad(minf(a, bb), maxf(a, bb), minf(e, f), maxf(e, f), 0.19, PARK, 2.0)
+			# a few trees on each lawn
+			var nl := clampi(int(absf(bb - a) / 3.5), 1, 3)
+			for i in nl:
+				for j in clampi(int(absf(f - e) / 3.5), 1, 3):
+					var lu: float = lerpf(a, bb, (i + 0.5) / nl)
+					var lv: float = lerpf(e, f, (j + 0.5) / clampi(int(absf(f - e) / 3.5), 1, 3))
+					if Vector2(lu - cu, lv - cv).length() > rr + 0.8:
+						var lw := to_world(lu, lv)
+						tree(c, lu, lv, c.ground(lw.x, lw.z) + 0.05, 0.85, lu * 0.7 + lv * 0.3 + r)
+			# a bench by each lawn, facing the middle
+			var bu: float = cu + su * (pw + 0.5)
+			var bv: float = cv + sv * (rr + 0.8)
+			var bw := to_world(bu, bv)
+			c.at(bu, bv, c.ground(bw.x, bw.z) + 0.16)
+			c.b.box(Vector3(0, 0.06, 0), Vector3(0.12, 0.08, 0.9), Models.WOOD.darkened(0.2))
+	var g := to_world(cu, cv)
+	var y := c.ground(g.x, g.z)
+	var b := c.b
+	c.at(cu, cv, y)
+	b.prism(Vector3.ZERO, Models.ngon(rr, 16), -0.1, 0.2, stone)   # the round step
+	b.prism(Vector3.ZERO, Models.ngon(rr - 0.5, 16), 0.2, 0.24, PARK)
+	# the monument grows with the square
+	var ms := clampf(minf(w, d) / 11.0, 1.0, 1.8)
+	c.at(cu, cv, y, fit(y, 3.0 * ms) * ms, ms)
+	if r < 0.35:
+		# an obelisk on a stepped plinth
+		b.box(Vector3(0, 0.3, 0), Vector3(1.6, 0.2, 1.6), stone)
+		b.prism(Vector3.ZERO, Models.ngon(0.42, 4, PI * 0.25), 0.4, 2.6, stone.lightened(0.06), Vector2(0.55, 0.55))
+		b.prism(Vector3.ZERO, Models.ngon(0.24, 4, PI * 0.25), 2.6, 2.85, Color8(0xf2, 0xc4, 0x2e), Vector2(0.05, 0.05))
+	elif r < 0.7:
+		# a column topped with a bronze figure
+		var bronze := Color8(0x5a, 0x6a, 0x5e)
+		b.box(Vector3(0, 0.4, 0), Vector3(1.3, 0.4, 1.3), stone)
+		b.prism(Vector3.ZERO, Models.ngon(0.3, 10), 0.6, 2.2, stone.lightened(0.06), Vector2(0.85, 0.85))
+		b.box(Vector3(0, 2.25, 0), Vector3(0.7, 0.1, 0.7), stone)
+		b.box(Vector3(0, 2.5, 0), Vector3(0.28, 0.4, 0.2), bronze)
+		b.prism(Vector3(0, 0, 0), Models.ngon(0.1, 6), 2.7, 2.85, bronze, Vector2(0.6, 0.6))
+		b.box(Vector3(0.18, 2.62, 0), Vector3(0.08, 0.08, 0.4), bronze)   # an arm, raised
+	else:
+		# a big fountain: a wide basin, a tiered bowl and a plume
+		b.prism(Vector3.ZERO, Models.ngon(rr - 0.3, 16), 0.2, 0.36, stone)
+		b.prism(Vector3.ZERO, Models.ngon(rr - 0.55, 16), 0.36, 0.37, WATER)
+		b.prism(Vector3.ZERO, Models.ngon(0.4, 10), 0.36, 0.9, stone)
+		b.prism(Vector3(0, 0.9, 0), Models.ngon(0.9, 12), 0.0, 0.12, stone, Vector2(1.2, 1.2))
+		b.prism(Vector3.ZERO, Models.ngon(0.14, 6), 1.0, 1.6, Color8(0xe8, 0xf6, 0xff), Vector2(0.3, 0.3))
+	# rows of trees round the edge, lamps between them
+	var n := maxi(3, int(w / 3.0))
+	for i in n:
+		var tu := lerpf(u0 + 0.9, u1 - 0.9, float(i) / (n - 1))
+		for tv: float in [v0 + 0.9, v1 - 0.9]:
+			if absf(tu - cu) > pw + 0.3:
+				var tw := to_world(tu, tv)
+				tree(c, tu, tv, c.ground(tw.x, tw.z), 0.75, tu * 0.3 + tv)
+	var nn := maxi(3, int(d / 3.0))
+	for j in range(1, nn - 1):
+		var tv := lerpf(v0 + 0.9, v1 - 0.9, float(j) / (nn - 1))
+		for tu: float in [u0 + 0.9, u1 - 0.9]:
+			if absf(tv - cv) > pw + 0.3:
+				var tw := to_world(tu, tv)
+				tree(c, tu, tv, c.ground(tw.x, tw.z), 0.75, tu + tv * 0.3)
+	for q: Vector2 in [Vector2(cu - pw - 0.3, v1 - 1.8), Vector2(cu + pw + 0.3, v1 - 1.8), Vector2(cu - pw - 0.3, v0 + 1.8),
+			Vector2(cu + pw + 0.3, v0 + 1.8)]:
+		var lw := to_world(q.x, q.y)
+		c.at(q.x, q.y, c.ground(lw.x, lw.z) + 0.16)
+		b.prism(Vector3.ZERO, Models.ngon(0.05, 4), 0.0, 0.9, DARK)
+		b.box(Vector3(0, 0.92, 0), Vector3(0.18, 0.08, 0.18), Color8(0xf4, 0xe2, 0xa8))
+	# two kiosks with striped awnings by the paths
+	for i in 2:
+		var ku: float = cu + (i * 2 - 1) * (pw + 1.4)
+		var kv: float = cv + (1 - i * 2) * (minf(d * 0.5, rr + 3.0) - 0.4)
+		var kw := to_world(ku, kv)
+		c.at(ku, kv, c.ground(kw.x, kw.z) + 0.16)
+		b.box(Vector3(0, 0.15, 0), Vector3(0.9, 0.4, 0.7), Color8(0xf4, 0xf0, 0xe6))
+		b.box(Vector3(0, 0.38, 0), Vector3(1.1, 0.05, 0.9), SHOPS[(i + int(r * 9.0)) % SHOPS.size()])
+	b.xf = Transform3D.IDENTITY
 
 
 ## A stadium: an oval of stepped stands in two colours round a pitch, floodlights at the corners.
@@ -1054,18 +1382,26 @@ static func mall(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -
 static func capitol(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float) -> void:
 	var cu := (u0 + u1) * 0.5
 	var cv := (v0 + v1) * 0.5
-	var bv := cv - 0.9   # the building stands back, its lawn and walk in front
+	# built for one block, scaled up to fill its grounds (Guillaume: "capitol should take a few
+	# blocks"), a little less in height than across, and kept under the ship
+	var s := clampf(minf((u1 - u0) / 12.0, (v1 - v0) / 12.4), 1.0, 2.2)
+	var hs := 1.0 + (s - 1.0) * 0.45
+	var bv := cv - 0.9 * s   # the building stands back, its lawn and walk in front
 	var base := site(c, u0, u1, v0, v1)
-	var sy := fit(base, 3.9)
-	casts(c, cu - 5.0, cu + 5.0, bv - 2.2, bv + 2.2, base + 1.1 * Models.PROP_V * sy)
-	casts(c, cu - 1.4, cu + 1.4, bv - 1.7, bv + 1.1, base + 3.3 * Models.PROP_V * sy)
+	var sy := fit(base, 4.1 * hs) * hs
+	casts(c, cu - 5.0 * s, cu + 5.0 * s, bv - 2.2 * s, bv + 2.2 * s, base + 1.1 * Models.PROP_V * sy)
+	casts(c, cu - 1.4 * s, cu + 1.4 * s, bv - 1.7 * s, bv + 1.1 * s, base + 3.3 * Models.PROP_V * sy)
 	if c.dry:
 		return
 	Models.count("capitol")
 	c.pad(u0, u1, v0, v1, 0.16, PARK, 2.0)
-	c.pad(cu - 0.6, cu + 0.6, bv + 3.4, v1, 0.19, PAVING, 2.0)
-	c.pad(cu - 3.0, cu + 3.0, v1 - 1.6, v1 - 0.6, 0.19, PAVING, 2.0)
-	c.at(cu, bv, base, sy)
+	c.pad(cu - 0.6 * s, cu + 0.6 * s, bv + 3.4 * s, v1, 0.19, PAVING, 2.0)
+	c.pad(cu - 3.0 * s, cu + 3.0 * s, v1 - 1.6 * s, v1 - 0.6, 0.19, PAVING, 2.0)
+	if s > 1.4:
+		# a long pool down the lawn to the steps, on a stone rim
+		c.pad(cu - 1.3 * s, cu + 1.3 * s, bv + 3.9 * s, v1 - 2.2 * s, 0.2, Color8(0xc8, 0xc2, 0xb4), 2.0)
+		c.pad(cu - 1.0 * s, cu + 1.0 * s, bv + 4.1 * s, v1 - 2.4 * s, 0.23, WATER, 2.0)
+	c.at(cu, bv, base, sy, s)
 	var b := c.b
 	var stone: Color = [Color8(0xd8, 0xd2, 0xc4), Color8(0xcc, 0xc8, 0xbe), Color8(0xd4, 0xc8, 0xb0)][int(r * 7.0) % 3]
 	var dome: Color = Color8(0x7e, 0xa0, 0x92) if r < 0.6 else Color8(0xb8, 0xa0, 0x5a)
@@ -1116,10 +1452,13 @@ static func capitol(c: Ctx, u0: float, u1: float, v0: float, v1: float, r: float
 	b.prism(Vector3(0, 0, dz), Models.ngon(0.26, 8), ly + 0.35, ly + 0.5, dome, Vector2(0.2, 0.2))
 	b.prism(Vector3(0, 0, dz), Models.ngon(0.04, 4), ly + 0.5, ly + 0.75, Color8(0xf2, 0xc4, 0x2e), Vector2(0.3, 0.3))
 	b.xf = Transform3D.IDENTITY
-	# trees along the lawn
-	for q: Vector2 in [Vector2(u0 + 1.0, v1 - 1.1), Vector2(u1 - 1.0, v1 - 1.1), Vector2(u0 + 1.0, v1 - 2.6), Vector2(u1 - 1.0, v1 - 2.6)]:
-		var w := to_world(q.x, q.y)
-		tree(c, q.x, q.y, c.ground(w.x, w.z), 0.8, q.x * 0.1 + r)
+	# rows of trees down both sides of the lawn
+	var tv := v1 - 1.1
+	while tv > bv + 2.8 * s:
+		for q: Vector2 in [Vector2(u0 + 1.0, tv), Vector2(u1 - 1.0, tv)]:
+			var w := to_world(q.x, q.y)
+			tree(c, q.x, q.y, c.ground(w.x, w.z), 0.8, q.x * 0.1 + tv * 0.37 + r)
+		tv -= 2.6
 
 
 ## A columned hall (a museum, a library, a court): a temple front on a stepped base, columns all

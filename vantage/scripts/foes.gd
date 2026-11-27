@@ -624,6 +624,10 @@ static func spawn(g: Game, kind: String, x: float, i: int, n: int, from := "top"
 			f.x0 = s
 			f.pos.x = s * (8.0 + i * 2.5)
 			f.pos.z = gz - i * 2.0
+			if Models.theme == "city":
+				# the city's tanks keep to a boulevard (Guillaume, 2026-11-27: "streets made wider to
+				# allow tanks passing"): the nearest one ahead (or just behind), one lane each
+				f.pos = Vector3(f.pos.x, 0, City.boulevard_z(f.pos.x, gz, 1.5 if i % 2 == 0 else -1.5))
 			f.pos.y = g.ground_y(f.pos.x, f.pos.z)
 			f.fire_t = 1.6 + 0.5 * i
 			add_part(g, f, "turret", Vector3(0, 0.62, -0.1))
@@ -851,6 +855,8 @@ static func think(g: Game, f: Game.Obj, dt: float) -> void:
 		"tank":
 			# drives up the land and across, its turret tracking the ship
 			var d := Vector3(-f.x0 * 1.6, 0, -2.2)
+			if Models.theme == "city":
+				d = City.to_world(-f.x0 * 3.0, 0.0)   # along its boulevard
 			f.pos += d * dt
 			f.pos.y = g.ground_y(f.pos.x, f.pos.z)
 			face(f, d, dt)

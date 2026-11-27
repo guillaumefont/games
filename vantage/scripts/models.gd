@@ -1409,7 +1409,7 @@ static func ground_col(h: float) -> Color:
 			return d.lerp(Color8(0xb4, 0x62, 0x40), smoothstep(0.74, 0.8, h))
 		"city":
 			if h < 0.0:   # canals
-				return Color8(0x3a, 0x48, 0x4c).lerp(Color8(0x4e, 0x4e, 0x4e), smoothstep(-0.06, 0.0, h))
+				return Color8(0x26, 0x40, 0x4e).lerp(Color8(0x4e, 0x4e, 0x4e), smoothstep(-0.06, 0.0, h))
 			# scorched banks along the canals, ash-grey concrete under the blocks (City paves the rest)
 			return Color8(0x44, 0x40, 0x36).lerp(Color8(0x56, 0x56, 0x58), smoothstep(0.1, 0.16, h))
 		"ice":
@@ -1694,8 +1694,10 @@ static func ground_chunk(noise: FastNoiseLite, z0: float, size: Vector2, cell: f
 		# a calm, low-contrast backdrop, so foes and bullets stand out (Guillaume, 2026-11-24: "the
 		# city landscape is too messy... not very easy to see the enemies")
 		b.tone = City.calm
+		# the canals keep a little more of their colour, so they read as water, not paving
+		var water_y := SEA_Y + floor_y() + 0.05
 		for i in gc.size():
-			gc[i] = City.calm(gc[i])
+			gc[i] = City.calm(gc[i]) if gv[i].y > water_y else gc[i].lerp(City.calm(gc[i]), 0.55)
 	var mesh := b.commit() if b.n > 0 else ArrayMesh.new()
 	ao_mesh = ao_blobs(b.take_spots(), ground_h)
 	var arr := []
