@@ -54,7 +54,7 @@
 - Living fields: `Sim.vit` (0..100 per ore tile), `ore0` (start amount), `touch_t`. Take ore only through
   `Sim.take_ore(i, n, drain)`: an earner's `drain` is the vitality lost for emptying a whole tile (harvester and garden
   20 today; negative heals). Rested tiles (`D.FIELD.rest`) regrow up to `ore0 * vit / 100`. At 0 a tile is dead for good
-  (`field_dead`): grey stumps in `View3D.upd_ore`, grey on the minimap. `AF_MODE=fields` shoots fresh, tired and dead fields.
+  (`field_dead`): grey stumps in `View3D.upd_ore`. `AF_MODE=fields` shoots fresh, tired and dead fields.
 - `groundwork_tests()` in `tests/sim_test.gd` checks each faction's rules and field drain, death and regrowth. A test that
   changes `D.RULES` or `D.BLD` must restore them after itself.
 - Ashen Pact (phase 3): `RULES.ashen` has `cap` (Hearths +10, the Yard +20) and `swap`. With `swap` on, the shared type
@@ -258,7 +258,7 @@ in your PR, keep it short, and mention the change in the PR description.
   `Sim.upd_prod` puts a finished unit back at the end of its line while it is on (never one-of-a-kind units). Paid per
   unit as usual; waits when broke or capped (the header says UNIT CAP FULL). The top-bar chip shows a loop mark.
 - Phone HUD extras (2026-11-14): producer chips in the top bar (`UI.ProdChip`, one per kind of producer you own,
-  `main.producers` from `_setup_producers`, `_prod_chips`, `prod_chip_tap(bt)` selects it, 2026-11-27), MAP = enlarged minimap (`UI.big_map`, draws the panel minimap's texture), army groups
+  `main.producers` from `_setup_producers`, `_prod_chips`, `prod_chip_tap(bt)` selects it, 2026-11-27), army groups
   (`main.groups`, `group_btn`), objective auto-hide (`obj_t`, `OBJ_SHOW`), drag-to-build from `BuildItem`
   (`drag_build_*`, `GHOST_LIFT`), hold a unit item = queue five, corner ✕ cancels. `AF_INPUT=1` replays all of them.
 - HUD look (2026-11-14, "UI too simple, keep low poly but increase quality"): HUD buttons are `UI.HudBtn` made by `mkbtn(text, cb, w, h, size, glyph)`;
@@ -329,3 +329,28 @@ in your PR, keep it short, and mention the change in the PR description.
 - Chips: `UI.SquadChip` (key > 0 squad, 0 ALL, -1 NEW). JOIN (`U.btn.join`) and type chips (`U.type_btns`) sit in
   cmd_top. Tutorial drills use the `group_recall` event (a squad chip selecting squad i + 1).
 - `squad_tests()` in `tests/sim_test.gd`; `AF_MODE=squads` shoots the strip, JOIN and type chips at phone size.
+
+## Radar (Guillaume 2026-11-27: "a radar mode by zooming out, you can then handle units in bulk")
+
+- It REPLACES the minimap and the MAP button (both removed), and opens by pinching only: Guillaume asked for no
+  button. Proposal mock-up: project files `aurite-overhaul/radar/`.
+- Camera (`view3d.gd`): `cam_z` now goes down to `Z_MIN` (whole 64x64 map in view). Past `Z_NEAR` (today's old limit)
+  `radar_pull()` tilts the camera toward `PITCH_TOP` and `clamp_cam` draws it toward the map centre; `radar_k()` is 0 at
+  `Z_NEAR` and 1 at `Z_RADAR`. From `radar_k() >= 0.6`, `radar_on`: `ents_root` (every unit and building model),
+  trees, rocks, bushes and sun shadows are hidden, so the whole-map view is cheaper than normal play. A cutscene
+  camera (`cine`) never counts as radar.
+- Drawing: `scripts/radar.gd` (preloaded as `Radar`, no class_name), called from `main.draw_hud` (health bars are
+  skipped in radar). `UI.radar_tint` is a screen-reading ColorRect under the HUD that greys the view by `k`.
+  Icons: circle infantry, square vehicle, triangle air, diamond harvester; buildings are footprints (star = a `yard`);
+  enemies follow the fog. Squads get a ring, a badge (`Radar.badges`, used for taps) and a heading line (red to an
+  attacked enemy, pale to a move destination); hits pulse red; `S.ping` (the old minimap alert) pulses too.
+- Input (`main.gd`, only while `radar_k() >= 0.5`): tapping a badge calls `radar_badge` (adds or drops that squad
+  while the selection is whole squads, else selects it alone); a tap right on an enemy icon beats a badge. Squads
+  picked together have `sel_src == "multi"`, and `_squad_order` skips "multi" like "all", so ordering them keeps
+  their numbers (outside the radar, ordering whole squads together still merges them). Dragging a badge
+  (`bpending`/`bdrag` gestures) sends that squad alone (`radar_send`) and keeps the selection. One finger on open
+  ground draws a box (no hold needed). A double-tap on open ground (450 ms) flies down (`dive`, `fly`, `_fly_tick`).
+  Picking uses small radii in radar (14 own, 20 enemy).
+- `AF_MODE=radar AF_SHOT=dir` shoots near / blend / radar, then replays badge taps, an attack, a badge drag, a box
+  and a dive with real touch events, printing RADAR lines. Software rendering runs at ~4 fps here, so the dive is
+  sent straight to `tap()`.
