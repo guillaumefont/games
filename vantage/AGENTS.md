@@ -374,6 +374,12 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   props keep out (`Relief.in_town`), and elsewhere they come in groups: groves and fields in some 12 m cells, rocks
   as outcrops (`Models.rocks`: one big rock about the ship's size, smaller ones on its sides; Guillaume found lone
   mid-size boulders unrealistic). Look at them with `tools/town_shots.gd -- /tmp/towns`.
+- Cliff dwellings (Guillaume, 2026-11-27: "in the sandy desert I want more houses hidden around in the mountain
+  flanks"): `scripts/dwellings.gd` (`Dwellings`), Ember Dunes only. Hamlets (some 16 m cells) of small mud-brick
+  houses down the flanks of the canyon, mesas and crater: on ledges at least `DEPTH` below the plain with rock
+  rising behind, backs set into the face, a footing down to the ledge, often a second storey, a ladder and a thin
+  brow of the cliff's rock over the roof, so they half hide. `Dwellings.build` runs per chunk after `Towns.build`
+  (~10% of a desert chunk's build); tested in `relief_test.gd`; look with `tools/dwelling_shots.gd -- /tmp/dwellings`.
 - `scripts/game.gd` (`Game`): phases (`hangar`, `vert`, `approach`, `pov`, `core`, `escape`,
   `down`, `clear`, `results`), every moving thing as a `Game.Obj`, collisions, effects, camera.
   Vertical objects with `rel = true` move with the scroll frame (`frame_z`); collisions are flat (x, z)
