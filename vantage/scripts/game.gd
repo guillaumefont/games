@@ -524,9 +524,10 @@ var checked_update := false
 
 ## The launch check (scripts/boot.gd) already updated the game if it could; this one runs
 ## in the hangar, so a build published while the game was open still gets offered.
+## Store builds (feature tag "store") never look: only the store may update them.
 func check_update() -> void:
 	var url: String = ProjectSettings.get_setting("vantage/update_url", "")
-	if url == "":
+	if url == "" or OS.has_feature("store"):
 		return
 	var http := HTTPRequest.new()
 	http.timeout = 5
@@ -549,6 +550,8 @@ func check_update() -> void:
 ## The version on the title screen was tapped: reload into a newer build, or check for one.
 func version_tap() -> void:
 	sound.play("tap")
+	if OS.has_feature("store"):
+		return
 	if new_build > 0:
 		refresh_game()
 		return
