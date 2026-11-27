@@ -28,8 +28,8 @@ class Boat:
 	var tgt := Vector2.INF
 	var sink_t := 0.0
 	var arcs: Node3D
-	var oar := 0.0
-	var stroke := false
+	var wake_t := 0.0
+	var skin := "classique"
 	var ai_t := 0.0
 	var ai_h := 0.0
 	var ai_s := 0.0
@@ -85,6 +85,8 @@ var cam_off := Vector3(0, 62, 50)
 var _ball_mesh := Models.ball(0.28, 6, 3)
 var _puff_mesh := Models.ball(1.0, 5, 3)
 var _chip_mesh := Models.box(1, 1, 1)
+var _foam_mesh := Models.foam_mesh()
+var gulls: Node3D
 var _lit := {}
 var aim_mark: Node3D
 var hook_mark: Node3D
@@ -167,6 +169,42 @@ func _build_world() -> void:
 		add_child(Models.island(isles[i].x, isles[i].z, isles[i].r, i == 0))
 	rebuild_port()
 	_build_aim_mark()
+	_build_gulls()
+
+
+## Gulls: a few circle over the port and the islands, a few follow the ship.
+func _build_gulls() -> void:
+	gulls = Node3D.new()
+	add_child(gulls)
+	for i in 10:
+		var gl := Models.gull()
+		var isl: Dictionary = isles[(i / 2) % 4]
+		gl.set_meta("c", Vector3(isl.x, 0, isl.z) if i >= 4 else Vector3.INF)
+		gl.set_meta("r", 6.0 + (i % 3) * 3.0 if i >= 4 else 7.0 + i * 2.5)
+		gl.set_meta("y", 11.0 + (i % 4) * 2.0)
+		gl.set_meta("w", (0.35 + (i % 3) * 0.08) * (1 if i % 2 else -1))
+		gl.set_meta("ph", i * 1.7)
+		gulls.add_child(gl)
+
+
+func _update_gulls(t: float) -> void:
+	var pp := P.pos()
+	for gl: Node3D in gulls.get_children():
+		var c: Vector3 = gl.get_meta("c")
+		if not c.is_finite():
+			c = Vector3(pp.x, 0, pp.z) - Vector3(sin(P.h), 0, cos(P.h)) * 4.0
+		var r: float = gl.get_meta("r")
+		var w: float = gl.get_meta("w")
+		var ph: float = gl.get_meta("ph")
+		var a := t * w + ph
+		var y: float = gl.get_meta("y") + sin(t * 0.7 + ph) * 1.2
+		gl.position = c + Vector3(cos(a) * r, y, sin(a) * r)
+		# flying along the circle, banking into the turn
+		var dir := Vector3(-sin(a), 0, cos(a)) * signf(w)
+		gl.rotation = Vector3(0, atan2(dir.x, dir.z), -signf(w) * 0.35)
+		var flap := sin(t * 7.0 + ph) * 0.55 if sin(t * 0.5 + ph) > -0.3 else 0.12
+		gl.get_node("L").rotation.z = -flap
+		gl.get_node("R").rotation.z = flap
 
 
 ## The aim on the water: a red line from the ship that runs on until it meets a ship or an
@@ -258,17 +296,20 @@ func spawn_enemy(far: bool) -> Boat:
 	var bd := Rules.enemy_build(e.lvl)
 	e.hk = bd.hull
 	e.st = bd.st
-	var crew := []
 	var counts := {}
 	for i in 2 + e.lvl * 2:
 		var c: Dictionary = Rules.CREW[mini(3, int(rng.randf() * e.lvl))]
-		crew.append(c.color)
 		counts[c.k] = int(counts.get(c.k, 0)) + 1
 	e.up = bd.up
 	e.fighters = Rules.fighters(counts, int(bd.up.get("capitaine", 0)))
+	# other players show off their styles; the rest sail dark wood and grey canvas
 	var dark := Color8(0x1d, 0x1f, 0x21)
-	e.node = Models.ship(Models.ship_cfg(e.hk, bd.up, crew, {"hull": Color8(0x4f, 0x3a, 0x2c),
-		"sail": Color8(0x9b, 0x9a, 0x92) if e.offline else Color8(0x3c, 0x42, 0x46), "trim": dark, "flag": dark}))
+	var colors := {"hull": Color8(0x4f, 0x3a, 0x2c), "band": Color8(0x2a, 0x26, 0x22),
+		"sail": Color8(0x9b, 0x9a, 0x92) if e.offline else Color8(0x3c, 0x42, 0x46), "sail2": Color8(0x8e, 0x8d, 0x86) if e.offline else Color8(0x34, 0x3a, 0x3e), "trim": dark, "flag": dark}
+	if e.lvl >= 2 and rng.randf() < 0.4:
+		e.skin = Rules.SKINS[rng.randi_range(1, Rules.SKINS.size() - 1)].k
+		colors = {}
+	e.node = Models.ship(Models.ship_cfg(e.hk, bd.up, Models.crew_kinds(counts), colors, e.skin, bool(e.st.hook)))
 	e.node.position = Vector3(x, 0, z)
 	add_child(e.node)
 	e.name = Rules.NAMES[name_idx % Rules.NAMES.size()]
@@ -326,6 +367,16 @@ func ripple(p: Vector3) -> void:
 			Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(1.2, 2.2), rng.randf_range(-0.6, 0.6)), 0.45, 0.4, 8)
 
 
+## A flat patch of foam on the water that spreads and fades away.
+func wake(p: Vector3, vel: Vector3, size: float) -> void:
+	var mi := Models.instance(_foam_mesh, Models.flat_mat(Color8(0xf1, 0xf5, 0xf3), 0.55), false)
+	mi.position = Vector3(p.x, Rules.wave(p.x, p.z, time) * 0.8 + 0.12, p.z)
+	mi.rotation.y = rng.randf() * TAU
+	mi.scale = Vector3.ONE * size
+	add_child(mi)
+	parts.append({"n": mi, "vel": vel, "life": 1.6, "max": 1.6, "grow": 0.9, "grav": 0.0, "spin": 0.0, "sc": mi.scale, "flat": true})
+
+
 func _update_parts(dt: float) -> void:
 	for i in range(parts.size() - 1, -1, -1):
 		var p: Dictionary = parts[i]
@@ -336,6 +387,8 @@ func _update_parts(dt: float) -> void:
 			continue
 		p.vel.y -= p.grav * dt
 		p.n.position += p.vel * dt
+		if p.get("flat", false):
+			p.vel *= 1.0 - dt * 1.5
 		if p.grow:
 			p.sc *= 1.0 + p.grow * dt
 		if p.spin:
@@ -360,11 +413,20 @@ func fire(from: Vector3, target: Boat, n: int, dmg: float, by_player: bool, ang 
 	var spread := 1.2 if aimed else 1.8
 	for i in n:
 		var to := Vector3(tp.x + tv.x * dur * 0.85 + rng.randf_range(-spread, spread), 0, tp.z + tv.z * dur * 0.85 + rng.randf_range(-spread, spread))
-		var mi := Models.instance(_ball_mesh, _lit_mat(Color8(0x24, 0x28, 0x2a)))
+		var mi := _ball_node(by_player)
 		mi.visible = false
 		add_child(mi)
 		balls.append({"n": mi, "from": Vector3(sx, 1.4, sz), "to": to, "t": -i * 0.12, "dur": dur, "dmg": dmg, "target": target, "by_player": by_player})
 	puff(Vector3(sx, 1.6, sz), Color8(0xd8, 0xdc, 0xd9), 3 + mini(n, 4), 0.6, 1.2, 1.5, 1.2)
+
+
+## A cannonball in the player's style: snowballs, fireballs, giant acorns, magic orbs...
+func _ball_node(by_player: bool) -> MeshInstance3D:
+	var L := Looks.of(str(s.get("skin", "classique")) if by_player else "classique")
+	var m: Material = Models.flat_mat(L.ball) if L.ball_glow else _lit_mat(L.ball)
+	var mi := Models.instance(_ball_mesh, m)
+	mi.scale = Vector3.ONE * float(L.ball_size)
+	return mi
 
 
 ## Fires every loaded battery that has the foe in its arc. `ammo` (player only) pays a ball
@@ -395,8 +457,9 @@ func can_aim() -> bool:
 
 
 ## The purple grapple stick shows with the green one.
+## Only once the grapple is bought (Rules.buy_hook).
 func can_grapple() -> bool:
-	return can_aim()
+	return can_aim() and bool(P.st.get("hook", false))
 
 
 func hooking() -> bool:
@@ -646,7 +709,9 @@ func _update_boarding(e: Boat, dt: float) -> void:
 	if _clash_t <= 0:
 		_clash_t = 0.35
 		var mid := (P.pos() + e.pos()) / 2
-		puff(Vector3(mid.x + rng.randf_range(-1.5, 1.5), 1.8, mid.z + rng.randf_range(-1.5, 1.5)), Color8(0xe8, 0xe2, 0xd0), 2, 0.35, 0.8, 1.2, 0.6)
+		# our side's blows in our style's colours (powder snow, embers, leaves, sparks...)
+		var col: Color = Looks.of(str(s.skin)).trail if rng.randf() < 0.6 else Color8(0xe8, 0xe2, 0xd0)
+		puff(Vector3(mid.x + rng.randf_range(-1.5, 1.5), 1.8, mid.z + rng.randf_range(-1.5, 1.5)), col, 2, 0.35, 0.8, 1.2, 0.6)
 	if Rules.alive_count(bd.theirs) == 0:
 		boarding_won(e)
 	elif Rules.alive_count(bd.mine) == 0:
@@ -675,6 +740,7 @@ func boarding_won(e: Boat) -> void:
 	_rope.visible = false
 	e.state = "taken"
 	e.v = 0
+	s.stats.boarded += 1
 	var gold := e.coins * 2
 	s.coins += gold
 	var map := rng.randf() < minf(1.0, Rules.map_chance(e.lvl) * 2)
@@ -868,6 +934,7 @@ func on_flee() -> void:
 func enemy_defeated(e: Boat) -> void:
 	e.state = "sink"
 	e.sink_t = 0
+	s.stats.sunk += 1
 	s.coins += e.coins
 	# the wreck may hold a treasure map, more often on big ships
 	var map := rng.randf() < Rules.map_chance(e.lvl)
@@ -928,6 +995,7 @@ func use_map() -> void:
 
 func _collect_treasure() -> void:
 	s.coins += treasure.gold
+	s.stats.treasures += 1
 	save()
 	hud.toast("Trésor trouvé ! +%s pièces" % Rules.fmt(treasure.gold), "gold")
 	puff(treasure.pos + Vector3(0, 1, 0), Color8(0xe0, 0xb4, 0x5a), 10, 0.4, 2.5, 4, 1.4)
@@ -945,6 +1013,15 @@ func open_port() -> void:
 	P.v = 0
 	throttle = 0
 	hud.open_port()
+	# feats done at sea unlock new ship styles when you come home
+	var fresh := Rules.unlock_skins(s)
+	if fresh.size():
+		save()
+		hud.refresh_port()
+		var names := []
+		for sk in fresh:
+			names.append(sk.name)
+		hud.toast("Nouveau style débloqué : %s ! Voyez le Chantier." % ", ".join(names), "gold")
 
 
 ## After buying something at the port: rebuild what shows it, and save.
@@ -1036,21 +1113,51 @@ func anim_boat(b: Boat, t: float, dt: float) -> void:
 	if b.state != "sink" and (not b.is_player or alive):
 		body.rotation.z = sin(t * 1.3 + p.x * 0.1) * 0.05
 		body.rotation.x = cos(t * 1.1 + p.z * 0.1) * 0.03
-	var rowing := absf(b.v) > 0.4 and b.state != "sink"
-	if rowing:
-		b.oar += dt * (2.6 + absf(b.v) * 0.35)
-	var ph := fmod(b.oar, TAU)
-	var stroke := sin(ph) > 0
-	Models.row(b.node, ph, rowing)
 	var near := b.is_player or Vector2(p.x - P.pos().x, p.z - P.pos().z).length() < 80
-	var oars: Array = b.node.get_meta("oars")
-	if rowing and near and stroke and not b.stroke and oars.size():
-		for o in [oars[oars.size() / 4], oars[oars.size() - 1 - oars.size() / 4]]:
-			ripple((o as Node3D).global_transform * Vector3(float(o.get_meta("side")) * 2.15, 0, 0))
-	b.stroke = stroke
+	if not near:
+		return
+	# the wake: foam at the bow and astern, more the faster she goes
+	var sp := absf(b.v)
+	if sp > 0.6 and b.state != "sink":
+		b.wake_t -= dt * (0.6 + sp * 0.25)
+		if b.wake_t <= 0:
+			b.wake_t = 0.12
+			var sc: Vector3 = Rules.HULLS[b.hk if not b.is_player else s.ship].scale
+			var fw := Vector3(sin(b.h), 0, cos(b.h))
+			var rt := Vector3(cos(b.h), 0, -sin(b.h))
+			var side := 1.0 if rng.randf() < 0.5 else -1.0
+			wake(p + fw * 3.2 * sc.z + rt * side * 0.5 * sc.x, rt * side * 1.2, 0.5 + sp * 0.03)
+			wake(p - fw * 3.0 * sc.z + rt * rng.randf_range(-0.7, 0.7) * sc.x, -fw * 0.6, 0.65 + sp * 0.04)
 	# sails fill more the faster the ship goes
-	if near:
-		Models.billow(b.node, 0.18 + minf(0.5, absf(b.v) * 0.05), t)
+	Models.billow(b.node, 0.18 + minf(0.5, sp * 0.05), t)
+	_anim_crew(b, t)
+
+
+## The men on deck: at work while sailing, at the rail facing the foe in a fight, in the
+## melee at a boarding (where the fallen lie on deck).
+func _anim_crew(b: Boat, t: float) -> void:
+	var men: Array = b.node.get_meta("men", [])
+	if men.is_empty():
+		return
+	var mode := "sail"
+	var look := 0.0
+	var fighters := []
+	var foe: Boat = null
+	if combat and combat.e.state != "sink":
+		if b.is_player:
+			foe = combat.e
+		elif combat.e == b:
+			foe = P
+	if foe and alive:
+		var fp := foe.pos()
+		look = Rules.rel_bearing(b.pos().x, b.pos().z, b.h, fp.x, fp.z)
+		mode = "fight" if combat.mode != "pending" else "sail"
+		if combat.has("board"):
+			mode = "board"
+			fighters = combat.board.mine if b.is_player else combat.board.theirs
+	elif b.state == "taken":
+		fighters = b.fighters
+	Crew.animate(men, t, mode, look, fighters)
 
 
 # ---------------------------------------------------------------- the loop
@@ -1188,7 +1295,7 @@ func step(dt: float) -> void:
 				var bearing := shoot_batteries(e, P, dt)
 				Models.set_arcs(e.arcs, bearing, Models.RUST)
 			# an attacker close enough throws its grapple (never one that only defends)
-			if not e.offline and combat.mode != "pending" and hooks.is_empty() and d < float(e.st.grapple) and rng.randf() < dt * 0.3:
+			if not e.offline and bool(e.st.get("hook", false)) and combat.mode != "pending" and hooks.is_empty() and d < float(e.st.grapple) and rng.randf() < dt * 0.3:
 				start_boarding(e, false)
 		else:
 			e.state = "wander"
@@ -1232,6 +1339,7 @@ func step(dt: float) -> void:
 
 	_update_balls(dt)
 	_update_parts(dt)
+	_update_gulls(time)
 	_update_aim_mark()
 	_update_hook_mark()
 	_update_hooks(dt)

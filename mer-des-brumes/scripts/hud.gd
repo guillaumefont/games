@@ -82,6 +82,7 @@ var _pv_vp: SubViewport
 var _pv_cam: Camera3D
 var _pv_ship: Node3D
 var _pv_key := ""
+var _pv_hull := ""
 var _pv_ang := 0.6
 var _confirm_reset := false
 
@@ -1178,6 +1179,8 @@ func refresh_port() -> void:
 			_yard(total)
 		"equipage":
 			var st := game.pstats()
+			_body.add_child(_preview_slot(Vector2(0, 260)))
+			_set_lineup()
 			_body.add_child(_cap("Équipage : %d / %d places · force à l'abordage %s par seconde" % [Rules.crew_count(s), st.crew_cap, ("%.1f" % st.crew_dps).replace(".", ",")]))
 			for c in Rules.CREW:
 				var n: int = s.crew[c.k]
@@ -1185,7 +1188,14 @@ func refresh_port() -> void:
 				var hire := _btn("+ %s" % Rules.fmt(c.cost), true, total >= c.cost and Rules.crew_count(s) < st.crew_cap, func(): Rules.hire(game.s, c.k); _done("ship"), true)
 				var lv := _label("×%d" % n, 22, f_bold, Color(INK, 0.7))
 				_body.add_child(_item(c.name, lv, "%s · %s pièces" % [c.desc, Rules.fmt(c.cost)], [fire, hire]))
-			_body.add_child(_note("En combat, lancez le grappin avec le joystick violet (portée %d m, plus avec des grappins) : votre équipage et votre capitaine se battent contre ceux d'en face. Un meilleur capitaine donne plus de places et se bat mieux." % int(st.grapple)))
+			var hk := _btn("Acheté", false, false, func(): pass) if s.hook else _btn(Rules.fmt(Rules.HOOK_COST), true, total >= Rules.HOOK_COST, func():
+				if Rules.buy_hook(game.s):
+					toast("Grappin acheté : le joystick violet apparaîtra en combat.", "gold")
+				_done("ship"), true)
+			_body.add_child(_item("Grappin d'abordage", _label("✓" if s.hook else "", 22, f_bold, Color(INK, 0.7)),
+				"Lancez-le en combat avec le joystick violet (portée %d m) pour aborder : votre équipage et votre capitaine se battent contre ceux d'en face." % int(st.grapple) if s.hook else
+				"Sans grappin, pas d'abordage. Acheté une fois, il vous suit d'un navire à l'autre.", [hk]))
+			_body.add_child(_note("Un meilleur capitaine donne plus de places et se bat mieux. Le Chantier allonge la portée du grappin."))
 		"base":
 			for u in Rules.BASE_UPS:
 				var l: int = s.base[u.k]
@@ -1238,20 +1248,7 @@ func _yard(total: int) -> void:
 	var lo := Rules.ship_stats(k, s.up if own else zero, 0)
 	var mx := Rules.ship_stats(k, X.caps, 0)
 	# preview
-	var slot := Control.new()
-	slot.custom_minimum_size = Vector2(0, 300)
-	slot.clip_contents = true
-	var bg := Panel.new()
-	var bsb := _sb(Color8(0xa9, 0xbd, 0xbd), 14, Color(INK, 0.35), 2)
-	bg.add_theme_stylebox_override("panel", bsb)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	slot.add_child(bg)
-	var svc := SubViewportContainer.new()
-	svc.stretch = true
-	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	svc.add_child(_pv_vp)
-	slot.add_child(svc)
+	var slot := _preview_slot(Vector2(0, 300))
 	_set_preview(k, own)
 	if list.size() > 1:
 		for d in [[-1, "‹", Control.PRESET_CENTER_LEFT], [1, "›", Control.PRESET_CENTER_RIGHT]]:
@@ -1309,7 +1306,7 @@ func _yard(total: int) -> void:
 			var l: int = s.up[u.k]
 			if l < cap:
 				capped = false
-			var locked: bool = u.k == "voiles" and s.up.rameurs < X.caps.rameurs
+			var locked: bool = u.k == "grappin" and not s.hook
 			var c := Rules.up_cost(u.k, l)
 			var b := _btn("Au maximum", false, false, func(): pass) if l >= cap else _btn(Rules.fmt(c), true, not locked and total >= c, func():
 				if Rules.buy_upgrade(game.s, u.k):
@@ -1323,6 +1320,7 @@ func _yard(total: int) -> void:
 				_done(""), true)]))
 		_body.add_child(_note("Ce navire est au maximum. Passez au suivant avec les flèches pour en changer." if capped else
 			"Chaque navire a ses limites. Une fois au maximum, il faudra en changer : parcourez le chantier avec les flèches."))
+		_styles()
 	else:
 		var buy := _btn("Acheter pour %s pièces" % Rules.fmt(X.price), true, total >= X.price, func():
 			if Rules.buy_hull(game.s, k):
@@ -1334,9 +1332,50 @@ func _yard(total: int) -> void:
 		_body.add_child(_note("Le nouveau navire part sans améliorations. Les achats prennent d'abord les pièces à bord, puis celles du coffre."))
 
 
+## The framed 3D view (the shipyard's ship, the crew on the quay).
+func _preview_slot(sz: Vector2) -> Control:
+	var slot := Control.new()
+	slot.custom_minimum_size = sz
+	slot.clip_contents = true
+	var bg := Panel.new()
+	var bsb := _sb(Color8(0xa9, 0xbd, 0xbd), 14, Color(INK, 0.35), 2)
+	bg.add_theme_stylebox_override("panel", bsb)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slot.add_child(bg)
+	var svc := SubViewportContainer.new()
+	svc.stretch = true
+	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	svc.add_child(_pv_vp)
+	slot.add_child(svc)
+	return slot
+
+
+## Ship styles: unlocked ones can be chosen for free; locked ones say what unlocks them.
+func _styles() -> void:
+	var s := game.s
+	_body.add_child(_cap("Styles du navire"))
+	for sk in Rules.SKINS:
+		var have: bool = s.skins.has(sk.k)
+		var on: bool = s.skin == sk.k
+		var b: Button
+		if on:
+			b = _btn("Choisi", false, false, func(): pass)
+		elif have:
+			b = _btn("Choisir", true, true, func():
+				Rules.set_skin(game.s, sk.k)
+				toast("Style %s" % sk.name, "gold")
+				_done("ship"))
+		else:
+			b = _btn("Verrouillé", false, false, func(): pass)
+		var desc: String = sk.desc if have else "%s · Pour le débloquer : %s, puis rentrez au port." % [sk.desc, sk.hint.to_lower()]
+		_body.add_child(_item(sk.name, _label("✓" if on else "", 22, f_bold, Color(INK, 0.7)), desc, [b]))
+
+
 func _set_preview(hk: String, own: bool) -> void:
 	var s := game.s
-	var key := hk + (JSON.stringify(s.up) + JSON.stringify(s.crew) if own else "")
+	var key := hk + (JSON.stringify(s.up) + JSON.stringify(s.crew) + str(s.skin) + str(s.hook) if own else "")
+	_pv_hull = hk
 	if key == _pv_key and _pv_ship:
 		return
 	_pv_key = key
@@ -1345,22 +1384,37 @@ func _set_preview(hk: String, own: bool) -> void:
 	var zero := {}
 	for u in Rules.HULLS[hk].caps:
 		zero[u] = 0
-	var crew := []
 	if own:
-		for c in Rules.CREW:
-			for i in int(s.crew[c.k]):
-				crew.append(c.color)
-	_pv_ship = Models.ship(Models.ship_cfg(hk, s.up if own else zero, crew, {}))
+		_pv_ship = Models.ship(Models.player_cfg(s))
+	else:
+		_pv_ship = Models.ship(Models.ship_cfg(hk, zero, [], {}, str(s.skin)))
+	_pv_vp.add_child(_pv_ship)
+	_spin_preview(0)
+
+
+## The crew tab: one man of each kind lined up on the quay, in your style.
+func _set_lineup() -> void:
+	var key := "lineup" + str(game.s.skin)
+	if key == _pv_key and _pv_ship:
+		return
+	_pv_key = key
+	if _pv_ship:
+		_pv_ship.queue_free()
+	_pv_ship = Crew.lineup(str(game.s.skin))
 	_pv_vp.add_child(_pv_ship)
 	_spin_preview(0)
 
 
 func preview_hull() -> String:
-	return _pv_key.substr(0, _pv_key.find("{")) if _pv_key.contains("{") else _pv_key
+	return _pv_hull
 
 
 func _spin_preview(dt: float) -> void:
 	if _pv_ship == null:
+		return
+	if _pv_ship.has_meta("men") and not _pv_ship.has_meta("body"):
+		_pv_cam.look_at_from_position(Vector3(0, 1.8, 8.4), Vector3(0, 1.05, 0), Vector3.UP)
+		Crew.animate(_pv_ship.get_meta("men"), game.time, "sail", 0.0)
 		return
 	_pv_ang += dt * 0.35
 	var list := Rules.yard_list(game.s)
@@ -1371,3 +1425,4 @@ func _spin_preview(dt: float) -> void:
 	_pv_ship.position.y = sin(t * 1.2) * 0.08
 	_pv_ship.get_meta("body").rotation.z = sin(t * 1.1) * 0.04
 	Models.billow(_pv_ship, 0.4, t)
+	Crew.animate(_pv_ship.get_meta("men"), t, "sail", 0.0)

@@ -22,24 +22,29 @@ const CREW := [
 
 ## Each hull has its own upgrade limits (caps): past them you buy a new hull.
 const HULL_ORDER := ["chaloupe", "sloop", "fregate", "galion"]
+## Every hull sails from the start; "voiles" adds sails (a jib, then topsails), drawn on the ship.
 const HULLS := {
-	"chaloupe": {"name": "Chaloupe", "desc": "Le bateau de départ : petit, à rames, un canon de chaque côté.", "price": 0, "hp": 100, "speed": 6.0, "turn": 1.9, "side": 1, "bow": 0, "stern": 0, "crew": 6, "scale": Vector3(1, 1, 1), "masts": 1,
-		"caps": {"rameurs": 3, "voiles": 1, "canons": 1, "coque": 2, "capitaine": 1, "grappin": 0}},
+	"chaloupe": {"name": "Chaloupe", "desc": "Le bateau de départ : petit, une seule voile, un canon de chaque côté.", "price": 0, "hp": 100, "speed": 7.0, "turn": 1.9, "side": 1, "bow": 0, "stern": 0, "crew": 6, "scale": Vector3(1, 1, 1), "masts": 1,
+		"caps": {"voiles": 2, "canons": 1, "coque": 2, "capitaine": 1, "grappin": 1}},
 	"sloop": {"name": "Sloop", "desc": "Fin et rapide, il tourne vite. Peu de canons sur les côtés, mais un canon à l'avant.", "price": 3500, "hp": 150, "speed": 10.0, "turn": 2.4, "side": 2, "bow": 1, "stern": 0, "crew": 8, "scale": Vector3(0.82, 1, 1.25), "masts": 1,
-		"caps": {"rameurs": 2, "voiles": 3, "canons": 1, "coque": 2, "capitaine": 2, "grappin": 1}},
+		"caps": {"voiles": 3, "canons": 1, "coque": 2, "capitaine": 2, "grappin": 1}},
 	"fregate": {"name": "Frégate", "desc": "Plus lente et lourde à tourner, mais bien armée, avec un canon avant et un canon arrière.", "price": 5000, "hp": 240, "speed": 7.5, "turn": 1.3, "side": 3, "bow": 1, "stern": 1, "crew": 12, "scale": Vector3(1.25, 1.15, 1.35), "masts": 2,
-		"caps": {"rameurs": 2, "voiles": 2, "canons": 3, "coque": 4, "capitaine": 3, "grappin": 2}},
+		"caps": {"voiles": 3, "canons": 3, "coque": 4, "capitaine": 3, "grappin": 2}},
 	"galion": {"name": "Galion", "desc": "Une forteresse flottante : très lent, très armé, canons avant et arrière.", "price": 14000, "hp": 380, "speed": 6.5, "turn": 0.95, "side": 5, "bow": 2, "stern": 2, "crew": 18, "scale": Vector3(1.5, 1.3, 1.6), "masts": 3,
-		"caps": {"rameurs": 0, "voiles": 3, "canons": 3, "coque": 5, "capitaine": 4, "grappin": 3}},
+		"caps": {"voiles": 4, "canons": 3, "coque": 5, "capitaine": 4, "grappin": 3}},
 }
 
+## The grapple is bought once, with coins, and stays with you from hull to hull.
+const HOOK_COST := 900
+## Rowers were dropped (2026-11-27): old saves get back what they paid for them.
+const OLD_ROWERS := {"base": 150, "step": 200}
+
 const UPS := [
-	{"k": "rameurs", "name": "Rameurs", "desc": "+0,8 nœud", "base": 150, "step": 200},
-	{"k": "voiles", "name": "Voiles", "desc": "+1,6 nœud", "base": 500, "step": 450, "req": "Il faut d'abord tous les rameurs"},
+	{"k": "voiles", "name": "Voiles", "desc": "Une voile de plus : +1,6 nœud", "base": 400, "step": 450},
 	{"k": "canons", "name": "Canons", "desc": "Un canon de plus de chaque côté", "base": 300, "step": 300},
 	{"k": "coque", "name": "Coque renforcée", "desc": "+40 points de coque", "base": 200, "step": 250},
 	{"k": "capitaine", "name": "Meilleur capitaine", "desc": "+3 places d'équipage, +10 % de dégâts, tourne plus vite", "base": 600, "step": 600},
-	{"k": "grappin", "name": "Grappins", "desc": "Le grappin va 4 m plus loin", "base": 800, "step": 700},
+	{"k": "grappin", "name": "Grappin plus long", "desc": "Le grappin va 4 m plus loin", "base": 700, "step": 600, "req": "Achetez d'abord le grappin (onglet Équipage)"},
 ]
 
 const BASE_UPS := [
@@ -51,12 +56,26 @@ const NAMES := ["La Mouette Noire", "Le Requin Gris", "La Veuve Salée", "Le Cor
 	"Le Vieux Loup", "La Dent de Fer", "Le Goéland", "La Sirène Grise"]
 
 
+## Ship styles: the look of the hull, the sails, the crew, their weapons and the balls. They are
+## never bought: each one unlocks by itself at the port once its feat is done (Rules.unlock_skins).
+const SKINS := [
+	{"k": "classique", "name": "Classique", "desc": "Le bois, la toile et la poudre noire.", "hint": ""},
+	{"k": "foret", "name": "Forêt", "desc": "Coque moussue, voiles de feuilles, glands géants et épines.", "hint": "Déterrez un trésor", "need": {"treasures": 1}},
+	{"k": "glace", "name": "Glace", "desc": "Coque gelée, boulets de neige, éclats de glace, grêle et poudreuse.", "hint": "Coulez 3 navires", "need": {"sunk": 3}},
+	{"k": "magie", "name": "Magie", "desc": "Bois d'améthyste, orbes magiques, baguettes et sortilèges.", "hint": "Gagnez 2 abordages", "need": {"boarded": 2}},
+	{"k": "abysses", "name": "Abysses", "desc": "Bateau englouti, voiles d'algues, corail et perles noires.", "hint": "Naviguez sur une frégate ou un galion", "need": {"rank": 2}},
+	{"k": "volcan", "name": "Volcan", "desc": "Coque de basalte, voiles de braise, boules de feu et lames de lave.", "hint": "Coulez 10 navires", "need": {"sunk": 10}},
+]
+
+
 static func fresh() -> Dictionary:
 	return {
-		"coins": 2000, "vault": 0, "maps": 10, "balls": 40, "ship": "chaloupe",
-		"up": {"rameurs": 0, "voiles": 0, "canons": 0, "coque": 0, "capitaine": 0, "grappin": 0},
+		"coins": 2000, "vault": 0, "maps": 10, "balls": 40, "ship": "chaloupe", "hook": false,
+		"up": {"voiles": 0, "canons": 0, "coque": 0, "capitaine": 0, "grappin": 0},
 		"crew": {"sabre": 4, "pistolet": 0, "fusil": 0, "grenade": 0},
 		"base": {"defense": 0, "coffre": 1},
+		"stats": {"sunk": 0, "boarded": 0, "treasures": 0},
+		"skin": "classique", "skins": ["classique"],
 	}
 
 
@@ -71,7 +90,7 @@ static func migrate(raw) -> Dictionary:
 			s[k] = maxi(0, int(raw[k]))
 	if raw.has("ship") and HULLS.has(str(raw.ship)):
 		s.ship = str(raw.ship)
-	for group in ["up", "crew", "base"]:
+	for group in ["up", "crew", "base", "stats"]:
 		if raw.get(group) is Dictionary:
 			for k in s[group]:
 				if raw[group].has(k):
@@ -83,6 +102,21 @@ static func migrate(raw) -> Dictionary:
 		s.base[u.k] = clampi(s.base[u.k], 0 if u.k == "defense" else 1, u.max)
 	if raw.has("diamonds"):
 		s.vault += int(raw.diamonds) * 100
+	# the grapple used to come free with the "grappin" upgrade: such saves keep it
+	if raw.has("hook"):
+		s.hook = bool(raw.hook)
+	elif raw.get("up") is Dictionary and int(raw.up.get("grappin", 0)) > 0:
+		s.hook = true
+	# rowers are gone: their price comes back as coins
+	if raw.get("up") is Dictionary:
+		for i in clampi(int(raw.up.get("rameurs", 0)), 0, 5):
+			s.coins += OLD_ROWERS.base + OLD_ROWERS.step * i
+	if raw.get("skins") is Array:
+		for k in raw.skins:
+			if skin(str(k)).k == str(k) and not s.skins.has(str(k)):
+				s.skins.append(str(k))
+	if raw.has("skin") and s.skins.has(str(raw.skin)):
+		s.skin = str(raw.skin)
 	return s
 
 
@@ -126,25 +160,26 @@ static func vault_cap(s: Dictionary) -> int:
 	return int(s.base.coffre) * 3000
 
 
-static func ship_stats(hk: String, up: Dictionary, crew_pow: float) -> Dictionary:
+static func ship_stats(hk: String, up: Dictionary, crew_pow: float, hook := true) -> Dictionary:
 	var H: Dictionary = HULLS[hk]
 	var capt := 1.0 + 0.1 * int(up.get("capitaine", 0))
 	return {
 		"hull": hk,
-		"speed": float(H.speed) + int(up.get("rameurs", 0)) * 0.8 + int(up.get("voiles", 0)) * 1.6,
+		"speed": float(H.speed) + int(up.get("voiles", 0)) * 1.6,
 		"turn": float(H.turn) * (1.0 + 0.06 * int(up.get("capitaine", 0))),
 		"max_hp": int(H.hp) + int(up.get("coque", 0)) * 40,
 		"side": int(H.side) + int(up.get("canons", 0)), "bow": int(H.bow), "stern": int(H.stern),
 		"dmg": 7.0 * capt, "range": 24.0, "reload": 3.0,
 		"crew_cap": int(H.crew) + int(up.get("capitaine", 0)) * 3,
 		"board": 6.0 + int(up.get("grappin", 0)) * 3.0,
+		"hook": hook,
 		"grapple": 10.0 + int(up.get("grappin", 0)) * 4.0,
 		"crew_dps": crew_pow * 0.55 * capt,
 	}
 
 
 static func player_stats(s: Dictionary) -> Dictionary:
-	return ship_stats(s.ship, s.up, crew_power(s))
+	return ship_stats(s.ship, s.up, crew_power(s), bool(s.hook))
 
 
 ## Broadsides to port (bab) and starboard (tri), plus bow (av) and stern (ar) chasers.
@@ -196,7 +231,7 @@ static func can_upgrade(s: Dictionary, k: String) -> bool:
 	var caps: Dictionary = HULLS[s.ship].caps
 	if s.up[k] >= caps.get(k, 0):
 		return false
-	if k == "voiles" and s.up.rameurs < caps.rameurs:
+	if k == "grappin" and not s.hook:
 		return false
 	return s.coins + s.vault >= up_cost(k, s.up[k])
 
@@ -222,6 +257,49 @@ static func buy_hull(s: Dictionary, hk: String) -> bool:
 		if n > 0:
 			s.crew[c.k] -= n
 			over -= n
+	return true
+
+
+## Buys the grapple (once): from then on the purple stick shows in a fight.
+static func buy_hook(s: Dictionary) -> bool:
+	if s.hook or not spend(s, HOOK_COST):
+		return false
+	s.hook = true
+	return true
+
+
+static func skin(k: String) -> Dictionary:
+	for sk in SKINS:
+		if sk.k == k:
+			return sk
+	return SKINS[0]
+
+
+static func skin_ready(s: Dictionary, sk: Dictionary) -> bool:
+	var need: Dictionary = sk.get("need", {})
+	for k in need:
+		if k == "rank":
+			if HULL_ORDER.find(s.ship) < int(need.rank):
+				return false
+		elif int(s.stats.get(k, 0)) < int(need[k]):
+			return false
+	return true
+
+
+## Back at the port: every style whose feat is done unlocks. Returns the new ones.
+static func unlock_skins(s: Dictionary) -> Array:
+	var out := []
+	for sk in SKINS:
+		if not s.skins.has(sk.k) and skin_ready(s, sk):
+			s.skins.append(sk.k)
+			out.append(sk)
+	return out
+
+
+static func set_skin(s: Dictionary, k: String) -> bool:
+	if not s.skins.has(k):
+		return false
+	s.skin = k
 	return true
 
 
@@ -280,7 +358,7 @@ static func enemy_build(lvl: int) -> Dictionary:
 	var caps: Dictionary = HULLS[hk].caps
 	for k in caps:
 		up[k] = roundi(caps[k] * f)
-	var st := ship_stats(hk, up, lvl * 2.2)
+	var st := ship_stats(hk, up, lvl * 2.2, lvl >= 2)
 	st.dmg *= 0.85
 	st.speed *= 0.92
 	return {"hull": hk, "up": up, "st": st}

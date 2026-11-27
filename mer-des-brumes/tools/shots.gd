@@ -43,6 +43,12 @@ func _initialize() -> void:
 	g.save_path = tmp
 	g.rng.seed = 7
 	root.add_child(g)
+	await frames(2)
+	# a crew of every kind, two sails and the grapple, so the shots show them
+	g.s.crew = {"sabre": 2, "pistolet": 1, "fusil": 1, "grenade": 1}
+	g.s.up.voiles = 2
+	g.s.hook = true
+	g.rebuild_player()
 	await frames(30)
 	g.P.h = 2.6
 	g.throttle = 0.8

@@ -21,13 +21,17 @@ func rules() -> void:
 	var s := Rules.fresh()
 	check(s.coins == 2000 and s.maps == 10 and s.ship == "chaloupe", "a new game starts with 2 000 coins, 10 maps, a chaloupe")
 	check(not s.has("diamonds"), "no diamonds")
-	var m := Rules.migrate({"coins": 50, "diamonds": 3, "ship": "nope", "up": {"rameurs": 9, "voiles": 4}})
+	check(not s.hook and s.skin == "classique" and s.skins == ["classique"], "no grapple at the start; the classic style only")
+	var m := Rules.migrate({"coins": 50, "diamonds": 3, "ship": "nope", "up": {"rameurs": 2, "voiles": 4}})
 	check(m.vault == 300 and not m.has("diamonds"), "old diamonds come back as 100 coins each, in the coffre")
-	check(m.ship == "chaloupe" and m.up.rameurs == 3 and m.up.voiles == 1, "unknown hull reset, upgrades clamped to the hull's caps")
+	check(m.ship == "chaloupe" and not m.up.has("rameurs") and m.up.voiles == 2, "unknown hull reset, upgrades clamped to the hull's caps")
+	check(m.coins == 50 + 150 + 350, "the rowers are gone: what they cost comes back as coins")
+	check(Rules.migrate({"up": {"grappin": 1}}).hook and not Rules.migrate({"up": {"grappin": 0}}).hook, "a save that had grapples keeps the grapple")
+	check(Rules.migrate({"skins": ["glace", "nope"], "skin": "glace"}).skin == "glace" and Rules.migrate({"skin": "volcan"}).skin == "classique", "saved styles: only unlocked ones")
 	check(Rules.migrate("garbage").coins == 2000, "a broken save starts a new game")
 	# stats
-	var st := Rules.ship_stats("chaloupe", {"rameurs": 3, "voiles": 1, "capitaine": 1, "coque": 2}, 4)
-	check(is_equal_approx(st.speed, 6 + 2.4 + 1.6), "rowers +0.8 and sails +1.6 knots")
+	var st := Rules.ship_stats("chaloupe", {"voiles": 1, "capitaine": 1, "coque": 2}, 4)
+	check(is_equal_approx(st.speed, 7 + 1.6), "one sail to start, each sail bought +1.6 knots")
 	check(st.max_hp == 180 and st.crew_cap == 9, "hull +40, captain +3 crew places")
 	var gal := Rules.ship_stats("galion", {}, 0)
 	var bats := Rules.batteries(gal)
@@ -42,14 +46,22 @@ func rules() -> void:
 	check(Rules.spend(s, 300) and s.coins == 0 and s.vault == 300, "purchases take coins on board first, then the coffre")
 	check(not Rules.spend(s, 301), "can't spend more than you have")
 	s = Rules.fresh()
-	check(not Rules.can_upgrade(s, "voiles"), "sails need all the rowers first")
-	for i in 3:
-		Rules.buy_upgrade(s, "rameurs")
-	check(s.up.rameurs == 3 and not Rules.buy_upgrade(s, "rameurs"), "upgrades stop at the hull's cap")
-	check(Rules.can_upgrade(s, "voiles"), "then sails can be bought")
+	check(Rules.can_upgrade(s, "voiles"), "sails can be bought from the start")
+	for i in 2:
+		Rules.buy_upgrade(s, "voiles")
+	check(s.up.voiles == 2 and not Rules.buy_upgrade(s, "voiles"), "upgrades stop at the hull's cap")
+	check(Models.extra_sails(1, 2) == ["jib", "top0"] and Models.extra_sails(3, 9).size() == 4, "each sail bought shows: a jib, then topsails")
+	# the grapple: bought once, with coins
+	s.coins = 2000
+	check(not Rules.can_upgrade(s, "grappin"), "no longer grapple before the grapple")
+	check(not Rules.player_stats(s).hook, "no grapple at first")
+	check(Rules.buy_hook(s) and s.hook and s.coins == 2000 - Rules.HOOK_COST, "the grapple is bought with coins")
+	check(not Rules.buy_hook(s) and s.coins == 2000 - Rules.HOOK_COST, "only once")
+	check(Rules.player_stats(s).hook and Rules.can_upgrade(s, "grappin"), "then it can be made longer")
 	s.coins = 9000
 	s.crew.sabre = 7
-	check(Rules.buy_hull(s, "sloop") and s.ship == "sloop" and s.up.rameurs == 0, "a new hull starts with no upgrades")
+	check(Rules.buy_hull(s, "sloop") and s.ship == "sloop" and s.up.voiles == 0, "a new hull starts with no upgrades")
+	check(s.hook, "the grapple follows you to the new hull")
 	check(Rules.crew_count(s) == 7 and s.coins == 5500, "the sloop keeps its crew (8 places) and costs 3 500")
 	s.crew.sabre = 8
 	check(Rules.buy_hull(s, "fregate") and Rules.crew_count(s) == 8, "a bigger hull keeps everyone")
@@ -82,8 +94,22 @@ func rules() -> void:
 	Rules.take_hull(s, "sloop", {"voiles": 3, "grappin": 1, "capitaine": 0})
 	check(s.ship == "sloop" and s.up.voiles == 3 and s.up.grappin == 1 and s.crew.sabre == 7, "a taken sloop keeps its upgrades and your crew")
 	Rules.take_hull(s, "chaloupe", {"voiles": 3})
-	check(s.up.voiles == 1 and s.crew.sabre == 6, "a smaller prize: upgrades to its caps, extra crew ashore")
+	check(s.up.voiles == 2 and s.crew.sabre == 6, "a smaller prize: upgrades to its caps, extra crew ashore")
 	check(Rules.ship_stats("sloop", {"grappin": 1}, 0).grapple == 14.0, "grapples throw further")
+	check(not Rules.enemy_build(1).st.hook and Rules.enemy_build(3).st.hook, "small enemies have no grapple")
+	# ship styles: unlocked at the port by feats, never bought
+	s = Rules.fresh()
+	check(Rules.unlock_skins(s).is_empty(), "nothing to unlock at first")
+	check(not Rules.set_skin(s, "glace") and s.skin == "classique", "a locked style can't be chosen")
+	s.stats.sunk = 3
+	s.stats.treasures = 1
+	var got := Rules.unlock_skins(s)
+	check(got.size() == 2 and s.skins.has("glace") and s.skins.has("foret"), "3 ships sunk: ice; a treasure: forest")
+	check(Rules.set_skin(s, "glace") and s.skin == "glace" and s.coins == 2000, "an unlocked style is chosen for free")
+	s.ship = "fregate"
+	check(Rules.unlock_skins(s).size() == 1 and s.skins.has("abysses"), "sailing a frégate: the abysses")
+	for sk in Rules.SKINS:
+		check(Looks.C.has(sk.k), "the %s style has its look" % sk.k)
 
 
 func make_game() -> Game:
@@ -399,7 +425,9 @@ func game() -> void:
 	# the port
 	g.P.node.position = Rules.DOCK
 	g.step(1.0 / 60)
+	g.s.stats.sunk = 3
 	check(g.hud.press_action("Entrer au port") and g.hud.port_open(), "entering the port opens it")
+	check(g.s.skins.has("glace") and Rules.load_game(SAVE).skins.has("glace"), "back at the port with 3 ships sunk: the ice style unlocks")
 	run(g, 0.5)
 	check(g.P.v == 0, "the ship waits at the port")
 	g.s.coins = 20000
@@ -407,6 +435,23 @@ func game() -> void:
 	g.hud.refresh_port()
 	await process_frame
 	check(g.hud.preview_hull() == "chaloupe", "the shipyard shows your ship")
+	var pick := find_button(g.hud._body, "Choisir")
+	check(pick != null and find_button(g.hud._body, "Verrouillé") != null, "styles: the unlocked one can be chosen, the others say how to get them")
+	pick.pressed.emit()
+	await process_frame
+	check(g.s.skin != "classique" and g.s.skins.has(g.s.skin) and g.s.coins == 20000 and g.P.node.get_meta("skin") == g.s.skin, "the chosen style is on, for free")
+	g.hud._tab = "equipage"
+	g.hud.refresh_port()
+	await process_frame
+	var hook := find_button(g.hud._body, Rules.fmt(Rules.HOOK_COST))
+	check(hook != null and not hook.disabled, "the crew tab sells the grapple")
+	hook.pressed.emit()
+	await process_frame
+	check(g.s.hook and g.s.coins == 20000 - Rules.HOOK_COST and g.P.st.hook, "grapple bought")
+	g.s.coins = 20000
+	g.hud._tab = "bateau"
+	g.hud.refresh_port()
+	await process_frame
 	g.hud._pv_idx = 3
 	g.hud.refresh_port()
 	await process_frame
@@ -448,7 +493,12 @@ func boarding() -> void:
 	e.v = 0
 	g.start_combat(e, "fight")
 	g.step(1.0 / 60)
+	check(g.hud._aim.visible and not g.hud._hook.visible, "no grapple bought: no purple stick")
+	g.s.hook = true
+	g.step(1.0 / 60)
 	check(g.hud._hook.visible and g.hud._aim.visible, "in a fight: the purple grapple stick shows with the green one")
+	var men: Array = g.P.node.get_meta("men")
+	check(men.size() == Rules.crew_count(g.s) + 1, "the whole crew and the captain stand on deck")
 	var hc := g.hud.hook_center()
 	touch(hc, true)
 	touch(hc + Vector2(Hud.AIM_R, 0), true, true)
@@ -468,6 +518,11 @@ func boarding() -> void:
 	check(not g.hud._aim.visible and not g.hud._hook.visible and g.hud._board.visible, "no sticks at a boarding, the melee shows")
 	run(g, 1.5)
 	check(e.xz().distance_to(g.P.xz()) < 6.5, "the ships are pulled side by side")
+	var fallen := 0
+	for n: Node3D in e.node.get_meta("men"):
+		if absf(n.rotation.x) > 1.0:
+			fallen += 1
+	check(fallen > 0, "their fallen men lie on deck")
 	run(g, 10)
 	check(e.state == "taken" and g.combat.is_empty(), "nobody left over there: the ship is ours")
 	check(g.s.coins == coins + e.coins * 2, "and its treasure counts twice")
@@ -525,6 +580,7 @@ func boarding() -> void:
 	a.node.position = g.P.pos() + Vector3(7, 0, 0)
 	a.st = a.st.duplicate()
 	a.st.speed = 0.0   # it stays close: the check is about its grapple, not its manoeuvre
+	a.st.hook = true
 	a.v = 0
 	g.start_combat(a, "fight")
 	for i in 60 * 30:
