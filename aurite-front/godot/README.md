@@ -56,7 +56,10 @@ Copy it to the phone and open it (allow "install unknown apps"). It installs nex
   **Hold on open ground, then drag** (units selected) to place a formation along the drag line; it faces away from you for a left-to-right drag. You see a preview while dragging.
   Long-press a build button to cancel it. **»** in the top bar hides the side panel (build menu + minimap,
   remembered in `user://prefs.json`); **« BUILD** shows it again and reads **« READY** when a building waits to be placed.
-  While hidden, top-bar chips show each busy production line (tap a ready building to place it). **MAP** opens a large
+  The side panel follows the selection: nothing selected (or the Yard) lists structures, a producer lists the units it
+  trains (sub-tabs on a Landing Zone or Garden), a building or units show their orders (Upgrade, Repair, Sell, Muster,
+  Fuse). Top-bar chips, one per kind of producer you own, show what each is making: tap one to select it (again: the
+  next one), tap a ready building to place it. While the panel is hidden it peeks out for a selected building. **MAP** opens a large
   minimap (tap/drag to look there). Hold a unit button to queue five; tap an item's corner ✕ to cancel one. Drag a ready
   building out of the menu to place it (drawn 70 UI units above the finger). **Squads** on the bottom strip form by themselves: give two
   or more selected units an order and they become a squad (numbers 1 to 5, keys 1 to 5 on a keyboard). Tap a squad to

@@ -21,7 +21,10 @@ var diff := "normal"
 var sk_fac := "vanguard"
 var sk_enemy := "random"
 var last_opt := {"fac": "vanguard"}
-var cur_tab := "bld"
+var cur_tab := "inf"   # sub-tab of a producer that makes several kinds (Landing Zone, Garden)
+var ctx_key := ""      # what the side panel shows now: "yard", "b<id>" (a building), "u" (units), "e<id>" (enemy)
+var producers: Array = []   # building types with a top-bar chip this match, the Yard ("hq") first
+var peek := false      # the panel is open only because the selection needs it (it was hidden)
 var brief_i := 0
 var camp_id := "ashen"
 var icons_for := ""
@@ -64,7 +67,6 @@ func _ready() -> void:
 	A = GameAudio.new(); add_child(A)
 	cut = CutscenePlayer.new(); cut.main = self; layer.add_child(cut); cut.build(U, V)
 	tut = Tutor.new(); tut.main = self; add_child(tut); tut.build()
-	U.set_tab("bld")
 	U.btn.gfx.text = gfx_label()
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
@@ -119,11 +121,18 @@ func _apply_safe() -> void:
 
 ## Hide or show the side panel (build menu and minimap) to free the screen; remembered between games.
 func toggle_panel() -> void:
+	var open := not U.panel_open
+	if peek: open = false   # the panel was only peeking: the button puts it away
+	peek = false
+	_show_panel(open); sfx("click")
+	var p := _load_prefs(); p.panel = open; _save_prefs(p)
+
+func _show_panel(open: bool) -> void:
+	if open == U.panel_open: return
 	var anchor := Vector2(100, V.view_rect().size.y / 2); var w := V.s2w(anchor.x, anchor.y)
-	U.set_panel(not U.panel_open); V.panel_px = U.panel_px(); sfx("click")
+	U.set_panel(open); V.panel_px = U.panel_px()
 	var w2 := V.s2w(anchor.x, anchor.y)  # keep the map still on screen while the view widens
 	V.cam_x += w.x - w2.x; V.cam_y += w.y - w2.y; V.clamp_cam()
-	var p := _load_prefs(); p.panel = U.panel_open; _save_prefs(p)
 	if U.panel_open: refresh_panel(true)
 	else: _panel_alert()
 
@@ -137,23 +146,61 @@ func _save_prefs(p: Dictionary) -> void:
 	var f := FileAccess.open("user://prefs.json", FileAccess.WRITE)
 	if f: f.store_string(JSON.stringify(p))
 
-## While the panel is hidden, the top bar shows each production line that is busy.
-func _prod_chips(tm: Dictionary) -> void:
-	for cat in U.prod_chips:
-		var pc = U.prod_chips[cat]; var q: Dictionary = tm.prod[cat]
-		var busy: bool = q.cur != "" or q.queue.size() > 0
-		pc.visible = not U.panel_open and busy
-		if not pc.visible: continue
-		pc.type = q.cur if q.cur != "" else q.queue[0]
-		pc.prog = q.prog; pc.is_ready = cat == "bld" and q.ready
-		pc.n = q.queue.size() + (1 if q.cur != "" else 0) if cat != "bld" else 1
-		pc.queue_redraw()
+## The kinds of producer this faction has: the Yard, then each building that trains units (Barracks, Landing Zone,
+## Workshop, Slipway, Garden...), in the order of the old INF / VEH / AIR tabs.
+func _setup_producers() -> void:
+	producers = ["hq"]
+	for cat in ["inf", "veh", "air"]:
+		for t in D.CATS[cat]:
+			if not S.avail(0, t): continue
+			var bt := S.unit_from(0, t)
+			if bt != "" and not producers.has(bt): producers.append(bt)
+	U.set_producers(producers)
 
-func prod_chip_tap(cat: String) -> void:
-	var q: Dictionary = S.teams[0].prod[cat]
-	if cat == "bld" and q.ready: start_placing(q.cur); sfx("click"); return
-	if not U.panel_open: toggle_panel()
-	select_tab(cat)
+## Unit categories a building type trains (its sub-tabs), from what this faction can field.
+func prod_cats(bt: String) -> Array:
+	var out := []
+	for cat in ["inf", "veh", "air"]:
+		for t in D.CATS[cat]:
+			if S.avail(0, t) and S.unit_from(0, t) == bt: out.append(cat); break
+	return out
+
+## The top-bar chips: one per kind of producer you own (the Yard while it stands or anything is being built).
+func _prod_chips(tm: Dictionary) -> void:
+	var sb: Ent = S.sel[0] if (S.sel.size() == 1 and S.sel[0].kind == "b" and S.sel[0].team == 0) else null
+	for bt in U.prod_chips:
+		var pc = U.prod_chips[bt]
+		pc.cat = ""; pc.type = ""; pc.prog = 0.0; pc.n = 0; pc.is_ready = false
+		if bt == "hq":
+			var q: Dictionary = tm.prod.bld
+			pc.visible = S.count(0, "hq") > 0 or q.cur != ""
+			if q.cur != "": pc.cat = "bld"; pc.type = q.cur; pc.prog = q.prog; pc.is_ready = q.ready; pc.n = 1
+		else:
+			pc.visible = S.count(0, bt) > 0
+			for cat in ["inf", "veh", "air"]:
+				var q: Dictionary = tm.prod[cat]
+				var mine: Array = q.queue.filter(func(t): return S.unit_from(0, t) == bt)
+				var cur_mine: bool = q.cur != "" and S.unit_from(0, q.cur) == bt
+				if mine.is_empty() and not cur_mine: continue
+				pc.n += mine.size() + (1 if cur_mine else 0)
+				if pc.type == "": pc.cat = cat; pc.type = q.cur if cur_mine else mine[0]; pc.prog = q.prog if cur_mine else 0.0
+		pc.lit = sb != null and (sb.type == bt)
+		if pc.visible: pc.queue_redraw()
+
+## A producer chip: place a ready building, else select that kind of building (again: the next one of that kind).
+func prod_chip_tap(bt: String) -> void:
+	var q: Dictionary = S.teams[0].prod.bld
+	if bt == "hq" and q.ready: start_placing(q.cur); sfx("click"); return
+	var own := S.ents.filter(func(e): return e.alive and e.team == 0 and e.kind == "b" and e.type == bt)
+	sfx("click"); buzz(8)
+	if own.is_empty():
+		S.set_sel([]); return
+	var i := 0
+	if S.sel.size() == 1 and own.has(S.sel[0]): i = (own.find(S.sel[0]) + 1) % own.size()
+	var b: Ent = own[i]
+	S.set_sel([b])
+	if not V.on_screen(b.x, b.y) or own.size() > 1: V.center_on(b.x, b.y)
+	tut.ev("chip", bt)
 
 ## Hold a unit button: queue five of it.
 func queue_many(cat: String, type: String, k: int) -> void:
@@ -517,7 +564,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	V.cam_z = 1.0
 	V.center_on(S.p0.x * T + 16, (S.p0.y - 1) * T)
 	if icons_for != S.teams[0].fac and not headless: render_icons(S.teams[0].fac)
-	select_tab("bld"); refresh_panel(true); update_cmd(); end_placing()
+	_setup_producers(); ctx_key = ""; peek = false; refresh_panel(true); update_cmd(); end_placing()
 	_obj_vis()
 	tut.start(S.mission)
 	if S.mission: toast(S.mission.title, "gold")
@@ -574,12 +621,90 @@ func _notification(what: int) -> void:
 		if S and S.teams.size() and not S.over and not paused and U.overlays.menu and not U.overlays.start.visible: open_menu()
 
 # ---------------- panel ----------------
+## A sub-tab of the selected producer (INF / VEH / AIR on a Landing Zone or a Garden).
 func select_tab(cat: String) -> void:
-	cur_tab = cat; U.set_tab(cat)
-	for k in U.items:
-		var it = U.items[k]
-		it.visible = it.cat == cat and (S.teams.is_empty() or S.avail(0, it.type))
-	U.grid_scroll.scroll_vertical = 0
+	cur_tab = cat; ctx_key = ""; show_ctx(); sfx("click")
+
+## The side panel follows the selection (Guillaume 2026-11-27: "build for workers, hire on barracks"):
+## nothing selected or the Yard: structures · a producer: the units it makes · units: what they can do ·
+## another building: its orders · an enemy: what it is. Items and tabs change only when the context does.
+func show_ctx() -> void:
+	if U == null or S.teams.is_empty(): return
+	var sel: Array = S.sel.filter(func(e): return e.alive)
+	var units: Array = sel.filter(func(e): return e.kind == "u" and e.team == 0)
+	var b: Ent = null
+	for e in sel:
+		if e.kind == "b": b = e; break
+	var key := "yard"; var cats := ["bld"]
+	if not units.is_empty(): key = "u"; cats = []
+	elif b != null and b.team != 0: key = "e%d" % b.id; cats = []
+	elif sel.size() > 0 and b == null: key = "e%d" % sel[0].id; cats = []
+	elif b != null and b.type != "hq":
+		key = "b%d" % b.id; cats = prod_cats(b.type)
+	if key != ctx_key:
+		ctx_key = key
+		if cats.size() > 1 and not cats.has(cur_tab): cur_tab = cats[0]
+		var show: Array = cats if cats.size() <= 1 else [cur_tab]
+		U.ctx_tabs.visible = cats.size() > 1
+		for c in U.tabs:
+			U.tabs[c].visible = cats.has(c); U.set_on(U.tabs[c], c == cur_tab)
+		var bt: String = b.type if (b != null and key.begins_with("b")) else ""
+		for k in U.items:
+			var it = U.items[k]
+			it.visible = show.has(it.cat) and S.avail(0, it.type) and (it.cat == "bld" or S.unit_from(0, it.type) == bt)
+		U.grid_scroll.visible = not cats.is_empty()
+		U.grid_scroll.scroll_vertical = 0
+		refresh_panel(true)
+	_ctx_head(key, b, units, sel)
+	# a hidden panel peeks out while the selection has something in it to use
+	var want: bool = (key.begins_with("b") or (b != null and b.type == "hq" and b.team == 0)) or (key == "u" and U.btn.fuse.visible)
+	if want and not U.panel_open and placing == null: peek = true; _show_panel(true)
+	elif peek and not want: peek = false; _show_panel(false)
+
+## The panel header: what is selected, its health and one line about it.
+func _ctx_head(key: String, b: Ent, units: Array, sel: Array) -> void:
+	var kick := ""; var nm := ""; var sub := ""; var hp := -1.0
+	if key == "yard":
+		var hq := S.find_hq(0)
+		var q: Dictionary = S.teams[0].prod.bld
+		kick = "BUILD"; nm = D.BLD.hq.name.to_upper() if S.count(0, "hq") > 0 else "NO YARD"
+		if hq != null and hq.type == "hq" and b != null: hp = hq.hp / hq.max_hp
+		if q.ready: sub = D.BLD[q.cur].name + " is ready: drag it onto the map"
+		elif q.cur != "": sub = "Building %s · %d%%" % [D.BLD[q.cur].name, int(q.prog * 100)]
+		elif S.count(0, "hq") == 0: sub = "Without a Yard nothing new can be built"
+		else: sub = "Tap a structure to start it"
+	elif key == "u":
+		var types := {}
+		var tot := 0.0
+		for u in units:
+			types[u.type] = types.get(u.type, 0) + 1; tot += u.hp / u.max_hp
+		hp = tot / units.size()
+		kick = "SELECTED"
+		if types.size() == 1:
+			var d: Dictionary = units[0].d
+			nm = d.name.to_upper() if units.size() == 1 else "%d × %s" % [units.size(), d.name.to_upper()]
+		else: nm = "%d UNITS" % units.size()
+		sub = sel_line(units[0]) if types.size() == 1 else ", ".join(types.keys().map(func(t): return "%s %d" % [D.UN[t].name, types[t]]))
+	elif key.begins_with("e"):
+		var e: Ent = sel[0] if b == null else b
+		kick = "ENEMY" if e.team == 1 else ("NEUTRAL" if e.team > 1 else "ALLY")
+		nm = e.d.name.replace(" ×4", "").to_upper(); hp = e.hp / e.max_hp
+		sub = String(Tutor.TD.CARDS.get(e.type, {}).get("job", ""))
+	else:
+		var cats := prod_cats(b.type)
+		kick = ("GROWS" if S.fac_of(0) == "choir" else ("DROPS" if b.type == "lz" else "TRAINS")) if not cats.is_empty() else "STRUCTURE"
+		nm = b.d.name.replace(" ×4", "").to_upper(); hp = b.hp / b.max_hp
+		sub = sel_line(b)
+		if not cats.is_empty():
+			var n := 0
+			for c in cats: n += S.teams[0].prod[c].queue.filter(func(t): return S.unit_from(0, t) == b.type).size() + (1 if S.teams[0].prod[c].cur != "" and S.unit_from(0, S.teams[0].prod[c].cur) == b.type else 0)
+			if n > 0: sub = "%d in queue · %s" % [n, sub]
+	if U.ctx_kick.text != kick: U.ctx_kick.text = kick
+	if U.ctx_name.text != nm:
+		U.ctx_name.text = nm; U.ctx_name.add_theme_font_size_override("font_size", 15 if nm.length() <= 15 else (13 if nm.length() <= 18 else 11))
+	if U.ctx_sub.text != sub: U.ctx_sub.text = sub
+	U.ctx_sub.visible = sub != ""
+	U.ctx_hp.visible = hp >= 0; U.ctx_hp.set_val(hp)
 
 func click_item(cat: String, type: String) -> void:
 	if S.teams.is_empty() or S.over: return
@@ -635,6 +760,7 @@ func refresh_panel(_force := false) -> void:
 	for c in U.tabs:
 		var q: Dictionary = tm.prod[c]
 		U.tabs[c].get_meta("dot").visible = q.cur != "" or q.queue.size() > 0
+	if ctx_key != "": show_ctx()
 	var sw: Ent = null
 	for e in S.ents:
 		if e.alive and e.team == 0 and e.kind == "b" and e.d.sw: sw = e; break
@@ -846,22 +972,33 @@ func update_cmd() -> void:
 	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
 	_squad_cmd(units)
 	U.update_mode(box_mode)
-	if S.sel.size():
-		U.selinfo.visible = true
-		if S.sel.size() == 1:
-			var e: Ent = S.sel[0]; var d := e.d
-			if e.kind == "b" and e.team == 0 and not S.upg_def(e).is_empty(): U.selinfo.text = d.name + ((" · %d Pods" % e.pods) if d.grow else "") + " · next: " + S.upg_def(e).say
-			elif e.kind == "b":
-				U.selinfo.text = d.name.replace(" ×4", "") + (" · tap map to set rally" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else (" · park vehicles beside it" if e.type == "repair" else ""))
-				if d.grow: U.selinfo.text = d.name + " · %d Pods · sings to the field around it" % e.pods
-				elif d.thorn > 0: U.selinfo.text = "Thornglass · cuts infantry that touch it"
-				elif e.dark: U.selinfo.text = d.name + " · NO SIGNAL: build a Signal Mast near it"
-				elif e.dry: U.selinfo.text = d.name + " · field pumped dry: sell it and drill another"
-				elif d.get("signal", 0.0) > 0 and S.fac_of(0) == "vanguard": U.selinfo.text = d.name + " · sends Signal %d tiles%s" % [int(d.signal), (", +%d Command" % d.capAdd) if e.type != "hq" else ""]
-				elif d.get("dome", 0.0) > 0: U.selinfo.text = d.name + " · shield %d / %d over everything near it" % [int(e.sh), int(e.sh_max)]
-			else: U.selinfo.text = d.name + (" · tap aurite to mine" if d.harv else (" · tap a wreck to revive or strip it" if d.get("scrap", false) else (" · tap a building to capture or fix" if d.eng else (" · heals nearby infantry" if d.heal else (" · long range, blind up close" if d.minr > 0 else (" · cloaks when it stands still" if d.cloak > 0 else (" · jumps on long moves" if d.jump > 0 else (" · sniffs out hidden units" if d.detect > 0 else (" · what it sees takes +25%" if d.mark > 0 else (" · slug goes through a whole line" if d.pierce else (" · select %d and FUSE them into a Knot" % D.HUM.fuse if d.fuse != "" else (" · its cry jams machines and drops shields" if d.cry > 0 else (" · withers outside the Hum" if d.wither > 0 else (" · mutated" if e.mut else (" · mutates after %d kills" % D.HUM.mut if not d.mut.is_empty() else "")))))))))))))))
-		else: U.selinfo.text = "%d units" % S.sel.size()
-	else: U.selinfo.visible = false
+	# a building's line is in the panel header; the row by the squads only counts units
+	var mine := S.sel.filter(func(e): return e.kind == "u")
+	U.selinfo.visible = mine.size() > 0
+	if mine.size() == 1: U.selinfo.text = sel_line(mine[0], true)
+	elif mine.size() > 1: U.selinfo.text = "%d units" % mine.size()
+	show_ctx()
+
+## One line about a selected unit or building: what it does, or what is wrong with it. full: with its name first.
+func sel_line(e: Ent, full := false) -> String:
+	var d := e.d
+	var nm: String = d.name.replace(" ×4", "")
+	var t := ""
+	if e.kind == "b":
+		if e.team == 0 and not S.upg_def(e).is_empty():
+			var u := S.upg_def(e)
+			t = (("%d Pods · " % e.pods) if d.grow else "") + ("upgrading: " if e.upg >= 0 else "upgrade %d: " % u.cost) + u.say
+		else: t = "tap the map to set a rally point" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else ("park vehicles beside it" if e.type == "repair" else "")
+		if d.grow and S.upg_def(e).is_empty(): t = "%d Pods · sings to the field around it" % e.pods
+		elif d.thorn > 0: nm = "Thornglass"; t = "cuts infantry that touch it"
+		elif e.dark: t = "NO SIGNAL: build a Signal Mast near it"
+		elif e.dry: t = "field pumped dry: sell it and drill another"
+		elif d.get("signal", 0.0) > 0 and S.fac_of(0) == "vanguard": t = "sends Signal %d tiles%s" % [int(d.signal), (", +%d Command" % d.capAdd) if e.type != "hq" else ""]
+		elif d.get("dome", 0.0) > 0: t = "shield %d / %d over everything near it" % [int(e.sh), int(e.sh_max)]
+	else:
+		t = "tap aurite to mine" if d.harv else ("tap a wreck to revive or strip it" if d.get("scrap", false) else ("tap a building to capture or fix" if d.eng else ("heals nearby infantry" if d.heal else ("long range, blind up close" if d.minr > 0 else ("cloaks when it stands still" if d.cloak > 0 else ("jumps on long moves" if d.jump > 0 else ("sniffs out hidden units" if d.detect > 0 else ("what it sees takes +25%" if d.mark > 0 else ("slug goes through a whole line" if d.pierce else ("select %d and FUSE them into a Knot" % D.HUM.fuse if d.fuse != "" else ("its cry jams machines and drops shields" if d.cry > 0 else ("withers outside the Hum" if d.wither > 0 else ("mutated" if e.mut else ("mutates after %d kills" % D.HUM.mut if not d.mut.is_empty() else ""))))))))))))))
+	if not full: return t
+	return nm + (" · " + t if t != "" else "")
 
 ## The UPGRADE button of a selected building: its cost, its progress while it runs (tap again to cancel), dimmed while
 ## the requirement is missing (a tap says what is needed).
@@ -870,8 +1007,8 @@ func _upg_btn() -> void:
 	var u: Dictionary = S.upg_def(b) if b != null else {}
 	U.btn.upgrade.visible = not u.is_empty()
 	if u.is_empty(): return
-	if b.upg >= 0: U.btn.upgrade.text = "UPGRADING %d%% ✕" % int(b.upg * 100)
-	else: U.btn.upgrade.text = "UPGRADE · %d" % u.cost
+	var cap: String = ("%d%% ✕" % int(b.upg * 100)) if b.upg >= 0 else "UPGRADE"
+	if U.btn.upgrade.cap != cap: U.btn.upgrade.cap = cap; U.btn.upgrade.queue_redraw()
 	U.set_on(U.btn.upgrade, b.upg >= 0)
 	U.btn.upgrade.modulate.a = 0.55 if (b.upg < 0 and S.upg_block(b) != "") else 1.0
 
@@ -1461,6 +1598,8 @@ func _autotest(dir: String) -> void:
 		await _field_shots(dir); get_tree().quit(); return
 	if mode == "squads":
 		await _squad_shots(dir); get_tree().quit(); return
+	if mode == "ctx":
+		await _ctx_shots(dir); get_tree().quit(); return
 	if mode == "themes":
 		await _theme_shots(dir); get_tree().quit(); return
 	if mode == "battle":
@@ -1808,6 +1947,80 @@ func _theme_shots(dir: String) -> void:
 			V.cam_z = 1.6; V.center_on(best.x * T, best.y * T)
 			await get_tree().create_timer(.35).timeout
 			await _shot(dir + "/theme_%s_river.png" % th)
+
+## AF_MODE=ctx: the side panel following the selection, for each army (AF_FAC=one to pick): nothing selected (the
+## Yard's list), each producer with an order queued, a building with orders of its own, units, an enemy, and the
+## hidden panel peeking out for a building. Prints what each context shows for the test log.
+func _ctx_shots(dir: String) -> void:
+	var facs := [OS.get_environment("AF_FAC")] if OS.get_environment("AF_FAC") != "" else ["ashen", "vanguard", "choir"]
+	for fac in facs:
+		play({"fac": fac, "enemy": "choir" if fac != "choir" else "ashen", "diff": "normal"})
+		for i in 20 * 240:
+			S.step(0.05)
+			if i % 20 == 0: S.ai_think(S.teams[0])
+		S.teams[0].auto = false
+		S.teams[0].credits = 9000
+		var hq := S.find_hq(0)
+		V.cam_z = 1.0; V.center_on(hq.x + 40, hq.y + 20)
+		if not U.panel_open: toggle_panel()
+		S.set_sel([]); update_cmd()
+		var bq := ""
+		for k in U.items:
+			if U.items[k].visible and not U.items[k].locked: bq = U.items[k].type; break
+		if bq != "": click_item("bld", bq)
+		for i in 30: S.step(0.05)
+		refresh_panel(true)
+		await get_tree().create_timer(0.5).timeout
+		print("CTX ", fac, " yard: ", _ctx_items())
+		await _shot(dir + "/%s_1_yard.png" % fac)
+		var n := 2
+		for bt in producers:
+			if bt == "hq": continue
+			var own := S.ents.filter(func(e): return e.alive and e.team == 0 and e.kind == "b" and e.type == bt)
+			if own.is_empty(): print("CTX ", fac, " ", bt, ": none built"); continue
+			prod_chip_tap(bt)
+			for k in U.items:
+				var it = U.items[k]
+				if it.visible and not it.locked and it.cat != "bld": click_item(it.cat, it.type); click_item(it.cat, it.type); break
+			for i in 10: S.step(0.05)
+			refresh_panel(true)
+			await get_tree().create_timer(0.4).timeout
+			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", _ctx_items(), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
+			await _shot(dir + "/%s_%d_%s.png" % [fac, n, bt]); n += 1
+		# a building with orders of its own (Hearth: Muster; else an upgradable one)
+		var other: Ent = null
+		for e in S.ents:
+			if e.alive and e.team == 0 and e.kind == "b" and not producers.has(e.type) and (e.d.get("muster", 0) > 0 or not S.upg_def(e).is_empty()): other = e; break
+		if other:
+			S.set_sel([other]); V.center_on(other.x, other.y); update_cmd()
+			await get_tree().create_timer(0.4).timeout
+			print("CTX ", fac, " building ", other.type, " acts=", U.ctx_acts.get_children().filter(func(b): return b.visible).map(func(b): return b.cap))
+			await _shot(dir + "/%s_%d_building.png" % [fac, n]); n += 1
+		# units: a few of the main infantry (Thralls: enough to fuse)
+		var inf: String = S.tr_t(0, "rifle")
+		var us := []
+		for i in 4: us.append(S.spawn_unit(0, inf, hq.x + 60 + i * 12, hq.y + 70))
+		S.set_sel(us.filter(func(e): return e != null)); V.center_on(hq.x + 60, hq.y + 60); update_cmd()
+		await get_tree().create_timer(0.4).timeout
+		print("CTX ", fac, " units head=", U.ctx_name.text, " acts=", U.ctx_acts.get_children().filter(func(b): return b.visible).map(func(b): return b.cap))
+		await _shot(dir + "/%s_%d_units.png" % [fac, n]); n += 1
+		# hidden panel: selecting a building peeks it out, deselecting puts it away
+		toggle_panel(); S.set_sel([]); update_cmd()
+		await get_tree().create_timer(0.3).timeout
+		await _shot(dir + "/%s_%d_hidden.png" % [fac, n]); n += 1
+		prod_chip_tap(producers[1] if producers.size() > 1 else "hq")
+		await get_tree().create_timer(0.4).timeout
+		print("CTX ", fac, " peek open=", U.panel_open, " peek=", peek)
+		await _shot(dir + "/%s_%d_peek.png" % [fac, n]); n += 1
+		S.set_sel([]); update_cmd()
+		print("CTX ", fac, " after deselect open=", U.panel_open)
+		toggle_panel()
+
+func _ctx_items() -> Array:
+	var out := []
+	for k in U.items:
+		if U.items[k].visible: out.append(U.items[k].type)
+	return out
 
 ## AF_MODE=squads: the squad strip. Three squads formed by orders (one under fire, one idle), fresh units in NEW,
 ## squad 1 selected with JOIN showing, then a mixed selection with its type chips. AF_FAC picks the army.
