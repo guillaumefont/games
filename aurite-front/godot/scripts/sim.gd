@@ -1468,9 +1468,9 @@ func upd_unit(u: Ent, dt: float) -> void:
 		if u.order == "attack": u.order = "none"; u.path = []
 		if u.order == "amove" and u.dest != null: set_path(u, u.dest.x, u.dest.y)
 	u.scan -= dt
-	if u.target == null and (u.order == "none" or u.order == "amove") and u.scan <= 0:
+	if u.target == null and (u.order == "none" or u.order == "amove") and u.scan <= 0 and not u.nofire:
 		u.scan = 0.35 + randf() * 0.2
-		var t := find_target(u, d.sight * T)
+		var t := find_target(u, (d.range if u.hold else d.sight) * T)
 		if t != null:
 			u.target = t; u.auto = true; u.fspd = 0.0
 			if u.order == "none" and u.guard == null: u.guard = Vector2(u.x, u.y)
@@ -1489,7 +1489,7 @@ func upd_unit(u: Ent, dt: float) -> void:
 			if u.cd <= 0 and aimed and time >= u.jam_t and not (d.minr > 0 and dist < d.minr * T):
 				fire(u, t, d); u.cd = d.rof * (0.9 + randf() * 0.2)
 		else:
-			var leash: bool = u.order == "none" and u.auto and u.guard != null and Vector2(u.x - u.guard.x, u.y - u.guard.y).length() > 7 * T
+			var leash: bool = u.order == "none" and u.auto and u.guard != null and (u.hold or Vector2(u.x - u.guard.x, u.y - u.guard.y).length() > 7 * T)
 			var lost: bool = u.auto and dist > d.sight * T * 1.6
 			if leash or lost:
 				u.target = null; u.auto = false
@@ -1557,6 +1557,23 @@ func try_jump(u: Ent) -> void:
 	u.dest = l; u.path = []; u.jump_t = time + 12.0; u.ang = v.angle(); _dig(u.x, u.y, 3)
 	host.sfx("flame", u.x, u.y)
 
+## Jump Trooper ordered to jump (the JUMP button): leaps up to d.jump tiles toward (x, y) now, then walks on to it.
+## Returns false while its jets cool down or when there is nowhere to land.
+func jump_to(u: Ent, x: float, y: float) -> bool:
+	if u.d.jump <= 0 or u.hop != null or time < u.jump_t or u.stun > 0: return false
+	var v := Vector2(x - u.x, y - u.y)
+	if v.length() < T: return false
+	var p: Vector2 = Vector2(u.x, u.y) + v.normalized() * min(v.length(), float(u.d.jump) * T)
+	var n = nearest_walk(int(p.x / T), int(p.y / T), int(p.x / T), int(p.y / T))
+	if n == null: return false
+	var land := Vector2(n.x * T + 16.0, n.y * T + 16.0)
+	u.hop = {"x0": u.x, "y0": u.y, "x1": land.x, "y1": land.y, "t": 0.0, "d": 0.7}
+	u.dest = Vector2i(clampi(int(x / T), 0, D.MW - 1), clampi(int(y / T), 0, D.MH - 1)) if v.length() > float(u.d.jump) * T else null
+	u.path = []; u.order = "move"; u.target = null; u.auto = false; u.guard = null
+	u.jump_t = time + 12.0; u.ang = v.angle(); _dig(u.x, u.y, 3)
+	host.sfx("flame", u.x, u.y)
+	return true
+
 ## Ram Bike: running at full speed into enemy infantry or a light vehicle hits it hard and knocks it down.
 func ram_check(u: Ent) -> void:
 	for o in ents:
@@ -1605,7 +1622,7 @@ func upd_scrap(u: Ent, dt: float) -> bool:
 			u.moving = move_unit(u, dt); return true
 		u.path = []; u.moving = false; u.wk_t += dt
 		if randf() < dt * 10: parts.append({"k": "spark", "x": w.x + (randf() - 0.5) * 16, "y": w.y + (randf() - 0.5) * 16, "vx": (randf() - 0.5) * 60, "vy": (randf() - 0.5) * 60, "life": 0.3, "max": 0.3, "c": Color("#ffd27a"), "s": 1.6})
-		var revive: bool = w.intact >= D.WRECK.revive
+		var revive: bool = w.intact >= D.WRECK.revive and not u.strip
 		if u.wk_t >= (D.WRECK.revive_t if revive else D.WRECK.strip_t):
 			wrecks.erase(w); u.order = "none"; u.wk = null; u.wk_t = 0.0
 			if revive:
