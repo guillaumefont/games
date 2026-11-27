@@ -134,6 +134,9 @@ Design so far (prototype, 2026-11-23; Guillaume's calls in the PR #122 thread):
   to the hangar (`Game.quit_run`): scrap picked up is kept, nothing else counts.
 - A level starts on "Touch to start" (`Game.started` false until the first touch), not on the pause screen
   (Guillaume, 2026-11-24): no dimming, no PAUSED, no Main menu.
+- First-run hint (2026-11-27): until the save has `hinted`, "Touch to start" also shows `Hud.HINTS` (drag to
+  fly, guns fire on their own, lift to pause) on a glass card; the first touch saves `hinted` and the card fades
+  over `Rules.HINT_T` s. Old saves that have flown (`runs`/`clears`) count as hinted; "Reset progress" shows it again.
 
 ## Pull requests
 
