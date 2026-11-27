@@ -292,8 +292,23 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
   piers) over the canals; every third avenue carries an elevated expressway (deck at `HWY_Y` on pillars).
   Blocks are split into lots of setback towers, glass towers, brick mid-rises and shop rows (or a courtyard
   ring); roofs get antennas, spires, helipads, water tanks, gardens or AC units, picked to fit under the
-  flight altitude (`Ctx.cap`). Some blocks are parks (fountain, water tower landmark), plazas (obelisk or
-  fountain, kiosks) or a stadium. Each road step, span and block is built by the chunk holding its centre.
+  flight altitude (`Ctx.cap`). Every block is filled (Guillaume, 2026-11-27: "all city blocks should be
+  filled with something... mainly Manhattan like buildings... bigger buildings like a capitol"): `City.block_kind`
+  makes about 82% tower blocks (no car parks or empty squares on them, `RUINS` of lots ruined) and the rest
+  parks full of trees, stadiums, shopping malls (`mall`: roof car park, skylights), domed capitols (`capitol`)
+  and columned halls (`hall`), shares in `BLOCK_KINDS`; the big buildings need dry ground, else towers. No
+  empty plazas. Not a perfect grid (Guillaume, 2026-11-27: "like a proper city"): avenues and streets sit up
+  to 2 m off their lines (`ave_u`, `str_v`, `col_of`, `row_of`), every third street is a 6 m `boulevard`
+  (the city's tanks drive along one, `boulevard_z`, and the row below it stays low so they show), and the
+  blocks go in 2 x 2 tiles that may join (`superblock`; the road between stops, `avenue_at`/`street_at`,
+  never across an expressway or a boulevard): a whole tile holds a capitol, stadium, park or square
+  (`QUAD_KINDS`), a pair a mall, square or park (`PAIR_KINDS`). Squares (`square`) have a monument, lawns,
+  tree rows and kiosks; canal blocks (`canal`) quays, barges and boats, and the canals keep more colour.
+  Kept clean (Guillaume, 2026-11-27: the city looked "dirty"): no contact-shadow patches under the towers
+  (`ao_mesh` is null in the city, they smeared dark haze over the streets), no ground mottle or cloud shadows on
+  its paving (`ground_mat`), softer street shadows (`CAST_DARK`), and the war shown sparingly: few burning
+  roofs, ruins, craters, wrecks and tank traps.
+  Each road step, span and block is built by the chunk holding its centre.
   Builds ~40 ms a chunk on desktop: watch the cost (`Builder.bevels = false` for small parts).
 - The city rises from sunken streets (Guillaume, 2026-11-26: "very flat... it doesn't go as high as a city
   should"). Nothing may rise past the ship, so its whole floor (streets, canals, `Game.ground_y`, the ground
@@ -373,9 +388,14 @@ Icons: `python3 tools/icon.py` (Pillow) writes `icon.png`, `icons/` and `store/i
 
 ## Audio
 
-All original and generated: `tools/audio/compose.py` (numpy + ffmpeg, DSP after perigee's) writes the two music
-tracks (`audio/music/sortie.ogg` for the hangar and stage, `carrier.ogg` for both bosses) and every effect in
-`audio/sfx/`. Edit the script and rerun it rather than editing the files. Music loops through `loop=true` in its
+All original and generated: `tools/audio/compose.py` (numpy + ffmpeg, DSP after perigee's) writes the music
+and every effect in `audio/sfx/`. One track per world (Guillaume, 2026-11-27: "at least a music per world, with
+a change for bosses and fortress"), keyed by the world's `theme` in `Sound.TRACKS`: `sortie.ogg` (Glass Coast),
+`dunes`, `city`, `ice`, `volcano`; `carrier.ogg` is the mid-boss track ("boss") and `fortress.ogg` the final
+boss's. The hangar plays the selected world's track, ducked (`Game.pick_level`), the stage its world's, and the
+mid-boss and fortress switch on their warning. New tracks are levelled to `sortie`'s loudness. Edit the script
+and rerun it rather than editing the files (`compose.py city ice` renders only those; "sfx" for the effects,
+so untouched files aren't re-encoded). Music loops through `loop=true` in its
 `.import` file. `scripts/sound.gd` (`Sound`, `Game.sound`) crossfades the tracks on the "Music" bus and plays
 effects from a pool on "Sfx", each with its own level and a minimum gap (the cannon fires many times a second).
 
