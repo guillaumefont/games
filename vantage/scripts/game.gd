@@ -704,6 +704,30 @@ func _notification(what: int) -> void:
 	# switching apps lifts the finger as far as we're concerned: the game pauses
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		touching = false
+	elif what == NOTIFICATION_WM_GO_BACK_REQUEST and not driven:
+		go_back()
+
+
+## The Android back button (Escape on a keyboard): in flight it pauses at once; on the pause
+## screen it works the Main menu button (a second press within `Hud.RESET_ARM` s quits the run);
+## a level still on "Touch to start" goes straight back to the hangar; the results go to the
+## hangar; in the hangar a first press asks ("Press back again to quit") and a second one quits.
+## The cut-scenes between (the fortress breaking up, the escape) ignore it.
+func go_back() -> void:
+	if phase == "hangar":
+		if hud.back_tap():
+			get_tree().quit()
+	elif phase == "results":
+		if phase_t > 0.8:
+			to_hangar()
+	elif pausable():
+		if not started:
+			quit_run()
+		elif paused():
+			hud.quit_tap()
+		else:
+			touching = false
+			time_k = 0.0
 
 
 ## In flight the world only runs while the player holds a finger (or a direction key) down. Once
@@ -750,7 +774,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Pointer input (touch is emulated as mouse). Dragging moves the ship 1:1 in the vertical
 ## stage and the reticle inside the fortress.
 func handle(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		go_back()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		touching = event.pressed
 		last_touch = event.position
 		if event.pressed and phase == "results" and phase_t > 0.8:

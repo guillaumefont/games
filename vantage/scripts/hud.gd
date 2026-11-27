@@ -35,6 +35,10 @@ const RESET_ARM := 4.0
 ## On the pause screen: quits the run back to the hangar, with the same two-tap confirmation.
 var quit_btn: Button
 var quit_armed := false
+## In the hangar: the back button's first press arms it ("Press back again to quit"), a second
+## within RESET_ARM seconds quits the game.
+var back_armed := false
+var back_t := 0.0
 ## A short note under the version ("Checking…", "Up to date"), cleared on the next refresh.
 var version_note := ""
 var rows := {}
@@ -523,6 +527,17 @@ func quit_tap() -> void:
 	game.quit_run()
 
 
+## The hangar's back press: true when it's the confirming second press (quit), else it arms.
+func back_tap() -> bool:
+	if back_armed and back_t > 0.0:
+		back_armed = false
+		return true
+	back_armed = true
+	back_t = RESET_ARM
+	game.sound.play("tap")
+	return false
+
+
 func refresh_quit() -> void:
 	quit_btn.text = "Tap again to quit" if quit_armed else "Main menu"
 	for c in ["font_color", "font_hover_color", "font_pressed_color"]:
@@ -548,6 +563,9 @@ func sync() -> void:
 	hurt_t = maxf(0.0, hurt_t - dt)
 	scrap_t = maxf(0.0, scrap_t - dt)
 	power_t = maxf(0.0, power_t - dt)
+	back_t = maxf(0.0, back_t - dt)
+	if back_t <= 0.0 or game.phase != "hangar":
+		back_armed = false
 	var playing := game.phase not in ["hangar", "results"]
 	quit_btn.visible = game.paused() and game.started
 	if not quit_btn.visible and quit_armed:
@@ -607,6 +625,12 @@ func _draw() -> void:
 	if hurt_t > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, v), Color(1, 0.2, 0.25, hurt_t * 0.5))
 	draw_pause(v)
+	if back_armed and game.phase == "hangar":
+		# the back button's quit prompt, just above the hangar panel, with a shadow
+		var a := clampf(back_t / 0.3, 0.0, 1.0)
+		var p := Vector2(0, hangar_panel_top() - 28)
+		draw_string(FONT, p + Vector2(0, 3), "Press back again to quit", HORIZONTAL_ALIGNMENT_CENTER, v.x, 30, Color(0, 0, 0, 0.45 * a))
+		draw_string(FONT, p, "Press back again to quit", HORIZONTAL_ALIGNMENT_CENTER, v.x, 30, Color(INK, a))
 
 
 ## Before the first touch of a level, "Touch to start". Then, the finger is lifted: the screen dims as time slows, and once it stops, a pulsing hint.
