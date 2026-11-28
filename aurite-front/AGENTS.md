@@ -380,8 +380,9 @@ in your PR, keep it short, and mention the change in the PR description.
     more than 7 items -> the Yard splits into a first ring of basic structures plus an ADVANCED sector (`Radial.ADV` per faction, his "basic versus advanced"; a ready advanced structure rides on that sector and drags out of it), else categories (`_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
     over 7 splits in parts), each opened with BACK; a READY building keeps its own sector on the first ring. Tap queues
     (`click_item`), hold 0.55 s queues five or cancels a building, the ✕ / ×N badge cancels one, a READY sector drags
-    out (`drag_build_*`). The ring dims the map outside and NEVER moves the camera ("I don't want the map to jump"): near an edge or the
-    wheel it slides onto the screen with a brass leader to the structure (`_place`). It hides in radar and
+    out (`drag_build_*`). The ring dims the map outside (one thick arc: no seams) and NEVER moves the camera ("I don't want the map to
+    jump"); it stays centred on its structure even when partly off screen (`_place`). A tap outside it closes it
+    (deselects); the rally point is set with the RALLY order on the ring (`main.rally_aim`, then a tap on the map). It hides in radar and
     while placing (but stays alive during its own drag so the drag keeps its events).
   - Both draw state they read from the old side column, which is built but never shown (`panel_px()` is 0,
     `set_panel` keeps it shut): `U.items` (BuildItem state from `refresh_panel`), `U.btn` visibility/on/cap from

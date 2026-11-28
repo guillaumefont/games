@@ -311,7 +311,7 @@ class Ring extends Control:
 	func target() -> Ent:
 		var m = ui.main
 		if m == null or m.S.teams.is_empty() or m.paused: return null
-		if m.placing != null or m.V.radar_k() >= 0.5: return null
+		if m.placing != null or m.rally_aim or m.V.radar_k() >= 0.5: return null
 		if m.S.sel.size() != 1: return null
 		var e: Ent = m.S.sel[0]
 		return e if (e.alive and e.kind == "b" and e.team == 0) else null
@@ -342,9 +342,9 @@ class Ring extends Control:
 			t = 0.0; rebuild()
 		queue_redraw()
 
-	## Where the ring sits: around the structure on screen, its hole a little wider than the footprint. The map never
-	## moves for it (Guillaume 2026-11-28: "I don't want the map to jump when I click on a building"): near an edge or the
-	## wheel the ring slides onto the screen instead, and a brass leader ties it to the structure.
+	## Where the ring sits: around the structure on screen, its hole a little wider than the footprint. Neither the map nor
+	## the ring moves for it (Guillaume 2026-11-28: "I don't want the map to jump", "the ring stays on the structure even if
+	## it goes out of the screen"): drag the map to bring a clipped sector into view.
 	func _place(b: Ent) -> void:
 		var V = ui.main.V; var S = ui.main.S
 		var h: float = S.h_at(b.x, b.y)
@@ -355,16 +355,7 @@ class Ring extends Control:
 		var ce: Vector2 = inv * Vector2(e.x, e.y)
 		r0 = clampf(anchor.distance_to(ce) * 1.05 + 6, 40.0, 96.0)
 		r1 = r0 + W
-		var room := r1 + 4
-		var lo := Vector2(room, 58 + room); var hi := size - Vector2(room, room)
-		c = Vector2(clampf(anchor.x, lo.x, maxf(lo.x, hi.x)), clampf(anchor.y, lo.y, maxf(lo.y, hi.y)))
-		var wc := Vector2(0.0 if ui.left_hand else size.x, size.y)
-		var need := Wheel.R4 + room
-		if c.distance_to(wc) < need:
-			var d := c - wc
-			if d.length() < 1: d = Vector2(1 if ui.left_hand else -1, -1)
-			c = wc + d.normalized() * need
-			c = Vector2(clampf(c.x, lo.x, maxf(lo.x, hi.x)), clampf(c.y, lo.y, maxf(lo.y, hi.y)))
+		c = anchor   # the ring stays on its structure, even partly off screen (Guillaume: no sliding)
 
 	## The ring's sectors for the structure and the category open now. See the class comment for the rule.
 	func rebuild() -> void:
@@ -387,7 +378,7 @@ class Ring extends Control:
 				items += gi
 				groups.append({"id": cc, "cap": {"inf": "INFANTRY", "veh": "VEHICLES", "air": "AIR"}[cc], "g": cc, "items": gi})
 		var orders: Array = []
-		for k in ["upgrade", "repair", "loop", "muster", "sell"]:
+		for k in ["rally", "upgrade", "repair", "loop", "muster", "sell"]:
 			if ui.btn[k].visible: orders.append({"kind": "order", "key": k})
 		var ready = null
 		if bt == "hq":
@@ -548,14 +539,9 @@ class Ring extends Control:
 	func _draw() -> void:
 		if bld == null or secs.is_empty() or dragging: return
 		# dim the map outside the ring
-		for i in 12:
-			var a0 := TAU * i / 12.0
-			draw_colored_polygon(Radial.wedge(c, r1 + 1, 2400.0, a0, a0 + TAU / 12.0 + 0.01, 0), Color(0, 0, 0, 0.32))
+		# one thick band, so no seams run out of the ring across the map
+		draw_arc(c, r1 + 1 + 1400.0, 0, TAU, 160, Color(0, 0, 0, 0.32), 2800.0, false)
 		draw_arc(c, r0 - 3, 0, TAU, 64, Color(BR, 0.45), 1.5, true)
-		if anchor.distance_to(c) > r0 * 0.6:   # slid onto the screen: point at the structure
-			var dv := (anchor - c).normalized()
-			draw_line(c + dv * (r1 + 2), anchor, Color(BR, 0.8), 2.0, true)
-			draw_circle(anchor, 5, Color(BR, 0.9))
 		for s in secs:
 			var down: bool = press != null and press == s.key
 			var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
