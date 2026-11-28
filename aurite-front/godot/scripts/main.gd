@@ -16,7 +16,6 @@ var A: GameAudio
 var paused := true
 var placing = null  # {type, tx, ty, ldx, ldy}
 var amove := false
-var box_mode := false
 var sw_aim := false
 var jump_aim := false   # JUMP pressed: the next tap is where the Jump Troopers land
 var diff := "normal"
@@ -33,10 +32,12 @@ var icons_for := ""
 var headless := false
 var cut: CutscenePlayer
 var tut: Tutor
-## Fingers that drag the map. 1 (Guillaume's pick after trying both, 2026-11-14): one-finger drag pans,
-## hold then drag draws a selection box (or faces a formation). 2: two-finger drag pans and a plain
-## one-finger drag draws the box.
-const PAN_FINGERS := 1
+## One finger on open ground drags the map (Guillaume's pick, 2026-11-14). A drag that starts on one of your units is
+## a swipe: every unit the finger passes over is picked (`paint`, Guillaume 2026-11-28: picking part of the army was
+## so hard he played with ALL). No hold gestures: they were hidden, and a hold-drag with units selected gave a formation
+## order instead of a box.
+const BRUSH := 34.0        # a swipe picks units within this many UI units of the finger's path (a fingertip is ~30)
+const BRUSH_RADAR := 18.0  # radar icons sit close together
 
 # input state
 var ptrs := {}
@@ -46,8 +47,6 @@ var last_tap := {"id": 0, "t": 0}
 var shown_cr := 0.0
 var panel_t := 0.0
 var rd := Radar.new()            # radar drawing and its squad badges (scripts/radar.gd)
-var fly = null                   # a short camera flight (radar dive): {x0, y0, z0, x, y, z, t}
-var radar_tap := {"p": Vector2(), "t": 0}
 var preview_slots: Array = []
 var pv_from = null
 var pv_to = null
@@ -74,7 +73,7 @@ func _ready() -> void:
 	U.btn.gfx.text = gfx_label()
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
-	U.mode_btn.visible = false  # box selection is a hold-and-drag (or a plain drag with PAN_FINGERS 2)
+	U.left_hand = _load_prefs().get("hand", "right") == "left"; V.panel_left = U.left_hand; _hand_label()
 	show_start()
 	if not headless and OS.get_environment("AF_SHOT") == "": _boot_splash()
 	if not headless: render_icons("vanguard")
@@ -133,8 +132,8 @@ func toggle_panel() -> void:
 
 func _show_panel(open: bool) -> void:
 	if open == U.panel_open: return
-	var anchor := Vector2(100, V.view_rect().size.y / 2); var w := V.s2w(anchor.x, anchor.y)
-	U.set_panel(open); V.panel_px = U.panel_px()
+	var anchor := V.view_rect().position + Vector2(100, V.view_rect().size.y / 2); var w := V.s2w(anchor.x, anchor.y)
+	U.set_panel(open); V.panel_px = U.panel_px(); _fit_dock()
 	var w2 := V.s2w(anchor.x, anchor.y)  # keep the map still on screen while the view widens
 	V.cam_x += w.x - w2.x; V.cam_y += w.y - w2.y; V.clamp_cam()
 	if U.panel_open: refresh_panel(true)
@@ -282,19 +281,6 @@ func radar_send(n: int, p: Vector2) -> void:
 	command(hit, w.x, w.y, mem)
 	sel_src = keep_src; sel_set = keep_set
 	if S.sel != keep: S.set_sel(keep.filter(func(e): return e.alive))
-
-## Radar: fly down to a spot (double-tap).
-func dive(wx: float, wy: float) -> void:
-	fly = {"x0": V.cam_x, "y0": V.cam_y, "z0": V.cam_z, "x": wx, "y": wy, "z": 1.0, "t": 0.0}
-	sfx("click")
-
-func _fly_tick(dt: float) -> void:
-	if fly == null: return
-	fly.t = minf(1.0, fly.t + dt / 0.45)
-	var k: float = fly.t * fly.t * (3.0 - 2.0 * fly.t)
-	V.cam_z = lerpf(fly.z0, fly.z, k)
-	V.cam_x = lerpf(fly.x0, fly.x, k); V.cam_y = lerpf(fly.y0, fly.y, k); V.clamp_cam()
-	if fly.t >= 1.0: fly = null
 
 ## The selection is a squad and fresh units wait: JOIN sends them to it.
 func join_btn() -> void:
@@ -557,14 +543,14 @@ func start_cutscene(id: String, done: Callable) -> void:
 	_cine_mark(id)
 	var sc := Cutscenes.scene(id)
 	var M: Dictionary = D.camp(sc.camp).missions[sc.map]
-	placing = null; amove = false; box_mode = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
+	placing = null; amove = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
 	U.show_overlay(""); U.hud.visible = false; U.panel.visible = false
 	S.new_game("normal", {"mission": M, "level": camp_level(), "cine": true, "bare": sc.get("bare", false)})
 	V.build_world(); V.panel_px = 0.0
 	S.update_vision()
 	paused = false; A.set_paused(false)
 	cut.start(sc, Cutscenes.setup(S, sc), func():
-		U.hud.visible = true; U.panel.visible = U.panel_open; V.panel_px = U.panel_px()
+		U.hud.visible = true; U.panel.visible = true; V.panel_px = U.panel_px()
 		paused = true
 		done.call())
 	A.music_start()
@@ -597,7 +583,7 @@ func play(opt: Dictionary) -> void:
 	A.set_paused(false)
 
 func new_game(d: String, opt: Dictionary) -> void:
-	placing = null; amove = false; box_mode = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
+	placing = null; amove = false; sw_aim = false; jump_aim = false; gest = null; ptrs.clear()
 	sq.reset(); sel_src = ""; sel_set = []; sq_full_t = -99.0; obj_t = OBJ_SHOW; obj_gi = -1
 	S.new_game(d, opt)
 	diff = S.diff
@@ -611,7 +597,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	tut.start(S.mission)
 	if S.mission: toast(S.mission.title, "gold")
 	else:
-		toast("Two fingers move the map · drag one finger to box-select" if PAN_FINGERS == 2 else "Drag to move the map · hold, then drag to box-select", "gold")
+		toast("Drag to move the map · swipe across your units to pick them", "gold")
 		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast(("Grow a Garden beside the aurite: it earns, and it hatches your army" if S.lacks(0, "power") else "Build a " + D.BLD[S.tr_t(0, "power")].name + ", then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name), "gold"))
 	A.music_start()
 
@@ -851,7 +837,7 @@ func hud_tick(dt: float) -> void:
 
 # ---------------- placement ----------------
 func start_placing(type: String) -> void:
-	var d: Dictionary = D.BLD[type]; var c := V.s2w(V.view_rect().size.x / 2, V.view_rect().size.y / 2)
+	var d: Dictionary = D.BLD[type]; var vc := V.view_rect().get_center(); var c := V.s2w(vc.x, vc.y)
 	var q: Dictionary = S.teams[0].prod.bld
 	if d.kit and not q.left: q.left = d.kit
 	placing = {"type": type, "tx": int(round(c.x / T - d.w / 2.0)), "ty": int(round(c.y / T - d.h / 2.0)), "ldx": 0, "ldy": 0}
@@ -862,7 +848,7 @@ func start_placing(type: String) -> void:
 				var dd: float = (x - placing.tx) * (x - placing.tx) + (y - placing.ty) * (y - placing.ty)
 				if dd < bd: bd = dd; best = Vector2i(x, y)
 	if best != null: placing.tx = best.x; placing.ty = best.y
-	U.place_bar.visible = true; U.cmd_row.visible = false; place_hint()
+	U.place_bar.visible = true; U.cmd_row.visible = false; place_hint(); _fit_dock()
 	tut.ev("placing")
 
 ## Drag a ready building out of the menu: it follows the finger, drawn GHOST_LIFT above it so the
@@ -889,11 +875,9 @@ func drag_build_end(p: Vector2) -> void:
 func place_hint() -> void:
 	var q: Dictionary = S.teams[0].prod.bld
 	U.place_hint.text = ("Barrier: %d left · tap it to build" % q.left) if (placing != null and D.BLD[placing.type].kit) else "Drag to position · tap it to build"
-	U.place_bar.reset_size()
-	U.place_bar.offset_left = -U.place_bar.size.x / 2; U.place_bar.offset_right = U.place_bar.size.x / 2
 
 func end_placing() -> void:
-	placing = null; U.place_bar.visible = false; U.cmd_row.visible = true
+	placing = null; U.place_bar.visible = false; U.cmd_row.visible = true; _fit_dock()
 
 func confirm_place() -> void:
 	if placing == null: return
@@ -927,9 +911,14 @@ func confirm_place() -> void:
 	end_placing(); refresh_panel(true)
 
 # ---------------- commands ----------------
-func toggle_formation() -> void:
-	S.formation = not S.formation; sfx("click"); update_cmd()
-	toast("Formation moves on" if S.formation else "Formation off: units go straight to the spot")
+## Pause menu: which side the buttons go (the other thumb keeps the map). Remembered between games.
+func toggle_hand() -> void:
+	U.left_hand = not U.left_hand; V.panel_left = U.left_hand
+	U._place_hud(); V.panel_px = U.panel_px(); U.panel.queue_redraw(); _hand_label(); sfx("click")
+	var p := _load_prefs(); p.hand = "left" if U.left_hand else "right"; _save_prefs(p)
+
+func _hand_label() -> void:
+	U.btn.hand.text = ("Buttons: left" if U.left_hand else "Buttons: right").to_upper()
 
 func cmd_btn(k: String) -> void:
 	match k:
@@ -1036,13 +1025,10 @@ func _squad_cmd(units: Array) -> void:
 		b.visible = order.size() > 1 and i < order.size()
 		if b.visible:
 			var t: String = order[i]
-			b.set_meta("type", t); b.text = "%s %d" % [String(D.UN[t].name).get_slice(" ", String(D.UN[t].name).get_slice_count(" ") - 1).to_upper(), by[t]]
+			b.set_meta("type", t); b.text = "%d %s" % [by[t], String(D.UN[t].name).get_slice(" ", String(D.UN[t].name).get_slice_count(" ") - 1).to_upper()]   # count first: a long name clips, the count stays
 
 func _my_units() -> Array:
 	return S.sel.filter(func(e): return e.alive and e.kind == "u" and e.team == 0)
-
-func toggle_mode() -> void:
-	box_mode = not box_mode; update_cmd(); sfx("click")
 
 func update_cmd() -> void:
 	if U == null: return
@@ -1064,15 +1050,16 @@ func update_cmd() -> void:
 	U.btn.fuse.visible = units.filter(func(u): return u.team == 0 and u.d.fuse != "").size() >= D.HUM.fuse
 	_unit_btns()
 	U.set_on(U.btn.amove, amove)
-	U.set_on(U.btn.form, S.formation); U.btn.form.text = "FORMATION " + ("ON" if S.formation else "OFF")
 	_squad_cmd(units)
-	U.update_mode(box_mode)
-	# a building's line is in the panel header; the row by the squads only counts units
-	var mine := S.sel.filter(func(e): return e.kind == "u")
-	U.selinfo.visible = mine.size() > 0
-	if mine.size() == 1: U.selinfo.text = sel_line(mine[0], true)
-	elif mine.size() > 1: U.selinfo.text = "%d units" % mine.size()
 	show_ctx()
+	_fit_dock()
+
+## A hidden panel folds down to the dock, and goes away while the dock has nothing to show.
+func _fit_dock() -> void:
+	if not U.hud.visible: return
+	var want: bool = U.panel_open or U.dock_used()
+	if U.panel.visible != want: U.panel.visible = want
+	if not U.panel_open: U._place_panel.call_deferred()   # once the dock has its new height
 
 ## Unit orders in the panel: stances for every army (Hold ground, Hold fire), Scatter, To base, then each army's own
 ## (Jump for Jump Troopers, Strip for Scrappers, Fuse for Thralls). A stance lights while every unit that fights has it.
@@ -1185,12 +1172,6 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			var hp3 := V.w2s(hit.x, hit.y, S.h_at(hit.x, hit.y))
 			if Vector2(hp3.x, hp3.y).distance_to(Vector2(sx, sy)) < 10: n = 0
 		if n > 0: radar_badge(n); return
-	if V.radar_k() >= 0.5 and not right and not (hit != null and hit.team == 0 and hit.kind == "u"):
-		# radar: a second tap on the same spot dives down to it (the first one already gave its order)
-		var now := Time.get_ticks_msec()
-		if now - radar_tap.t < 450 and Vector2(sx, sy).distance_to(radar_tap.p) < 40:
-			radar_tap.t = 0; dive(wx, wy); return
-		radar_tap = {"p": Vector2(sx, sy), "t": now}
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
 	if jump_aim and not right:
 		jump_aim = false
@@ -1225,7 +1206,7 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			if last_tap.id == hit.id and now - last_tap.t < 380:
 				# double-tap / double-click: every unit of that type on screen
 				var same := S.ents.filter(func(e): return e.alive and e.kind == "u" and e.team == 0 and e.type == hit.type and V.on_screen(e.x, e.y))
-				S.set_sel(same); last_tap.id = 0
+				sel_src = ""; S.set_sel(same); last_tap.id = 0
 				if same.size() > 1: toast("%d × %s" % [same.size(), hit.d.name])
 				tut.ev("dbl")
 			else:
@@ -1275,8 +1256,27 @@ func box_select(x0: float, y0: float, x1: float, y1: float) -> void:
 	var us := _box_units(Vector2(x0, y0), Vector2(x1, y1))
 	var cb := us.filter(func(u): return not u.d.harv)
 	if cb.size(): us = cb
+	sel_src = ""   # part of ALL or of a squad, picked by hand: its next order makes it a squad
 	S.set_sel(us)
 	if us.size(): sfx("click"); buzz(8); tut.ev("box"); tut.ev("select", us)
+
+## A swipe that started on one of your units: every unit of yours within BRUSH of the finger's path from a to b is
+## added to the pick, and the selection follows live (harvesters only when nothing else was swept).
+func _paint(a: Vector2, b: Vector2) -> void:
+	V.update_cam()
+	var rad := BRUSH_RADAR if V.radar_on else BRUSH
+	var grew := false
+	for e in S.ents:
+		if not e.alive or e.kind != "u" or e.team != 0 or e.captive or e.intun > 0 or gest.picked.has(e.id): continue
+		var p3 := V.w2s(e.x, e.y, S.h_at(e.x, e.y) + (D.ALT if e.d.air else 0.0) + (0.0 if V.radar_on else D.UH[e.type] * .45))
+		if p3.z < 0: continue
+		var q := Geometry2D.get_closest_point_to_segment(Vector2(p3.x, p3.y), a, b)
+		if q.distance_to(Vector2(p3.x, p3.y)) < rad: gest.picked[e.id] = e; grew = true
+	if not grew: return
+	var us: Array = gest.picked.values().filter(func(u): return u.alive)
+	var cb := us.filter(func(u): return not u.d.harv)
+	if cb.size(): us = cb
+	sel_src = ""; S.set_sel(us); buzz(4)
 
 func _box_units(a: Vector2, b: Vector2) -> Array:
 	V.update_cam()
@@ -1335,12 +1335,15 @@ func _down(id: int, p: Vector2, mouse: bool, button: int) -> void:
 		gest = {"mode": "pinch", "d0": max(1.0, a.distance_to(b)), "z0": V.cam_z, "w": V.s2w(m.x, m.y), "zoom": false, "upd": {}}
 		_clear_preview(); return
 	if ptrs.size() > 2: return
-	fly = null
 	gest = {"mode": "pending", "s": p, "e": p, "l": p, "mouse": mouse, "btn": button, "t0": Time.get_ticks_msec()}
 	if V.radar_k() >= 0.5 and placing == null and (not mouse or button == MOUSE_BUTTON_LEFT):
 		var n := rd.badge_at(p)
 		if n > 0: gest.mode = "bpending"; gest.n = n; return
 	if mouse and (button == MOUSE_BUTTON_MIDDLE or button == MOUSE_BUTTON_RIGHT): gest.mode = "rpending"
+	elif not mouse and placing == null:
+		# a finger that lands on one of your units swipes them up if it moves; elsewhere it drags the map
+		var w := V.s2w(p.x, p.y); var h := pick(p.x, p.y, w.x, w.y)
+		gest.own = h != null and h.team == 0 and h.kind == "u"
 
 func _sel_movers() -> Array:
 	return S.sel.filter(func(e): return e.kind == "u" and not e.d.harv)
@@ -1369,23 +1372,23 @@ func _move(id: int, p: Vector2) -> void:
 		if gest.mouse: gest.mode = "box"
 		elif placing != null:
 			gest.mode = "ghost"; gest.g0 = Vector2(placing.tx, placing.ty); gest.w0 = V.s2w(gest.s.x, gest.s.y)
-		elif box_mode or PAN_FINGERS == 2 or V.radar_k() >= 0.5: gest.mode = "box"   # radar: nothing to scroll, one finger boxes
+		elif gest.get("own", false):
+			gest.mode = "paint"; gest.picked = {}; gest.trail = [gest.s]; _paint(gest.s, gest.s)
+		elif V.radar_k() >= 0.5: gest.mode = "box"   # radar: nothing to scroll, one finger boxes
 		else: gest.mode = "pan"
 	elif gest.mode == "bpending" and moved: gest.mode = "bdrag"
 	elif gest.mode == "rpending" and moved:
 		gest.mode = "face" if (gest.btn == MOUSE_BUTTON_RIGHT and _sel_movers().size() and placing == null) else "pan"
 		if gest.mode == "face": gest.from = V.s2w(gest.s.x, gest.s.y)
-	elif gest.mode == "lp" and moved:
-		# hold then drag: a box, unless units are selected and the hold began on open ground, which
-		# sets a formation's facing; starting on one of your units always boxes
-		if _sel_movers().size() and placing == null and not gest.get("own", false):
-			gest.mode = "face"; gest.from = V.s2w(gest.s.x, gest.s.y)
-		else: gest.mode = "box"
 	match gest.mode:
 		"pan":
 			var a := V.s2w(gest.l.x, gest.l.y); var b := V.s2w(p.x, p.y)
 			V.cam_x += a.x - b.x; V.cam_y += a.y - b.y; V.clamp_cam()
 		"box", "bdrag": gest.e = p
+		"paint":
+			_paint(gest.l, p); gest.e = p
+			if gest.trail.back().distance_to(p) > 6: gest.trail.append(p)
+			if gest.trail.size() > 48: gest.trail.pop_front()
 		"ghost":
 			# the building moves with the finger from where it was, so it can be dragged from below without hiding it
 			var dw: Vector2 = (V.s2w(p.x, p.y) - gest.w0) / T
@@ -1434,14 +1437,15 @@ func _up(id: int, p: Vector2, cancel: bool) -> void:
 		"rpending":
 			if placing != null: end_placing()
 			elif gest.btn == MOUSE_BUTTON_RIGHT: tap(p.x, p.y, true)
-		"lp": S.set_sel([])
+		"paint":
+			_paint(gest.l, p)
+			if S.sel.size(): sfx("click"); buzz(8); tut.ev("box"); tut.ev("select", S.sel)
 		"box":
 			var sz: Vector2 = (gest.e - gest.s).abs()
 			if not gest.mouse and _box_units(gest.s, gest.e).is_empty():
 				# an empty box from a finger keeps the selection; a short one was a shaky tap
 				if sz.x < 48 and sz.y < 48: tap(gest.s.x, gest.s.y, false)
 			else: box_select(gest.s.x, gest.s.y, gest.e.x, gest.e.y)
-			if box_mode and not gest.mouse: box_mode = false; update_cmd()
 		"face":
 			var fp = _face_params()
 			var units := S.sel.filter(func(e): return e.kind == "u")
@@ -1450,13 +1454,6 @@ func _up(id: int, p: Vector2, cancel: bool) -> void:
 				var mid: Vector2 = (fp.from + fp.to) / 2
 				command(null, mid.x, mid.y, units, fp.ang, fp.width)
 	gest = null; _clear_preview()
-
-func _check_long_press() -> void:
-	if gest != null and gest.mode == "pending" and not gest.mouse and placing == null and Time.get_ticks_msec() - gest.t0 > 450:
-		gest.mode = "lp"
-		var w := V.s2w(gest.s.x, gest.s.y); var h := pick(gest.s.x, gest.s.y, w.x, w.y)
-		gest.own = h != null and h.team == 0 and h.kind == "u"
-		Input.vibrate_handheld(15)
 
 func key_pan(dt: float) -> void:
 	var s := 700.0 / V.cam_z * dt; var mv := false
@@ -1540,8 +1537,11 @@ func draw_hud(c: Control) -> void:
 	if gest != null and gest.mode == "box":
 		var r := Rect2(Vector2(min(gest.s.x, gest.e.x), min(gest.s.y, gest.e.y)), Vector2(abs(gest.e.x - gest.s.x), abs(gest.e.y - gest.s.y)))
 		c.draw_rect(r, Color(.5, .84, .56, .12)); c.draw_rect(r, Color("7fd68e"), false, 1.5)
-	if gest != null and gest.mode == "lp":
-		c.draw_arc(gest.s, 22, 0, TAU, 32, Color("7fd68e"), 2)
+	if gest != null and gest.mode == "paint" and gest.trail.size() > 0:
+		# the swipe's brush: a soft wide stroke behind the finger
+		var pts := PackedVector2Array(gest.trail + [gest.e])
+		if pts.size() > 1: c.draw_polyline(pts, Color(.94, .77, .33, .28), (BRUSH_RADAR if V.radar_on else BRUSH) * 2.0, true)
+		c.draw_circle(gest.e, 10, Color(1, .88, .54, .6))
 	if sw_aim: _order_banner(c, "launch", "SUPERWEAPON: TAP A TARGET", Color(.94, .73, .25))
 	elif amove: _order_banner(c, "atk", "ATTACK-MOVE: TAP A DESTINATION", Color(.95, .32, .28))
 	elif jump_aim: _order_banner(c, "jump", "JUMP: TAP WHERE TO LAND", Color(.56, .84, .48))
@@ -1661,8 +1661,7 @@ func _process(delta: float) -> void:
 			S.step(dt)
 			if placing != null and not S.teams[0].prod.bld.ready: end_placing()
 		elif S.over: S.upd_parts(dt)
-		_check_long_press()
-		key_pan(dt); _fly_tick(dt)
+		key_pan(dt)
 		A.intensity = A.intensity + (S.combat - A.intensity) * min(1.0, dt * 0.5)
 		V.render(dt, placing, preview_slots, pv_from, pv_to)
 		hud_tick(dt)
@@ -2142,7 +2141,7 @@ func _ctx_items() -> Array:
 ## AF_MODE=radar: radar mode. A skirmish with five squads spread over the map and enemies at two of them; shots from
 ## today's closest zoom out to the whole map (near, the blend, radar), then real touches: tap badge 2, tap badge 3 (both
 ## selected, squads unchanged), tap the enemy (both attack, still squads 2 and 3), drag badge 1 elsewhere (only squad
-## 1 moves, the selection stays), a one-finger box, a double-tap dive. The log lines start with RADAR.
+## 1 moves, the selection stays), a one-finger box, a double-tap (no dive), a swipe from an icon. The log lines start with RADAR.
 func _radar_shots(dir: String) -> void:
 	seed(7)
 	play({"fac": OS.get_environment("AF_FAC") if OS.get_environment("AF_FAC") != "" else "ashen", "enemy": "vanguard", "diff": "normal"})
@@ -2217,13 +2216,22 @@ func _radar_shots(dir: String) -> void:
 		_drag(0, a.lerp(bb, (i + 1) / 6.0)); await get_tree().process_frame
 	_touch(0, bb, false); await get_tree().process_frame
 	print("RADAR box: sel ", S.sel.size(), " squad 4 has ", m4.size())
-	# double-tap open ground: dive back down
+	# double-tap open ground: no dive any more (its first tap sent the army there); pinching in is the way down
 	var g3 := V.w2s(8 * T, 12 * T, 0.0); var g := Vector2(g3.x, g3.y)
+	var z0 := V.cam_z
 	tap(g.x, g.y, false); tap(g.x, g.y, false)   # straight to tap(): the software renderer here is too slow for real double-taps
-	print("RADAR fps ", Engine.get_frames_per_second())
 	await get_tree().create_timer(0.8).timeout
-	print("RADAR dive: cam_z ", V.cam_z, " radar ", V.radar_on)
-	await _shot(dir + "/radar_7_dived.png")
+	print("RADAR double-tap: cam_z ", z0, " -> ", V.cam_z, " radar ", V.radar_on)
+	# a swipe from one of squad 2's icons picks the icons it passes over
+	var m2 := sq.members(S, 2).filter(func(e): return e.alive)
+	if m2.size():
+		var q2 := V.w2s(m2[0].x, m2[0].y, S.h_at(m2[0].x, m2[0].y)); var s0 := Vector2(q2.x, q2.y)
+		_touch(0, s0, true); await get_tree().process_frame
+		for i in 6:
+			_drag(0, s0 + Vector2(8 * (i + 1), 4 * (i + 1))); await get_tree().process_frame
+		_touch(0, s0 + Vector2(48, 24), false); await get_tree().process_frame
+		print("RADAR swipe from an icon: sel ", S.sel.size(), " src '", sel_src, "'")
+	await _shot(dir + "/radar_7_swipe.png")
 
 ## AF_MODE=squads: the squad strip. Three squads formed by orders (one under fire, one idle), fresh units in NEW,
 ## squad 1 selected with JOIN showing, then a mixed selection with its type chips. AF_FAC picks the army.
@@ -2735,38 +2743,25 @@ func _input_test() -> void:
 	var g := p + Vector2(150, -60)
 	_touch(0, g, true); await get_tree().process_frame; _touch(0, g, false); await get_tree().process_frame
 	print("INPUT move order: ", S.sel.map(func(e): return e.order))
-	# hold then drag = formation facing
-	var a := p + Vector2(-40, -120)
-	_touch(0, a, true)
-	await get_tree().create_timer(1.0).timeout
-	for k in 6:
-		_drag(0, a + Vector2(30 * (k + 1), 0)); await get_tree().process_frame
-	print("INPUT face gesture mode=", gest.mode if gest else "none", " preview=", preview_slots.size())
-	_touch(0, a + Vector2(180, 0), false); await get_tree().process_frame
-	print("INPUT face order: ", S.sel.map(func(e): return [e.order, snappedf(e.face if e.face != null else -9.0, 0.01)]))
-	# one-finger drag over the map pans (PAN_FINGERS 1)
+	# a swipe from one rifle picks the rifles the finger passes over, even with all of them already selected
+	var rifles0 := S.ents.filter(func(e): return e.alive and e.team == 0 and e.type == "rifle")
+	S.set_sel(rifles0); sel_src = "all"; sel_set = rifles0
+	var rp3 := V.w2s(r.x, r.y, S.h_at(r.x, r.y) + .2); var rp := Vector2(rp3.x, rp3.y)
+	_touch(0, rp, true); await get_tree().process_frame
+	for k in 4:
+		_drag(0, rp + Vector2(6 * (k + 1), 3 * (k + 1))); await get_tree().process_frame
+	print("INPUT swipe mode=", gest.mode if gest else "none", " sel=", S.sel.size(), " of ", rifles0.size())
+	await _shot(OS.get_environment("AF_SHOT") + "/02b_swipe.png")
+	_touch(0, rp + Vector2(24, 12), false); await get_tree().process_frame
+	print("INPUT swipe sel=", S.sel.map(func(e): return e.type), " src '", sel_src, "' (empty: its next order makes a squad)")
+	# a hold on open ground, then a drag, just pans (no hidden hold gestures any more)
 	var cx := V.cam_x; var nsel := S.sel.size()
-	_touch(0, Vector2(400, 300), true); await get_tree().process_frame
+	_touch(0, Vector2(400, 300), true); await get_tree().create_timer(0.7).timeout
 	for k in 5:
 		_drag(0, Vector2(400 - 40 * (k + 1), 300 + 4 * k)); await get_tree().process_frame
-	print("INPUT one-finger drag mode=", gest.mode if gest else "none")
+	print("INPUT hold then drag on ground mode=", gest.mode if gest else "none")
 	_touch(0, Vector2(200, 316), false); await get_tree().process_frame
-	print("INPUT one-finger drag pan dx=", V.cam_x - cx, " sel ", nsel, " -> ", S.sel.size())
-	# hold on a rifle, then drag: box (even with units selected)
-	var rp3 := V.w2s(r.x, r.y, S.h_at(r.x, r.y) + .2)
-	S.set_sel([r])
-	_touch(0, Vector2(rp3.x, rp3.y), true); await get_tree().create_timer(0.7).timeout
-	for k in 4:
-		_drag(0, Vector2(rp3.x + 30 * (k + 1), rp3.y + 30 * (k + 1))); await get_tree().process_frame
-	print("INPUT hold-drag from own unit mode=", gest.mode if gest else "none")
-	_touch(0, Vector2(rp3.x + 120, rp3.y + 120), false); await get_tree().process_frame
-	print("INPUT hold-box sel=", S.sel.map(func(e): return e.type))
-	S.set_sel([])
-	_touch(0, Vector2(rp3.x - 60, rp3.y - 60), true); await get_tree().create_timer(0.7).timeout
-	for k in 4:
-		_drag(0, Vector2(rp3.x - 60 + 30 * (k + 1), rp3.y - 60 + 30 * (k + 1))); await get_tree().process_frame
-	_touch(0, Vector2(rp3.x + 60, rp3.y + 60), false); await get_tree().process_frame
-	print("INPUT box sel=", S.sel.map(func(e): return e.type))
+	print("INPUT hold-drag pan dx=", V.cam_x - cx, " sel ", nsel, " -> ", S.sel.size())
 	# two-finger drag pans, without zooming
 	var z0 := V.cam_z
 	_touch(0, Vector2(380, 280), true); _touch(1, Vector2(420, 320), true); await get_tree().process_frame

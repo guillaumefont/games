@@ -277,7 +277,7 @@ const LESSONS := {
 	"controls": {"who": "foreman", "steps": [
 		{"hint": "Tap Vey to select her", "say": "Tap the lady with the goggles, boss.", "ptr": {"hero": true}, "done": {"ev": "select", "hero": true}},
 		{"hint": "Tap the ground to move", "say": "Now tap where you want her. Simple!", "ptr": {"ahead": true}, "done": {"ev": "move"}},
-		{"hint": "Hold, then drag over the squad to select it", "say": "Hold your finger, then drag. Grab the lot!", "ptr": {"unit": "militia"}, "done": {"ev": "box"}},
+		{"hint": "Swipe across the squad to pick it", "say": "Start on one of them and run your finger over the lot!", "ptr": {"unit": "militia"}, "done": {"ev": "box"}},
 		{"hint": "Tap an enemy to attack", "say": "That's a Vanguard picket. Tap it. Hard.", "ptr": {"enemy": true}, "done": {"ev": "attack"}, "when": "enemy_seen"},
 		{"hint": "Double-tap a unit to pick every one of its type", "say": "Double-tap a rifle, get all the rifles.", "ptr": {"unit": "militia"}, "done": {"ev": "dbl"}},
 		{"hint": "Drag to look around, pinch to zoom", "say": "Drag the map to look about. Pinch for close-ups.", "ptr": {"view": true}, "done": {"ev": "cam"}},

@@ -79,13 +79,13 @@ var radio_who: Label
 var radio_l: Label
 var radio_q: Array = []   # lines waiting: [who, line, warn]
 var radio_t := 0.0        # time left on the line showing
-var cmd_row: VBoxContainer
-var cmd_top: HBoxContainer
-var cmd_bot: HBoxContainer
+var cmd_row: VBoxContainer     # the thumb dock at the bottom of the side column: squads, then Attack / Stop / ✕
+var cmd_top: GridContainer     # type chips of a mixed selection (two per row)
+var cmd_bot: GridContainer     # squad chips (two per row)
+var panel_top: VBoxContainer   # the part of the side column above the dock (header, build list, orders); folds away
 var btn := {}
-var selinfo: Label
-var mode_btn: ModeDial
-var place_bar: HBoxContainer
+var left_hand := false         # the side column (every button) on the left, the map thumb on the right
+var place_bar: VBoxContainer  # while placing a building: its hint, Build here and Cancel, in the dock's place
 var place_hint: Label
 var panel: PanelContainer
 var radar_tint: ColorRect  # greys and cools the 3D view while zoomed out to radar (main.gd sets its "k")
@@ -278,51 +278,6 @@ func _build_hud() -> void:
 	radio_box.anchor_left = 0.5; radio_box.anchor_right = 0.5; radio_box.offset_top = 66; radio_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	radio_box.visible = false; hud.add_child(radio_box)
 	hud.move_child(obj_box, -1)
-	# two rows in the bottom-left corner, close to the thumb: the squad strip at the bottom, orders above
-	cmd_row = VBoxContainer.new(); cmd_row.add_theme_constant_override("separation", 6); cmd_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cmd_row.anchor_top = 1; cmd_row.anchor_bottom = 1; cmd_row.offset_left = 8; cmd_row.offset_bottom = -8
-	cmd_row.grow_vertical = Control.GROW_DIRECTION_BEGIN; cmd_row.alignment = BoxContainer.ALIGNMENT_END
-	hud.add_child(cmd_row)
-	cmd_top = HBoxContainer.new(); cmd_top.add_theme_constant_override("separation", 6); cmd_top.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_top)
-	cmd_bot = HBoxContainer.new(); cmd_bot.add_theme_constant_override("separation", 6); cmd_bot.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_bot)
-	var fb := mkbtn("Formation", func(): main.toggle_formation(), 150.0, 48.0, 12, "form"); cmd_bot.add_child(fb); btn["form"] = fb
-	var gap := Rule.new(); gap.vertical = true; gap.custom_minimum_size = Vector2(6, 0); cmd_bot.add_child(gap)
-	# squad strip: ALL, squads 1 to 5 (only those that exist), NEW (units in no squad). See scripts/squads.gd.
-	for n in range(0, Squads.MAX + 2):
-		var key := n if n <= Squads.MAX else -1
-		var c := SquadChip.new(); c.ui = self; c.key = key; c.focus_mode = Control.FOCUS_NONE
-		c.custom_minimum_size = Vector2(76 if key == 0 else (84 if key == -1 else 100), 48)
-		for st in ["normal", "hover", "pressed", "disabled", "focus"]: c.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-		c.pressed.connect(func(): main.squad_tap(key))
-		c.visible = false
-		cmd_bot.add_child(c); btn["sq_all" if key == 0 else ("sq_new" if key == -1 else "sq%d" % key)] = c
-	# what the selection can do lives in the side panel (`_build_panel`); this row keeps the orders every army needs
-	for pair in [["sw", "Launch", "launch"], ["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["desel", "", "x"]]:
-		var k: String = pair[0]
-		var b := mkbtn(pair[1], func(): main.cmd_btn(k), 0, 44, 12, pair[2]); cmd_top.add_child(b); btn[k] = b; b.visible = false
-	set_on(btn.sw, true)
-	selinfo = lbl("", f_body6, 12, W_SAND); selinfo.size_flags_vertical = Control.SIZE_SHRINK_CENTER; cmd_top.add_child(selinfo)
-	selinfo.add_theme_constant_override("outline_size", 4); selinfo.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
-	for i in 4:
-		var tb := mkbtn("", func(): main.type_btn(type_btns[i].get_meta("type", "")), 0, 40, 11); tb.visible = false
-		cmd_top.add_child(tb); type_btns.append(tb)
-	var jb := mkbtn("Join", func(): main.join_btn(), 0, 44, 12, "all"); jb.visible = false; set_on(jb, true)
-	cmd_top.add_child(jb); btn["join"] = jb
-	mode_btn = ModeDial.new(); mode_btn.ui = self; mode_btn.focus_mode = Control.FOCUS_NONE; mode_btn.custom_minimum_size = Vector2(88, 88)
-	for st in ["normal", "hover", "pressed", "focus", "disabled"]: mode_btn.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	mode_btn.anchor_left = 1; mode_btn.anchor_right = 1; mode_btn.anchor_top = 1; mode_btn.anchor_bottom = 1
-	mode_btn.offset_left = -98; mode_btn.offset_right = -10; mode_btn.offset_top = -98; mode_btn.offset_bottom = -10
-	mode_btn.pressed.connect(func(): main.toggle_mode())
-	hud.add_child(mode_btn)
-	place_bar = HBoxContainer.new(); place_bar.add_theme_constant_override("separation", 8)
-	place_bar.anchor_left = 0.5; place_bar.anchor_right = 0.5; place_bar.anchor_top = 1; place_bar.anchor_bottom = 1
-	place_bar.offset_top = -56; place_bar.offset_bottom = -8; place_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	var hb := Plate.new(); hb.add_theme_stylebox_override("panel", plate_sb(10.0)); place_hint = lbl("Drag to position · tap it to build", f_body6, 13, W_KHAKI)
-	place_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER; hb.add_child(place_hint); place_bar.add_child(hb)
-	var bp := mkbtn("Build here", func(): main.confirm_place(), 0, 48, 13, "build"); set_on(bp, true); place_bar.add_child(bp)
-	place_bar.add_child(mkbtn("Cancel", func(): main.end_placing(), 0, 48, 13, "x"))
-	place_bar.visible = false; hud.add_child(place_bar)
-	update_mode(false)
 
 ## A titled stat inside a plate: small sand caption, then whatever the caller adds.
 func _stat(par: Control, title: String) -> VBoxContainer:
@@ -353,10 +308,6 @@ func _left_bar(c: Color) -> StyleBoxFlat:
 	s.border_width_left = 3; s.border_color = C_LINE
 	var s2 := s.duplicate(); s2.border_color = c; s2.border_width_top = 0; s2.border_width_right = 0; s2.border_width_bottom = 0
 	return s2
-
-func update_mode(box: bool) -> void:
-	mode_btn.tooltip_text = "drag to box units" if box else "tap for Select"
-	mode_btn.box = box; mode_btn.queue_redraw()
 
 var toast_g: Glyph
 func toast(msg: String, kind := "") -> void:
@@ -417,7 +368,9 @@ func _build_panel() -> void:
 	panel.anchor_left = 1; panel.anchor_right = 1; panel.anchor_bottom = 1; panel.offset_left = -PANEL_W
 	panel.draw.connect(_draw_panel_bg)
 	add_child(panel)
-	var v := VBoxContainer.new(); v.add_theme_constant_override("separation", 6); panel.add_child(v)
+	var col := VBoxContainer.new(); col.add_theme_constant_override("separation", 8); panel.add_child(col)
+	var v := VBoxContainer.new(); v.add_theme_constant_override("separation", 6); v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(v); panel_top = v
 	# header: what is selected (the Yard when nothing is), its health and one line about it
 	ctx_box = Plate.new(); ctx_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ctx_box.add_theme_stylebox_override("panel", plate_sb(7.0, H_BG, W_LINE, W_BRASS)); v.add_child(ctx_box)
@@ -461,6 +414,57 @@ func _build_panel() -> void:
 		var b := mkbtn("", func(): main.cmd_btn(k), 0, 46, 11, pair[2]); b.custom_minimum_size.x = (PANEL_W - 16 - 8) / 3.0
 		b.cap = String(pair[1]).to_upper(); b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ctx_acts.add_child(b); btn[k] = b; b.visible = false
+	_build_dock(col)
+
+## Two thumbs (Guillaume 2026-11-28: "one thumb for moving and the other for actions"): the map has no buttons; every
+## button lives in the side column, and the ones used most sit at its bottom, under the thumb: Launch and JOIN, the type
+## chips of a mixed selection, the squads (two per row), then Attack / Stop / ✕. The dock stays when the panel is hidden.
+func _build_dock(col: VBoxContainer) -> void:
+	cmd_row = VBoxContainer.new(); cmd_row.add_theme_constant_override("separation", 6); cmd_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(cmd_row)
+	var sw := mkbtn("Launch", func(): main.cmd_btn("sw"), 0, 44, 12, "launch"); set_on(sw, true); sw.visible = false; cmd_row.add_child(sw); btn["sw"] = sw
+	var jb := mkbtn("Join", func(): main.join_btn(), 0, 44, 12, "all"); jb.visible = false; set_on(jb, true)
+	cmd_row.add_child(jb); btn["join"] = jb
+	cmd_top = GridContainer.new(); cmd_top.columns = 2; cmd_top.add_theme_constant_override("h_separation", 6); cmd_top.add_theme_constant_override("v_separation", 6)
+	cmd_top.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_top)
+	for i in 4:
+		var tb := mkbtn("", func(): main.type_btn(type_btns[i].get_meta("type", "")), 0, 40, 10); tb.visible = false
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL; tb.custom_minimum_size.x = 0; tb.clip_text = true
+		cmd_top.add_child(tb); type_btns.append(tb)
+	# squads: ALL, NEW (units in no squad), squads 1 to 5 (only those that exist). See scripts/squads.gd.
+	cmd_bot = GridContainer.new(); cmd_bot.columns = 2; cmd_bot.add_theme_constant_override("h_separation", 6); cmd_bot.add_theme_constant_override("v_separation", 6)
+	cmd_bot.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(cmd_bot)
+	for key in [0, -1] + range(1, Squads.MAX + 1):
+		var c := SquadChip.new(); c.ui = self; c.key = key; c.focus_mode = Control.FOCUS_NONE
+		c.custom_minimum_size = Vector2(0, 48); c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for st in ["normal", "hover", "pressed", "disabled", "focus"]: c.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+		c.pressed.connect(func(): main.squad_tap(key))
+		c.visible = false
+		cmd_bot.add_child(c); btn["sq_all" if key == 0 else ("sq_new" if key == -1 else "sq%d" % key)] = c
+	# the orders every army needs, last, right under the thumb
+	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 6); row.mouse_filter = Control.MOUSE_FILTER_IGNORE; cmd_row.add_child(row)
+	for pair in [["amove", "Attack", "atk"], ["stop", "Stop", "stop"], ["desel", "", "x"]]:
+		var k: String = pair[0]
+		var b := mkbtn(pair[1], func(): main.cmd_btn(k), 0, 56, 12, pair[2]); row.add_child(b); btn[k] = b; b.visible = false
+	for k in ["amove", "stop"]:   # glyph over a caption, so both fit the column's width
+		var b: Button = btn[k]
+		b.cap = b.text; b.text = ""; b.custom_minimum_size.x = 0; b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.amove.size_flags_stretch_ratio = 1.5
+	btn.desel.custom_minimum_size.x = 48
+	place_bar = VBoxContainer.new(); place_bar.add_theme_constant_override("separation", 6)
+	var hb := Plate.new(); hb.add_theme_stylebox_override("panel", plate_sb(8.0)); place_hint = lbl("Drag to position · tap it to build", f_body6, 12, W_KHAKI)
+	place_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; place_hint.custom_minimum_size.x = 140
+	hb.add_child(place_hint); place_bar.add_child(hb)
+	var bp := mkbtn("Build here", func(): main.confirm_place(), 0, 56, 13, "build"); set_on(bp, true); place_bar.add_child(bp)
+	place_bar.add_child(mkbtn("Cancel", func(): main.end_placing(), 0, 48, 13, "x"))
+	place_bar.visible = false; col.add_child(place_bar)
+
+## Does the dock show anything? A hidden panel folds down to the dock, or goes away when the dock is empty too.
+func dock_used() -> bool:
+	if place_bar.visible: return true
+	for c in [btn.sw, btn.join, btn.amove, btn.stop, btn.desel] + type_btns: if c.visible: return true
+	for c in cmd_bot.get_children(): if c.visible: return true
+	return false
 
 ## Side panel backdrop: dark olive steel with a faint map grid and a brass seam along its inner edge.
 func _draw_panel_bg() -> void:
@@ -473,10 +477,12 @@ func _draw_panel_bg() -> void:
 	var x := 0.0
 	while x < s.x:
 		panel.draw_line(Vector2(x, 0), Vector2(x, s.y), Color(0.85, 0.8, 0.64, 0.03), 1.0); x += g
-	panel.draw_rect(Rect2(0, 0, 2, s.y), Color(W_BRASS, 0.55))
-	panel.draw_rect(Rect2(2, 0, 1, s.y), Color(0, 0, 0, 0.6))
+	var ex := s.x - 2.0 if left_hand else 0.0   # the brass seam runs along the edge that faces the map
+	panel.draw_rect(Rect2(ex, 0, 2, s.y), Color(W_BRASS, 0.55))
+	if not panel_open: panel.draw_rect(Rect2(0, 0, s.x, 2), Color(W_BRASS, 0.55))
+	panel.draw_rect(Rect2(s.x - 3.0 if left_hand else 2.0, 0, 1, s.y), Color(0, 0, 0, 0.6))
 	for yy in [10.0, s.y - 10.0]:
-		panel.draw_circle(Vector2(9, yy), 2.0, Color(W_BRASS, 0.5))
+		panel.draw_circle(Vector2(s.x - 9.0 if left_hand else 9.0, yy), 2.0, Color(W_BRASS, 0.5))
 
 func set_tab(cat: String) -> void:
 	for c in tabs:
@@ -535,10 +541,6 @@ var ins_b := 0.0
 func set_insets(l: float, t: float, r: float, b: float) -> void:
 	ins_l = l; ins_t = t; ins_r = r; ins_b = b
 	_place_hud()
-	panel.offset_left = -PANEL_W - r
-	var ps := sb(C_PANEL, C_LINE, 0, 0, 8)
-	ps.content_margin_right = 8 + r; ps.content_margin_top = 8 + t; ps.content_margin_bottom = 8 + b
-	panel.add_theme_stylebox_override("panel", ps)
 	for k in overlays:
 		var o: Control = overlays[k]
 		if not o.has_meta("mc"): continue   # the splash places itself
@@ -551,24 +553,42 @@ func set_insets(l: float, t: float, r: float, b: float) -> void:
 
 var panel_open := true
 
-## Width the side panel takes on screen (0 when hidden), safe-area margin included.
+## Width the side panel takes out of the 3D view (0 when hidden: it folds down to the dock), safe-area margin included.
 func panel_px() -> float:
-	return (PANEL_W if panel_open else 0.0) + ins_r
+	return (PANEL_W + (ins_l if left_hand else ins_r)) if panel_open else 0.0
 
-## Show or hide the side panel; the HUD and the 3D view's centre follow.
+## Show or hide the side panel; the HUD and the 3D view's centre follow. Hidden, it folds down to the thumb dock.
 func set_panel(open: bool) -> void:
-	panel_open = open; panel.visible = open
+	panel_open = open; panel_top.visible = open
 	btn.panel.text = "" if open else "BUILD"
 	btn.panel.glyph = "hide" if open else "build"
 	btn.panel.custom_minimum_size.x = 48 if open else 104
 	restyle(btn.panel)
 	_place_hud()
 
+## The side column goes on the right, or on the left for left-handed players; open it runs the full height, folded it
+## is only as tall as the dock, at the bottom.
+func _place_panel() -> void:
+	var side := ins_l if left_hand else ins_r
+	panel.anchor_left = 0.0 if left_hand else 1.0; panel.anchor_right = panel.anchor_left
+	panel.offset_left = 0.0 if left_hand else -PANEL_W - side; panel.offset_right = PANEL_W + side if left_hand else 0.0
+	panel.anchor_top = 0.0 if panel_open else 1.0; panel.anchor_bottom = 1.0
+	panel.offset_bottom = 0.0; panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	panel.grow_horizontal = Control.GROW_DIRECTION_END if left_hand else Control.GROW_DIRECTION_BEGIN
+	panel.offset_top = 0.0 if panel_open else -panel.get_combined_minimum_size().y
+	var ps := sb(C_PANEL, C_LINE, 0, 0, 8)
+	if left_hand: ps.content_margin_left = 8 + side
+	else: ps.content_margin_right = 8 + side
+	ps.content_margin_top = 8 + (ins_t if panel_open else 0.0); ps.content_margin_bottom = 8 + ins_b
+	panel.add_theme_stylebox_override("panel", ps)
+
 func _place_hud() -> void:
 	var pw := (PANEL_W if panel_open else 0.0)
-	hud.offset_left = ins_l; hud.offset_top = ins_t; hud.offset_right = -pw - ins_r; hud.offset_bottom = -ins_b
+	hud.offset_left = ins_l + (pw if left_hand else 0.0); hud.offset_top = ins_t
+	hud.offset_right = -ins_r - (0.0 if left_hand else pw); hud.offset_bottom = -ins_b
 	var dr: Control = hud.get_meta("draw")
-	dr.offset_left = -ins_l; dr.offset_top = -ins_t; dr.offset_right = pw + ins_r; dr.offset_bottom = ins_b
+	dr.offset_left = -hud.offset_left; dr.offset_top = -ins_t; dr.offset_right = -hud.offset_right; dr.offset_bottom = ins_b
+	if panel != null: _place_panel()
 
 func _fit_margins(o: Control) -> void:
 	var mc: MarginContainer = o.get_meta("mc")
@@ -713,7 +733,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · tap another of your units to switch to it · hold, then drag to box-select (with units selected, start the hold on one of your units; held on open ground it faces a formation instead) · double-tap a unit to grab every unit of that type on screen · hold and let go, or ✕, to deselect."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view; it slides back while a building is selected."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the bottom strip. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the strip: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box; two fingers pan and zoom. Double-tap a spot, or pinch in, to dive back down. Red rings mark fights."]]:
+	for row in [["TOUCH", "One thumb for the map, the other for the buttons. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ deselects. Every button is in the side column: what you selected and its orders on top, squads below, Attack, Stop and ✕ at the bottom, under your thumb. Pause > Buttons: left moves the column to the left for left-handed play."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view (the squads and Attack / Stop stay at the bottom); it slides back while a building is selected."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad in the side column. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the squads: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -739,7 +759,10 @@ func _build_overlays() -> void:
 	btn.tut_mode = ghost("Tutorial: full", func(): main.tut.cycle_mode()); btn.tut_mode.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(btn.tut_mode)
 	var fmu := ghost("Field manual", func(): main.tut.open_manual("menu")); fmu.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r3.add_child(fmu)
 	# graphics level (scripts/gfx.gd): High, Medium, Low; main.cycle_gfx() rebuilds the battle at the new level
-	btn.gfx = ghost("Graphics: high", func(): main.cycle_gfx()); btn.gfx.size_flags_horizontal = Control.SIZE_EXPAND_FILL; d.add_child(btn.gfx)
+	var r4 := HBoxContainer.new(); r4.add_theme_constant_override("separation", 8); d.add_child(r4)
+	btn.gfx = ghost("Graphics: high", func(): main.cycle_gfx()); btn.gfx.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r4.add_child(btn.gfx)
+	# which side the buttons go: the other thumb has the map to itself
+	btn.hand = ghost("Buttons: right", func(): main.toggle_hand()); btn.hand.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r4.add_child(btn.hand)
 	# ---- end
 	c = _overlay("end", 700)
 	d = frame(c, 12)
@@ -2238,21 +2261,6 @@ class SquadChip extends Button:
 		var bw := size.x - 16
 		draw_rect(Rect2(8, size.y - 8, bw, 3), Color("2a2f22"))
 		draw_rect(Rect2(8, size.y - 8, bw * hp, 3), Color("8fcf7a") if hp > 0.5 else (Color("f0b93f") if hp > 0.25 else Color("ff5a52")))
-
-## Round MOVE / SELECT toggle (hidden by default since select is a hold-and-drag).
-class ModeDial extends Button:
-	var ui
-	var box := false
-	func _draw() -> void:
-		var c := size / 2; var r := minf(size.x, size.y) / 2 - 2
-		var ring: Color = Color("e5483f") if box else Color("d9a441")
-		draw_circle(c + Vector2(0, 2), r, Color(0, 0, 0, 0.35))
-		draw_circle(c, r, Color(0.055, 0.062, 0.045, 0.92))
-		draw_arc(c, r - 1, 0, TAU, 40, ring, 2.0, true)
-		draw_arc(c, r - 6, 0, TAU, 40, Color(ring, 0.3), 1.0, true)
-		UI.glyph(self, "box" if box else "move", Rect2(c.x - 10, c.y - 30, 20, 20), ring)
-		draw_string(ui.f_disp7, Vector2(0, c.y + 8), "SELECT" if box else "MOVE", HORIZONTAL_ALIGNMENT_CENTER, size.x, 15, Color("ffd0cc") if box else Color("d8cba3"))
-		draw_string(ui.f_body, Vector2(0, c.y + 22), "drag to box" if box else "tap for Select", HORIZONTAL_ALIGNMENT_CENTER, size.x, 9, Color("a99c78"))
 
 ## Power use against supply as ten segments; red when the base is short of power.
 class PowerMeter extends Control:

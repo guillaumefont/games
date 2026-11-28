@@ -321,13 +321,14 @@ in your PR, keep it short, and mention the change in the PR description.
 
 ## Squads (Guillaume 2026-11-27: "auto groups that would merge the bottom and numbered group")
 
-- One squad strip at the bottom left replaces the old army groups 1-4 (left edge, hold to store) and the
-  ALL/INF/VEH/AIR/IDLE buttons. Rules live in `scripts/squads.gd` (preloaded as `Squads`, no class_name):
+- The squad chips (in the side column's dock since the two-thumb layout, see below) replace the old army groups 1-4
+  (left edge, hold to store) and the ALL/INF/VEH/AIR/IDLE buttons. Rules live in `scripts/squads.gd` (preloaded as `Squads`, no class_name):
   a selection of 2+ units that gets an order (`main.command` calls `_squad_order`) becomes a squad; a unit is in one
   squad; part of a squad splits off, whole squads merge into the lowest number; five squads at most; deaths only shrink.
   A selection made by ALL (`main.sel_src == "all"`) never reshuffles squads.
-- Chips: `UI.SquadChip` (key > 0 squad, 0 ALL, -1 NEW). JOIN (`U.btn.join`) and type chips (`U.type_btns`) sit in
-  cmd_top. Tutorial drills use the `group_recall` event (a squad chip selecting squad i + 1).
+- Chips: `UI.SquadChip` (key > 0 squad, 0 ALL, -1 NEW) in `U.cmd_bot`. JOIN (`U.btn.join`) and type chips
+  (`U.type_btns`, `U.cmd_top`) sit above them. A box or a swipe sets `sel_src = ""`, so part of ALL picked by hand
+  forms a squad on its next order. Tutorial drills use the `group_recall` event (a squad chip selecting squad i + 1).
 - `squad_tests()` in `tests/sim_test.gd`; `AF_MODE=squads` shoots the strip, JOIN and type chips at phone size.
 
 ## Radar (Guillaume 2026-11-27: "a radar mode by zooming out, you can then handle units in bulk")
@@ -349,8 +350,28 @@ in your PR, keep it short, and mention the change in the PR description.
   picked together have `sel_src == "multi"`, and `_squad_order` skips "multi" like "all", so ordering them keeps
   their numbers (outside the radar, ordering whole squads together still merges them). Dragging a badge
   (`bpending`/`bdrag` gestures) sends that squad alone (`radar_send`) and keeps the selection. One finger on open
-  ground draws a box (no hold needed). A double-tap on open ground (450 ms) flies down (`dive`, `fly`, `_fly_tick`).
+  ground draws a box (no hold needed); from one of your icons it swipes them up. No double-tap dive any more (its
+  first tap had already sent the army there, 2026-11-28): pinch in to come back down.
   Picking uses small radii in radar (14 own, 20 enemy).
 - `AF_MODE=radar AF_SHOT=dir` shoots near / blend / radar, then replays badge taps, an attack, a badge drag, a box
-  and a dive with real touch events, printing RADAR lines. Software rendering runs at ~4 fps here, so the dive is
+  a double-tap (no dive) and a swipe with real touch events, printing RADAR lines. Software rendering runs at ~4 fps here, so the dive is
   sent straight to `tap()`.
+
+## Two-thumb controls (Guillaume 2026-11-28: "one thumb for moving and the other for actions")
+
+- He ended up selecting ALL every time because picking part of the army was too hard. Plan and mock-ups: project
+  files `aurite-overhaul/controls/`. Portrait was discussed and set aside (landscape first).
+- Map thumb (`main.gd` input): no buttons on the map. One finger on open ground drags the map; a finger that lands on
+  one of your units and moves is a swipe (`gest.mode == "paint"`, `_paint`): every unit within `BRUSH` (34 UI units,
+  `BRUSH_RADAR` 18 in radar) of the finger's path is picked, live, harvesters only if nothing else was swept. Tap,
+  double-tap, pinch and the radar badges are unchanged. Removed on touch: hold-then-drag box, hold-drag formation
+  facing, hold-and-release deselect (`_check_long_press`), the radar double-tap dive. The mouse keeps left-drag box and
+  right-drag facing. Formation is always on (its button is gone; `S.formation` stays for tests).
+- Action thumb (`ui.gd _build_dock`): every button is in the side column. `U.panel_top` (header, build list, orders)
+  above, the dock `U.cmd_row` at the bottom: Launch, JOIN, type chips, squads (two per row), then Attack / Stop / ✕.
+  While placing a building the dock gives way to `U.place_bar` (hint, Build here, Cancel). Hiding the panel (») folds
+  it down to the dock (`set_panel`, `_place_panel`); `main._fit_dock` hides it while the dock is empty.
+- Pause > "Buttons: right/left" (`main.toggle_hand`, prefs `hand`) puts the column on the left (`U.left_hand`,
+  `V.panel_left` flips `view_rect` and the camera's h_offset).
+- `AF_INPUT=1 AF_SHOT=dir` prints INPUT lines for the swipe (from ALL), a hold-drag that now just pans, and the rest.
+
