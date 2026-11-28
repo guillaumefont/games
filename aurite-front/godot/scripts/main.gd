@@ -2919,3 +2919,28 @@ func _input_test() -> void:
 		var out2 := Vector2(V.view_rect().size.x / 3, V.view_rect().size.y / 2)
 		_touch(0, out2, true); await get_tree().process_frame; _touch(0, out2, false); await get_tree().process_frame
 		print("INPUT dock tap outside: open=", rg.docked != "", " sel=", S.sel.size(), " map moved=", Vector2(V.cam_x, V.cam_y).distance_to(cam0) > 1)
+	# a READY structure dragged straight off its shortcut onto the map
+	var pt2 := ""
+	for t2 in D.CATS.bld:
+		if S.avail(0, t2) and S.has_req(0, D.BLD[t2].req) and not D.BLD[t2].get("kit", 0) and not D.BLD[t2].get("onore", false) and not D.BLD[t2].get("shore", false) and not S.at_limit(0, t2): pt2 = t2; break
+	var q2: Dictionary = S.teams[0].prod.bld
+	q2.cur = ""; q2.ready = false
+	V.cam_z = 1.0; V.center_on(S.p0.x * T + 16, (S.p0.y - 1) * T)
+	click_item("bld", pt2)
+	for i in 20 * 40: S.step(0.05)
+	for k in 3: await get_tree().process_frame
+	var hc = U.prod_chips.get("hq")
+	var n0: int = S.count(0, pt2)
+	await _shot(OS.get_environment("AF_SHOT") + "/09_shortcut_ready.png")
+	print("INPUT shortcut ready ", pt2, "=", q2.ready, " chip ready=", hc.is_ready if hc else null)
+	if hc != null:
+		var c0: Vector2 = hc.get_global_rect().get_center()
+		var to := Vector2(460, 420)   # clear of the structure the drag test above put at (300, 330)
+		_touch(0, c0, true); await get_tree().process_frame
+		for k in 8:
+			_drag(0, c0.lerp(to, (k + 1) / 8.0)); await get_tree().process_frame
+		print("INPUT shortcut drag placing=", placing != null, " half ring open=", U.ring.docked != "")
+		_touch(0, to, false); await get_tree().process_frame
+		for k in 2: await get_tree().process_frame
+		print("INPUT shortcut drag-build ", pt2, " ", n0, " -> ", S.count(0, pt2), " placing=", placing != null)
+
