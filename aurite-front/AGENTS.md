@@ -375,12 +375,13 @@ in your PR, keep it short, and mention the change in the PR description.
   right-drag facing. Formation is always on (its button is gone; `S.formation` stays for tests).
 - Action thumb: radial controls (`scripts/radial.gd`; he asked for "radial controls on the bottom right corner",
   "sectors instead of points", "ring menus around structures", "the structure visible in the middle, 8 sectors max").
-  - `Radial.Wheel` (`U.wheel`), a quarter circle in the BOTTOM-LEFT corner by default (Guillaume, after the first
-    preview: commands under the left thumb, he selects and moves with the right; prefs `wheel`, Pause > Wheel: right
-    mirrors it). Hub = ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure
-    waits; it selects the Yard). Inner ring: squads ALL, 1-5 (health arc, ! under fire); NEW is a plate over the
-    wheel. Outer ring, the widest sectors (he found too many buttons near the corner): the pick's orders (Stop, Hold,
-    No fire, Scatter, To base, Jump/Strip/Fuse); empty with nothing picked.
+  - `Radial.Wheel` (`U.wheel`) is no longer a wheel (Guillaume 2026-11-28: "I hate the left menu ... unusable", "don't
+    hesitate to simplify it"; he picked "B: three big buttons" from three mock-ups): in the BOTTOM-LEFT corner by
+    default (prefs `wheel`, Pause > Wheel: right mirrors it), a column of big buttons from the corner up: ATTACK
+    (amove; absent for an unarmed pick), STOP, and the pick's special (first visible of Jump/Strip/Fuse). ALL ARMY
+    (`squad_tap(0)`, tutorial event `all_army`) sits beside ATTACK, also with nothing picked. Cut from the touch UI:
+    the squad chips 1-5 and NEW, JOIN, the type plates, Hold, No fire, Scatter, To base (their logic and keys stay;
+    squads still form and show as radar badges).
   - Producer shortcuts ("on the right add a shortcut menu for producing buildings"; after build 215 he asked for the
     half rings back as "the only one I need", "scrollable with big sectors"): `U.chip_box`, a column of ProdChips on the
     side away from the wheel (`U.prod_col_left`). A tap is `Ring.toggle_dock(bt)`: that building type's whole menu as a
@@ -399,8 +400,8 @@ in your PR, keep it short, and mention the change in the PR description.
   - Both draw state they read from the old side column, which is built but never shown (`panel_px()` is 0,
     `set_panel` keeps it shut): `U.items` (BuildItem state from `refresh_panel`), `U.btn` visibility/on/cap from
     `update_cmd`, the SquadChips from `_squad_chips`, `U.prod_chips`. Game logic did not move.
-  - Over the wheel (`U.plates`): the selection header (`ctx_box`, hidden for a mixed pick), the type chips, and a row of
-    JOIN / Launch / "N PICKED ✕". While placing, `U.place_bar` (hint, Build here, Cancel) takes the wheel's corner.
+  - Over the corner buttons (`U.plates`): the selection header (`ctx_box`, hidden for a mixed pick) and a row of
+    Launch / "N PICKED ✕". While placing, `U.place_bar` (hint, Build here, Cancel) takes the wheel's corner.
   - Tutorial `{"item"}` pointers: the ring sector (or its category), else the producing building on the map, else its
     wheel sector, else the top chip.
 - Pause > "Wheel: left/right" (`main.toggle_hand`, prefs `wheel`, default left) mirrors the wheel, plates and place
