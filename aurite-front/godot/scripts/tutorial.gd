@@ -466,20 +466,19 @@ func _ptr_of(p: Dictionary):
 			"sw": c = U.btn.sw if U.btn.sw.visible else null
 		return ["r", c.get_global_rect()] if c != null and c.is_visible_in_tree() else null
 	if p.has("item"):
-		# the sector on the open ring (or the category that holds it); else the building that makes it, on the map;
-		# else its producer on the corner wheel (the Yard hub, or a producer sector), else its top-bar chip
+		# the sector on the open ring or shortcut menu (or the category that holds it); else the producer's shortcut;
+		# else the building that makes it, on the map
 		var r = U.ring.rect_of_item(p.item)
 		if r != null: return ["r", r]
 		var it: Control = U.items.get(p.item)
 		if it == null: return null
 		var cat: String = p.item.split(":")[0]
 		var bt: String = "hq" if cat == "bld" else S.unit_from(0, it.type)
+		var pc = U.prod_chips.get(bt)
+		if pc != null and pc.is_visible_in_tree(): return ["r", pc.get_global_rect()]   # its producer shortcut
 		for e in S.ents:
 			if e.alive and e.team == 0 and e.kind == "b" and e.type == bt and V.on_screen(e.x, e.y, -30): return ["w", _ent_pt(e)]
-		var wr = U.wheel.rect_of("yard" if bt == "hq" else "p:" + bt)
-		if wr != null: return ["r", wr]
-		var pc = U.prod_chips.get(bt)
-		return ["r", pc.get_global_rect()] if pc != null and pc.is_visible_in_tree() else null
+		return null
 	return null
 
 # ---------------- controls ----------------

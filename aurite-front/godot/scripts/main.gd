@@ -205,7 +205,7 @@ func prod_chip_tap(bt: String) -> void:
 	if S.sel.size() == 1 and own.has(S.sel[0]): i = (own.find(S.sel[0]) + 1) % own.size()
 	var b: Ent = own[i]
 	S.set_sel([b])
-	if not V.on_screen(b.x, b.y) or own.size() > 1: V.center_on(b.x, b.y)
+	if not V.on_screen(b.x, b.y, -40): V.center_on(b.x, b.y)   # the map moves only to bring an off-screen one into view
 	tut.ev("chip", bt)
 
 ## Hold a unit button: queue five of it.
@@ -331,6 +331,14 @@ func _squad_chips() -> void:
 	var fr := sq.fresh(S)
 	U.btn.sq_new.visible = fr.size() > 0
 	U.btn.sq_new.set_state({"n": fr.size()}, sel_src == "new" and S.sel.size() == fr.size())
+
+## LOOP for a kind of producer: it repeats its queue.
+func toggle_loop(bt: String) -> void:
+	if prod_cats(bt).is_empty(): return
+	var lp: Dictionary = S.teams[0].get("loop", {}); S.teams[0].loop = lp
+	lp[bt] = not lp.get(bt, false)
+	toast(("Loop on: the %s repeats its queue" if lp[bt] else "Loop off: the %s stops after its queue") % D.BLD[bt].name)
+	sfx("click"); refresh_panel(true); update_cmd()
 
 ## Structures that send what they make to a rally point.
 func _rallies(b: Ent) -> bool:
@@ -970,10 +978,7 @@ func cmd_btn(k: String) -> void:
 		"loop":
 			var b: Ent = S.sel[0] if S.sel.size() else null
 			if b == null or b.kind != "b" or b.team != 0 or prod_cats(b.type).is_empty(): return
-			var lp: Dictionary = S.teams[0].get("loop", {}); S.teams[0].loop = lp
-			lp[b.type] = not lp.get(b.type, false)
-			toast(("Loop on: the %s repeats its queue" if lp[b.type] else "Loop off: the %s stops after its queue") % b.d.name)
-			sfx("click"); refresh_panel(true); update_cmd()
+			toggle_loop(b.type)
 		"jump":
 			jump_aim = not jump_aim; amove = false; sfx("click"); update_cmd()
 		"rally":

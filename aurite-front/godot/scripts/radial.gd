@@ -4,7 +4,7 @@
 ##     hub: ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure waits).
 ##     inner ring: the squads, ALL and 1 to 5, each with its health arc (NEW is a plate over the wheel).
 ##     outer ring, the widest sectors (Guillaume: too many buttons sat near the corner, where sectors are smallest): the
-##     picked units' orders, or (nothing picked) the other producers: tap one to jump to it.
+##     picked units' orders. The producers have a shortcut column on the other side (`U.chip_box`).
 ##   Ring: around a selected structure of yours, one ring of at most 8 sectors with an open centre (the structure stays in
 ##     view). Everything fits on it when it can; otherwise its orders fold into ORDERS, and more than 7 things to make go
 ##     into categories (a category opens as the same ring with a BACK sector). A finished building always keeps its own
@@ -160,14 +160,7 @@ class Wheel extends Control:
 				var cap: String = B[k].cap if B[k].cap != "" else String(B[k].text)
 				if k == "stop": cap = "STOP"
 				mids.append({"key": k, "g": B[k].glyph, "cap": cap, "lit": B[k].get_meta("on", false), "dim": B[k].modulate.a < 0.9})
-		else:
-			var sb: Ent = m.S.sel[0] if (m.S.sel.size() == 1 and m.S.sel[0].kind == "b" and m.S.sel[0].team == 0) else null
-			for bt in m.producers:
-				if bt == "hq": continue
-				var pc = ui.prod_chips.get(bt)
-				if pc == null or not pc.visible: continue
-				mids.append({"key": "p:" + bt, "bt": bt, "cap": String(D.BLD[bt].name).get_slice(" ", 0).to_upper(), "lit": sb != null and sb.type == bt,
-					"prog": pc.prog if pc.type != "" else -1.0, "n": pc.n, "loop": pc.loop})
+		# nothing picked: the producers have their own shortcut column on the other side
 		mids = mids.slice(0, 6)
 		for i in mids.size():
 			var s: Dictionary = mids[i]; var sp := _span(i, mids.size())
