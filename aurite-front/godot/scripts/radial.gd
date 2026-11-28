@@ -4,7 +4,7 @@
 ##     hub: ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure waits).
 ##     inner ring: the squads, ALL and 1 to 5, each with its health arc (NEW is a plate over the wheel).
 ##     outer ring, the widest sectors (Guillaume: too many buttons sat near the corner, where sectors are smallest): the
-##     picked units' orders, or (nothing picked) the other producers: tap one to jump to it.
+##     picked units' orders. The producers have their own shortcut column on the other side (`docked` half rings).
 ##   Ring: around a selected structure of yours, one ring of at most 8 sectors with an open centre (the structure stays in
 ##     view). Everything fits on it when it can; otherwise its orders fold into ORDERS, and more than 7 things to make go
 ##     into categories (a category opens as the same ring with a BACK sector). A finished building always keeps its own
@@ -149,7 +149,7 @@ class Wheel extends Control:
 			var q: Dictionary = m.S.teams[0].prod.bld
 			var has_yard: bool = m.S.count(0, "hq") > 0 or q.cur != ""
 			var sb: Ent = m.S.sel[0] if (m.S.sel.size() == 1 and m.S.sel[0].kind == "b" and m.S.sel[0].team == 0) else null
-			hub.merge({"key": "yard", "g": "bld_crane", "cap": "READY" if q.ready else "YARD", "lit": sb != null and sb.type == "hq",
+			hub.merge({"key": "yard", "g": "bld_crane", "cap": "READY" if q.ready else "YARD", "lit": (sb != null and sb.type == "hq") or ui.ring.docked == "hq",
 				"ready": q.ready, "dim": not has_yard, "prog": q.prog if (q.cur != "" and not q.ready) else -1.0})
 		secs.append(hub)
 		# outer ring: orders or producers
@@ -160,14 +160,7 @@ class Wheel extends Control:
 				var cap: String = B[k].cap if B[k].cap != "" else String(B[k].text)
 				if k == "stop": cap = "STOP"
 				mids.append({"key": k, "g": B[k].glyph, "cap": cap, "lit": B[k].get_meta("on", false), "dim": B[k].modulate.a < 0.9})
-		else:
-			var sb: Ent = m.S.sel[0] if (m.S.sel.size() == 1 and m.S.sel[0].kind == "b" and m.S.sel[0].team == 0) else null
-			for bt in m.producers:
-				if bt == "hq": continue
-				var pc = ui.prod_chips.get(bt)
-				if pc == null or not pc.visible: continue
-				mids.append({"key": "p:" + bt, "bt": bt, "cap": String(D.BLD[bt].name).get_slice(" ", 0).to_upper(), "lit": sb != null and sb.type == bt,
-					"prog": pc.prog if pc.type != "" else -1.0, "n": pc.n, "loop": pc.loop})
+		# nothing picked: the producers live in the shortcut column on the other side now
 		mids = mids.slice(0, 6)
 		for i in mids.size():
 			var s: Dictionary = mids[i]; var sp := _span(i, mids.size())
@@ -204,7 +197,7 @@ class Wheel extends Control:
 
 	func _act(s: Dictionary) -> void:
 		var m = ui.main; var k: String = s.key
-		if k == "yard": m.prod_chip_tap("hq")
+		if k == "yard": ui.ring.toggle_dock("hq"); m.sfx("click")
 		elif k.begins_with("p:"): m.prod_chip_tap(s.bt)
 		elif k.begins_with("sq"): m.squad_tap(s.n)
 		else:
@@ -284,6 +277,9 @@ class Ring extends Control:
 	var secs: Array = []
 	var cat := ""        # "" the first ring, "orders", or a category id
 	var for_id := -1     # the structure it was opened for
+	var docked := ""     # a producer shortcut is open: that building type's menu as a half ring by the shortcut column
+	var half := false    # drawn as a half ring (docked)
+	var a_start := 0.0
 	var c := Vector2()
 	var anchor := Vector2()   # the structure on screen (the ring's centre unless it had to slide onto the screen)
 	var r0 := 50.0
@@ -305,13 +301,20 @@ class Ring extends Control:
 		if dragging: return true
 		if not visible or bld == null or secs.is_empty(): return false
 		var d := p.distance_to(c)
+		if half and Radial.hit(secs, c, p) == null: return false
 		return d >= r0 - 2 and d <= r1 + 2
 
 	## The structure the ring is for: one of yours, alone in the selection, while nothing is being placed.
 	func target() -> Ent:
 		var m = ui.main
 		if m == null or m.S.teams.is_empty() or m.paused: return null
-		if m.placing != null or m.rally_aim or m.V.radar_k() >= 0.5: return null
+		if m.placing != null or m.rally_aim: return null
+		if docked != "":
+			for e in m.S.ents:
+				if e.alive and e.team == 0 and e.kind == "b" and e.type == docked: return e
+			docked = ""
+			return null
+		if m.V.radar_k() >= 0.5: return null
 		if m.S.sel.size() != 1: return null
 		var e: Ent = m.S.sel[0]
 		return e if (e.alive and e.kind == "b" and e.team == 0) else null
@@ -333,10 +336,12 @@ class Ring extends Control:
 			if bld != null: bld = null; secs = []; queue_redraw()
 			for_id = -1; cat = ""
 			return
-		if b.id != for_id:
-			for_id = b.id; cat = ""; bld = b
+		var key := (-2 - b.id) if docked != "" else b.id
+		if key != for_id:
+			for_id = key; cat = ""; bld = b
 		bld = b
-		_place(b)
+		if docked != "": _dock()
+		else: half = false; _place(b)
 		t += dt
 		if t > 0.1 or secs.is_empty():
 			t = 0.0; rebuild()
@@ -356,6 +361,26 @@ class Ring extends Control:
 		r0 = clampf(anchor.distance_to(ce) * 1.05 + 6, 40.0, 96.0)
 		r1 = r0 + W
 		c = anchor   # the ring stays on its structure, even partly off screen (Guillaume: no sliding)
+
+	## A producer shortcut's menu: a half ring beside the shortcut column, opening towards the map; the map and the
+	## selection stay as they were (Guillaume 2026-11-28: "on the right add a shortcut menu for producing buildings").
+	func _dock() -> void:
+		half = true; r0 = 58.0; r1 = 160.0
+		var pc = ui.prod_chips.get(docked)
+		var inv := get_global_transform().affine_inverse()
+		var cc: Vector2 = inv * pc.get_global_rect().get_center() if pc != null and pc.is_visible_in_tree() else Vector2(size.x, size.y / 2)
+		var right: bool = not ui.prod_col_left()
+		var cw: float = ui.chip_box.size.x + 8.0   # beside the column, never over it
+		cc.x = size.x - cw if right else cw
+		cc.y = clampf(cc.y, 60 + r1, size.y - r1)
+		c = cc; anchor = cc
+		a_start = PI / 2 if right else -PI / 2
+
+	## Open (or, for the one open, close) the shortcut menu of a building type.
+	func toggle_dock(bt: String) -> void:
+		docked = "" if docked == bt else bt
+		cat = ""; for_id = -1; secs = []; bld = null
+		queue_redraw()
 
 	## The ring's sectors for the structure and the category open now. See the class comment for the rule.
 	func rebuild() -> void:
@@ -378,8 +403,11 @@ class Ring extends Control:
 				items += gi
 				groups.append({"id": cc, "cap": {"inf": "INFANTRY", "veh": "VEHICLES", "air": "AIR"}[cc], "g": cc, "items": gi})
 		var orders: Array = []
-		for k in ["rally", "upgrade", "repair", "loop", "muster", "sell"]:
-			if ui.btn[k].visible: orders.append({"kind": "order", "key": k})
+		if docked != "":
+			if not m.prod_cats(bt).is_empty(): orders.append({"kind": "order", "key": "loop"})
+		else:
+			for k in ["rally", "upgrade", "repair", "loop", "muster", "sell"]:
+				if ui.btn[k].visible: orders.append({"kind": "order", "key": k})
 		var ready = null
 		if bt == "hq":
 			var q: Dictionary = S.teams[0].prod.bld
@@ -424,11 +452,11 @@ class Ring extends Control:
 		for g in groups: cat_caps[g.id] = g.cap
 		var n := list.size()
 		if n == 0: return
-		var span := TAU / n
+		var span := (PI if half else TAU) / n
 		for i in n:
 			var s: Dictionary = list[i]
 			if s.kind == "item": s.key = "i:" + s.cat + ":" + s.type
-			var a0 := -PI / 2 - span / 2 + i * span
+			var a0 := (a_start + (i if a_start < 0 else n - 1 - i) * span) if half else (-PI / 2 - span / 2 + i * span)   # half: first at the top
 			s.merge({"r0": r0, "r1": r1, "a0": a0, "a1": a0 + span})
 			secs.append(s)
 
@@ -527,7 +555,8 @@ class Ring extends Control:
 			"orders": cat = "orders"; m.sfx("click")
 			"back": cat = ""; m.sfx("click")
 			"order":
-				m.cmd_btn(s.key)
+				if docked != "" and s.key == "loop": m.toggle_loop(docked)
+				else: m.cmd_btn(s.key)
 		m.buzz(8)
 		rebuild(); queue_redraw()
 
@@ -538,10 +567,10 @@ class Ring extends Control:
 
 	func _draw() -> void:
 		if bld == null or secs.is_empty() or dragging: return
-		# dim the map outside the ring
-		# one thick band, so no seams run out of the ring across the map
-		draw_arc(c, r1 + 1 + 1400.0, 0, TAU, 160, Color(0, 0, 0, 0.32), 2800.0, false)
-		draw_arc(c, r0 - 3, 0, TAU, 64, Color(BR, 0.45), 1.5, true)
+		if not half:
+			# dim the map outside the ring: one thick band, so no seams run out of the ring across the map
+			draw_arc(c, r1 + 1 + 1400.0, 0, TAU, 160, Color(0, 0, 0, 0.32), 2800.0, false)
+			draw_arc(c, r0 - 3, 0, TAU, 64, Color(BR, 0.45), 1.5, true)
 		for s in secs:
 			var down: bool = press != null and press == s.key
 			var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
@@ -552,8 +581,13 @@ class Ring extends Control:
 					var al := 0.42 if it.locked else 1.0
 					var edge := Color(BR, 0.95) if it.is_ready else (Color(BR, 0.7) if it.active else Color(0, 0, 0, 0))
 					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down, edge, 1.0)
-					if it.icon: draw_texture_rect(it.icon, Rect2(p - Vector2(20, 26), Vector2(40, 32)), false, Color(1, 1, 1, al))
-					Radial.text(self, ui.f_body6, p + Vector2(0, 14), String(d.name).replace(" ×4", ""), 10, Color(KH, al), 64)
+					# a half ring's sectors are thin: the picture sits out along the sector, the words in nearer
+					var am: float = (s.a0 + s.a1) / 2
+					var ip: Vector2 = (c + Vector2(cos(am), sin(am)) * (s.r1 - 24)) if half else p - Vector2(0, 10)
+					var tw: float = 50.0 if half else 64.0
+					if half: p = c + Vector2(cos(am), sin(am)) * (s.r0 + 28) - Vector2(0, 12)
+					if it.icon: draw_texture_rect(it.icon, Rect2(ip - Vector2(20, 16) * (0.8 if half else 1.0), Vector2(40, 32) * (0.8 if half else 1.0)), false, Color(1, 1, 1, al))
+					Radial.text(self, ui.f_body6, p + Vector2(0, 14), String(d.name).replace(" ×4", ""), 10, Color(KH, al), tw)
 					if it.is_ready:
 						if int(Time.get_ticks_msec() / 500) % 2 == 0 or down: Radial.text(self, ui.f_disp7, p + Vector2(0, 26), "READY", 11, Color("f0b93f"), 60)
 						else: Radial.text(self, ui.f_disp7, p + Vector2(0, 26), "DRAG OUT", 9, RED.lightened(0.3), 60)
@@ -610,12 +644,13 @@ class Ring extends Control:
 				"order":
 					var b: Button = ui.btn[s.key]
 					var on: bool = b.get_meta("on", false)
-					var al: float = b.modulate.a
+					if docked != "" and s.key == "loop": on = ui.main.S.teams[0].get("loop", {}).get(docked, false)
+					var al: float = b.modulate.a if docked == "" else 1.0
 					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, on or down)
 					UI.glyph(self, b.glyph, Rect2(p - Vector2(11, 19), Vector2(22, 22)), Color(LIT_FG if on else BR, al))
 					var cap: String = b.cap if b.cap != "" else String(b.text)
 					Radial.text(self, ui.f_disp7, p + Vector2(0, 16), cap, 10, Color(LIT_FG if on else KH, al), 64)
-					if s.key == "upgrade" and bld.upg < 0:
+					if s.key == "upgrade" and bld.upg < 0 and docked == "":
 						var u: Dictionary = ui.main.S.upg_def(bld)
 						if not u.is_empty(): Radial.text(self, ui.f_disp7, p + Vector2(0, 28), str(u.cost), 9, UI.C_AUR, 60)
 		# the name tag under the ring (above it near the bottom of the screen)
@@ -623,6 +658,7 @@ class Ring extends Control:
 		var lbl := title + ("" if cat == "" else "  ·  " + _cat_cap())
 		var tw := f.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 22
 		var y := c.y + r1 + 6
+		if half: return   # the lit shortcut names it
 		if y + 22 > size.y: return   # no room under the ring: the plate over the wheel names it already
 		var r := Rect2(c.x - tw / 2, y, tw, 22)
 		draw_style_box(UI.cut(Color(0.055, 0.062, 0.045, 0.94), Color(BR, 0.8), 1, 6, 0), r)

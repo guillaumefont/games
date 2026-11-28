@@ -95,7 +95,7 @@ var plates: VBoxContainer     # above the wheel: what is picked, type chips, JOI
 var plate_row: HBoxContainer
 var radar_tint: ColorRect  # greys and cools the 3D view while zoomed out to radar (main.gd sets its "k")
 var prod_chips := {}      # building type -> ProdChip in the top bar: what that kind of producer is making
-var chip_box: HBoxContainer
+var chip_box: VBoxContainer  # the producer shortcut column, on the side away from the wheel
 var ctx_box: Plate        # side panel header: what is selected
 var ctx_kick: Label
 var ctx_name: Label
@@ -250,8 +250,8 @@ func _build_hud() -> void:
 	var sv := _stat(sh, "SKYFALL"); sw_name = sv.get_child(0); sw_time = lbl("0:00", f_disp7, 18, Color("ffd0cc")); sv.add_child(sw_time); sw_box.visible = false
 	var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL; sp.mouse_filter = Control.MOUSE_FILTER_IGNORE; top.add_child(sp)
 	# one chip per kind of producer you own (Yard, Barracks, ...): what it is making; tap to select it
-	chip_box = HBoxContainer.new(); chip_box.add_theme_constant_override("separation", 6); chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(chip_box)
+	chip_box = VBoxContainer.new(); chip_box.add_theme_constant_override("separation", 6); chip_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(chip_box)
 	var pb := mkbtn("", func(): main.toggle_panel(), 48, 48, 13, "hide"); top.add_child(pb); btn["panel"] = pb
 	var mb := mkbtn("", func(): main.open_menu(), 48, 48, 16, "pause"); top.add_child(mb); btn["pause"] = mb
 	# the objective shows for a few seconds, then folds into this button (tap the box to fold it sooner)
@@ -497,9 +497,18 @@ func _place_radial() -> void:
 		c.grow_vertical = Control.GROW_DIRECTION_BEGIN
 		c.offset_left = 0; c.offset_right = 0; c.offset_top = 0; c.offset_bottom = 0
 	plates.offset_bottom = -(Radial.Wheel.R4 + 8)
+	# the producer shortcuts: a column on the other side, under the top bar
+	var R := not prod_col_left()
+	chip_box.anchor_left = 1.0 if R else 0.0; chip_box.anchor_right = chip_box.anchor_left; chip_box.anchor_top = 0.0; chip_box.anchor_bottom = 0.0
+	chip_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN if R else Control.GROW_DIRECTION_END
+	chip_box.offset_left = 0; chip_box.offset_right = 0; chip_box.offset_top = 66; chip_box.offset_bottom = 66
 	plate_row.alignment = BoxContainer.ALIGNMENT_BEGIN if L else BoxContainer.ALIGNMENT_END
 	for c in [ctx_box, cmd_top]: c.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if L else Control.SIZE_SHRINK_END
 	wheel.queue_redraw()
+
+## The producer shortcut column sits on the side away from the wheel.
+func prod_col_left() -> bool:
+	return not left_hand
 
 ## Does the dock show anything? A hidden panel folds down to the dock, or goes away when the dock is empty too.
 func dock_used() -> bool:
@@ -773,7 +782,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. The wheel sits bottom left, under the thumb that does not select (Pause > Wheel: right moves it)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's ring. Its first ring: your squads (ALL, 1 to 5; NEW, the units in no squad, is a plate over the wheel). Outer ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls); with nothing picked, your producers: tap one to jump to it and open its ring."], ["RINGS", "Tap one of your structures: a ring of up to eight sectors opens around it, the structure still in sight in the middle. Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). A ready structure has its own sector: drag it out and let go where it should stand (it is drawn above your finger). When a structure has more to offer, its orders fold into ORDERS (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell) and what it makes into categories (the Yard: BASE, ARMY, DEFENCE; BACK goes up again). A gold dot marks a category with work under way. Tap the map outside the ring to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's inner ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
+	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. The wheel sits bottom left, under the thumb that does not select (Pause > Wheel: right moves it)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's menu by the shortcut column. Its first ring: your squads (ALL, 1 to 5; NEW, the units in no squad, is a plate over the wheel). Outer ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls)."], ["SHORTCUTS", "The column on the other side holds your producers (the Yard, Barracks, Workshop...): what each is making, its queue and READY. Tap one: its menu opens as a half ring beside the column, without moving the map or touching your selection, so you can queue while your army stays picked. Tap it again, or tap the map, to close it."], ["RINGS", "Tap one of your structures: a ring of up to eight sectors opens around it, the structure still in sight in the middle. Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). A ready structure has its own sector: drag it out and let go where it should stand (it is drawn above your finger). When a structure has more to offer, its orders fold into ORDERS (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell) and what it makes into categories (the Yard: BASE, ARMY, DEFENCE; BACK goes up again). A gold dot marks a category with work under way. Tap the map outside the ring to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's inner ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -2001,7 +2010,7 @@ class ProdChip extends Control:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 	func _gui_input(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
-			ui.main.prod_chip_tap(bt); accept_event()
+			ui.ring.toggle_dock(bt); ui.main.sfx("click"); ui.main.buzz(8); accept_event()
 	func _draw() -> void:
 		draw_style_box(ui.hsb("normal", lit, 6, 6), Rect2(Vector2.ZERO, size))
 		if is_ready: draw_style_box(UI.cut(Color(0, 0, 0, 0), UI.C_AUR, 2, 7, 0), Rect2(Vector2.ZERO, size))
@@ -2031,7 +2040,7 @@ func set_producers(list: Array) -> void:
 	for c in chip_box.get_children(): c.queue_free()
 	prod_chips.clear()
 	for bt in list:
-		var pc := ProdChip.new(); pc.ui = self; pc.bt = bt; pc.custom_minimum_size = Vector2(58, 48); pc.visible = false
+		var pc := ProdChip.new(); pc.ui = self; pc.bt = bt; pc.custom_minimum_size = Vector2(64, 54); pc.visible = false
 		chip_box.add_child(pc); prod_chips[bt] = pc
 
 ## READY strip across a build card or chip: hazard stripes behind white text, blinking.
