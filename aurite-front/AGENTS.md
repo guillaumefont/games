@@ -375,10 +375,14 @@ in your PR, keep it short, and mention the change in the PR description.
     waits; it selects the Yard). Inner ring: squads ALL, 1-5 (health arc, ! under fire); NEW is a plate over the
     wheel. Outer ring, the widest sectors (he found too many buttons near the corner): the pick's orders (Stop, Hold,
     No fire, Scatter, To base, Jump/Strip/Fuse); empty with nothing picked.
-  - Producer shortcuts ("on the right add a shortcut menu for producing buildings"; he rejected half-ring menus by the
-    column: "only the buttons to open the structure menu directly"): `U.chip_box`, a column of the ProdChips on the side
-    away from the wheel (`U.prod_col_left`). A tap is `main.prod_chip_tap`: select that building (again: the next one)
-    and its normal ring opens on it; the camera moves only when it is off screen.
+  - Producer shortcuts ("on the right add a shortcut menu for producing buildings"; after build 215 he asked for the
+    half rings back as "the only one I need", "scrollable with big sectors"): `U.chip_box`, a column of ProdChips on the
+    side away from the wheel (`U.prod_col_left`). A tap is `Ring.toggle_dock(bt)`: that building type's whole menu as a
+    half ring beside the column (`docked`, `_dock`), selection and map untouched; a tap on the map closes it. One flat
+    strip (`dock_list`: READY first, free items, locked ones, LOOP), no categories or ADVANCED; `vis` (3-4) big
+    sectors in view, `scroll` in sectors. A drag along the arc turns it (`_layout` cuts and fades the end sectors, it
+    springs back past the ends and settles on a whole sector); a drag outward from a READY sector places the
+    structure. The wheel's YARD hub opens the Yard's. The rings around structures on the map still work.
   - `Radial.Ring` (`U.ring`): around a single selected structure of yours, one ring of at most `MAX` (8) sectors with an
     open centre. Rule (`rebuild`): items + orders fit in 8 -> all on the ring; else 2+ orders fold into ORDERS; still
     more than 7 items -> the Yard splits into a first ring of basic structures plus an ADVANCED sector (`Radial.ADV` per faction, his "basic versus advanced"; a ready advanced structure rides on that sector and drags out of it), else categories (`_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group

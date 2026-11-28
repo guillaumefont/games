@@ -189,7 +189,7 @@ func _prod_chips(tm: Dictionary) -> void:
 				if mine.is_empty() and not cur_mine: continue
 				pc.n += mine.size() + (1 if cur_mine else 0)
 				if pc.type == "": pc.cat = cat; pc.type = q.cur if cur_mine else mine[0]; pc.prog = q.prog if cur_mine else 0.0
-		pc.lit = sb != null and (sb.type == bt)
+		pc.lit = U.ring.docked == bt or (U.ring.docked == "" and sb != null and sb.type == bt)
 		pc.loop = tm.get("loop", {}).get(bt, false)
 		if pc.visible: pc.queue_redraw()
 
@@ -1188,6 +1188,8 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			var hp3 := V.w2s(hit.x, hit.y, S.h_at(hit.x, hit.y))
 			if Vector2(hp3.x, hp3.y).distance_to(Vector2(sx, sy)) < 10: n = 0
 		if n > 0: radar_badge(n); return
+	if U.ring.docked != "" and not right:   # a tap outside a shortcut's menu closes it, and does nothing else
+		U.ring.toggle_dock(U.ring.docked); return
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
 	if jump_aim and not right:
 		jump_aim = false
@@ -2121,6 +2123,25 @@ func _ctx_shots(dir: String) -> void:
 			await get_tree().create_timer(0.4).timeout
 			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", U.ring.secs.map(func(s): return s.key), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
 			await _shot(dir + "/%s_%d_%s.png" % [fac, n, bt]); n += 1
+		# a producer shortcut: its menu as a half ring by the column, the selection and the map left alone
+		S.set_sel([]); update_cmd()
+		U.ring.toggle_dock(producers[1] if producers.size() > 1 else "hq")
+		await get_tree().create_timer(0.4).timeout
+		print("CTX ", fac, " shortcut ", U.ring.docked, ": ", U.ring.secs.map(func(s): return s.key))
+		await _shot(dir + "/%s_%d_shortcut.png" % [fac, n]); n += 1
+		U.ring.toggle_dock(U.ring.docked)
+		U.ring.toggle_dock("hq")
+		await get_tree().create_timer(0.4).timeout
+		print("CTX ", fac, " shortcut hq: ", U.ring.secs.map(func(s): return s.key))
+		await _shot(dir + "/%s_%d_shortcut_yard.png" % [fac, n]); n += 1
+		U.ring.scroll_to = U.ring._max_scroll(); U.ring.scroll = U.ring.scroll_to - 0.45   # caught mid-turn
+		await RenderingServer.frame_post_draw
+		U.ring.scrolling = true; U.ring.scroll = U.ring.scroll_to - 0.45; U.ring._layout()
+		await _shot(dir + "/%s_%d_shortcut_yard_turning.png" % [fac, n]); n += 1
+		U.ring.scrolling = false
+		await get_tree().create_timer(0.6).timeout
+		await _shot(dir + "/%s_%d_shortcut_yard_end.png" % [fac, n]); n += 1
+		U.ring.toggle_dock("hq")
 		# a building with orders of its own (Hearth: Muster; else an upgradable one)
 		var other: Ent = null
 		for e in S.ents:
@@ -2875,3 +2896,37 @@ func _input_test() -> void:
 		print("INPUT rally aim=", rally_aim, " ring hidden=", U.ring.secs.is_empty() or U.ring.bld == null)
 		_touch(0, out, true); await get_tree().process_frame; _touch(0, out, false); await get_tree().process_frame
 		print("INPUT rally set=", bk.rally, " sel=", S.sel.size(), " aim=", rally_aim)
+	# a producer shortcut: the half ring opens by the column, a finger turns it along the arc, a tap orders, a tap on the
+	# map closes it, and neither the selection nor the map moves
+	S.set_sel([]); update_cmd()
+	var cam0 := Vector2(V.cam_x, V.cam_y)
+	var pcy = U.prod_chips.get("hq")
+	if pcy != null:
+		var cp: Vector2 = pcy.get_global_rect().get_center()
+		_touch(0, cp, true); await get_tree().process_frame; _touch(0, cp, false)
+		for k in 3: await get_tree().process_frame
+		var rg = U.ring; var gt: Transform2D = rg.get_global_transform()
+		print("INPUT dock open=", rg.docked, " sectors in view=", rg.secs.size(), " of ", rg.dock_list.size(), " first=", rg.secs.map(func(s2): return s2.key).slice(0, 2))
+		var rm: float = (rg.r0 + rg.r1) / 2; var sp: float = PI / rg.vis; var dir := -1.0 if rg.a_start > 0 else 1.0
+		var a0: float = -PI / 2 + dir * sp * 2.5
+		var steps := 8
+		for i in steps + 1:
+			var a: float = a0 - dir * sp * 2.0 * float(i) / steps   # drag two sectors' worth towards the top
+			var q: Vector2 = gt * (rg.c + Vector2(cos(a), sin(a)) * rm)
+			if i == 0: _touch(0, q, true)
+			else: _drag(0, q)
+			await get_tree().process_frame
+		_touch(0, gt * (rg.c + Vector2(cos(a0 - dir * sp * 2.0), sin(a0 - dir * sp * 2.0)) * rm), false)
+		await get_tree().create_timer(0.5).timeout
+		print("INPUT dock scrolled to=", rg.scroll_to, " scroll=", snappedf(rg.scroll, 0.01), " first=", rg.secs.map(func(s2): return s2.key).slice(0, 2), " queued=", S.teams[0].prod.bld.cur)
+		var s0 = null
+		for s2 in rg.secs:
+			if s2.kind == "item" and not U.items[s2.cat + ":" + s2.type].locked and s2.vf > 0.9: s0 = s2; break
+		if s0 != null:
+			var tp: Vector2 = gt * Radial.mid(rg.c, s0.r0, s0.r1, s0.a0, s0.a1)
+			_touch(0, tp, true); await get_tree().process_frame; _touch(0, tp, false)
+			for k in 2: await get_tree().process_frame
+			print("INPUT dock tap ", s0.type, ": building=", S.teams[0].prod.bld.cur, " queued=", U.items["bld:" + s0.type].n, " active=", U.items["bld:" + s0.type].active, " sel=", S.sel.size())
+		var out2 := Vector2(V.view_rect().size.x / 3, V.view_rect().size.y / 2)
+		_touch(0, out2, true); await get_tree().process_frame; _touch(0, out2, false); await get_tree().process_frame
+		print("INPUT dock tap outside: open=", rg.docked != "", " sel=", S.sel.size(), " map moved=", Vector2(V.cam_x, V.cam_y).distance_to(cam0) > 1)
