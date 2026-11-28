@@ -1159,5 +1159,27 @@ func order_tests(s, h) -> bool:
 	tm.loop = {}
 	for i in 20 * 12: s.step(0.05)
 	if tm.prod.inf.cur != "" or tm.prod.inf.queue.size(): return _ofail("the line kept going after LOOP was turned off")
+	# building on your own units: they no longer block placement and step out of the footprint; enemies still block
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 94})
+	var hq: Ent = s.find_hq(0)
+	var spot := Vector2i(-1, -1)
+	for dy in range(-6, 7):
+		for dx in range(-6, 7):
+			if spot.x < 0 and s.can_place(0, "hearth", hq.tx + dx, hq.ty + dy, false): spot = Vector2i(hq.tx + dx, hq.ty + dy)
+	if spot.x < 0: return _ofail("no spot for a Hearth near the Yard")
+	var mine = s.spawn_unit(0, "militia", (spot.x + 1) * D.T, (spot.y + 1) * D.T)
+	if not s.can_place(0, "hearth", spot.x, spot.y, false): return _ofail("an own unit still blocks placement")
+	var hb = s.add_building(0, "hearth", spot.x, spot.y)
+	s.clear_footprint(hb)
+	for i in 40: s.step(0.05)
+	var mx := int(mine.x / D.T); var my := int(mine.y / D.T)
+	print("orders: unit under a new Hearth walked to ", Vector2i(mx, my), " footprint ", Rect2i(spot.x, spot.y, hb.w, hb.h))
+	if Rect2i(spot.x, spot.y, hb.w, hb.h).has_point(Vector2i(mx, my)): return _ofail("the unit stayed inside the new building")
+	var spot2 := Vector2i(-1, -1)
+	for dy in range(-7, 8):
+		for dx in range(-7, 8):
+			if spot2.x < 0 and s.can_place(0, "hearth", hq.tx + dx, hq.ty + dy, false): spot2 = Vector2i(hq.tx + dx, hq.ty + dy)
+	var foe2 = s.spawn_unit(1, "rifle", (spot2.x + 1) * D.T, (spot2.y + 1) * D.T)
+	if s.can_place(0, "hearth", spot2.x, spot2.y, false): return _ofail("an enemy unit no longer blocks placement")
 	print("ORDER TESTS OK")
 	return true
