@@ -379,19 +379,16 @@ in your PR, keep it short, and mention the change in the PR description.
     half rings back as "the only one I need", "scrollable with big sectors"): `U.chip_box`, a column of ProdChips on the
     side away from the wheel (`U.prod_col_left`). A tap is `Ring.toggle_dock(bt)`: that building type's whole menu as a
     half ring beside the column (`docked`, `_dock`), selection and map untouched; a tap on the map closes it. One flat
-    strip (`dock_list`: READY first, free items, locked ones, LOOP), no categories or ADVANCED; `vis` (3-4) big
+    strip (`dock_list`: READY first, free items, orders, locked ones), no categories or ADVANCED; `vis` (3-4) big
     sectors in view, `scroll` in sectors. A drag along the arc turns it (`_layout` cuts and fades the end sectors, it
     springs back past the ends and settles on a whole sector); a drag outward from a READY sector places the
     structure. The wheel's YARD hub opens the Yard's. The rings around structures on the map still work.
-  - `Radial.Ring` (`U.ring`): around a single selected structure of yours, one ring of at most `MAX` (8) sectors with an
-    open centre. Rule (`rebuild`): items + orders fit in 8 -> all on the ring; else 2+ orders fold into ORDERS; still
-    more than 7 items -> the Yard splits into a first ring of basic structures plus an ADVANCED sector (`Radial.ADV` per faction, his "basic versus advanced"; a ready advanced structure rides on that sector and drags out of it), else categories (`_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
-    over 7 splits in parts), each opened with BACK; a READY building keeps its own sector on the first ring. Tap queues
-    (`click_item`), hold 0.55 s queues five or cancels a building, the ✕ / ×N badge cancels one, a READY sector drags
-    out (`drag_build_*`). The ring dims the map outside (one thick arc: no seams) and NEVER moves the camera ("I don't want the map to
-    jump"); it stays centred on its structure even when partly off screen (`_place`). A tap outside it closes it
-    (deselects); the rally point is set with the RALLY order on the ring (`main.rally_aim`, then a tap on the map). It hides in radar and
-    while placing (but stays alive during its own drag so the drag keeps its events).
+  - `Radial.Ring` (`U.ring`): the ONLY structure menu (Guillaume 2026-11-28: "keep only the half ring"; the full rings
+    around structures, their categories and the Yard's ADVANCED split are gone). A single selected structure of yours
+    opens the same half ring as its shortcut, plus its orders (`ui.btn` rally/upgrade/repair/loop/muster/sell that are
+    visible); a shortcut (`docked`) shows only LOOP as an order since it leaves the selection alone. A tap on the map
+    with a shortcut open closes it; on one of your structures it goes on to select that one. A READY sector always
+    drags its structure out (never scrolls); other sectors scroll when dragged along the arc.
   - Both draw state they read from the old side column, which is built but never shown (`panel_px()` is 0,
     `set_panel` keeps it shut): `U.items` (BuildItem state from `refresh_panel`), `U.btn` visibility/on/cap from
     `update_cmd`, the SquadChips from `_squad_chips`, `U.prod_chips`. Game logic did not move.

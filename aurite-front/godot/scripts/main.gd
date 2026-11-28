@@ -1188,8 +1188,9 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			var hp3 := V.w2s(hit.x, hit.y, S.h_at(hit.x, hit.y))
 			if Vector2(hp3.x, hp3.y).distance_to(Vector2(sx, sy)) < 10: n = 0
 		if n > 0: radar_badge(n); return
-	if U.ring.docked != "" and not right:   # a tap outside a shortcut's menu closes it, and does nothing else
-		U.ring.toggle_dock(U.ring.docked); return
+	if U.ring.docked != "" and not right:   # a tap outside a shortcut's menu closes it; on one of your structures it
+		U.ring.toggle_dock(U.ring.docked)   # goes on to select it (its own half ring opens), else it does nothing more
+		if hit == null or hit.team != 0 or hit.kind != "b": return
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
 	if jump_aim and not right:
 		jump_aim = false
@@ -2095,16 +2096,11 @@ func _ctx_shots(dir: String) -> void:
 		for i in 30: S.step(0.05)
 		refresh_panel(true)
 		await get_tree().create_timer(0.5).timeout
+		if placing != null: end_placing()   # a structure that finished early waits as READY instead
 		S.set_sel([hq]); update_cmd()
 		await get_tree().create_timer(0.5).timeout
 		print("CTX ", fac, " yard ring: ", U.ring.secs.map(func(s): return s.key))
 		await _shot(dir + "/%s_1_yard.png" % fac)
-		var g0 = U.ring.secs.filter(func(s): return s.kind == "group")
-		if not g0.is_empty():
-			U.ring.cat = g0[0].g.id; U.ring.rebuild()
-			await get_tree().create_timer(0.3).timeout
-			print("CTX ", fac, " yard ", U.ring.cat, ": ", U.ring.secs.map(func(s): return s.key))
-			await _shot(dir + "/%s_1b_yard_%s.png" % [fac, U.ring.cat])
 		S.set_sel([]); update_cmd()
 		await get_tree().create_timer(0.3).timeout
 		await _shot(dir + "/%s_1c_none.png" % fac)
@@ -2123,13 +2119,8 @@ func _ctx_shots(dir: String) -> void:
 			await get_tree().create_timer(0.4).timeout
 			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", U.ring.secs.map(func(s): return s.key), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
 			await _shot(dir + "/%s_%d_%s.png" % [fac, n, bt]); n += 1
-		# a producer shortcut: its menu as a half ring by the column, the selection and the map left alone
+		# a producer shortcut: the Yard's half ring with the selection and the map left alone, caught mid-turn
 		S.set_sel([]); update_cmd()
-		U.ring.toggle_dock(producers[1] if producers.size() > 1 else "hq")
-		await get_tree().create_timer(0.4).timeout
-		print("CTX ", fac, " shortcut ", U.ring.docked, ": ", U.ring.secs.map(func(s): return s.key))
-		await _shot(dir + "/%s_%d_shortcut.png" % [fac, n]); n += 1
-		U.ring.toggle_dock(U.ring.docked)
 		U.ring.toggle_dock("hq")
 		await get_tree().create_timer(0.4).timeout
 		print("CTX ", fac, " shortcut hq: ", U.ring.secs.map(func(s): return s.key))
@@ -2139,8 +2130,6 @@ func _ctx_shots(dir: String) -> void:
 		U.ring.scrolling = true; U.ring.scroll = U.ring.scroll_to - 0.45; U.ring._layout()
 		await _shot(dir + "/%s_%d_shortcut_yard_turning.png" % [fac, n]); n += 1
 		U.ring.scrolling = false
-		await get_tree().create_timer(0.6).timeout
-		await _shot(dir + "/%s_%d_shortcut_yard_end.png" % [fac, n]); n += 1
 		U.ring.toggle_dock("hq")
 		# a building with orders of its own (Hearth: Muster; else an upgradable one)
 		var other: Ent = null
@@ -2888,7 +2877,7 @@ func _input_test() -> void:
 		V.cam_z = 1.0; V.center_on(bk.x, bk.y); S.set_sel([bk]); update_cmd()
 		for k in 3: await get_tree().process_frame
 		var out := Vector2(V.view_rect().size.x / 2, 70)
-		print("INPUT ring open for ", bk.type, ": ", U.ring.secs.size(), " sectors, centre ", U.ring.c, " anchor ", U.ring.anchor)
+		print("INPUT ring open for ", bk.type, ": ", U.ring.secs.size(), " sectors in view, centre ", U.ring.c, " keys ", U.ring.dock_list.map(func(s2): return s2.key))
 		_touch(0, out, true); await get_tree().process_frame; _touch(0, out, false); await get_tree().process_frame
 		print("INPUT tap outside the ring: sel=", S.sel.size())
 		S.set_sel([bk]); update_cmd(); cmd_btn("rally")

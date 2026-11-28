@@ -5,10 +5,10 @@
 ##     inner ring: the squads, ALL and 1 to 5, each with its health arc (NEW is a plate over the wheel).
 ##     outer ring, the widest sectors (Guillaume: too many buttons sat near the corner, where sectors are smallest): the
 ##     picked units' orders. The producers have their own shortcut column on the other side (`docked` half rings).
-##   Ring: around a selected structure of yours, one ring of at most 8 sectors with an open centre (the structure stays in
-##     view). Everything fits on it when it can; otherwise its orders fold into ORDERS, and more than 7 things to make go
-##     into categories (a category opens as the same ring with a BACK sector). A finished building always keeps its own
-##     READY sector on the first ring, and is dragged straight out of it onto the map.
+##   Ring: the one menu for structures (Guillaume 2026-11-28: "keep only the half ring", "scrollable with big sectors"):
+##     a big half ring beside the producer shortcut column. A shortcut opens its building's (`docked`, selection and map
+##     untouched); a tap on one of your structures opens that structure's, with its orders (Rally, Upgrade, Repair, Loop,
+##     Muster, Sell). Everything is on one strip that turns like a dial; a READY structure leads it and drags out of it.
 extends RefCounted
 
 const Radial := preload("res://scripts/radial.gd")
@@ -23,13 +23,6 @@ const PL0 := Color(0.125, 0.15, 0.1, 0.94)
 const PL1 := Color(0.05, 0.063, 0.04, 0.94)
 const ON0 := Color(0.29, 0.106, 0.086, 0.95)
 const ON1 := Color(0.14, 0.063, 0.05, 0.95)
-const MAX := 8
-## The Yard's late structures, behind its ADVANCED sector (Guillaume 2026-11-28: "basic buildings versus advanced
-## buildings ... at the beginning of the battle you build everything from a single menu and then you open the second").
-const ADV := {
-	"ashen": ["wall", "flak", "slipway", "mast", "works", "pylon", "rift"],
-	"vanguard": ["pdl", "uplink", "dome", "bastion", "skyfall"],
-}
 const HOLD := 0.55
 
 ## Outline of an annulus sector from angle a0 to a1 (radians, a0 < a1), with a gap of `gap` UI units between sectors.
@@ -275,10 +268,8 @@ class Ring extends Control:
 	var ui
 	const W := 70.0
 	var secs: Array = []
-	var cat := ""        # "" the first ring, "orders", or a category id
 	var for_id := -1     # the structure it was opened for
-	var docked := ""     # a producer shortcut is open: that building type's menu as a half ring by the shortcut column
-	var half := false    # drawn as a half ring (docked)
+	var docked := ""     # a producer shortcut is open: that building type's menu (else: the selected structure's)
 	var a_start := 0.0
 	# the half ring scrolls like a dial (Guillaume 2026-11-28: "scrollable with big sectors"): every item on one strip,
 	# `vis` big sectors in view, `scroll` the strip's position in sectors (fractional while a finger turns it)
@@ -290,12 +281,10 @@ class Ring extends Control:
 	var press_ang := 0.0
 	var scroll0 := 0.0
 	var c := Vector2()
-	var anchor := Vector2()   # the structure on screen (the ring's centre unless it had to slide onto the screen)
 	var r0 := 50.0
 	var r1 := 120.0
 	var bld: Ent = null
 	var title := ""
-	var cat_caps := {}
 	var press = null
 	var press_at := Vector2()
 	var hold_t := -1.0
@@ -309,9 +298,7 @@ class Ring extends Control:
 	func _has_point(p: Vector2) -> bool:
 		if dragging: return true
 		if not visible or bld == null or secs.is_empty(): return false
-		var d := p.distance_to(c)
-		if half: return scrolling or press != null or Radial.hit(secs, c, p) != null
-		return d >= r0 - 2 and d <= r1 + 2
+		return scrolling or press != null or Radial.hit(secs, c, p) != null
 
 	## The structure the ring is for: one of yours, alone in the selection, while nothing is being placed.
 	func target() -> Ent:
@@ -343,60 +330,40 @@ class Ring extends Control:
 		var b := target()
 		if b == null:
 			if bld != null: bld = null; secs = []; queue_redraw()
-			for_id = -1; cat = ""
+			for_id = -1
 			return
 		var key := (-2 - b.id) if docked != "" else b.id
-		if key != for_id:
-			for_id = key; cat = ""; bld = b
+		if key != for_id:   # another structure: the strip starts from its top
+			for_id = key; scroll = 0.0; scroll_to = 0.0; scrolling = false
 		bld = b
-		if docked != "": _dock()
-		else: half = false; _place(b)
+		_dock()
 		t += dt
 		if t > 0.1 or secs.is_empty():
 			t = 0.0; rebuild()
-		elif half:
+		else:
 			if not scrolling: scroll = lerpf(scroll, scroll_to, 1.0 - exp(-dt * 14.0))
 			_layout()
 		queue_redraw()
 
-	## Where the ring sits: around the structure on screen, its hole a little wider than the footprint. Neither the map nor
-	## the ring moves for it (Guillaume 2026-11-28: "I don't want the map to jump", "the ring stays on the structure even if
-	## it goes out of the screen"): drag the map to bring a clipped sector into view.
-	func _place(b: Ent) -> void:
-		var V = ui.main.V; var S = ui.main.S
-		var h: float = S.h_at(b.x, b.y)
-		var p: Vector3 = V.w2s(b.x, b.y, h)
-		var e: Vector3 = V.w2s(b.x + b.w * 16.0, b.y + b.h * 16.0, h)
-		var inv := get_global_transform().affine_inverse()
-		anchor = inv * Vector2(p.x, p.y)
-		var ce: Vector2 = inv * Vector2(e.x, e.y)
-		r0 = clampf(anchor.distance_to(ce) * 1.05 + 6, 40.0, 96.0)
-		r1 = r0 + W
-		c = anchor   # the ring stays on its structure, even partly off screen (Guillaume: no sliding)
-
-	## A producer shortcut's menu: a half ring beside the shortcut column, opening towards the map; the map and the
-	## selection stay as they were (Guillaume 2026-11-28: "on the right add a shortcut menu for producing buildings").
+	## Where the half ring sits: beside the shortcut column, in the middle of the screen, opening towards the map.
 	func _dock() -> void:
-		half = true
 		r1 = minf(300.0, (size.y - 72.0) / 2.0); r0 = r1 * 0.34
-		var pc = ui.prod_chips.get(docked)
-		var inv := get_global_transform().affine_inverse()
-		var cc: Vector2 = inv * pc.get_global_rect().get_center() if pc != null and pc.is_visible_in_tree() else Vector2(size.x, size.y / 2)
+		var cc := Vector2()
 		var right: bool = not ui.prod_col_left()
 		var cw: float = ui.chip_box.size.x + 8.0   # beside the column, never over it
 		cc.x = size.x - cw if right else cw
 		cc.y = clampf((size.y + 60.0) / 2.0, 60 + r1, size.y - r1)   # the middle of the screen, under the top bar
-		c = cc; anchor = cc
+		c = cc
 		a_start = PI / 2 if right else -PI / 2
 
 	## Open (or, for the one open, close) the shortcut menu of a building type.
 	func toggle_dock(bt: String) -> void:
 		docked = "" if docked == bt else bt
-		cat = ""; for_id = -1; secs = []; bld = null
+		for_id = -1; secs = []; bld = null
 		scroll = 0.0; scroll_to = 0.0; scrolling = false; press = null
 		queue_redraw()
 
-	## The ring's sectors for the structure and the category open now. See the class comment for the rule.
+	## The strip for the structure (or the shortcut's building type), laid out where it stands now.
 	func rebuild() -> void:
 		var m = ui.main; var S = m.S
 		var b := bld
@@ -405,7 +372,6 @@ class Ring extends Control:
 		var bt: String = b.type
 		title = String(b.d.name).replace(" ×4", "").to_upper()
 		var items: Array = []
-		var groups: Array = []   # [{id, cap, g, items}]
 		if bt == "hq":
 			for t2 in D.CATS.bld:
 				if S.avail(0, t2) and ui.items.has("bld:" + t2): items.append({"kind": "item", "cat": "bld", "type": t2})
@@ -415,7 +381,6 @@ class Ring extends Control:
 				for t2 in D.CATS[cc]:
 					if S.avail(0, t2) and S.unit_from(0, t2) == bt and ui.items.has(cc + ":" + t2): gi.append({"kind": "item", "cat": cc, "type": t2})
 				items += gi
-				groups.append({"id": cc, "cap": {"inf": "INFANTRY", "veh": "VEHICLES", "air": "AIR"}[cc], "g": cc, "items": gi})
 		var orders: Array = []
 		if docked != "":
 			if not m.prod_cats(bt).is_empty(): orders.append({"kind": "order", "key": "loop"})
@@ -426,68 +391,20 @@ class Ring extends Control:
 		if bt == "hq":
 			var q: Dictionary = S.teams[0].prod.bld
 			if q.ready and q.cur != "": ready = {"kind": "item", "cat": "bld", "type": q.cur}
-		if docked != "":
-			# one strip: a READY structure first, what can be made now, then what is still locked, then LOOP
-			var free: Array = []; var locked: Array = []
-			for it in items:
-				if ready != null and it.type == ready.type: continue
-				if ui.items[it.cat + ":" + it.type].locked: locked.append(it)
-				else: free.append(it)
-			dock_list = ([ready] if ready != null else []) + free + locked + orders
-			for s2 in dock_list:
-				if s2.kind == "item": s2.key = "i:" + s2.cat + ":" + s2.type
-			vis = clampi(dock_list.size(), 3, 4)
-			scroll_to = clampf(scroll_to, 0.0, _max_scroll())
-			if not scrolling: scroll = clampf(scroll, -0.5, _max_scroll() + 0.5)
-			_layout()
-			return
-		var top: Array = []
-		var adv_t: Array = ADV.get(S.fac_of(0), []) if bt == "hq" else []
-		var adv: Array = items.filter(func(it): return adv_t.has(it.type))
-		var basic: Array = items.filter(func(it): return not adv_t.has(it.type))
-		var ofold: Array = orders.duplicate()
-		if orders.size() > 1 and basic.size() + orders.size() + 1 > MAX: ofold = [{"kind": "orders", "key": "orders", "orders": orders}]
-		if items.size() + orders.size() <= MAX:
-			top = items + orders
-		elif not adv.is_empty() and basic.size() + ofold.size() + 1 <= MAX:
-			# the Yard: everything for the first minutes on one ring, the late structures behind ADVANCED
-			var g := {"id": "adv", "cap": "ADVANCED", "g": "up", "items": adv, "ready": ""}
-			if ready != null and adv_t.has(ready.type): g.ready = ready.type
-			groups = [g]
-			top = basic + ofold + [{"kind": "group", "key": "g:adv", "g": g}]
-		else:
-			var fold: Array = orders.duplicate()   # one order alone keeps its own sector; more fold into ORDERS
-			if orders.size() > 1: fold = [{"kind": "orders", "key": "orders", "orders": orders}]
-			if items.size() + fold.size() <= MAX:
-				top = items + fold
-			else:
-				if bt == "hq": groups = _bld_groups(items)
-				groups = _split(groups, MAX - 1)
-				top = []
-				for g in groups: top.append({"kind": "group", "key": "g:" + g.id, "g": g})
-				if ready != null: top.append(ready)
-				top += fold
-				if top.size() > MAX:   # still too many: the orders go first, the categories keep their place
-					top = top.slice(0, MAX)
-		var list: Array = top
-		if cat == "orders":
-			list = [{"kind": "back", "key": "back"}] + orders
-		elif cat != "":
-			list = [{"kind": "back", "key": "back"}]
-			for g in groups:
-				if g.id == cat: list += g.items.slice(0, MAX - 1)
-			if list.size() == 1: cat = ""; list = top
-		cat_caps = {"orders": "ORDERS"}
-		for g in groups: cat_caps[g.id] = g.cap
-		var n := list.size()
-		if n == 0: return
-		var span := (PI if half else TAU) / n
-		for i in n:
-			var s: Dictionary = list[i]
-			if s.kind == "item": s.key = "i:" + s.cat + ":" + s.type
-			var a0 := (a_start + (i if a_start < 0 else n - 1 - i) * span) if half else (-PI / 2 - span / 2 + i * span)   # half: first at the top
-			s.merge({"r0": r0, "r1": r1, "a0": a0, "a1": a0 + span})
-			secs.append(s)
+		# one strip: a READY structure first, what can be made now, the orders, then what is still locked
+		var free: Array = []; var locked: Array = []
+		for it in items:
+			if ready != null and it.type == ready.type: continue
+			if ui.items[it.cat + ":" + it.type].locked: locked.append(it)
+			else: free.append(it)
+		dock_list = ([ready] if ready != null else []) + free + orders + locked
+		for s2 in dock_list:
+			if s2.kind == "item": s2.key = "i:" + s2.cat + ":" + s2.type
+		vis = clampi(dock_list.size(), 3, 4)
+		scroll_to = clampf(scroll_to, 0.0, _max_scroll())
+		if not scrolling: scroll = clampf(scroll, -0.5, _max_scroll() + 0.5)
+		_layout()
+		return
 
 	func _max_scroll() -> float:
 		return maxf(0.0, float(dock_list.size() - vis))
@@ -510,51 +427,17 @@ class Ring extends Control:
 			s.merge({"r0": r0, "r1": r1, "a0": minf(x0, x1), "a1": maxf(x0, x1), "vf": hi - lo}, true)
 			secs.append(s)
 
-	## The Yard's structures in three: BASE (economy and support), ARMY (what trains units), DEFENCE (guns, walls,
-	## shields and the superweapon).
-	func _bld_groups(items: Array) -> Array:
-		var S = ui.main.S
-		var army := {}
-		for cc in ["inf", "veh", "air"]:
-			for t2 in D.CATS[cc]:
-				if S.avail(0, t2):
-					var p: String = S.unit_from(0, t2)
-					if p != "": army[p] = true
-		var g := {"base": [], "army": [], "def": []}
-		for it in items:
-			var d: Dictionary = D.BLD[it.type]
-			if army.has(it.type): g.army.append(it)
-			elif d.get("dmg", 0) > 0 or d.get("kit", 0) > 0 or d.get("sw", false) or d.get("dome", 0.0) > 0 or d.get("thorn", 0.0) > 0: g.def.append(it)
-			else: g.base.append(it)
-		var out := []
-		for pair in [["base", "BASE", "bld_crane"], ["army", "ARMY", "inf"], ["def", "DEFENCE", "hold"]]:
-			if not g[pair[0]].is_empty(): out.append({"id": pair[0], "cap": pair[1], "g": pair[2], "items": g[pair[0]]})
-		return out
-
-	## Categories longer than k split into numbered parts, so an opened category never needs more than 8 sectors.
-	func _split(groups: Array, k: int) -> Array:
-		var out := []
-		for g in groups:
-			if g.items.size() <= k: out.append(g); continue
-			var parts := ceili(float(g.items.size()) / k)
-			for i in parts:
-				out.append({"id": "%s%d" % [g.id, i + 1], "cap": "%s %d" % [g.cap, i + 1], "g": g.g, "items": g.items.slice(i * k, (i + 1) * k)})
-		return out
-
 	func _find(key):
 		for s in secs:
 			if s.key == key: return s
 		return null
 
-	## Global rect around the sector that holds build item "cat:type" (itself, or its category), or null.
+	## Global rect around the sector in view that holds build item "cat:type", or null.
 	func rect_of_item(item: String):
 		if not is_visible_in_tree() or secs.is_empty(): return null
 		for s in secs:
 			var hitp := false
-			if s.kind == "item" and s.cat + ":" + s.type == item: hitp = true
-			elif s.kind == "group":
-				for it in s.g.items:
-					if it.cat + ":" + it.type == item: hitp = true
+			if s.kind == "item" and s.cat + ":" + s.type == item and s.get("vf", 1.0) > 0.6: hitp = true
 			if hitp:
 				var gp: Vector2 = get_global_transform() * Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
 				return Rect2(gp - Vector2(28, 28), Vector2(56, 56))
@@ -567,7 +450,7 @@ class Ring extends Control:
 				var s0 = Radial.hit(secs, c, ev.position)
 				if s0 != null and s0.kind == "item": m.cancel_item(s0.cat, s0.type)
 				accept_event(); return
-			if half and ev.pressed and (ev.button_index == MOUSE_BUTTON_WHEEL_UP or ev.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			if ev.pressed and (ev.button_index == MOUSE_BUTTON_WHEEL_UP or ev.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 				scroll_to = clampf(roundf(scroll_to) + (1.0 if ev.button_index == MOUSE_BUTTON_WHEEL_DOWN else -1.0), 0.0, _max_scroll())
 				accept_event(); return
 			if ev.button_index != MOUSE_BUTTON_LEFT: return
@@ -595,32 +478,27 @@ class Ring extends Control:
 			var s = _find(press)
 			var rt := ""
 			if s != null and s.kind == "item" and s.cat == "bld" and ui.items[s.cat + ":" + s.type].is_ready: rt = s.type
-			elif s != null and s.kind == "group" and s.g.get("ready", "") != "": rt = s.g.ready
-			if half:
-				# along the arc turns the dial; out of a READY sector (across the ring) drags the structure onto the map
-				var da := wrapf((ev.position - c).angle() - press_ang, -PI, PI)
-				var along: float = absf(da) * press_at.distance_to(c)
-				var out: float = absf(ev.position.distance_to(c) - press_at.distance_to(c))
-				if scrolling or (along > 12.0 and along > out and _max_scroll() > 0):
-					scrolling = true; did = true; hold_t = -1.0
-					var dir := -1.0 if a_start > 0 else 1.0
-					var sc: float = scroll0 - dir * da / (PI / vis)
-					var mx := _max_scroll()
-					if sc < 0: sc *= 0.35   # past either end it gives a little, then springs back
-					elif sc > mx: sc = mx + (sc - mx) * 0.35
-					scroll = sc; _layout(); queue_redraw()
-					return
-				if rt != "" and out > 10 and out >= along * 0.7:
-					dragging = true; did = true; hold_t = -1.0
-					m.drag_build_start(rt, get_global_transform() * ev.position)
-				elif ev.position.distance_to(press_at) > 14:
-					hold_t = -1.0
-				return
-			if rt != "" and ev.position.distance_to(press_at) > 10:
+			# a READY sector drags its structure onto the map, whichever way the finger goes; elsewhere a drag along the arc
+			# turns the dial
+			if rt != "" and not scrolling and ev.position.distance_to(press_at) > 10:
 				dragging = true; did = true; hold_t = -1.0
 				m.drag_build_start(rt, get_global_transform() * ev.position)
-			elif ev.position.distance_to(press_at) > 14:
-				hold_t = -1.0   # sliding off: not a hold
+				return
+			var da := wrapf((ev.position - c).angle() - press_ang, -PI, PI)
+			var along: float = absf(da) * press_at.distance_to(c)
+			var out: float = absf(ev.position.distance_to(c) - press_at.distance_to(c))
+			if scrolling or (along > 12.0 and along > out and _max_scroll() > 0):
+				scrolling = true; did = true; hold_t = -1.0
+				var dir := -1.0 if a_start > 0 else 1.0
+				var sc: float = scroll0 - dir * da / (PI / vis)
+				var mx := _max_scroll()
+				if sc < 0: sc *= 0.35   # past either end it gives a little, then springs back
+				elif sc > mx: sc = mx + (sc - mx) * 0.35
+				scroll = sc; _layout(); queue_redraw()
+				return
+			if ev.position.distance_to(press_at) > 14:
+				hold_t = -1.0
+			return
 
 	func _act(s: Dictionary, p: Vector2) -> void:
 		var m = ui.main
@@ -629,9 +507,6 @@ class Ring extends Control:
 				var it = ui.items[s.cat + ":" + s.type]
 				if (it.active or it.n > 0) and not it.is_ready and p.distance_to(_badge_at(s)) < 14: m.cancel_item(s.cat, s.type)
 				else: m.click_item(s.cat, s.type)
-			"group": cat = s.g.id; m.sfx("click")
-			"orders": cat = "orders"; m.sfx("click")
-			"back": cat = ""; m.sfx("click")
 			"order":
 				if docked != "" and s.key == "loop": m.toggle_loop(docked)
 				else: m.cmd_btn(s.key)
@@ -645,15 +520,11 @@ class Ring extends Control:
 
 	func _draw() -> void:
 		if bld == null or secs.is_empty() or dragging: return
-		if not half:
-			# dim the map outside the ring: one thick band, so no seams run out of the ring across the map
-			draw_arc(c, r1 + 1 + 1400.0, 0, TAU, 160, Color(0, 0, 0, 0.32), 2800.0, false)
-			draw_arc(c, r0 - 3, 0, TAU, 64, Color(BR, 0.45), 1.5, true)
-		var k := 1.5 if half else 1.0
+		var k := 1.5   # big sectors: the plates' contents half as large again
 		for s in secs:
 			var down: bool = press != null and press == s.key and not scrolling
 			var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
-			var vf: float = s.get("vf", 1.0) if half else 1.0
+			var vf: float = s.get("vf", 1.0)
 			var pa := 0.55 + 0.45 * vf                     # a sector turning out of view fades
 			var ca := clampf((vf - 0.45) / 0.45, 0.0, 1.0)  # and its words go before it is cut
 			match s.kind:
@@ -689,39 +560,6 @@ class Ring extends Control:
 						if it.n > 1: draw_string(ui.f_disp7, bp + Vector2(-10, 4.5), "×%d" % it.n, HORIZONTAL_ALIGNMENT_CENTER, 20, 10, Color("ffd0cc"))
 						else:
 							draw_line(bp + Vector2(-4, -4), bp + Vector2(4, 4), Color("ffd0cc"), 2); draw_line(bp + Vector2(4, -4), bp + Vector2(-4, 4), Color("ffd0cc"), 2)
-				"group":
-					var busy := false
-					for it2 in s.g.items:
-						var it = ui.items[it2.cat + ":" + it2.type]
-						if it.active or it.n > 0 or it.is_ready: busy = true
-					var rdy: String = s.g.get("ready", "")
-					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down, Color(BR, 0.95) if rdy != "" else Color(0, 0, 0, 0))
-					if rdy != "":   # the ready structure rides on the category: drag it straight out
-						var ri = ui.items["bld:" + rdy]
-						if ri.icon: draw_texture_rect(ri.icon, Rect2(p - Vector2(20, 28), Vector2(40, 32)), false)
-						Radial.text(self, ui.f_body6, p + Vector2(0, 12), String(D.BLD[rdy].name).replace(" ×4", ""), 10, KH, 64)
-						var blink := int(Time.get_ticks_msec() / 500) % 2 == 0
-						Radial.text(self, ui.f_disp7, p + Vector2(0, 24), "READY" if blink else "DRAG OUT", 10, UI.C_AUR if blink else RED.lightened(0.3), 60)
-						Radial.text(self, ui.f_disp, p + Vector2(0, 35), s.g.cap, 8, SAND, 60)
-					else:
-						UI.glyph(self, s.g.g, Rect2(p - Vector2(11, 20), Vector2(22, 22)), BR)
-						Radial.text(self, ui.f_disp7, p + Vector2(0, 14), s.g.cap, 11, KH, 66)
-						var free := 0
-						for it2 in s.g.items:
-							if not ui.items[it2.cat + ":" + it2.type].locked: free += 1
-						var sub := ("%d to build" % free) if s.g.id == "adv" else "%d" % s.g.items.size()
-						if s.g.id == "adv" and free == 0: sub = "locked"
-						Radial.text(self, ui.f_body, p + Vector2(0, 26), sub, 9, SAND, 60)
-					if busy: draw_circle(p + Vector2(18, -18), 4, UI.C_AUR)
-				"orders":
-					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down)
-					for j in 3: draw_circle(p + Vector2(-8 + j * 8, -8), 2.5, BR)
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 10), "ORDERS", 11, KH, 66)
-					Radial.text(self, ui.f_body, p + Vector2(0, 22), " · ".join(s.orders.map(func(o): return String(o.key))).left(22), 8, SAND, 66)
-				"back":
-					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down)
-					draw_polyline(PackedVector2Array([p + Vector2(4, -18), p + Vector2(-6, -9), p + Vector2(4, 0)]), BR, 3.0, true)
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 16), "BACK", 11, KH, 60)
 				"order":
 					var b: Button = ui.btn[s.key]
 					var on: bool = b.get_meta("on", false)
@@ -736,18 +574,11 @@ class Ring extends Control:
 					if docked != "" and s.key == "loop": Radial.text(self, ui.f_body, p + Vector2(0, 30) * k, "repeat the queue", int(9 * k), Color(SAND, al), 70 * k)
 					if s.key == "upgrade" and bld.upg < 0 and docked == "":
 						var u: Dictionary = ui.main.S.upg_def(bld)
-						if not u.is_empty(): Radial.text(self, ui.f_disp7, p + Vector2(0, 28), str(u.cost), 9, UI.C_AUR, 60)
-		if half and _max_scroll() > 0: _draw_scrollbar()
-		# the name tag under the ring (above it near the bottom of the screen)
-		var f: Font = ui.f_wide
-		var lbl := title + ("" if cat == "" else "  ·  " + _cat_cap())
-		var tw := f.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 22
-		var y := c.y + r1 + 6
-		if half: return   # the lit shortcut names it
-		if y + 22 > size.y: return   # no room under the ring: the plate over the wheel names it already
-		var r := Rect2(c.x - tw / 2, y, tw, 22)
-		draw_style_box(UI.cut(Color(0.055, 0.062, 0.045, 0.94), Color(BR, 0.8), 1, 6, 0), r)
-		draw_string(f, Vector2(r.position.x, r.position.y + 15), lbl, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 11, KH)
+						if not u.is_empty(): Radial.text(self, ui.f_disp7, p + Vector2(0, 32) * k, str(u.cost), int(10 * k), Color(UI.C_AUR, ca), 60 * k)
+		if _max_scroll() > 0: _draw_scrollbar()
+		# its name, upright in the open middle
+		var dir := -1.0 if a_start > 0 else 1.0
+		Radial.text(self, ui.f_wide, c + Vector2(dir * r0 * 0.5, 4), title, 11, KH, r0 * 0.9)
 
 	## Along the half ring's outer edge: a brass thumb for the part of the strip in view, and a chevron at each end that
 	## still has more beyond it.
@@ -767,6 +598,3 @@ class Ring extends Control:
 			var up := -1.0 if e[0] == 0 else 1.0
 			var pts := PackedVector2Array([tip + Vector2(-10, -up * 5), tip + Vector2(0, up * 5), tip + Vector2(10, -up * 5)])
 			draw_polyline(pts, Color(BR, 0.9 + 0.1 * sin(Time.get_ticks_msec() / 200.0)), 3.0, true)
-
-	func _cat_cap() -> String:
-		return cat_caps.get(cat, "")
