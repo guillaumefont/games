@@ -18,6 +18,7 @@ var paused := true
 var placing = null  # {type, tx, ty, ldx, ldy}
 var amove := false
 var sw_aim := false
+var rally_aim := false  # RALLY on a structure's ring: the next tap on the map is its rally point
 var jump_aim := false   # JUMP pressed: the next tap is where the Jump Troopers land
 var diff := "normal"
 var sk_fac := "vanguard"
@@ -330,6 +331,10 @@ func _squad_chips() -> void:
 	var fr := sq.fresh(S)
 	U.btn.sq_new.visible = fr.size() > 0
 	U.btn.sq_new.set_state({"n": fr.size()}, sel_src == "new" and S.sel.size() == fr.size())
+
+## Structures that send what they make to a rally point.
+func _rallies(b: Ent) -> bool:
+	return b.d.get("door", false) or b.d.get("yard", false) or b.d.get("pad", false) or b.type == "mast"
 
 ## A short vibration on phones to confirm an order or a selection.
 func buzz(ms: int) -> void:
@@ -971,6 +976,8 @@ func cmd_btn(k: String) -> void:
 			sfx("click"); refresh_panel(true); update_cmd()
 		"jump":
 			jump_aim = not jump_aim; amove = false; sfx("click"); update_cmd()
+		"rally":
+			rally_aim = not rally_aim; sfx("click"); update_cmd()
 		"strip":
 			var us := _my_units().filter(func(u): return u.d.get("scrap", false))
 			if us.is_empty(): return
@@ -1046,6 +1053,9 @@ func update_cmd() -> void:
 	U.btn.repair.visible = sb != null; U.btn.sell.visible = sb != null and sb.type != "hq"
 	if sb: U.set_on(U.btn.repair, sb.repairing)
 	_upg_btn()
+	if sb == null or not _rallies(sb): rally_aim = false
+	U.btn.rally.visible = sb != null and _rallies(sb)
+	U.set_on(U.btn.rally, rally_aim)
 	U.btn.loop.visible = sb != null and not prod_cats(sb.type).is_empty()
 	if U.btn.loop.visible: U.set_on(U.btn.loop, S.teams[0].get("loop", {}).get(sb.type, false))
 	U.btn.muster.visible = sb != null and sb.d.get("muster", 0) > 0 and not S.teams[0].get("mustered", false)
@@ -1094,7 +1104,7 @@ func sel_line(e: Ent, full := false) -> String:
 		if e.team == 0 and not S.upg_def(e).is_empty():
 			var u := S.upg_def(e)
 			t = (("%d Pods · " % e.pods) if d.grow else "") + ("upgrading: " if e.upg >= 0 else "upgrade %d: " % u.cost) + u.say
-		else: t = "tap the map to set a rally point" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else ("park vehicles beside it" if e.type == "repair" else "")
+		else: t = "RALLY on its ring sets where units gather" if (d.get("door", false) or d.get("yard", false) or d.get("pad", false) or e.type == "mast") else ("park vehicles beside it" if e.type == "repair" else "")
 		if d.grow and S.upg_def(e).is_empty(): t = "%d Pods · sings to the field around it" % e.pods
 		elif d.thorn > 0: nm = "Thornglass"; t = "cuts infantry that touch it"
 		elif e.dark: t = "NO SIGNAL: build a Signal Mast near it"
@@ -1218,9 +1228,11 @@ func tap(sx: float, sy: float, right: bool) -> void:
 		sfx("click"); return
 	if sel_u.size():
 		command(hit, wx, wy, sel_u); return
+	# a tap outside a structure's ring closes it (Guillaume 2026-11-28); its rally point is set through RALLY on the ring
 	var sb: Ent = S.sel[0] if S.sel.size() else null
-	if sb and sb.kind == "b" and (sb.d.get("door", false) or sb.d.get("yard", false) or sb.d.get("pad", false) or sb.type == "mast"):
-		sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); return
+	if rally_aim and sb and sb.kind == "b" and _rallies(sb):
+		rally_aim = false; sb.rally = Vector2(wx, wy); ring(wx, wy, Color("7fd68e")); sfx("click"); tut.ev("rally"); update_cmd(); return
+	rally_aim = false
 	S.set_sel([])
 
 func command(hit: Ent, wx: float, wy: float, units: Array, face = null, width := 0.0) -> void:
@@ -1317,6 +1329,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if ev.pressed and ev.keycode == KEY_ESCAPE:
 			if placing != null: end_placing()
 			elif amove: amove = false; update_cmd()
+			elif rally_aim: rally_aim = false; update_cmd()
 			else: S.set_sel([])
 
 func _zoom_at(p: Vector2, f: float) -> void:
@@ -1546,6 +1559,7 @@ func draw_hud(c: Control) -> void:
 	if sw_aim: _order_banner(c, "launch", "SUPERWEAPON: TAP A TARGET", Color(.94, .73, .25))
 	elif amove: _order_banner(c, "atk", "ATTACK-MOVE: TAP A DESTINATION", Color(.95, .32, .28))
 	elif jump_aim: _order_banner(c, "jump", "JUMP: TAP WHERE TO LAND", Color(.56, .84, .48))
+	elif rally_aim: _order_banner(c, "move", "RALLY: TAP WHERE NEW UNITS GATHER", Color(.56, .84, .48))
 	elif gest != null and gest.mode == "face" and pv_from != null: _order_banner(c, "form", "RELEASE TO FORM UP FACING THIS WAY", Color(.56, .84, .48))
 
 ## Health bar over a unit or building: dark frame, team-coloured cap, fill from green to red, quarter ticks.
@@ -2840,3 +2854,19 @@ func _input_test() -> void:
 	await get_tree().create_timer(0.3).timeout
 	print("INPUT chips: ", U.prod_chips.keys().filter(func(c): return U.prod_chips[c].visible))
 	await _shot(OS.get_environment("AF_SHOT") + "/04_chips_map_groups.png")
+	# a structure's ring: a tap outside it closes it; RALLY then a tap sets the rally point
+	var bk: Ent = null
+	for e in S.ents:
+		if e.alive and e.team == 0 and e.kind == "b" and _rallies(e): bk = e; break
+	if bk:
+		V.cam_z = 1.0; V.center_on(bk.x, bk.y); S.set_sel([bk]); update_cmd()
+		for k in 3: await get_tree().process_frame
+		var out := Vector2(V.view_rect().size.x / 2, 70)
+		print("INPUT ring open for ", bk.type, ": ", U.ring.secs.size(), " sectors, centre ", U.ring.c, " anchor ", U.ring.anchor)
+		_touch(0, out, true); await get_tree().process_frame; _touch(0, out, false); await get_tree().process_frame
+		print("INPUT tap outside the ring: sel=", S.sel.size())
+		S.set_sel([bk]); update_cmd(); cmd_btn("rally")
+		for k in 2: await get_tree().process_frame
+		print("INPUT rally aim=", rally_aim, " ring hidden=", U.ring.secs.is_empty() or U.ring.bld == null)
+		_touch(0, out, true); await get_tree().process_frame; _touch(0, out, false); await get_tree().process_frame
+		print("INPUT rally set=", bk.rally, " sel=", S.sel.size(), " aim=", rally_aim)

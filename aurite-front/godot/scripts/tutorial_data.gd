@@ -39,7 +39,7 @@ const CARDS := {
 		"who": "brann", "say": "Short trips, fat profits. Build it by the ore.", "home": ["ashen", 1]},
 	"crawler": {"job": "Slow armoured miner. Hauls aurite home. No gun.", "tip": "Tap aurite to send it mining", "gw": "No weapon, heavy armour",
 		"who": "brann", "say": "My Crawlers. Scratch the paint, I scratch you.", "home": ["ashen", 1]},
-	"workshop": {"job": "Builds vehicles. Needs a Smelter.", "tip": "Select it and tap the map to set a rally", "gw": "No weapon",
+	"workshop": {"job": "Builds vehicles. Needs a Smelter.", "tip": "Tap it, RALLY, then the map to set a rally", "gw": "No weapon",
 		"who": "brann", "say": "The Workshop's warm. Let's make something heavy.", "home": ["ashen", 1]},
 	# ---- mission 3: Dust and Ore
 	"scorpion": {"job": "Pact battle tank. Slow, thick, hits like a hammer.", "tip": "Send infantry with it to handle rifles",
@@ -288,7 +288,7 @@ const LESSONS := {
 		{"hint": "Tap the Yard, then the Workshop", "say": "Tap the Workshop. Brann's lads do the rest.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "order", "type": "workshop"}, "skip_if": "workshop"},
 		{"hint": "When it is ready, drag it onto the map", "say": "It's ready! Drag it out where you want it.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "placing"}, "when": "bld_ready", "skip_if": "workshop"},
 		{"hint": "Tap it to build there", "say": "Tap it again to drop it. Bang. Workshop.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "workshop"}, "skip_if": "workshop"},
-		{"hint": "Select the Muster Hall, tap the map: rally", "say": "Pick the Muster Hall, tap the map. Recruits go there.", "ptr": {"bld": "muster"}, "done": {"ev": "rally"}},
+		{"hint": "Tap the Muster Hall, RALLY, then the map", "say": "Muster Hall, RALLY, then tap the map. Recruits go there.", "ptr": {"bld": "muster"}, "done": {"ev": "rally"}},
 		{"hint": "Hold a unit on the ring to queue five", "say": "Hold it down to order five at once!", "ptr": {"item": "inf:militia"}, "done": {"ev": "queue5"}},
 	]},
 	"signal": {"who": "dace", "steps": [
