@@ -189,7 +189,7 @@ func _prod_chips(tm: Dictionary) -> void:
 				if mine.is_empty() and not cur_mine: continue
 				pc.n += mine.size() + (1 if cur_mine else 0)
 				if pc.type == "": pc.cat = cat; pc.type = q.cur if cur_mine else mine[0]; pc.prog = q.prog if cur_mine else 0.0
-		pc.lit = U.ring.docked == bt or (U.ring.docked == "" and sb != null and sb.type == bt)
+		pc.lit = sb != null and (sb.type == bt)
 		pc.loop = tm.get("loop", {}).get(bt, false)
 		if pc.visible: pc.queue_redraw()
 
@@ -205,7 +205,7 @@ func prod_chip_tap(bt: String) -> void:
 	if S.sel.size() == 1 and own.has(S.sel[0]): i = (own.find(S.sel[0]) + 1) % own.size()
 	var b: Ent = own[i]
 	S.set_sel([b])
-	if not V.on_screen(b.x, b.y) or own.size() > 1: V.center_on(b.x, b.y)
+	if not V.on_screen(b.x, b.y, -40): V.center_on(b.x, b.y)   # the map moves only to bring an off-screen one into view
 	tut.ev("chip", bt)
 
 ## Hold a unit button: queue five of it.
@@ -1188,8 +1188,6 @@ func tap(sx: float, sy: float, right: bool) -> void:
 			var hp3 := V.w2s(hit.x, hit.y, S.h_at(hit.x, hit.y))
 			if Vector2(hp3.x, hp3.y).distance_to(Vector2(sx, sy)) < 10: n = 0
 		if n > 0: radar_badge(n); return
-	if U.ring.docked != "" and not right:   # a tap outside a shortcut's menu closes it, and does nothing else
-		U.ring.toggle_dock(U.ring.docked); return
 	var sel_u: Array = S.sel.filter(func(e): return e.kind == "u")
 	if jump_aim and not right:
 		jump_aim = false
@@ -2123,18 +2121,6 @@ func _ctx_shots(dir: String) -> void:
 			await get_tree().create_timer(0.4).timeout
 			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", U.ring.secs.map(func(s): return s.key), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
 			await _shot(dir + "/%s_%d_%s.png" % [fac, n, bt]); n += 1
-		# a producer shortcut: its menu as a half ring by the column, the selection and the map left alone
-		S.set_sel([]); update_cmd()
-		U.ring.toggle_dock(producers[1] if producers.size() > 1 else "hq")
-		await get_tree().create_timer(0.4).timeout
-		print("CTX ", fac, " shortcut ", U.ring.docked, ": ", U.ring.secs.map(func(s): return s.key))
-		await _shot(dir + "/%s_%d_shortcut.png" % [fac, n]); n += 1
-		U.ring.toggle_dock(U.ring.docked)
-		U.ring.toggle_dock("hq")
-		await get_tree().create_timer(0.4).timeout
-		print("CTX ", fac, " shortcut hq: ", U.ring.secs.map(func(s): return s.key))
-		await _shot(dir + "/%s_%d_shortcut_yard.png" % [fac, n]); n += 1
-		U.ring.toggle_dock("hq")
 		# a building with orders of its own (Hearth: Muster; else an upgradable one)
 		var other: Ent = null
 		for e in S.ents:
