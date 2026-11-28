@@ -70,6 +70,7 @@ func _ready() -> void:
 	var layer := CanvasLayer.new(); add_child(layer)
 	U = UI.new(); U.main = self; layer.add_child(U); U.build()
 	A = GameAudio.new(); add_child(A)
+	A.voice_on = _load_prefs().get("voice", true); U.btn.voice.text = voice_label()
 	cut = CutscenePlayer.new(); cut.main = self; layer.add_child(cut); cut.build(U, V)
 	tut = Tutor.new(); tut.main = self; add_child(tut); tut.build()
 	U.btn.gfx.text = gfx_label()
@@ -255,6 +256,7 @@ func squad_tap(n: int) -> void:
 		var on := units.any(func(e): return V.on_screen(e.x, e.y))
 		if not on: V.center_on(units[0].x, units[0].y)
 	if n > 0: tut.ev("group_recall", n - 1)
+	elif n == 0: tut.ev("all_army")
 
 ## Radar: a squad badge was tapped. While the selection is made of whole squads (picked on the radar or the strip),
 ## the tap adds that squad, or drops it if it is already in; otherwise the squad alone is selected. Squads picked
@@ -364,6 +366,11 @@ func toast(msg: String, kind := "") -> void:
 func radio(who: String, line: String, warn := false) -> void:
 	U.radio(who, line, warn)
 
+## The announcer (scripts/voice.gd): a spoken line for an event of the player's side. x, y: where it happens.
+func say(key: String, x = null, y = null) -> void:
+	if S == null or headless: return
+	A.say(key, Vector2(x, y) if x != null else null)
+
 func sfx(n: String, x = null, y = null) -> void:
 	if S == null or paused and n != "click": return
 	var big := n == "bigboom" or n == "siren" or n == "alert" or n == "ready"
@@ -403,6 +410,7 @@ func end_game(win: bool) -> void:
 	U.set_debrief(M.get("debrief", {}).get("win" if win else "loss", []) if M else [])
 	U.radio_q.clear()
 	tut.stop()
+	A.say("won" if win else "lost")
 	if M and win: camp_save(M.camp, M.idx)
 	var last: bool = M != null and M.idx == D.camp(M.camp).missions.size() - 1
 	var sequel := _sequel(M.camp) if M else ""
@@ -614,6 +622,7 @@ func new_game(d: String, opt: Dictionary) -> void:
 	else:
 		toast("Drag to move the map · swipe across your units to pick them", "gold")
 		get_tree().create_timer(3.5).timeout.connect(func(): if S.time < 20 and not S.over: toast(("Grow a Garden beside the aurite: it earns, and it hatches your army" if S.lacks(0, "power") else "Build a " + D.BLD[S.tr_t(0, "power")].name + ", then a " + D.BLD[D.sub(S.teams[0].fac, "refinery")].name), "gold"))
+	A.voice_start(S.teams[0].fac)
 	A.music_start()
 
 func open_menu() -> void:
@@ -631,6 +640,15 @@ func quit_to_menu() -> void:
 
 func toggle_sound() -> void:
 	A.muted = not A.muted; U.btn.sound.text = "SOUND: " + ("OFF" if A.muted else "ON")
+
+func voice_label() -> String:
+	return "VOICE: " + ("ON" if A.voice_on else "OFF")
+
+## Pause menu: the announcer on or off, saved in prefs.
+func toggle_voice() -> void:
+	A.voice_on = not A.voice_on; U.btn.voice.text = voice_label()
+	if not A.voice_on: A.voice.stop()
+	var p := _load_prefs(); p.voice = A.voice_on; _save_prefs(p)
 
 func gfx_label() -> String:
 	return "GRAPHICS: " + GFX.NAMES[GFX.level].to_upper()
@@ -1696,6 +1714,25 @@ func _process(delta: float) -> void:
 	if safe_t > 0.5:
 		safe_t = 0.0; _apply_safe()
 
+## AF_MODE=voice: each army's announcer over a few events, for a recording (--write-movie). The unit-ready line
+## right after "not enough aurite" is meant to be dropped by the anti-spam rules.
+func _voice_demo(dir: String) -> void:
+	var ev := [[0.8, "Construction complete", "gold", "ready", "built"], [3.2, "Units under attack", "warn", "alert", "units_attack"],
+		[6.0, "Insufficient aurite", "warn", "", "no_aurite"], [6.6, "Rifle ready", "", "ready", "unit_ready"],
+		[9.0, "Base under attack", "warn", "alert", "base_attack"]]
+	for fac in ["vanguard", "ashen", "choir"]:
+		play({"fac": fac, "enemy": "", "diff": "normal"})
+		var t0 := 0.0
+		for e in ev:
+			await get_tree().create_timer(e[0] - t0).timeout; t0 = e[0]
+			toast(e[1], e[2])
+			if e[3] != "": sfx(e[3])
+			A.say(e[4])
+		await get_tree().create_timer(3.0).timeout
+	open_menu()
+	await get_tree().create_timer(0.5).timeout
+	await _shot(dir + "/pause_menu.png")
+
 # ---------------- automated screenshot test (AF_SHOT=dir) ----------------
 func _autotest(dir: String) -> void:
 	await get_tree().create_timer(2.0).timeout
@@ -1733,6 +1770,8 @@ func _autotest(dir: String) -> void:
 		await _tut_shots(dir); get_tree().quit(); return
 	if mode == "cine":
 		await _cine_shots(dir); get_tree().quit(); return
+	if mode == "voice":
+		await _voice_demo(dir); get_tree().quit(); return
 	if OS.get_environment("AF_CAMP") != "": camp_id = OS.get_environment("AF_CAMP")
 	if mode.begins_with("m"):
 		open_brief(int(mode.substr(1)))
@@ -2815,6 +2854,12 @@ func _input_test() -> void:
 	if ar != null:
 		_touch(0, ar.get_center(), true); await get_tree().process_frame; _touch(0, ar.get_center(), false); await get_tree().process_frame
 	print("INPUT wheel ALL sel=", S.sel.size(), " src=", sel_src)
+	U.wheel.rebuild()
+	print("INPUT corner buttons: ", U.wheel.secs.map(func(s2): return s2.key))
+	var srr = U.wheel.rect_of("stop")
+	if srr != null and not S.sel.is_empty():
+		_touch(0, srr.get_center(), true); await get_tree().process_frame; _touch(0, srr.get_center(), false); await get_tree().process_frame
+		print("INPUT corner STOP tapped: sel=", S.sel.size())
 	# pinch
 	var z := V.cam_z
 	_touch(0, Vector2(300, 300), true); _touch(1, Vector2(500, 300), true); await get_tree().process_frame

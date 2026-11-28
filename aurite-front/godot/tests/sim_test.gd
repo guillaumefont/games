@@ -7,6 +7,7 @@ class Host:
 	func toast(m, k = ""): log.append(m)
 	func radio(who, m, warn = false): log.append(who + ": " + m)
 	func sfx(n, x = null, y = null): pass
+	func say(k, x = null, y = null): log.append("SAY " + k)
 	func on_world_changed(): pass
 	func on_sel_changed(): pass
 	func on_vision(): pass
@@ -138,6 +139,8 @@ func _ready():
 		print("ONLY ", order_tests(s, h)); get_tree().quit(0); return
 	if OS.get_environment("AF_ONLY") == "gfx":
 		print("ONLY ", gfx_tests()); get_tree().quit(0); return
+	if OS.get_environment("AF_ONLY") == "voice":
+		print("ONLY ", voice_tests(s, h)); get_tree().quit(0); return
 	s.new_game("hard", {"fac": "ashen"})
 	print("setup ms ", Time.get_ticks_msec() - t0, " ents ", s.ents.size())
 	t0 = Time.get_ticks_msec()
@@ -209,6 +212,7 @@ func _ready():
 	if not squad_tests(s, h): get_tree().quit(1); return
 	if not order_tests(s, h): get_tree().quit(1); return
 	if not gfx_tests(): get_tree().quit(1); return
+	if not voice_tests(s, h): get_tree().quit(1); return
 	print("SIM TEST DONE")
 	get_tree().quit()
 
@@ -580,7 +584,7 @@ func tutorial_tests(s, h) -> bool:
 		if not D.SPEAKERS.has(TD.LESSONS[id].who): return _tfail("lesson " + id + " unknown speaker")
 		for st in TD.LESSONS[id].steps:
 			if st.hint.length() > 60 or st.get("say", "").length() > 64: return _tfail("lesson " + id + " line too long: " + st.hint)
-	var kinds := ["kill", "heal", "made", "rally", "group_recall", "upgrade", "eng_fix", "revive", "launch"]
+	var kinds := ["kill", "heal", "made", "rally", "group_recall", "all_army", "upgrade", "eng_fix", "revive", "launch"]
 	var seen := {}
 	var late := []
 	for camp in TD.MISSIONS:
@@ -1182,4 +1186,61 @@ func order_tests(s, h) -> bool:
 	var foe2 = s.spawn_unit(1, "rifle", (spot2.x + 1) * D.T, (spot2.y + 1) * D.T)
 	if s.can_place(0, "hearth", spot2.x, spot2.y, false): return _ofail("an enemy unit no longer blocks placement")
 	print("ORDER TESTS OK")
+	return true
+
+# ---------------- announcer (voice alerts, scripts/voice.gd) ----------------
+func _vofail(msg: String) -> bool:
+	print("VOICE TEST FAILED: ", msg)
+	return false
+
+func voice_tests(s, h) -> bool:
+	var A = preload("res://scripts/voice.gd").new()
+	# every event has a clip for each faction that has a line for it, and every clip has an event
+	for fac in ["vanguard", "ashen", "choir"]:
+		var n := 0
+		for k in A.EV:
+			if ResourceLoader.exists("res://voice/%s/%s.ogg" % [fac, k]): n += 1
+		if n < 18: return _vofail("only %d clips for %s" % [n, fac])
+	for k in ["base_attack", "units_attack", "no_aurite", "built", "unit_ready", "won", "lost"]:
+		for fac in ["vanguard", "ashen", "choir"]:
+			if not ResourceLoader.exists("res://voice/%s/%s.ogg" % [fac, k]): return _vofail("missing " + fac + "/" + k)
+	# a line plays, then the same line is held back by its cooldown
+	if A.request("built", 0.0) != "play": return _vofail("first line should play")
+	A.started(0.0, 1.5)
+	if A.request("built", 1.0) != "": return _vofail("cooldown ignored")
+	# priority 3 while talking or just after: dropped
+	if A.request("unit_ready", 1.0) != "": return _vofail("priority 3 should drop while talking")
+	if A.request("unit_ready", 3.0) != "": return _vofail("priority 3 should drop in the quiet gap")
+	# priority 2 while talking waits, and plays once the gap is over
+	if A.request("no_aurite", 1.0) != "wait": return _vofail("priority 2 should wait")
+	if A.poll(2.0) != "": return _vofail("waiting line started too early")
+	if A.request("cap", 1.2) != "": return _vofail("only one line may wait")
+	# priority 1 replaces a waiting priority 2
+	if A.request("bld_lost", 1.2) != "wait": return _vofail("priority 1 should take the waiting slot")
+	if A.poll(1.6) != "bld_lost": return _vofail("priority 1 should start right after the current line")
+	A.started(1.6, 1.0)
+	# priority 1 skips the quiet gap
+	A.reset(); A.started(0.0, 1.0)
+	if A.request("base_attack", 1.5, Vector2(100, 100)) != "play": return _vofail("priority 1 should skip the gap")
+	A.started(1.5, 1.5)
+	# a long siege in one spot stays quiet past the cooldown; a new spot gets its warning
+	for t in [10.0, 20.0, 29.0, 40.0, 55.0]:
+		if A.request("base_attack", t, Vector2(140, 120)) != "": return _vofail("same fight warned again at %s" % t)
+	if A.request("base_attack", 60.0, Vector2(2000, 1800)) != "play": return _vofail("attack on a new spot should warn")
+	# a waiting line goes stale
+	A.reset(); A.started(0.0, 3.0)
+	A.request("wave", 1.0)
+	if A.poll(9.0) != "": return _vofail("stale line still played")
+	# once-per-match lines
+	A.reset()
+	if A.request("won", 0.0) != "play" or A.request("won", 100.0) != "": return _vofail("won should play once")
+	# the simulation asks for lines through the host
+	h.log.clear()
+	s.new_game("normal", {"fac": "ashen", "enemy": "vanguard", "seed": 77})
+	var hq = s.find_hq(0)
+	if hq == null: return _vofail("no Yard to hit")
+	s.last_alert = -100.0
+	s.damage(hq, 1.0, "bullet", null)
+	if not h.log.has("SAY base_attack"): return _vofail("hitting the base did not ask for base_attack: " + str(h.log.slice(-3)))
+	print("voice tests ok")
 	return true

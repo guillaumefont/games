@@ -1,10 +1,6 @@
 ## Radial touch controls (Guillaume 2026-11-28: "radial controls on the bottom right corner", "use sectors", "ring menus
 ## around structures", "keep the structure visible in the middle, 8 sectors max").
-##   Wheel: a quarter-circle of sectors in the action thumb's corner (bottom right, bottom left when left-handed).
-##     hub: ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure waits).
-##     inner ring: the squads, ALL and 1 to 5, each with its health arc (NEW is a plate over the wheel).
-##     outer ring, the widest sectors (Guillaume: too many buttons sat near the corner, where sectors are smallest): the
-##     picked units' orders. The producers have their own shortcut column on the other side (`docked` half rings).
+##   Wheel: no longer a wheel: three big buttons in the action thumb's corner (see the class).
 ##   Ring: the one menu for structures (Guillaume 2026-11-28: "keep only the half ring", "scrollable with big sectors"):
 ##     a big half ring beside the producer shortcut column. A shortcut opens its building's (`docked`, selection and map
 ##     untouched); a tap on one of your structures opens that structure's, with its orders (Rally, Upgrade, Repair, Loop,
@@ -93,38 +89,38 @@ static func hit(secs: Array, c: Vector2, p: Vector2):
 
 # =====================================================================================================================
 class Wheel extends Control:
+	## The action thumb's corner (Guillaume 2026-11-28: "I hate the left menu ... don't hesitate to simplify it"; he
+	## picked "three big buttons"): ATTACK, STOP and the picked units' special (JUMP, STRIP or FUSE) stacked from the
+	## corner up, ALL ARMY beside ATTACK. Nothing else: squads, Hold, No fire, Scatter, To base and the type plates went.
 	var ui
-	const R_HUB := 70.0
-	const R1 := 76.0     # inner ring: the squads
-	const R2 := 150.0
-	const R3 := 156.0    # outer ring, the widest sectors: the orders, or the producers
-	const R4 := 228.0
-	var secs: Array = []
+	const BW := 150.0   # one button
+	const BH := 106.0
+	const G := 10.0
+	const W := BW * 2 + G
+	const H := BH * 3 + G * 2
+	var secs: Array = []   # [{key, rect, g, cap, sub, lit, dim}]
 	var press = null
 	var t := 0.0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
-	## The wheel's corner, in its own coordinates.
-	func corner() -> Vector2:
-		return Vector2(0.0 if ui.left_hand else size.x, size.y)
-
-	## Angle for a position f (0..1) along the quarter circle: 0 lies along the bottom edge, 1 straight up.
-	func ang(f: float) -> float:
-		return (PI + f * PI / 2) if not ui.left_hand else (TAU - f * PI / 2)
-
-	func _span(i: int, n: int) -> Array:
-		var a := ang(float(i) / n); var b := ang(float(i + 1) / n)
-		return [minf(a, b), maxf(a, b)]
-
 	func _has_point(p: Vector2) -> bool:
-		return visible and p.distance_to(corner()) <= R4 + 2
+		if not visible: return false
+		for s in secs:
+			if s.rect.grow(4).has_point(p): return true
+		return false
 
 	func _process(dt: float) -> void:
 		t += dt
 		if t >= 0.1:
 			t = 0.0; rebuild(); queue_redraw()
+
+	## Column slot i (0 in the corner) and the slot beside the corner one.
+	func _slot(col: int, i: int) -> Rect2:
+		var L: bool = ui.left_hand
+		var x: float = (col * (BW + G)) if L else (size.x - BW - col * (BW + G))
+		return Rect2(x, size.y - BH - i * (BH + G), BW, BH)
 
 	func rebuild() -> void:
 		var m = ui.main
@@ -132,56 +128,38 @@ class Wheel extends Control:
 		if m == null or m.S.teams.is_empty(): return
 		var us: Array = m._my_units()
 		var B: Dictionary = ui.btn
-		# hub
-		var hub := {"r0": 0.0, "r1": R_HUB, "ring": 0}
-		var hs := _span(0, 1); hub.a0 = hs[0]; hub.a1 = hs[1]
+		var col: Array = []
 		if not us.is_empty():
-			if B.amove.visible: hub.merge({"key": "amove", "g": "atk", "cap": "ATTACK", "lit": m.amove})
-			else: hub.merge({"key": "stop", "g": "stop", "cap": "STOP", "lit": false})
-		else:
-			var q: Dictionary = m.S.teams[0].prod.bld
-			var has_yard: bool = m.S.count(0, "hq") > 0 or q.cur != ""
-			var sb: Ent = m.S.sel[0] if (m.S.sel.size() == 1 and m.S.sel[0].kind == "b" and m.S.sel[0].team == 0) else null
-			hub.merge({"key": "yard", "g": "bld_crane", "cap": "READY" if q.ready else "YARD", "lit": (sb != null and sb.type == "hq") or ui.ring.docked == "hq",
-				"ready": q.ready, "dim": not has_yard, "prog": q.prog if (q.cur != "" and not q.ready) else -1.0})
-		secs.append(hub)
-		# outer ring: orders or producers
-		var mids: Array = []
-		if not us.is_empty():
-			for k in ["stop", "hold", "nofire", "scatter", "home", "jump", "strip", "fuse"]:
-				if k == hub.key or not B[k].visible: continue
-				var cap: String = B[k].cap if B[k].cap != "" else String(B[k].text)
-				if k == "stop": cap = "STOP"
-				mids.append({"key": k, "g": B[k].glyph, "cap": cap, "lit": B[k].get_meta("on", false), "dim": B[k].modulate.a < 0.9})
-		# nothing picked: the producers live in the shortcut column on the other side now
-		mids = mids.slice(0, 6)
-		for i in mids.size():
-			var s: Dictionary = mids[i]; var sp := _span(i, mids.size())
-			s.merge({"r0": R3, "r1": R4, "a0": sp[0], "a1": sp[1], "ring": 1}); secs.append(s)
-		# inner ring: the squads
-		var outs: Array = []
-		for k in ["sq_all"] + range(1, 6).map(func(n): return "sq%d" % n):   # NEW sits on the plates over the wheel
-			var c = B[k]
-			if not c.visible: continue
-			outs.append({"key": k, "n": c.key, "st": c.st, "lit": c.lit})
-		for i in outs.size():
-			var s: Dictionary = outs[i]; var sp := _span(i, outs.size())
-			s.merge({"r0": R1, "r1": R2, "a0": sp[0], "a1": sp[1], "ring": 2}); secs.append(s)
+			if B.amove.visible: col.append({"key": "amove", "g": "atk", "cap": "ATTACK", "sub": "tap, then a spot", "lit": m.amove})
+			col.append({"key": "stop", "g": "stop", "cap": "STOP", "lit": false})
+			for k in ["jump", "strip", "fuse"]:
+				if B[k].visible:
+					var cap: String = B[k].cap if B[k].cap != "" else String(B[k].text)
+					col.append({"key": k, "g": B[k].glyph, "cap": cap.to_upper(), "lit": B[k].get_meta("on", false), "dim": B[k].modulate.a < 0.9})
+					break
+		for i in col.size():
+			col[i].rect = _slot(0, i); secs.append(col[i])
+		var st: Dictionary = B.sq_all.st if B.sq_all.visible else {}
+		var n: int = st.get("n", 0)
+		if n > 0:
+			secs.append({"key": "sq_all", "g": "all", "cap": "ALL ARMY", "sub": "%d units" % n, "lit": B.sq_all.lit, "rect": _slot(1, 0)})
 
-	## Global rect around a sector (for the tutorial pointer), or null.
+	## Global rect around a button (for the tutorial pointer and tests), or null.
 	func rect_of(key: String):
 		if not is_visible_in_tree(): return null
 		for s in secs:
-			if s.key == key:
-				var p: Vector2 = Radial.mid(corner(), s.r0, s.r1, s.a0, s.a1) if s.r0 > 0 else corner() + Vector2(cos((s.a0 + s.a1) / 2), sin((s.a0 + s.a1) / 2)) * s.r1 * 0.55
-				var gp: Vector2 = get_global_transform() * p
-				return Rect2(gp - Vector2(28, 28), Vector2(56, 56))
+			if s.key == key: return get_global_transform() * s.rect
+		return null
+
+	func _hit(p: Vector2):
+		for s in secs:
+			if s.rect.grow(4).has_point(p): return s
 		return null
 
 	func _gui_input(ev: InputEvent) -> void:
 		if not (ev is InputEventMouseButton) or ev.button_index != MOUSE_BUTTON_LEFT: return
 		accept_event()
-		var s = Radial.hit(secs, corner(), ev.position)
+		var s = _hit(ev.position)
 		if ev.pressed:
 			press = s.key if s != null else null; queue_redraw(); return
 		var k = press; press = null; queue_redraw()
@@ -190,78 +168,28 @@ class Wheel extends Control:
 
 	func _act(s: Dictionary) -> void:
 		var m = ui.main; var k: String = s.key
-		if k == "yard": ui.ring.toggle_dock("hq"); m.sfx("click")
-		elif k.begins_with("p:"): m.prod_chip_tap(s.bt)
-		elif k.begins_with("sq"): m.squad_tap(s.n)
+		if k == "sq_all": m.squad_tap(0)
 		else:
 			m.cmd_btn(k)
-			if k != "amove" and k != "hold" and k != "nofire" and k != "jump" and k != "strip": m.sfx("click")
+			if k == "stop" or k == "fuse": m.sfx("click")
 		m.buzz(8)
 		rebuild(); queue_redraw()
 
 	func _draw() -> void:
-		if secs.is_empty(): return
-		var c := corner()
-		# a soft shade behind the wheel so it reads over any ground
-		for i in 6:
-			var r := R4 + 22 - i * 6
-			var sp := _span(0, 1)
-			draw_colored_polygon(Radial.wedge(c, 0, r, sp[0], sp[1], 0), Color(0, 0, 0, 0.07))
 		for s in secs:
 			var lit: bool = s.get("lit", false)
 			var down: bool = press != null and press == s.key
 			var al := 0.45 if s.get("dim", false) else 1.0
-			var edge := Color(BR, 0.95) if s.get("ready", false) else Color(0, 0, 0, 0)
-			Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, lit or down, edge)
-			var fg: Color = LIT_FG if lit else KH
-			if s.ring == 0:
-				var p := c + Vector2(cos((s.a0 + s.a1) / 2), sin((s.a0 + s.a1) / 2)) * R_HUB * 0.52
-				UI.glyph(self, s.g, Rect2(p - Vector2(13, 20), Vector2(26, 26)), Color(LIT_FG if lit else (UI.C_AUR if s.get("ready", false) else BR), al))
-				Radial.text(self, ui.f_disp7, p + Vector2(0, 22), s.cap, 13, Color(fg, al), 64)
-				if s.get("prog", -1.0) >= 0:
-					draw_polyline(Radial.arc_pts(c, R_HUB - 4, s.a0 + 0.04, s.a0 + 0.04 + (s.a1 - s.a0 - 0.08) * clampf(s.prog, 0, 1)), UI.C_AUR, 3.0, true)
-				if s.get("ready", false) and int(Time.get_ticks_msec() / 500) % 2 == 0:
-					draw_polyline(Radial.arc_pts(c, R_HUB - 4, s.a0 + 0.04, s.a1 - 0.04), RED, 3.0, true)
-			elif s.ring == 1:
-				var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
-				if s.has("bt"):
-					var it = ui.items.get("bld:" + s.bt)
-					if it and it.icon: draw_texture_rect(it.icon, Rect2(p - Vector2(22, 24), Vector2(44, 35)), false)
-					else: UI.glyph(self, "bld", Rect2(p - Vector2(10, 18), Vector2(20, 20)), BR)
-					Radial.text(self, ui.f_disp, p + Vector2(0, 22), s.cap, 10, Color(fg if lit else SAND), minf((s.r0 + s.r1) / 2 * (s.a1 - s.a0) * 0.95, 66.0))
-					if s.prog >= 0:
-						draw_polyline(Radial.arc_pts(c, s.r0 + 5, s.a0 + 0.05, s.a0 + 0.05 + (s.a1 - s.a0 - 0.1) * clampf(s.prog, 0, 1)), UI.C_AUR, 3.0, true)
-					if s.n > 1:
-						var br := Rect2(p + Vector2(14, -28), Vector2(20, 14))
-						draw_style_box(UI.cut(BR, Color(0, 0, 0, 0), 0, 4, 0), br)
-						draw_string(ui.f_disp7, br.position + Vector2(0, 11.5), str(s.n), HORIZONTAL_ALIGNMENT_CENTER, br.size.x, 11, Color("1a1408"))
-					if s.loop: UI.glyph(self, "loop", Rect2(p + Vector2(-34, -28), Vector2(13, 13)), Color("8fcf7a"))
-				else:
-					var aw: float = minf((s.r0 + s.r1) / 2 * (s.a1 - s.a0) * 0.95, 70.0)
-					UI.glyph(self, s.g, Rect2(p - Vector2(9, 16), Vector2(18, 18)), Color(LIT_FG if lit else BR, al))
-					Radial.text(self, ui.f_disp, p + Vector2(0, 13), s.cap, 9, Color(fg if lit else SAND, al), aw)
-			else:
-				var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)
-				var st: Dictionary = s.st
-				if s.n == 0:
-					UI.glyph(self, "all", Rect2(p - Vector2(9, 19), Vector2(18, 18)), fg)
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 11), "ALL", 12, fg, 50)
-					Radial.text(self, ui.f_body, p + Vector2(0, 23), "%d" % st.get("n", 0), 10, SAND, 50)
-				elif s.n == -1:
-					Radial.text(self, ui.f_disp7, p + Vector2(0, -1), "NEW", 13, LIT_FG if lit else BR, 50)
-					Radial.text(self, ui.f_disp, p + Vector2(0, 14), "×%d" % st.get("n", 0), 11, LIT_FG if lit else BR, 50)
-				else:
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 5), str(s.n), 20, fg, 40)
-					Radial.text(self, ui.f_disp, p + Vector2(0, 20), "×%d" % st.get("n", 0), 10, SAND, 40)
-					if st.get("hit", false): draw_string(ui.f_disp7, p + Vector2(10, -10), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("ff5a52"))
-					elif st.get("idle", false): draw_circle(p + Vector2(14, -14), 2.5, SAND)
-					var hp: float = st.get("hp", 0.0)
-					var a0: float = s.a0 + 0.05; var a1: float = s.a1 - 0.05
-					draw_polyline(Radial.arc_pts(c, s.r0 + 6, a0, a1), Color("2a2f22"), 3.5, true)
-					if hp > 0:
-						var hc := Color("8fcf7a") if hp > 0.5 else (Color("f0b93f") if hp > 0.25 else Color("ff5a52"))
-						# the bar fills from the end nearest the hub's edge, like reading left to right
-						draw_polyline(Radial.arc_pts(c, s.r0 + 6, a0, a0 + (a1 - a0) * hp), hc, 3.5, true)
+			var r: Rect2 = s.rect
+			if down: r = r.grow(-3)
+			var on := lit or down
+			draw_style_box(UI.cut(ON0 if on else PL0, RED if on else LINE, 2, 12, 0), r)
+			draw_line(r.position + Vector2(14, 3), r.position + Vector2(r.size.x - 3, 3), Color(RED if on else BR, 0.7), 2.0)
+			var c := r.get_center()
+			var fg: Color = LIT_FG if on else KH
+			UI.glyph(self, s.g, Rect2(c - Vector2(19, 42), Vector2(38, 38)), Color(LIT_FG if on else BR, al))
+			Radial.text(self, ui.f_disp7, c + Vector2(0, 20), s.cap, 22, Color(fg, al), BW - 12)
+			if s.has("sub"): Radial.text(self, ui.f_body, c + Vector2(0, 40), s.sub, 12, Color(SAND, al), BW - 12)
 
 # =====================================================================================================================
 class Ring extends Control:

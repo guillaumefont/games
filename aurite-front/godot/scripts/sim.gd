@@ -529,6 +529,10 @@ func calc_power() -> void:
 		var p: int = b.d.pwr
 		if p > 0: teams[b.team].pmade += p
 		else: teams[b.team].pused -= p
+	if teams.size() > 0 and host:
+		var lp := low_power(0)
+		if lp and not teams[0].get("lowp", false) and time > 1: host.say("low_power")
+		teams[0].lowp = lp
 	calc_signal()
 
 ## Vanguard Signal: its buildings only work within reach of the Yard or a Signal Mast. Outside it they go dark.
@@ -539,7 +543,9 @@ func calc_signal() -> void:
 		if b.kind != "b" or not b.alive: continue
 		var was: bool = b.dark
 		b.dark = D.rule(fac_of(b.team), "place") == "signal" and b.d.signal <= 0 and not in_signal(b.team, b.x / T, b.y / T)
-		if b.dark != was and time > 0.5 and b.team == 0 and host: host.toast(b.d.name + (" lost Signal" if b.dark else " back in Signal"), "warn" if b.dark else "")
+		if b.dark != was and time > 0.5 and b.team == 0 and host:
+			host.toast(b.d.name + (" lost Signal" if b.dark else " back in Signal"), "warn" if b.dark else "")
+			if b.dark: host.say("signal_lost", b.x, b.y)
 		if b.d.dome > 0 and b.team < 2: domes[b.team].append(b)
 
 ## Mission start: any Vanguard building the map put outside Signal gets a Mast beside it, so nothing starts dark.
@@ -1146,7 +1152,7 @@ func fuse(team: int, us: Array) -> Ent:
 		u.alive = false; _drop_sel(u); _dig(u.x, u.y, 3)
 	var k := spawn_unit(team, into, c.x, c.y)
 	k.stun = 2.0; _dig(k.x, k.y, 8)
-	if team == 0: host.toast("Four Thralls have fused into a " + k.d.name, "gold"); host.sfx("burrow", k.x, k.y)
+	if team == 0: host.toast("Four Thralls have fused into a " + k.d.name, "gold"); host.sfx("burrow", k.x, k.y); host.say("fusion")
 	return k
 
 ## Keener: its cry jams every enemy machine and gun in reach and drops their shields.
@@ -1322,6 +1328,7 @@ func damage(t: Ent, dmg: float, w: String, src) -> void:
 	if t.team == 0 and time - last_alert > 20:
 		last_alert = time; ping = {"x": t.x, "y": t.y, "t": time}
 		host.toast("Base under attack" if t.kind == "b" else ("Harvester under attack" if t.d.harv else "Units under attack"), "warn"); host.sfx("alert")
+		host.say("base_attack" if t.kind == "b" else ("harv_attack" if t.d.harv else "units_attack"), t.x, t.y)
 	if t.team == 0 and t.kind == "u" and t.d.hero and t.hp > 0 and t.hp < t.max_hp * 0.35: radio_cue("hero_hurt")
 	if t.hp <= 0:
 		if t.team == 1: _tut("kill", t, src)
@@ -1347,7 +1354,7 @@ func kill(e: Ent) -> void:
 	elif e.tag == "vip" and e.team == 0:
 		host.toast(e.d.name + " lost", "warn")
 	if e.team == 0: stats.lost += 1
-	if e.team == 0 and e.kind == "b": radio_cue("bld_lost")
+	if e.team == 0 and e.kind == "b": radio_cue("bld_lost"); host.say("bld_lost", e.x, e.y)
 	else: stats.killed += 1
 	if e.kind == "b":
 		for y in range(e.ty, e.ty + e.h):
@@ -1629,7 +1636,7 @@ func upd_scrap(u: Ent, dt: float) -> bool:
 				var nu := spawn_unit(u.team, w.type, w.x, w.y)
 				nu.type = w.type; nu.d = D.UN[w.type]; nu.max_hp = nu.d.hp; nu.r = nu.d.r
 				nu.hp = nu.max_hp * w.intact; nu.ang = w.ang; nu.tang = w.ang
-				if u.team == 0: host.toast(nu.d.name + " back on its tracks", "gold"); host.sfx("ready"); stats.built += 1; _tut("revive", nu)
+				if u.team == 0: host.toast(nu.d.name + " back on its tracks", "gold"); host.sfx("ready"); host.say("repaired"); stats.built += 1; _tut("revive", nu)
 			else:
 				var gain: float = D.UN[w.type].cost * D.WRECK.strip
 				teams[u.team].credits += gain
@@ -1782,7 +1789,7 @@ func muster(team: int) -> int:
 			u.order = "none"; n += 1
 	if n > 0:
 		tm.mustered = true
-		if team == 0: host.toast("The Hearths answer: %d Militia" % n, "gold"); host.sfx("ready")
+		if team == 0: host.toast("The Hearths answer: %d Militia" % n, "gold"); host.sfx("ready"); host.say("muster")
 	return n
 
 func upd_medic(u: Ent, dt: float) -> void:
@@ -1828,14 +1835,14 @@ func upd_eng(u: Ent, dt: float) -> void:
 				cancel_upgrade(t)
 				t.team = u.team; t.seen = true; t.target = null; t.rally = null; t.hp = max(t.hp, t.max_hp * 0.5); calc_power()
 				if u.team == 0:
-					host.toast(t.d.name + " captured", "gold"); host.sfx("ready"); stats.killed += 1
+					host.toast(t.d.name + " captured", "gold"); host.sfx("ready"); host.say("captured"); stats.killed += 1
 				elif was == 0:
-					host.toast(t.d.name + " lost to engineers", "warn"); host.sfx("alert")
+					host.toast(t.d.name + " lost to engineers", "warn"); host.sfx("alert"); host.say("bld_stolen", t.x, t.y)
 				if sel.has(t): set_sel(sel.filter(func(x): return x != t))
 				host.on_world_changed()
 			else:
 				t.hp = t.max_hp
-				if u.team == 0: host.toast(t.d.name + " repaired", "gold"); host.sfx("ready"); _tut("eng_fix", t)
+				if u.team == 0: host.toast(t.d.name + " repaired", "gold"); host.sfx("ready"); host.say("repaired"); _tut("eng_fix", t)
 			for k in 6: parts.append({"k": "spark", "x": t.x + (randf() - 0.5) * 20, "y": t.y + (randf() - 0.5) * 20, "vx": (randf() - 0.5) * 50, "vy": (randf() - 0.5) * 50, "life": 0.4, "max": 0.4, "c": Color("#9df5b0"), "s": 2.0})
 			u.alive = false; u.sel = false; _drop_sel(u)
 			return
@@ -1958,7 +1965,7 @@ func upd_bld(b: Ent, dt: float) -> void:
 					parts.append({"k": "spark", "x": b.tx * T + randf() * b.w * T, "y": b.ty * T + randf() * b.h * T, "vx": 0.0, "vy": 0.0, "life": 0.35, "max": 0.35, "c": Color("#9df5b0"), "s": 2.5, "h0": 0.9})
 			else:
 				b.repairing = false
-				if b.team == 0: host.toast("Insufficient aurite", "warn")
+				if b.team == 0: host.toast("Insufficient aurite", "warn"); host.say("no_aurite")
 	if b.type == "repair":
 		b.cd -= dt
 		if b.cd <= 0:
@@ -1993,9 +2000,9 @@ func upd_bld(b: Ent, dt: float) -> void:
 		if b.ch >= d.charge and not b.rdy:
 			b.rdy = true
 			if b.team == 0:
-				host.toast(d.name + " ready", "gold"); host.sfx("ready"); host.on_sel_changed()
+				host.toast(d.name + " ready", "gold"); host.sfx("ready"); host.say("sw_ready"); host.on_sel_changed()
 			else:
-				host.toast("Enemy " + d.name + " is armed", "warn"); host.sfx("alert")
+				host.toast("Enemy " + d.name + " is armed", "warn"); host.sfx("alert"); host.say("sw_enemy_armed")
 	if d.weapon == "": return
 	if d.needPower and low_power(b.team):
 		b.target = null; return
@@ -2016,7 +2023,7 @@ func launch_sw(b: Ent, x: float, y: float) -> void:
 	b.ch = 0.0; b.rdy = false
 	strikes.append({"x": x, "y": y, "t": 0.0, "kind": b.type, "team": b.team, "hit": 0, "done": false})
 	if b.team == 1:
-		host.toast("Enemy " + d.name + " launched!", "warn"); ping = {"x": x, "y": y, "t": time}
+		host.toast("Enemy " + d.name + " launched!", "warn"); ping = {"x": x, "y": y, "t": time}; host.say("sw_enemy_launch")
 	else: host.toast(d.name + " launched", "gold"); _tut("launch", b.type)
 	host.sfx("siren"); host.on_sel_changed()
 
@@ -2178,7 +2185,7 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 			if cat != "bld" and cap_full(tm.id, q.queue[0]):
 				if tm.id == 0:
 					tm.noFundsT -= dt
-					if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Unit cap reached", "warn")
+					if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Unit cap reached", "warn"); host.say("cap")
 				continue
 			if cat != "bld" and D.rule(tm.fac, "pods") and not take_pod(tm.id):
 				if tm.id == 0:
@@ -2198,14 +2205,14 @@ func upd_prod(tm: Dictionary, dt: float) -> void:
 			if q.prog >= 1 - 1e-6:
 				if cat == "bld":
 					q.ready = true
-					if tm.id == 0: host.toast("Construction complete", "gold"); host.sfx("ready")
+					if tm.id == 0: host.toast("Construction complete", "gold"); host.sfx("ready"); host.say("built")
 				else:
 					# LOOP on its producer: what just finished goes back to the end of the line (not one-of-a-kind units)
 					if tm.get("loop", {}).get(unit_from(tm.id, q.cur), false) and D.def_of(q.cur).lim <= 0: q.queue.append(q.cur)
 					produce_done(tm, q.cur); q.cur = ""
 		elif tm.id == 0:
 			tm.noFundsT -= dt
-			if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Insufficient aurite", "warn")
+			if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Insufficient aurite", "warn"); host.say("no_aurite")
 
 ## Ripe Pods in all the team's Gardens.
 func pods(team: int) -> int:
@@ -2268,7 +2275,7 @@ func upd_dropship(u: Ent, dt: float) -> void:
 		u.alive = false; _drop_sel(u); return   # off the map, no wreck
 	var tm: Dictionary = teams[u.team]
 	for c in u.cargo: roll_out(tm, c, u.lz, u.x, u.y)
-	if tm.id == 0: host.toast("Delivery landed", "gold"); host.sfx("ready"); _tut("made", u.cargo[0])
+	if tm.id == 0: host.toast("Delivery landed", "gold"); host.sfx("ready"); host.say("landed"); _tut("made", u.cargo[0])
 	u.cargo = []; u.leaving = true
 	if u.lz != null: u.lz.out_t = time
 
@@ -2335,7 +2342,7 @@ func produce_done(tm: Dictionary, type: String) -> void:
 				var s := slots_around(ex, ey + 1, 1 + randi() % 5)
 				var t: Vector2i = s[-1] if s.size() else Vector2i(ex, ey + 1)
 				set_path(u, t.x, t.y)
-	if tm.id == 0: host.toast(d.name + " ready"); host.sfx("ready"); _tut("made", type)
+	if tm.id == 0: host.toast(d.name + " ready"); host.sfx("ready"); host.say("unit_ready"); _tut("made", type)
 
 ## A building just went down on top of some of the team's own ground units: each walks straight out to the nearest
 ## free tile beside the footprint (Guillaume 2026-11-28: "allow building on a unit, it will move automatically").
@@ -2446,7 +2453,7 @@ func upd_upgrade(b: Ent, tm: Dictionary, dt: float) -> void:
 	if tm.credits < cost:
 		if b.team == 0:
 			tm.noFundsT -= dt
-			if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Insufficient aurite", "warn")
+			if tm.noFundsT <= 0: tm.noFundsT = 8.0; host.toast("Insufficient aurite", "warn"); host.say("no_aurite")
 		return
 	tm.credits -= cost; b.upaid += cost; b.upg += rate
 	if b.upg >= 1 - 1e-6: finish_upgrade(b)
@@ -2458,7 +2465,7 @@ func finish_upgrade(b: Ent) -> void:
 	b.max_hp = nd.hp; b.hp = min(nd.hp, max(fr, 0.0) * nd.hp + (nd.hp - old_hp))
 	calc_power()
 	if b.team == 0:
-		host.toast(nd.name + " online", "gold"); host.sfx("ready"); _tut("upgrade", b.type)
+		host.toast(nd.name + " online", "gold"); host.sfx("ready"); host.say("upgraded"); _tut("upgrade", b.type)
 		parts.append({"k": "txt", "x": b.x, "y": b.y, "txt": "UPGRADED", "c": Color("f0b93f"), "life": 2.0, "max": 2.0, "h": D.BH[b.type] + .4})
 	elif visible_to_player(b): host.toast("Enemy " + nd.name + " online", "warn")
 	host.on_world_changed(); host.on_sel_changed()
@@ -2834,7 +2841,7 @@ func goal_done(g: Dictionary) -> void:
 	if nx == null:
 		over = true; host.end_game(true)
 	elif dn == null or not dn.has("say"):
-		host.toast("Objective complete. Next: " + _goal_name(nx), "gold"); host.sfx("ready")
+		host.toast("Objective complete. Next: " + _goal_name(nx), "gold"); host.sfx("ready"); host.say("objective")
 
 func lose(why: String) -> void:
 	if over: return
@@ -2954,7 +2961,7 @@ func do_waves(W: Dictionary, t: float) -> void:
 	if list.is_empty(): return
 	var us := squad(1, list, fr[0], fr[1])
 	send_group(us, W.get("to", "base"))
-	host.toast("Enemy wave %d of %d incoming" % [wn, W.get("n", 99)] if W.has("n") else "Enemy wave %d incoming" % wn, "warn"); host.sfx("alert")
+	host.toast("Enemy wave %d of %d incoming" % [wn, W.get("n", 99)] if W.has("n") else "Enemy wave %d incoming" % wn, "warn"); host.sfx("alert"); host.say("wave")
 
 func check_end() -> void:
 	if over: return

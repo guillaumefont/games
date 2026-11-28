@@ -1,0 +1,29 @@
+# Announcer lines, one row per event. Columns: key, then one column per faction ("-" = the event does not exist there).
+# The game picks the clip res://voice/<faction>/<key>.ogg; priorities and cooldowns live in scripts/voice.gd.
+# For translations later, copy the faction columns into new ones (for example vanguard_fr) and render them the same way.
+key	vanguard	ashen	choir
+base_attack	Our base is under attack.	They're hitting the base!	They tear at the Garden.
+bld_lost	Structure lost.	We lost a building!	A root is cut.
+sw_enemy_armed	Warning: enemy superweapon armed.	Their big gun is ready!	Something vast is waking.
+sw_enemy_launch	Enemy launch detected. Brace.	Incoming! Get down!	It falls on us.
+won	Mission accomplished.	We did it, lads!	The song goes on.
+lost	Mission failed.	It's over. Pull back.	Silence.
+units_attack	Units under attack.	Our lads are taking fire!	Our children bleed.
+harv_attack	Harvester under attack.	They're on the haulers!	They feed on our harvest.
+no_aurite	Insufficient aurite.	Not enough aurite!	The song runs thin. We need aurite.
+cap	Command limit reached.	No room at the Hearth.	-
+low_power	-	The furnaces are starving!	-
+signal_lost	Structure lost Signal.	-	-
+wave	Enemy forces approaching.	Here they come!	They are coming.
+new_enemy	New enemy contact.	Something new out there!	A stranger walks the fields.
+bld_stolen	Structure captured by the enemy.	They've stolen a building!	They took what was ours.
+built	Construction complete.	Building's up.	It has grown.
+unit_ready	Unit ready.	Troops ready.	A child of the song awakens.
+landed	Reinforcements have landed.	-	-
+upgraded	Upgrade complete.	Upgrade done.	It has changed.
+sw_ready	Strike ready.	The big gun is loaded!	The deep song is ready.
+objective	Objective complete.	Job done. Next one!	One thread is woven.
+captured	Structure captured.	It's ours now!	It sings for us now.
+repaired	Repairs complete.	Back on its tracks!	It mends.
+muster	-	The Hearths answer!	-
+fusion	-	-	Four become one.
