@@ -173,6 +173,7 @@ under an `## AGENTS.md` heading in the PR body.
 godot --headless --path . --import
 godot --headless --path . --script tests/game_test.gd   # rules, controls, pause menu, in-level power, readable bullets, mid-boss sections, fortress chase (final boss), ramming, death, results, world edges
 godot --headless --path . --script tests/campaign_test.gd  # worlds and levels, unlocks, level select, progress reset, world looks, a full level, every mid-boss and fortress
+godot --headless --path . --script tests/voice_test.gd  # radio callouts: clips, one at a time, priorities, cooldowns, music ducking, hooks
 godot --headless --path . --script tests/foes_test.gd   # campaign foes: one new kind a level, kept after; each comes in off-screen, attacks, flashes, goes down
 godot --headless --path . --script tests/update_test.gd  # self-update: pack download, checks, APK offer
 godot --headless --path . --script tests/icon_test.gd   # project icon and Android launcher layers
@@ -411,6 +412,16 @@ and rerun it rather than editing the files (`compose.py city ice` renders only t
 so untouched files aren't re-encoded). Music loops through `loop=true` in its
 `.import` file. `scripts/sound.gd` (`Sound`, `Game.sound`) crossfades the tracks on the "Music" bus and plays
 effects from a pool on "Sfx", each with its own level and a minimum gap (the cannon fires many times a second).
+
+Radio callouts (Guillaume, 2026-11-28: "Add voice effects"; plan approved: a calm squadron controller on a field
+radio, free TTS): `tools/audio/voice_lines.tsv` lists the lines (variants are `key_2`, `key_3`...),
+`tools/audio/voice.py` renders them with Kokoro-82M (Apache 2.0, through kokoro-onnx, the same pipeline as
+aurite-front) plus a radio band and squelch to `audio/voice/<key>.ogg`. The model downloads from GitHub releases
+(see the script's header); huggingface.co is blocked in the cloud sessions. `Sound.speak(key)` plays one line at a
+time on the "Voice" bus and dips the music under it: priority 1 (down, hull critical, victory) cuts in as soon as
+the radio is free, 2 waits its turn (one waits at most, stale after 4 s), 3 (chatter: new foe, section down,
+power) is dropped when the radio is busy. The hooks sit next to the matching `say()` banners. `Sound.voice_on`
+switches them off.
 
 ## Self-update (Android)
 
