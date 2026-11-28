@@ -2337,6 +2337,25 @@ func produce_done(tm: Dictionary, type: String) -> void:
 				set_path(u, t.x, t.y)
 	if tm.id == 0: host.toast(d.name + " ready"); host.sfx("ready"); _tut("made", type)
 
+## A building just went down on top of some of the team's own ground units: each walks straight out to the nearest
+## free tile beside the footprint (Guillaume 2026-11-28: "allow building on a unit, it will move automatically").
+func clear_footprint(b: Ent) -> void:
+	for u in ents:
+		if u.kind != "u" or not u.alive or u.team != b.team or u.d.air or u.intun > 0: continue
+		var ux := int(u.x / T); var uy := int(u.y / T)
+		if ux < b.tx or ux >= b.tx + b.w or uy < b.ty or uy >= b.ty + b.h: continue
+		var best = null; var bd := 1e9
+		for y in range(b.ty - 1, b.ty + b.h + 1):
+			for x in range(b.tx - 1, b.tx + b.w + 1):
+				if not walk(x, y): continue
+				var dd := Vector2(x * T + 16.0 - u.x, y * T + 16.0 - u.y).length()
+				if dd < bd: bd = dd; best = Vector2i(x, y)
+		if best == null: best = nearest_walk(ux, uy, ux, uy)
+		if best == null: continue
+		u.path = [best]; u.dest = best; u.order = "move"; u.target = null; u.auto = false; u.guard = null; u.stuck = 0
+		if u.d.harv: u.hs = "idle"
+		u.wk = null
+
 func can_place(team: int, type: String, tx: int, ty: int, gap: bool) -> bool:
 	var d: Dictionary = D.BLD[type]
 	for y in range(ty, ty + d.h):
@@ -2356,7 +2375,8 @@ func can_place(team: int, type: String, tx: int, ty: int, gap: bool) -> bool:
 			if not walk(ex, ey) or not walk(ex, ey + 1): return false
 	if team == 0:
 		for u in ents:
-			if u.kind != "u" or not u.alive or u.d.air: continue
+			# the player's own units step aside (clear_footprint); anyone else's in the way still blocks
+			if u.kind != "u" or not u.alive or u.d.air or u.team == team: continue
 			var ux := int(u.x / T); var uy := int(u.y / T)
 			if ux >= tx and ux < tx + d.w and uy >= ty and uy < ty + d.h: return false
 	if d.field and live_ore(tx + d.w / 2.0, ty + d.h / 2.0, 3.5) == 0: return false

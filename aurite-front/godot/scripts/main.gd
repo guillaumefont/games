@@ -908,6 +908,7 @@ func confirm_place() -> void:
 		else: toast("Can't build there. Stay close to your base, off rock, water and aurite.", "warn")
 		return
 	var b := S.add_building(0, placing.type, placing.tx, placing.ty)
+	S.clear_footprint(b)
 	tut.ev("made", placing.type)
 	for k in 8: S.parts.append({"k": "smoke", "x": b.tx * T + randf() * b.w * T, "y": (b.ty + b.h) * T - 4, "vx": (randf() - .5) * 30, "vy": -randf() * 10, "life": .8, "max": .8, "s": 5.0, "c": Color8(150, 140, 120)})
 	sfx("place")
