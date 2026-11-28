@@ -24,7 +24,8 @@ var S: Sim
 var cam_x := 1024.0
 var cam_y := 1024.0
 var cam_z := 1.0
-var panel_px := 0.0  # width of the side panel covering the right of the screen
+var panel_px := 0.0  # width of the side panel covering the right of the screen (the left with panel_left)
+var panel_left := false  # left-handed layout: the side panel is on the left
 var under: MeshInstance3D   # dark ground plane under the map
 var cine_sky: Sky
 var cine = null      # cutscene camera: {"yaw", "pitch"} in radians; cam_x/cam_y is the point looked at, cam_dist() the distance
@@ -529,7 +530,7 @@ func update_cam() -> void:
 		camera.position = Vector3(fx, sin(pitch) * d, fz + cos(pitch) * d)
 		camera.look_at(Vector3(fx, 0, fz), Vector3.UP)
 		var vh := get_viewport().get_visible_rect().size.y
-		camera.h_offset = panel_px / 2.0 * (2.0 * d * tan(deg_to_rad(camera.fov) / 2.0)) / max(1.0, vh)
+		camera.h_offset = (-1.0 if panel_left else 1.0) * panel_px / 2.0 * (2.0 * d * tan(deg_to_rad(camera.fov) / 2.0)) / max(1.0, vh)
 	var cz := fz - d * .25
 	sun.position = Vector3(fx - 12, 24, cz + 9)
 	sun.look_at(Vector3(fx, 0, cz), Vector3.UP)
@@ -563,6 +564,7 @@ func w2s(x: float, y: float, h: float) -> Vector3:
 func view_rect() -> Rect2:
 	var r := get_viewport().get_visible_rect()
 	r.size.x -= panel_px
+	if panel_left: r.position.x += panel_px
 	return r
 
 func on_screen(x: float, y: float, pad := 40.0) -> bool:

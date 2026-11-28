@@ -466,17 +466,20 @@ func _ptr_of(p: Dictionary):
 			"sw": c = U.btn.sw if U.btn.sw.visible else null
 		return ["r", c.get_global_rect()] if c != null and c.is_visible_in_tree() else null
 	if p.has("item"):
-		if not U.panel_open: return ["r", U.btn.panel.get_global_rect()]
-		var cat: String = p.item.split(":")[0]
+		# the sector on the open ring (or the category that holds it); else the building that makes it, on the map;
+		# else its producer on the corner wheel (the Yard hub, or a producer sector), else its top-bar chip
+		var r = U.ring.rect_of_item(p.item)
+		if r != null: return ["r", r]
 		var it: Control = U.items.get(p.item)
 		if it == null: return null
-		if not it.is_visible_in_tree():
-			# the panel shows something else: point at the building that makes it (its top-bar chip), or its sub-tab
-			var bt: String = "hq" if cat == "bld" else S.unit_from(0, it.type)
-			if U.tabs.has(cat) and U.tabs[cat].is_visible_in_tree(): return ["r", U.tabs[cat].get_global_rect()]
-			var pc = U.prod_chips.get(bt)
-			return ["r", pc.get_global_rect()] if pc != null and pc.is_visible_in_tree() else null
-		return ["r", it.get_global_rect()]
+		var cat: String = p.item.split(":")[0]
+		var bt: String = "hq" if cat == "bld" else S.unit_from(0, it.type)
+		for e in S.ents:
+			if e.alive and e.team == 0 and e.kind == "b" and e.type == bt and V.on_screen(e.x, e.y, -30): return ["w", _ent_pt(e)]
+		var wr = U.wheel.rect_of("yard" if bt == "hq" else "p:" + bt)
+		if wr != null: return ["r", wr]
+		var pc = U.prod_chips.get(bt)
+		return ["r", pc.get_global_rect()] if pc != null and pc.is_visible_in_tree() else null
 	return null
 
 # ---------------- controls ----------------
