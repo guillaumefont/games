@@ -471,18 +471,16 @@ func _build_radial() -> void:
 	ring = Radial.Ring.new(); ring.ui = self; ring.set_anchors_preset(Control.PRESET_FULL_RECT); hud.add_child(ring)
 	hud.move_child(ring, 2)   # over the 3D view and the HUD drawing, under every button
 	wheel = Radial.Wheel.new(); wheel.ui = self
-	wheel.custom_minimum_size = Vector2(Radial.Wheel.R4 + 4, Radial.Wheel.R4 + 4); hud.add_child(wheel)
+	wheel.custom_minimum_size = Vector2(Radial.Wheel.W, Radial.Wheel.H); hud.add_child(wheel)
 	plates = VBoxContainer.new(); plates.add_theme_constant_override("separation", 6); plates.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plates.alignment = BoxContainer.ALIGNMENT_END; hud.add_child(plates)
 	ctx_box.reparent(plates)
 	ctx_box.custom_minimum_size.x = 190
-	cmd_top.reparent(plates); cmd_top.columns = 4
-	for tb in type_btns: tb.custom_minimum_size = Vector2(84, 36)
+	# the type plates, NEW and JOIN stay in the hidden side column: the simpler corner has no place for them
 	plate_row = HBoxContainer.new(); plate_row.add_theme_constant_override("separation", 6); plate_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plates.add_child(plate_row)
-	for k in ["sq_new", "join", "sw", "desel"]:
+	for k in ["sw", "desel"]:
 		var b: Button = btn[k]; b.reparent(plate_row); b.custom_minimum_size = Vector2(48, 42)
-	btn.sq_new.custom_minimum_size = Vector2(76, 42)
 	place_bar.reparent(hud); place_bar.custom_minimum_size.x = 180
 	panel.visible = false
 	_place_radial()
@@ -496,14 +494,14 @@ func _place_radial() -> void:
 		c.grow_horizontal = Control.GROW_DIRECTION_END if L else Control.GROW_DIRECTION_BEGIN
 		c.grow_vertical = Control.GROW_DIRECTION_BEGIN
 		c.offset_left = 0; c.offset_right = 0; c.offset_top = 0; c.offset_bottom = 0
-	plates.offset_bottom = -(Radial.Wheel.R4 + 8)
+	plates.offset_bottom = -(Radial.Wheel.H + 8)
 	# the producer shortcuts: a column on the other side, under the top bar
 	var R := not prod_col_left()
 	chip_box.anchor_left = 1.0 if R else 0.0; chip_box.anchor_right = chip_box.anchor_left; chip_box.anchor_top = 0.0; chip_box.anchor_bottom = 0.0
 	chip_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN if R else Control.GROW_DIRECTION_END
 	chip_box.offset_left = 0; chip_box.offset_right = 0; chip_box.offset_top = 66; chip_box.offset_bottom = 66
 	plate_row.alignment = BoxContainer.ALIGNMENT_BEGIN if L else BoxContainer.ALIGNMENT_END
-	for c in [ctx_box, cmd_top]: c.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if L else Control.SIZE_SHRINK_END
+	for c in [ctx_box]: c.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if L else Control.SIZE_SHRINK_END
 	wheel.queue_redraw()
 
 ## The producer shortcut column sits on the side away from the wheel.
@@ -782,7 +780,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. The wheel sits bottom left, under the thumb that does not select (Pause > Wheel: right moves it)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's menu by the shortcut column. Its first ring: your squads (ALL, 1 to 5; NEW, the units in no squad, is a plate over the wheel). Outer ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls)."], ["SHORTCUTS", "The column on the other side holds your producers (the Yard, Barracks, Workshop...): what each is making, its queue and READY. Tap one: its whole menu opens as the half ring (see MENUS), without moving the map or touching your selection, so you can queue while your army stays picked. Slide a finger along the half ring to turn it like a dial and bring the rest into view (the brass arc shows where you are; a chevron marks an end with more). Tap the shortcut again, or tap the map, to close it. A READY structure also drags straight off its shortcut onto the map."], ["MENUS", "Every structure's menu is the same big half ring beside the shortcut column. Tap one of your structures on the map: its half ring opens with what it makes and its orders (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell). Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). Slide along the arc to turn it; a READY structure comes first: drag it out and let go where it should stand (it is drawn above your finger). Tap the map to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's inner ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
+	for row in [["TOUCH", "One thumb for the map, the other for the buttons in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the corner buttons) deselects. The buttons sit bottom left, under the thumb that does not select (Pause > Wheel: right moves them)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["CORNER", "Three big buttons in the corner under your thumb, with units picked: ATTACK (tap it, then a spot: they fight their way there), STOP, and their special when they have one: JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls). Beside them, ALL ARMY picks every fighting unit you have; tap it again to bring them into view. ✕ N PICKED, over the buttons, drops the pick."],  ["SHORTCUTS", "The column on the other side holds your producers (the Yard, Barracks, Workshop...): what each is making, its queue and READY. Tap one: its whole menu opens as the half ring (see MENUS), without moving the map or touching your selection, so you can queue while your army stays picked. Slide a finger along the half ring to turn it like a dial and bring the rest into view (the brass arc shows where you are; a chevron marks an end with more). Tap the shortcut again, or tap the map, to close it. A READY structure also drags straight off its shortcut onto the map."], ["MENUS", "Every structure's menu is the same big half ring beside the shortcut column. Tap one of your structures on the map: its half ring opens with what it makes and its orders (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell). Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). Slide along the arc to turn it; a READY structure comes first: drag it out and let go where it should stand (it is drawn above your finger). Tap the map to close it."],  ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
