@@ -1,0 +1,24 @@
+# Radio callouts, one row per clip. Columns: key, line. Variants of one callout are key_2, key_3...
+# (Sound picks one at random). Priorities, cooldowns and hooks live in scripts/sound.gd (VOICE).
+# Rendered by tools/audio/voice.py to res://audio/voice/<key>.ogg.
+key	line
+launch	Vantage, cleared hot.
+launch_2	Wheels up. Good hunting.
+launch_3	Vantage, you're clear to engage.
+new_foe	New contact. Watch it.
+warning	Warning! Heavy ship inbound.
+section	Section down.
+section_2	That one's gone. Next!
+section_3	Good hit. Keep on it.
+boss_down	Target destroyed.
+fortress	Fortress ahead. Everything you've got!
+intercept	Going in!
+reactor	Reactor's blown. Get clear!
+clear	Sector clear.
+clear_2	Area secure. Nice flying.
+world_clear	World secure. Bring it home, Vantage.
+victory	The last fortress is down. Well flown, Vantage.
+power	Weapons up.
+power_max	Full power!
+critical	Hull critical!
+down	Vantage is down!

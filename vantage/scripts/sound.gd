@@ -20,6 +20,20 @@ const FX := {
 	"buy": [-6.0, 0.1, 0.0], "launch": [-6.0, 0.3, 0.0], "swoop": [-5.0, 0.3, 0.0],
 	"warning": [-6.0, 0.5, 0.0], "clear": [-4.0, 0.5, 0.0], "down": [-4.0, 0.5, 0.0],
 	"tap": [-10.0, 0.05, 0.0]}
+## Callout: [priority, cooldown seconds]. Priority 1 cuts in as soon as no line is playing, 2 waits its turn
+## (one line waits at most), 3 is dropped when the radio is busy or just spoke.
+const VOICE := {
+	"down": [1, 0.0], "critical": [1, 8.0], "victory": [1, 0.0],
+	"launch": [2, 0.0], "warning": [2, 0.0], "fortress": [2, 0.0], "intercept": [2, 0.0],
+	"boss_down": [2, 0.0], "reactor": [2, 0.0], "clear": [2, 0.0], "world_clear": [2, 0.0],
+	"new_foe": [3, 4.0], "section": [3, 0.0], "power": [3, 6.0], "power_max": [3, 10.0]}
+const VOICE_DB := -1.0
+## How far the music dips while the radio speaks.
+const VOICE_DUCK := -7.0
+## Quiet time after a line before the next (priority 1 doesn't wait for it).
+const VOICE_GAP := 2.0
+## A waiting line older than this is no longer worth saying.
+const VOICE_STALE := 4.0
 const MUSIC_DB := -9.0
 const DUCK_DB := -8.0
 const SILENT := -60.0
@@ -38,10 +52,20 @@ var _last := {}
 var _streams := {}
 var _tweens: Array[Tween] = [null, null]
 var _clock := 0.0
+## Callouts on (the hangar's switch).
+var voice_on := true
+## Callouts started, for tests.
+var said: Array[String] = []
+var _radio: AudioStreamPlayer
+var _said_t := {}
+var _busy_until := -100.0
+var _pending := ""
+var _pending_t := 0.0
+var _duck := 0.0
 
 
 static func ensure_buses() -> void:
-	for b in ["Music", "Sfx"]:
+	for b in ["Music", "Sfx", "Voice"]:
 		if AudioServer.get_bus_index(b) < 0:
 			AudioServer.add_bus()
 			var i := AudioServer.bus_count - 1
@@ -62,10 +86,86 @@ func _ready() -> void:
 		p.bus = "Sfx"
 		add_child(p)
 		_voices.append(p)
+	_radio = AudioStreamPlayer.new()
+	_radio.bus = "Voice"
+	_radio.volume_db = VOICE_DB
+	add_child(_radio)
 
 
 func _process(dt: float) -> void:
 	_clock += dt
+	if _pending != "":
+		if _clock - _pending_t > VOICE_STALE:
+			_pending = ""
+		elif _clock >= _busy_until + (0.0 if int(VOICE[_pending][0]) == 1 else VOICE_GAP):
+			var k := _pending
+			_pending = ""
+			_say(k)
+	# the music dips under the voice and comes back up once it ends
+	var want := VOICE_DUCK if talking() else 0.0
+	_duck = move_toward(_duck, want, dt * 30.0)
+	var bus := AudioServer.get_bus_index("Music")
+	if bus >= 0:
+		AudioServer.set_bus_volume_db(bus, _duck)
+
+
+## Whether a callout is playing.
+func talking() -> bool:
+	return _clock < _busy_until
+
+
+## Asks for callout `key`. Returns "play" (started now), "wait" (it goes once the current line and the
+## gap are over) or "" (dropped: switched off, on cooldown, or not worth waiting for).
+func speak(key: String) -> String:
+	if not voice_on or not VOICE.has(key):
+		return ""
+	var pri: int = VOICE[key][0]
+	var cd: float = VOICE[key][1]
+	if _said_t.has(key) and _clock - float(_said_t[key]) < cd:
+		return ""
+	var hushed := _clock < _busy_until + VOICE_GAP
+	if not hushed or (pri == 1 and not talking()):
+		_said_t[key] = _clock
+		_say(key)
+		return "play"
+	if pri == 3:
+		return ""
+	if _pending != "" and not (pri == 1 and int(VOICE[_pending][0]) > 1):
+		return ""
+	_said_t[key] = _clock
+	_pending = key
+	_pending_t = _clock
+	return "wait"
+
+
+## Drops any waiting callout and cuts the current one (back to the hangar).
+func hush() -> void:
+	_pending = ""
+	_busy_until = -100.0
+	if _radio:
+		_radio.stop()
+
+
+func _say(key: String) -> void:
+	var picks := variants(key)
+	var file: String = picks[randi() % picks.size()]
+	if not _streams.has(file):
+		_streams[file] = load(file)
+	var st: AudioStream = _streams[file]
+	said.append(key)
+	_busy_until = _clock + st.get_length()
+	_radio.stream = st
+	_radio.play()
+
+
+## The clips of callout `key`: audio/voice/key.ogg, then key_2.ogg, key_3.ogg... as far as they go.
+static func variants(key: String) -> Array[String]:
+	var out: Array[String] = ["res://audio/voice/%s.ogg" % key]
+	var n := 2
+	while ResourceLoader.exists("res://audio/voice/%s_%d.ogg" % [key, n]):
+		out.append("res://audio/voice/%s_%d.ogg" % [key, n])
+		n += 1
+	return out
 
 
 ## Crossfades to `name` ("" for silence); `duck` lowers it (hangar, results).

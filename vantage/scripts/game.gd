@@ -401,6 +401,7 @@ func to_hangar() -> void:
 	ppos = Vector3(0, Rules.PY, frame_z + prel.y)
 	update_chunks()
 	hud.show_hangar()
+	sound.hush()
 	sound.music(world.theme, true)
 	if not driven and not checked_update:
 		checked_update = true
@@ -518,6 +519,7 @@ func launch(lv := -1) -> void:
 	hud.show_play()
 	say("LEVEL " + Campaign.code(level), "%s · %s" % [world.name, Campaign.level_name(level)])
 	sound.play("launch")
+	sound.speak("launch")
 	sound.music(world.theme)
 
 
@@ -1013,6 +1015,7 @@ func level_clear() -> void:
 		b.dead = true
 	run.score += 2000
 	say("LEVEL CLEAR", "%s  +2,000" % Campaign.level_name(level), 3.0)
+	sound.speak("clear")
 
 
 func new_foe(kind: String, mesh: Mesh) -> Obj:
@@ -1088,6 +1091,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			open_section()
 			say("WARNING", mid.title)
 			sound.play("warning")
+			sound.speak("warning")
 			sound.music("boss")
 		_:
 			Foes.spawn(self, kind, x, i, n, from)
@@ -1095,6 +1099,7 @@ func spawn_vert(kind: String, x: float, i: int, n: int, from := "top") -> void:
 			if kind == Campaign.debut(level) and not debuted:
 				debuted = true
 				say("NEW FOE", Foes.NAMES[kind], 2.4)
+				sound.speak("new_foe")
 
 
 ## The land's noise value at (x, z): below zero is the sea (or a canal), and where a ground foe
@@ -1565,6 +1570,7 @@ func open_section() -> void:
 		boss_parts.append(f)
 	if boss_sec > 0:
 		say(sec.name, "Section %d of %d" % [boss_sec + 1, mid.sections.size()], 1.8)
+		sound.speak("section")
 
 
 ## A part of the boss: rides on the hull, turns to the player, fires its pattern.
@@ -1991,6 +1997,7 @@ func kill(f: Obj) -> void:
 		stage_t = float(waves[wave_i].t) + 0.5
 		run.score += 3000
 		say("%s DOWN" % mid.name.to_upper(), "+3,000")
+		sound.speak("boss_down")
 	if f == core:
 		begin_escape()
 
@@ -2095,6 +2102,7 @@ func power_up() -> void:
 		return
 	power += 1
 	hud.ping_power()
+	sound.speak("power_max" if power >= Rules.POWER_MAX else "power")
 
 
 ## Whether the ship is on its way between the fortress's sections (the swoop in, a glide on to the
@@ -2117,8 +2125,11 @@ func hurt() -> void:
 	shake = 0.5
 	hud.flash_hurt()
 	sound.play("hurt")
+	if hp == 1:
+		sound.speak("critical")
 	if hp <= 0:
 		sound.play("down")
+		sound.speak("down")
 		pop(ppos, 3.0, Models.AMBER)
 		ship.visible = false
 		var was_pov := pov_mode()
@@ -2421,6 +2432,7 @@ func spawn_fortress() -> void:
 			spawn_gun(i, g)
 	say("FORTRESS AHEAD", fort.title)
 	sound.play("warning")
+	sound.speak("fortress")
 	sound.music("fortress")
 
 
@@ -2507,6 +2519,7 @@ func begin_approach() -> void:
 	set_cam("chase", 2.4)
 	say("INTERCEPT", "Take the fortress apart")
 	sound.play("swoop")
+	sound.speak("intercept")
 
 
 func step_approach(dt: float) -> void:
@@ -2563,6 +2576,8 @@ func open_fort_section() -> void:
 	for p in fort_parts:
 		fort_max += p.max_hp * (float(world.tough) if p.kind != "core" else 1.0)
 	say(sec.name, "Section %d of %d" % [fort_sec + 1, fort.sections.size()], 1.8)
+	if fort_sec > 0:
+		sound.speak("section")
 
 
 ## A fortress part went down: once its section is cleared, its superstructure breaks off and the
@@ -2699,8 +2714,11 @@ func step_pov(dt: float) -> void:
 			run.score += 5000
 			if finale():
 				say("VICTORY", "The last fortress is down  +5,000", FINALE_T)
+				sound.speak("victory")
 			else:
-				say("WORLD CLEAR" if level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1 else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
+				var world_end := level % Campaign.PER_WORLD == Campaign.PER_WORLD - 1
+				say("WORLD CLEAR" if world_end else "LEVEL CLEAR", "Fortress destroyed  +5,000", 3.0)
+				sound.speak("world_clear" if world_end else "clear")
 			return
 	else:
 		drone_t -= dt
@@ -3061,6 +3079,7 @@ func begin_escape() -> void:
 	blasts.chain(pts, 4.2, 1.6, fx_carry())
 	shake = 1.2
 	say("REACTOR DOWN", "The fortress is breaking up")
+	sound.speak("reactor")
 	sound.play("crash", 3.0)
 
 
