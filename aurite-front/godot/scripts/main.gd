@@ -74,7 +74,7 @@ func _ready() -> void:
 	U.btn.gfx.text = gfx_label()
 	U.set_panel(_load_prefs().get("panel", true))
 	V.panel_px = U.panel_px()
-	U.left_hand = _load_prefs().get("hand", "right") == "left"; V.panel_left = U.left_hand; _hand_label()
+	U.left_hand = _load_prefs().get("wheel", "left") == "left"; V.panel_left = U.left_hand; _hand_label()
 	show_start()
 	if not headless and OS.get_environment("AF_SHOT") == "": _boot_splash()
 	if not headless: render_icons("vanguard")
@@ -915,10 +915,10 @@ func confirm_place() -> void:
 func toggle_hand() -> void:
 	U.left_hand = not U.left_hand; V.panel_left = U.left_hand
 	U._place_hud(); V.panel_px = U.panel_px(); _hand_label(); sfx("click")
-	var p := _load_prefs(); p.hand = "left" if U.left_hand else "right"; _save_prefs(p)
+	var p := _load_prefs(); p.wheel = "left" if U.left_hand else "right"; _save_prefs(p)
 
 func _hand_label() -> void:
-	U.btn.hand.text = ("Buttons: left" if U.left_hand else "Buttons: right").to_upper()
+	U.btn.hand.text = ("Wheel: left" if U.left_hand else "Wheel: right").to_upper()
 
 func cmd_btn(k: String) -> void:
 	match k:

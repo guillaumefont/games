@@ -2,8 +2,9 @@
 ## around structures", "keep the structure visible in the middle, 8 sectors max").
 ##   Wheel: a quarter-circle of sectors in the action thumb's corner (bottom right, bottom left when left-handed).
 ##     hub: ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure waits).
-##     middle ring: the picked units' orders, or (nothing picked) the other producers: tap one to jump to it.
-##     outer ring: the squads, ALL, 1 to 5 and NEW, each with its health arc.
+##     inner ring: the squads, ALL and 1 to 5, each with its health arc (NEW is a plate over the wheel).
+##     outer ring, the widest sectors (Guillaume: too many buttons sat near the corner, where sectors are smallest): the
+##     picked units' orders, or (nothing picked) the other producers: tap one to jump to it.
 ##   Ring: around a selected structure of yours, one ring of at most 8 sectors with an open centre (the structure stays in
 ##     view). Everything fits on it when it can; otherwise its orders fold into ORDERS, and more than 7 things to make go
 ##     into categories (a category opens as the same ring with a BACK sector). A finished building always keeps its own
@@ -94,11 +95,11 @@ static func hit(secs: Array, c: Vector2, p: Vector2):
 # =====================================================================================================================
 class Wheel extends Control:
 	var ui
-	const R_HUB := 74.0
-	const R1 := 80.0
-	const R2 := 156.0
-	const R3 := 162.0
-	const R4 := 226.0
+	const R_HUB := 70.0
+	const R1 := 76.0     # inner ring: the squads
+	const R2 := 150.0
+	const R3 := 156.0    # outer ring, the widest sectors: the orders, or the producers
+	const R4 := 228.0
 	var secs: Array = []
 	var press = null
 	var t := 0.0
@@ -145,7 +146,7 @@ class Wheel extends Control:
 			hub.merge({"key": "yard", "g": "bld_crane", "cap": "READY" if q.ready else "YARD", "lit": sb != null and sb.type == "hq",
 				"ready": q.ready, "dim": not has_yard, "prog": q.prog if (q.cur != "" and not q.ready) else -1.0})
 		secs.append(hub)
-		# middle ring
+		# outer ring: orders or producers
 		var mids: Array = []
 		if not us.is_empty():
 			for k in ["stop", "hold", "nofire", "scatter", "home", "jump", "strip", "fuse"]:
@@ -164,16 +165,16 @@ class Wheel extends Control:
 		mids = mids.slice(0, 6)
 		for i in mids.size():
 			var s: Dictionary = mids[i]; var sp := _span(i, mids.size())
-			s.merge({"r0": R1, "r1": R2, "a0": sp[0], "a1": sp[1], "ring": 1}); secs.append(s)
-		# outer ring: the squads
+			s.merge({"r0": R3, "r1": R4, "a0": sp[0], "a1": sp[1], "ring": 1}); secs.append(s)
+		# inner ring: the squads
 		var outs: Array = []
-		for k in ["sq_all"] + range(1, 6).map(func(n): return "sq%d" % n) + ["sq_new"]:
+		for k in ["sq_all"] + range(1, 6).map(func(n): return "sq%d" % n):   # NEW sits on the plates over the wheel
 			var c = B[k]
 			if not c.visible: continue
 			outs.append({"key": k, "n": c.key, "st": c.st, "lit": c.lit})
 		for i in outs.size():
 			var s: Dictionary = outs[i]; var sp := _span(i, outs.size())
-			s.merge({"r0": R3, "r1": R4, "a0": sp[0], "a1": sp[1], "ring": 2}); secs.append(s)
+			s.merge({"r0": R1, "r1": R2, "a0": sp[0], "a1": sp[1], "ring": 2}); secs.append(s)
 
 	## Global rect around a sector (for the tutorial pointer), or null.
 	func rect_of(key: String):
@@ -258,7 +259,7 @@ class Wheel extends Control:
 					Radial.text(self, ui.f_disp7, p + Vector2(0, -1), "NEW", 13, LIT_FG if lit else BR, 50)
 					Radial.text(self, ui.f_disp, p + Vector2(0, 14), "×%d" % st.get("n", 0), 11, LIT_FG if lit else BR, 50)
 				else:
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 6), str(s.n), 24, fg, 40)
+					Radial.text(self, ui.f_disp7, p + Vector2(0, 5), str(s.n), 20, fg, 40)
 					Radial.text(self, ui.f_disp, p + Vector2(0, 20), "×%d" % st.get("n", 0), 10, SAND, 40)
 					if st.get("hit", false): draw_string(ui.f_disp7, p + Vector2(10, -10), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("ff5a52"))
 					elif st.get("idle", false): draw_circle(p + Vector2(14, -14), 2.5, SAND)
@@ -278,6 +279,7 @@ class Ring extends Control:
 	var cat := ""        # "" the first ring, "orders", or a category id
 	var for_id := -1     # the structure it was opened for
 	var c := Vector2()
+	var anchor := Vector2()   # the structure on screen (the ring's centre unless it had to slide onto the screen)
 	var r0 := 50.0
 	var r1 := 120.0
 	var bld: Ent = null
@@ -326,7 +328,6 @@ class Ring extends Control:
 			return
 		if b.id != for_id:
 			for_id = b.id; cat = ""; bld = b
-			_fit_view(b)
 		bld = b
 		_place(b)
 		t += dt
@@ -334,28 +335,29 @@ class Ring extends Control:
 			t = 0.0; rebuild()
 		queue_redraw()
 
-	## Where the ring sits: around the structure on screen, its hole a little wider than the footprint.
+	## Where the ring sits: around the structure on screen, its hole a little wider than the footprint. The map never
+	## moves for it (Guillaume 2026-11-28: "I don't want the map to jump when I click on a building"): near an edge or the
+	## wheel the ring slides onto the screen instead, and a brass leader ties it to the structure.
 	func _place(b: Ent) -> void:
 		var V = ui.main.V; var S = ui.main.S
 		var h: float = S.h_at(b.x, b.y)
 		var p: Vector3 = V.w2s(b.x, b.y, h)
 		var e: Vector3 = V.w2s(b.x + b.w * 16.0, b.y + b.h * 16.0, h)
 		var inv := get_global_transform().affine_inverse()
-		c = inv * Vector2(p.x, p.y)
+		anchor = inv * Vector2(p.x, p.y)
 		var ce: Vector2 = inv * Vector2(e.x, e.y)
-		r0 = clampf(c.distance_to(ce) * 1.05 + 6, 40.0, 96.0)
+		r0 = clampf(anchor.distance_to(ce) * 1.05 + 6, 40.0, 96.0)
 		r1 = r0 + W
-
-	## Bring the structure to the middle of the view when its ring would not fit on screen.
-	func _fit_view(b: Ent) -> void:
-		_place(b)
-		var vis := Rect2(Vector2(0, 60), size - Vector2(0, 60))
-		var room := r1 + 8
-		var wheel_c := Vector2(0.0 if ui.left_hand else size.x, size.y)
-		var fits := vis.grow(-room).has_point(c) and c.distance_to(wheel_c) > Wheel.R4 + room
-		if not fits:
-			ui.main.V.center_on(b.x, b.y)
-			_place(b)
+		var room := r1 + 4
+		var lo := Vector2(room, 58 + room); var hi := size - Vector2(room, room)
+		c = Vector2(clampf(anchor.x, lo.x, maxf(lo.x, hi.x)), clampf(anchor.y, lo.y, maxf(lo.y, hi.y)))
+		var wc := Vector2(0.0 if ui.left_hand else size.x, size.y)
+		var need := Wheel.R4 + room
+		if c.distance_to(wc) < need:
+			var d := c - wc
+			if d.length() < 1: d = Vector2(1 if ui.left_hand else -1, -1)
+			c = wc + d.normalized() * need
+			c = Vector2(clampf(c.x, lo.x, maxf(lo.x, hi.x)), clampf(c.y, lo.y, maxf(lo.y, hi.y)))
 
 	## The ring's sectors for the structure and the category open now. See the class comment for the rule.
 	func rebuild() -> void:
@@ -527,6 +529,10 @@ class Ring extends Control:
 			var a0 := TAU * i / 12.0
 			draw_colored_polygon(Radial.wedge(c, r1 + 1, 2400.0, a0, a0 + TAU / 12.0 + 0.01, 0), Color(0, 0, 0, 0.32))
 		draw_arc(c, r0 - 3, 0, TAU, 64, Color(BR, 0.45), 1.5, true)
+		if anchor.distance_to(c) > r0 * 0.6:   # slid onto the screen: point at the structure
+			var dv := (anchor - c).normalized()
+			draw_line(c + dv * (r1 + 2), anchor, Color(BR, 0.8), 2.0, true)
+			draw_circle(anchor, 5, Color(BR, 0.9))
 		for s in secs:
 			var down: bool = press != null and press == s.key
 			var p := Radial.mid(c, s.r0, s.r1, s.a0, s.a1)

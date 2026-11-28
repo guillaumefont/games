@@ -369,16 +369,19 @@ in your PR, keep it short, and mention the change in the PR description.
   right-drag facing. Formation is always on (its button is gone; `S.formation` stays for tests).
 - Action thumb: radial controls (`scripts/radial.gd`; he asked for "radial controls on the bottom right corner",
   "sectors instead of points", "ring menus around structures", "the structure visible in the middle, 8 sectors max").
-  - `Radial.Wheel` (`U.wheel`), a quarter circle in the corner (bottom left when left-handed): hub = ATTACK while units
-    are picked (STOP for an unarmed pick), else YARD (READY when a structure waits; it selects the Yard). Middle ring:
-    the pick's orders (Stop, Hold, No fire, Scatter, To base, Jump/Strip/Fuse), or with nothing picked the other
-    producers (`prod_chip_tap`). Outer ring: squads ALL, 1-5, NEW (health arc, ! under fire).
+  - `Radial.Wheel` (`U.wheel`), a quarter circle in the BOTTOM-LEFT corner by default (Guillaume, after the first
+    preview: commands under the left thumb, he selects and moves with the right; prefs `wheel`, Pause > Wheel: right
+    mirrors it). Hub = ATTACK while units are picked (STOP for an unarmed pick), else YARD (READY when a structure
+    waits; it selects the Yard). Inner ring: squads ALL, 1-5 (health arc, ! under fire); NEW is a plate over the
+    wheel. Outer ring, the widest sectors (he found too many buttons near the corner): the pick's orders (Stop, Hold,
+    No fire, Scatter, To base, Jump/Strip/Fuse), or with nothing picked the other producers (`prod_chip_tap`).
   - `Radial.Ring` (`U.ring`): around a single selected structure of yours, one ring of at most `MAX` (8) sectors with an
     open centre. Rule (`rebuild`): items + orders fit in 8 -> all on the ring; else 2+ orders fold into ORDERS; still
     more than 7 items -> categories (Yard: `_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
     over 7 splits in parts), each opened with BACK; a READY building keeps its own sector on the first ring. Tap queues
     (`click_item`), hold 0.55 s queues five or cancels a building, the ✕ / ×N badge cancels one, a READY sector drags
-    out (`drag_build_*`). The ring dims the map outside, recentres the camera if it would not fit, hides in radar and
+    out (`drag_build_*`). The ring dims the map outside and NEVER moves the camera ("I don't want the map to jump"): near an edge or the
+    wheel it slides onto the screen with a brass leader to the structure (`_place`). It hides in radar and
     while placing (but stays alive during its own drag so the drag keeps its events).
   - Both draw state they read from the old side column, which is built but never shown (`panel_px()` is 0,
     `set_panel` keeps it shut): `U.items` (BuildItem state from `refresh_panel`), `U.btn` visibility/on/cap from
@@ -387,8 +390,8 @@ in your PR, keep it short, and mention the change in the PR description.
     JOIN / Launch / "N PICKED ✕". While placing, `U.place_bar` (hint, Build here, Cancel) takes the wheel's corner.
   - Tutorial `{"item"}` pointers: the ring sector (or its category), else the producing building on the map, else its
     wheel sector, else the top chip.
-- Pause > "Buttons: right/left" (`main.toggle_hand`, prefs `hand`) mirrors the wheel, plates and place bar
-  (`U._place_radial`).
+- Pause > "Wheel: left/right" (`main.toggle_hand`, prefs `wheel`, default left) mirrors the wheel, plates and place
+  bar (`U._place_radial`).
 - `AF_MODE=ctx` shoots each faction's Yard ring, a category, producers' rings, an order-only building and a unit pick.
 - `AF_INPUT=1 AF_SHOT=dir` prints INPUT lines for the swipe (from ALL), a hold-drag that now just pans, real touches on
   the wheel (hub ATTACK, ALL), a READY structure dragged out of the Yard's ring, and the rest.
