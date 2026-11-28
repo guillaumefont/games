@@ -584,7 +584,7 @@ func tutorial_tests(s, h) -> bool:
 		if not D.SPEAKERS.has(TD.LESSONS[id].who): return _tfail("lesson " + id + " unknown speaker")
 		for st in TD.LESSONS[id].steps:
 			if st.hint.length() > 60 or st.get("say", "").length() > 64: return _tfail("lesson " + id + " line too long: " + st.hint)
-	var kinds := ["kill", "heal", "made", "rally", "group_recall", "upgrade", "eng_fix", "revive", "launch"]
+	var kinds := ["kill", "heal", "made", "rally", "group_recall", "all_army", "upgrade", "eng_fix", "revive", "launch"]
 	var seen := {}
 	var late := []
 	for camp in TD.MISSIONS:

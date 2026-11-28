@@ -256,6 +256,7 @@ func squad_tap(n: int) -> void:
 		var on := units.any(func(e): return V.on_screen(e.x, e.y))
 		if not on: V.center_on(units[0].x, units[0].y)
 	if n > 0: tut.ev("group_recall", n - 1)
+	elif n == 0: tut.ev("all_army")
 
 ## Radar: a squad badge was tapped. While the selection is made of whole squads (picked on the radar or the strip),
 ## the tap adds that squad, or drops it if it is already in; otherwise the squad alone is selected. Squads picked
@@ -2853,6 +2854,12 @@ func _input_test() -> void:
 	if ar != null:
 		_touch(0, ar.get_center(), true); await get_tree().process_frame; _touch(0, ar.get_center(), false); await get_tree().process_frame
 	print("INPUT wheel ALL sel=", S.sel.size(), " src=", sel_src)
+	U.wheel.rebuild()
+	print("INPUT corner buttons: ", U.wheel.secs.map(func(s2): return s2.key))
+	var srr = U.wheel.rect_of("stop")
+	if srr != null and not S.sel.is_empty():
+		_touch(0, srr.get_center(), true); await get_tree().process_frame; _touch(0, srr.get_center(), false); await get_tree().process_frame
+		print("INPUT corner STOP tapped: sel=", S.sel.size())
 	# pinch
 	var z := V.cam_z
 	_touch(0, Vector2(300, 300), true); _touch(1, Vector2(500, 300), true); await get_tree().process_frame
