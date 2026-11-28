@@ -782,7 +782,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. The wheel sits bottom left, under the thumb that does not select (Pause > Wheel: right moves it)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's menu by the shortcut column. Its first ring: your squads (ALL, 1 to 5; NEW, the units in no squad, is a plate over the wheel). Outer ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls)."], ["SHORTCUTS", "The column on the other side holds your producers (the Yard, Barracks, Workshop...): what each is making, its queue and READY. Tap one: its whole menu opens as the half ring (see MENUS), without moving the map or touching your selection, so you can queue while your army stays picked. Slide a finger along the half ring to turn it like a dial and bring the rest into view (the brass arc shows where you are; a chevron marks an end with more). Tap the shortcut again, or tap the map, to close it."], ["MENUS", "Every structure's menu is the same big half ring beside the shortcut column. Tap one of your structures on the map: its half ring opens with what it makes and its orders (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell). Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). Slide along the arc to turn it; a READY structure comes first: drag it out and let go where it should stand (it is drawn above your finger). Tap the map to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's inner ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
+	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. The wheel sits bottom left, under the thumb that does not select (Pause > Wheel: right moves it)."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's menu by the shortcut column. Its first ring: your squads (ALL, 1 to 5; NEW, the units in no squad, is a plate over the wheel). Outer ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls)."], ["SHORTCUTS", "The column on the other side holds your producers (the Yard, Barracks, Workshop...): what each is making, its queue and READY. Tap one: its whole menu opens as the half ring (see MENUS), without moving the map or touching your selection, so you can queue while your army stays picked. Slide a finger along the half ring to turn it like a dial and bring the rest into view (the brass arc shows where you are; a chevron marks an end with more). Tap the shortcut again, or tap the map, to close it. A READY structure also drags straight off its shortcut onto the map."], ["MENUS", "Every structure's menu is the same big half ring beside the shortcut column. Tap one of your structures on the map: its half ring opens with what it makes and its orders (Rally: tap it, then where new units gather; Upgrade, Repair, Loop, Muster, Sell). Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). Slide along the arc to turn it; a READY structure comes first: drag it out and let go where it should stand (it is drawn above your finger). Tap the map to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's inner ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)
@@ -2008,9 +2008,31 @@ class ProdChip extends Control:
 	var loop := false # LOOP is on for it
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
+	var down := false
+	var down_at := Vector2()
+	var dragging := false
+	## A tap opens the building's half ring. A READY structure (Guillaume 2026-11-28: "drag a built structure directly
+	## from the side menu") also drags straight off the shortcut onto the map and is built where it is let go.
 	func _gui_input(ev: InputEvent) -> void:
-		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and not ev.pressed:
-			ui.ring.toggle_dock(bt); ui.main.sfx("click"); ui.main.buzz(8); accept_event()
+		var m = ui.main
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+			accept_event()
+			if ev.pressed:
+				down = true; down_at = ev.position; dragging = false; return
+			if not down: return
+			down = false
+			if dragging:
+				dragging = false
+				m.drag_build_end(get_global_transform() * ev.position); return
+			ui.ring.toggle_dock(bt); m.sfx("click"); m.buzz(8)
+		elif ev is InputEventMouseMotion and down:
+			accept_event()
+			if dragging:
+				m.drag_build_move(get_global_transform() * ev.position); return
+			if is_ready and cat == "bld" and type != "" and ev.position.distance_to(down_at) > 10:
+				dragging = true
+				if ui.ring.docked != "": ui.ring.toggle_dock(ui.ring.docked)
+				m.drag_build_start(type, get_global_transform() * ev.position); m.buzz(10)
 	func _draw() -> void:
 		draw_style_box(ui.hsb("normal", lit, 6, 6), Rect2(Vector2.ZERO, size))
 		if is_ready: draw_style_box(UI.cut(Color(0, 0, 0, 0), UI.C_AUR, 2, 7, 0), Rect2(Vector2.ZERO, size))
@@ -2033,7 +2055,12 @@ class ProdChip extends Control:
 			draw_style_box(UI.cut(Color("d9a441"), Color(0, 0, 0, 0), 0, 4, 0), br)
 			draw_string(ui.f_disp7, Vector2(br.position.x, br.position.y + 11.5), str(n), HORIZONTAL_ALIGNMENT_CENTER, br.size.x, 11, Color("1a1408"))
 		if loop: UI.glyph(self, "loop", Rect2(4, 3, 14, 14), Color("8fcf7a"))
-		if is_ready: UI.ready_banner(self, ui, Rect2(0, size.y / 2 - 9, size.x, 16))
+		if is_ready:
+			UI.ready_banner(self, ui, Rect2(0, size.y / 2 - 9, size.x, 16))
+			if cat == "bld":   # it drags out towards the map: an arrow on that side
+				var l: bool = not ui.prod_col_left()
+				var x := -2.0 if l else size.x + 2.0; var y := size.y / 2; var dx := -7.0 if l else 7.0
+				draw_colored_polygon(PackedVector2Array([Vector2(x + dx, y), Vector2(x, y - 7), Vector2(x, y + 7)]), UI.C_AUR)
 
 ## Builds the top-bar chips for this match's producers (list of building types, the Yard first).
 func set_producers(list: Array) -> void:
