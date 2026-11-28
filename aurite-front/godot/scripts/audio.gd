@@ -18,6 +18,14 @@ var music_target := 0.0
 var intensity := 0.0
 var mood := 0   # story mood of the mission being played (Campaign.mood): picks the theme once the staged music lands
 var pan_bus := ["SfxL", "SfxC", "SfxR"]
+# Announcer (voice alerts, 2026-11-28): one voice per faction, rules in scripts/voice.gd, clips in res://voice/<fac>/.
+const Announcer := preload("res://scripts/voice.gd")
+const VOICE_DB := -6.0     # overall voice level; the clips are all rendered to the same loudness
+var voice_on := true
+var ann = Announcer.new()
+var voice: AudioStreamPlayer
+var clips := {}            # key -> stream, for the faction being played
+var voice_fac := ""
 
 func _ready() -> void:
 	# Mix (2026-11-16): effects share one "Sfx" bus with a gentle glue compressor, and the music ducks under
@@ -36,6 +44,8 @@ func _ready() -> void:
 	var duck := AudioEffectCompressor.new(); duck.sidechain = &"Sfx"; duck.threshold = -24.0; duck.ratio = 3.0
 	duck.attack_us = 15000.0; duck.release_ms = 600.0
 	AudioServer.add_bus_effect(mi, duck)
+	var vi := AudioServer.bus_count
+	AudioServer.add_bus(vi); AudioServer.set_bus_name(vi, "Voice"); AudioServer.set_bus_send(vi, "Master")
 	var lim := AudioEffectLimiter.new(); AudioServer.add_bus_effect(0, lim)
 	for n in NAMES:
 		var path := "res://sfx/%s.wav" % n
@@ -48,6 +58,7 @@ func _ready() -> void:
 		calm.stream = load("res://music/march_calm.ogg"); combat.stream = load("res://music/march_combat.ogg")
 		calm.stream.loop = true; combat.stream.loop = true
 	calm.volume_db = -80; combat.volume_db = -80
+	voice = AudioStreamPlayer.new(); voice.bus = "Voice"; voice.volume_db = VOICE_DB; add_child(voice)
 
 func play(n: String, pan := 0.0, vol := 1.0) -> void:
 	if muted: return
@@ -61,6 +72,27 @@ func play(n: String, pan := 0.0, vol := 1.0) -> void:
 	p.volume_db = linear_to_db(max(0.001, vol * 0.75))
 	p.play()
 
+## A new match: the announcer speaks for the player's faction and forgets the last match's cooldowns.
+func voice_start(fac: String) -> void:
+	ann.reset(); voice.stop()
+	if fac == voice_fac: return
+	voice_fac = fac; clips.clear()
+	for k in Announcer.EV:
+		var path := "res://voice/%s/%s.ogg" % [fac, k]
+		if ResourceLoader.exists(path): clips[k] = load(path)
+
+## A game event for the announcer (pos: where it happens, for the "under attack" lines).
+func say(key: String, pos = null) -> void:
+	if muted or not voice_on or not clips.has(key): return
+	if ann.request(key, _now(), pos) == "play": _speak(key)
+
+func _speak(key: String) -> void:
+	voice.stream = clips[key]; voice.play()
+	ann.started(_now(), clips[key].get_length())
+
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
 func music_start() -> void:
 	if not music_on or calm.stream == null: return
 	if not calm.playing:
@@ -71,11 +103,15 @@ func music_stop() -> void:
 	music_target = 0.0
 
 func _process(dt: float) -> void:
+	var nk: String = ann.poll(_now())
+	if nk != "" and clips.has(nk) and not muted and voice_on: _speak(nk)
+	# the music dips a little while the announcer speaks
+	var dip := 0.6 if voice.playing else 1.0
 	music_level = move_toward(music_level, music_target, dt * (0.6 if music_target > music_level else 1.5))
 	if calm.playing:
 		var w := clampf(intensity * 1.6 - 0.15, 0.0, 1.0)
-		calm.volume_db = linear_to_db(max(0.0001, music_level * 0.8 * (1.0 - w * 0.6)))
-		combat.volume_db = linear_to_db(max(0.0001, music_level * 0.85 * w))
+		calm.volume_db = linear_to_db(max(0.0001, music_level * dip * 0.8 * (1.0 - w * 0.6)))
+		combat.volume_db = linear_to_db(max(0.0001, music_level * dip * 0.85 * w))
 		# keep the two layers locked together
 		if abs(combat.get_playback_position() - calm.get_playback_position()) > 0.08 and calm.get_playback_position() > 0.2:
 			combat.seek(calm.get_playback_position())
@@ -83,4 +119,4 @@ func _process(dt: float) -> void:
 			calm.stop(); combat.stop()
 
 func set_paused(p: bool) -> void:
-	calm.stream_paused = p; combat.stream_paused = p
+	calm.stream_paused = p; combat.stream_paused = p; voice.stream_paused = p

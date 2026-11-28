@@ -364,7 +364,7 @@ func _show_enemy(key: String) -> void:
 	enemy_tt.show_model("u" if D.UN.has(t) else "b", t, 1, S.teams[1].fac, false)
 	enemy_box.visible = true; enemy_t = ENEMY_SHOW
 	enemy_box.reset_size()
-	main.sfx("alert")
+	main.sfx("alert"); main.say("new_enemy")
 
 # ---------------- pointer lessons ----------------
 func _lesson_tick(dt: float) -> void:
