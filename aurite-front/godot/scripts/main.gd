@@ -2164,9 +2164,9 @@ func _ctx_shots(dir: String) -> void:
 		await get_tree().create_timer(0.4).timeout
 		print("CTX ", fac, " shortcut hq: ", U.ring.secs.map(func(s): return s.key))
 		await _shot(dir + "/%s_%d_shortcut_yard.png" % [fac, n]); n += 1
-		U.ring.scroll_to = U.ring._max_scroll(); U.ring.scroll = U.ring.scroll_to - 0.45   # caught mid-turn
+		U.ring.scroll_to = -1.0; U.ring.scroll = -1.45   # turned back past the start: the loop's last sectors come in at the top
 		await RenderingServer.frame_post_draw
-		U.ring.scrolling = true; U.ring.scroll = U.ring.scroll_to - 0.45; U.ring._layout()
+		U.ring.scrolling = true; U.ring.scroll = -1.45; U.ring._layout()
 		await _shot(dir + "/%s_%d_shortcut_yard_turning.png" % [fac, n]); n += 1
 		U.ring.scrolling = false
 		U.ring.toggle_dock("hq")
@@ -2953,6 +2953,19 @@ func _input_test() -> void:
 		_touch(0, gt * (rg.c + Vector2(cos(a0 - dir * sp * 2.0), sin(a0 - dir * sp * 2.0)) * rm), false)
 		await get_tree().create_timer(0.5).timeout
 		print("INPUT dock scrolled to=", rg.scroll_to, " scroll=", snappedf(rg.scroll, 0.01), " first=", rg.secs.map(func(s2): return s2.key).slice(0, 2), " queued=", S.teams[0].prod.bld.cur)
+		# the other way, past the start: the loop brings the last sectors in at the top
+		var b0: float = -PI / 2 + dir * sp * 0.5
+		for i in steps + 1:
+			var a: float = b0 + dir * sp * 3.0 * float(i) / steps
+			var q: Vector2 = gt * (rg.c + Vector2(cos(a), sin(a)) * rm)
+			if i == 0: _touch(0, q, true)
+			else: _drag(0, q)
+			await get_tree().process_frame
+		_touch(0, gt * (rg.c + Vector2(cos(b0 + dir * sp * 3.0), sin(b0 + dir * sp * 3.0)) * rm), false)
+		await get_tree().create_timer(0.5).timeout
+		var tops: Array = rg.secs.filter(func(s2): return s2.vf > 0.9)
+		tops.sort_custom(func(x, y): return absf(x.a0 + PI / 2) < absf(y.a0 + PI / 2))
+		print("INPUT dock wrapped to=", rg.scroll_to, " top=", tops.map(func(s2): return s2.key).slice(0, 2), " last=", rg.dock_list[-1].key)
 		var s0 = null
 		for s2 in rg.secs:
 			if s2.kind == "item" and not U.items[s2.cat + ":" + s2.type].locked and s2.vf > 0.9: s0 = s2; break
