@@ -225,6 +225,12 @@ godot --headless tests/sim_test.tscn   # must end with SIM TEST DONE and no SCRI
   Guillaume tried +9 to +20 dB louder (PR #4) and asked for the original levels back (2026-11-13).
   To check that the game makes sound without a sound card, record a run with `--write-movie out.avi --fixed-fps 20`
   and measure the audio track with ffmpeg.
+- Voice alerts (announcer, Guillaume 2026-11-28): lines in `tools/voice_lines.tsv`, rendered by `tools/voice.py`
+  (Kokoro TTS + ffmpeg, setup in the script's header) to `voice/<faction>/<key>.ogg`, which are committed. Priorities,
+  cooldowns and the anti-spam rules are in `scripts/voice.gd` (tested headless by `voice_tests`, `AF_ONLY=voice`);
+  `GameAudio.say` plays them on the "Voice" bus for the player's faction, and the Sim asks through `host.say(key, x, y)`.
+  No in-game credit for the voice model (Guillaume: only where a licence requires it). `AF_MODE=voice` plays a short
+  demo of each announcer for a `--write-movie` recording.
 - `main.gd _on_resize` scales the UI on mobile from the screen DPI (`content_scale_factor`, about 180 UI units per
   inch, so about ×1.25 on a 2410×1080 phone; Guillaume found ×1.5 too big). Test a phone layout with `AF_DPI=400 ... --resolution 2410x1080`.
 

@@ -800,6 +800,7 @@ func _build_overlays() -> void:
 	var r1 := HBoxContainer.new(); r1.add_theme_constant_override("separation", 8); d.add_child(r1)
 	btn.sound = ghost("Sound: on", func(): main.toggle_sound()); btn.sound.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r1.add_child(btn.sound)
 	btn.music = ghost("Music: on", func(): main.toggle_music()); btn.music.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r1.add_child(btn.music)
+	btn.voice = ghost("Voice: on", func(): main.toggle_voice()); btn.voice.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r1.add_child(btn.voice)
 	var r2 := HBoxContainer.new(); r2.add_theme_constant_override("separation", 8); d.add_child(r2)
 	var rs := ghost("Restart", func(): main.restart()); rs.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r2.add_child(rs)
 	var mm := ghost("Main menu", func(): main.quit_to_menu()); mm.size_flags_horizontal = Control.SIZE_EXPAND_FILL; r2.add_child(mm)
