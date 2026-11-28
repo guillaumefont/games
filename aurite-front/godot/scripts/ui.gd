@@ -2,7 +2,8 @@ class_name UI
 extends Control
 const Cutscenes := preload("res://scripts/cutscenes.gd")  # no class_name: an installed shell would not know a new global class
 const Squads := preload("res://scripts/squads.gd")
-## All screen UI, built in code: HUD, side panel, overlays. Game logic lives in main.gd.
+const Radial := preload("res://scripts/radial.gd")   # the corner wheel and the ring menus around structures
+## All screen UI, built in code: HUD, corner wheel and structure rings (scripts/radial.gd), overlays. Game logic lives in main.gd.
 
 const C_BG := Color("0b0f12")
 const C_PANEL := Color("141a1e")
@@ -87,7 +88,11 @@ var btn := {}
 var left_hand := false         # the side column (every button) on the left, the map thumb on the right
 var place_bar: VBoxContainer  # while placing a building: its hint, Build here and Cancel, in the dock's place
 var place_hint: Label
-var panel: PanelContainer
+var panel: PanelContainer     # the old side column: no longer shown; it keeps the build items and order buttons the radial controls read
+var wheel: Control            # Radial.Wheel: the corner wheel under the action thumb
+var ring: Control             # Radial.Ring: the ring menu around a selected structure
+var plates: VBoxContainer     # above the wheel: what is picked, type chips, JOIN, Launch, ✕
+var plate_row: HBoxContainer
 var radar_tint: ColorRect  # greys and cools the 3D view while zoomed out to radar (main.gd sets its "k")
 var prod_chips := {}      # building type -> ProdChip in the top bar: what that kind of producer is making
 var chip_box: HBoxContainer
@@ -142,6 +147,7 @@ func build() -> void:
 	_wide_fonts()
 	_build_hud()
 	_build_panel()
+	_build_radial()
 	_build_overlays()
 
 static func sb(bg: Color, border := Color(0, 0, 0, 0), bw := 1, rad := 3, pad := 6.0) -> StyleBoxFlat:
@@ -459,6 +465,41 @@ func _build_dock(col: VBoxContainer) -> void:
 	place_bar.add_child(mkbtn("Cancel", func(): main.end_placing(), 0, 48, 13, "x"))
 	place_bar.visible = false; col.add_child(place_bar)
 
+## Radial controls (Guillaume 2026-11-28): the ring around a structure, the corner wheel, and over the wheel the plates
+## that go with a pick. The buttons they show come from the side column, which is now always hidden.
+func _build_radial() -> void:
+	ring = Radial.Ring.new(); ring.ui = self; ring.set_anchors_preset(Control.PRESET_FULL_RECT); hud.add_child(ring)
+	hud.move_child(ring, 2)   # over the 3D view and the HUD drawing, under every button
+	wheel = Radial.Wheel.new(); wheel.ui = self
+	wheel.custom_minimum_size = Vector2(Radial.Wheel.R4 + 4, Radial.Wheel.R4 + 4); hud.add_child(wheel)
+	plates = VBoxContainer.new(); plates.add_theme_constant_override("separation", 6); plates.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	plates.alignment = BoxContainer.ALIGNMENT_END; hud.add_child(plates)
+	ctx_box.reparent(plates)
+	ctx_box.custom_minimum_size.x = 190
+	cmd_top.reparent(plates); cmd_top.columns = 4
+	for tb in type_btns: tb.custom_minimum_size = Vector2(84, 36)
+	plate_row = HBoxContainer.new(); plate_row.add_theme_constant_override("separation", 6); plate_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	plates.add_child(plate_row)
+	for k in ["join", "sw", "desel"]:
+		var b: Button = btn[k]; b.reparent(plate_row); b.custom_minimum_size = Vector2(48, 42)
+	place_bar.reparent(hud); place_bar.custom_minimum_size.x = 180
+	panel.visible = false
+	_place_radial()
+
+## The wheel, its plates and the placing bar sit in the action thumb's corner: bottom right, bottom left when left-handed.
+func _place_radial() -> void:
+	if wheel == null: return
+	var L := left_hand
+	for c in [wheel, plates, place_bar]:
+		c.anchor_left = 0.0 if L else 1.0; c.anchor_right = c.anchor_left; c.anchor_top = 1.0; c.anchor_bottom = 1.0
+		c.grow_horizontal = Control.GROW_DIRECTION_END if L else Control.GROW_DIRECTION_BEGIN
+		c.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		c.offset_left = 0; c.offset_right = 0; c.offset_top = 0; c.offset_bottom = 0
+	plates.offset_bottom = -(Radial.Wheel.R4 + 8)
+	plate_row.alignment = BoxContainer.ALIGNMENT_BEGIN if L else BoxContainer.ALIGNMENT_END
+	for c in [ctx_box, cmd_top]: c.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if L else Control.SIZE_SHRINK_END
+	wheel.queue_redraw()
+
 ## Does the dock show anything? A hidden panel folds down to the dock, or goes away when the dock is empty too.
 func dock_used() -> bool:
 	if place_bar.visible: return true
@@ -555,15 +596,12 @@ var panel_open := true
 
 ## Width the side panel takes out of the 3D view (0 when hidden: it folds down to the dock), safe-area margin included.
 func panel_px() -> float:
-	return (PANEL_W + (ins_l if left_hand else ins_r)) if panel_open else 0.0
+	return 0.0
 
 ## Show or hide the side panel; the HUD and the 3D view's centre follow. Hidden, it folds down to the thumb dock.
-func set_panel(open: bool) -> void:
-	panel_open = open; panel_top.visible = open
-	btn.panel.text = "" if open else "BUILD"
-	btn.panel.glyph = "hide" if open else "build"
-	btn.panel.custom_minimum_size.x = 48 if open else 104
-	restyle(btn.panel)
+func set_panel(_open: bool) -> void:
+	panel_open = false; panel_top.visible = false   # the radial controls replaced the side column (2026-11-28)
+	btn.panel.visible = false
 	_place_hud()
 
 ## The side column goes on the right, or on the left for left-handed players; open it runs the full height, folded it
@@ -583,12 +621,13 @@ func _place_panel() -> void:
 	panel.add_theme_stylebox_override("panel", ps)
 
 func _place_hud() -> void:
-	var pw := (PANEL_W if panel_open else 0.0)
+	var pw := 0.0
 	hud.offset_left = ins_l + (pw if left_hand else 0.0); hud.offset_top = ins_t
 	hud.offset_right = -ins_r - (0.0 if left_hand else pw); hud.offset_bottom = -ins_b
 	var dr: Control = hud.get_meta("draw")
 	dr.offset_left = -hud.offset_left; dr.offset_top = -ins_t; dr.offset_right = -hud.offset_right; dr.offset_bottom = ins_b
 	if panel != null: _place_panel()
+	_place_radial()
 
 func _fit_margins(o: Control) -> void:
 	var mc: MarginContainer = o.get_meta("mc")
@@ -733,7 +772,7 @@ func _build_overlays() -> void:
 	var d := frame(c, 10)
 	d.add_child(eyebrow("Field manual  //  standing orders"))
 	d.add_child(title("Controls", 40))
-	for row in [["TOUCH", "One thumb for the map, the other for the buttons. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ deselects. Every button is in the side column: what you selected and its orders on top, squads below, Attack, Stop and ✕ at the bottom, under your thumb. Pause > Buttons: left moves the column to the left for left-handed play."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["PANEL", "The side panel shows what you selected: with nothing selected, the Yard's structures; select a Barracks, Landing Zone, Workshop or Garden to train its units; select a building for its orders (Upgrade, Repair, Sell, Muster). Units get HOLD (fight only what is in reach), NO FIRE, SCATTER and TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) and FUSE (Thralls). The chips in the top bar are your Yard and producers: tap one to select it (again: the next one), tap a ready building to place it. » hides the panel for a wider view (the squads and Attack / Stop stay at the bottom); it slides back while a building is selected."], ["BUILD", "Tap to order, hold a unit to order five, tap the corner ✕ to cancel one (or long-press a building). Drag a ready building out of the menu and let go where it should stand; it is drawn above your finger."], ["SQUADS", "Select two or more units and give them an order: they become a squad in the side column. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types above the squads: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
+	for row in [["TOUCH", "One thumb for the map, the other for the wheel in the corner. Drag to move the map, pinch to zoom (pinch far out for the radar: see RADAR) · tap a unit to select it, then tap the ground to move there or an enemy to attack it · swipe across your units, starting on one of them, to pick every unit your finger passes over (it works with units already selected too) · double-tap a unit to grab every unit of that type on screen · ✕ (N PICKED, over the wheel) deselects. Pause > Buttons: left moves the wheel to the bottom left for left-handed play."], ["MOUSE", "Click to select or command, drag to box-select, double-click a unit for all of its type, right-drag to face a formation, middle-drag or WASD to scroll, wheel to zoom."], ["WHEEL", "The wheel in the corner: the middle is ATTACK while units are picked (tap it, then a spot: they fight their way there), or YARD (READY when a structure waits): it opens the Yard's ring. Next ring: the picked units' orders, STOP, HOLD (fight only what is in reach), NO FIRE, SCATTER, TO BASE, plus JUMP (Jump Troopers: tap where to land), STRIP (Scrappers strip wrecks instead of reviving them) or FUSE (Thralls); with nothing picked, your producers: tap one to jump to it and open its ring. Outer ring: your squads."], ["RINGS", "Tap one of your structures: a ring of up to eight sectors opens around it, the structure still in sight in the middle. Tap to order, hold a unit to order five, tap the ✕ or ×N badge to cancel one (or hold a structure). A ready structure has its own sector: drag it out and let go where it should stand (it is drawn above your finger). When a structure has more to offer, its orders fold into ORDERS (Upgrade, Repair, Loop, Muster, Sell) and what it makes into categories (the Yard: BASE, ARMY, DEFENCE; BACK goes up again). A gold dot marks a category with work under way. Tap the map outside the ring to close it."], ["SQUADS", "Select two or more units and give them an order: they become a squad on the wheel's outer ring. Tap a squad to select it, tap again to jump to it (keys 1 to 5 on a keyboard). Order part of a squad to split it off, order whole squads together to merge them. NEW holds units in no squad; with a squad selected, JOIN sends them to it. ALL selects everyone without changing squads. A mixed selection shows its unit types over the wheel: tap one to keep only those. The objective folds away after a few seconds; tap OBJECTIVE to see it again."], ["RADAR", "Pinch far out: the whole map shows, units become icons and each squad a numbered badge (how many, their health, ! under fire). Tap badges to add their squads to the selection (tap again to drop one), then tap where they should go or what to attack. Drag a badge to send that squad alone. One finger drags a selection box (from one of your icons it swipes them up instead); two fingers pan and zoom. Pinch in to dive back down. Red rings mark fights."]]:
 		var h := HBoxContainer.new(); h.add_theme_constant_override("separation", 12); d.add_child(h)
 		var k := lbl(row[0], f_wide, 11, W_BRASS); k.custom_minimum_size.x = 60; h.add_child(k)
 		var t := lbl(row[1], f_body, 13, Color("d6cfba")); t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; t.size_flags_horizontal = Control.SIZE_EXPAND_FILL; h.add_child(t)

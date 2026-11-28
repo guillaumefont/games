@@ -271,7 +271,7 @@ const ENEMY := {
 ##   the step is skipped when the player already has one).
 ## ptr: {"hero"} own hero · {"unit": type} first own unit of a type · {"enemy"} nearest enemy in sight · {"ahead"} a spot
 ##   up the map from the hero · {"view"} the middle of the map view · {"ui": name} a HUD control (power, ready, place, sw) ·
-##   {"item": "cat:type"} a build button (or the top-bar chip of the building that makes it, or the panel button while hidden) · {"bld": type} own building.
+##   {"item": "cat:type"} its sector on an open ring (or its category), else the building that makes it, else that producer on the corner wheel or its top-bar chip · {"bld": type} own building.
 ## done: {"ev": name, ...} an event (see Tutor.ev) · {"t": seconds} after a while.
 const LESSONS := {
 	"controls": {"who": "foreman", "steps": [
@@ -285,15 +285,15 @@ const LESSONS := {
 	"base": {"who": "foreman", "steps": [
 		{"hint": "Furnaces burn aurite to make power", "say": "See the power bar? Feed the Furnaces, keep it green.", "ptr": {"ui": "power"}, "done": {"t": 7.0}},
 		{"hint": "Hearths house your army. Watch UNITS", "say": "Out of bunks, no more troops. Build a Hearth, boss.", "ptr": {"ui": "power"}, "done": {"t": 7.0}},
-		{"hint": "Tap a building to start it", "say": "Tap the Workshop. Brann's lads do the rest.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "order", "type": "workshop"}, "skip_if": "workshop"},
+		{"hint": "Tap the Yard, then the Workshop", "say": "Tap the Workshop. Brann's lads do the rest.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "order", "type": "workshop"}, "skip_if": "workshop"},
 		{"hint": "When it is ready, drag it onto the map", "say": "It's ready! Drag it out where you want it.", "ptr": {"item": "bld:workshop"}, "done": {"ev": "placing"}, "when": "bld_ready", "skip_if": "workshop"},
 		{"hint": "Tap it to build there", "say": "Tap it again to drop it. Bang. Workshop.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "workshop"}, "skip_if": "workshop"},
 		{"hint": "Select the Muster Hall, tap the map: rally", "say": "Pick the Muster Hall, tap the map. Recruits go there.", "ptr": {"bld": "muster"}, "done": {"ev": "rally"}},
-		{"hint": "Hold a unit button to queue five", "say": "Hold the button to order five at once!", "ptr": {"item": "inf:militia"}, "done": {"ev": "queue5"}},
+		{"hint": "Hold a unit on the ring to queue five", "say": "Hold it down to order five at once!", "ptr": {"item": "inf:militia"}, "done": {"ev": "queue5"}},
 	]},
 	"signal": {"who": "dace", "steps": [
 		{"hint": "Blue rings are Signal. Prefabs land only inside", "say": "Signal is the leash, Captain. Stay on it.", "ptr": {"bld": "hq"}, "done": {"t": 7.0}, "when": "has:hq"},
-		{"hint": "Tap the Signal Mast to order one", "say": "Order a Mast. It drops from orbit, ready-made.", "ptr": {"item": "bld:sigmast"}, "done": {"ev": "order", "type": "sigmast"}},
+		{"hint": "Tap the Yard, then the Signal Mast", "say": "Order a Mast. It drops from orbit, ready-made.", "ptr": {"item": "bld:sigmast"}, "done": {"ev": "order", "type": "sigmast"}},
 		{"hint": "When it is ready, drag it onto the map", "say": "", "ptr": {"item": "bld:sigmast"}, "done": {"ev": "placing"}, "when": "bld_ready"},
 		{"hint": "Tap inside a blue ring to land it", "say": "Inside the ring. It lands in eight seconds.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "sigmast"}},
 		{"hint": "UNITS is Command. Every Mast adds ten", "say": "Every Mast is ten more seats at the table.", "ptr": {"ui": "cap"}, "done": {"t": 7.0}},
@@ -302,7 +302,7 @@ const LESSONS := {
 	]},
 	"hum": {"who": "choir_hq", "steps": [
 		{"hint": "The green ring is the Hum. Growths go inside it", "say": "Hear it? Inside the ring we mend.", "ptr": {"bld": "hq"}, "done": {"t": 7.0}},
-		{"hint": "Tap the Garden to start one", "say": "A Garden first. Always a Garden first.", "ptr": {"item": "bld:garden"}, "done": {"ev": "order", "type": "garden"}},
+		{"hint": "Tap your Yard, then the Garden", "say": "A Garden first. Always a Garden first.", "ptr": {"item": "bld:garden"}, "done": {"ev": "order", "type": "garden"}},
 		{"hint": "When it is ready, drag it onto the map", "say": "", "ptr": {"item": "bld:garden"}, "done": {"ev": "placing"}, "when": "bld_ready"},
 		{"hint": "Root it beside the aurite, in the Hum or out of it", "say": "Beside the crystal. It needs to hear it.", "ptr": {"ui": "place"}, "done": {"ev": "made", "type": "garden"}},
 		{"hint": "PODS: each Garden ripens one every 15 seconds", "say": "A Pod, a body. No Pod, no body.", "ptr": {"ui": "cap"}, "done": {"t": 8.0}},

@@ -367,11 +367,29 @@ in your PR, keep it short, and mention the change in the PR description.
   double-tap, pinch and the radar badges are unchanged. Removed on touch: hold-then-drag box, hold-drag formation
   facing, hold-and-release deselect (`_check_long_press`), the radar double-tap dive. The mouse keeps left-drag box and
   right-drag facing. Formation is always on (its button is gone; `S.formation` stays for tests).
-- Action thumb (`ui.gd _build_dock`): every button is in the side column. `U.panel_top` (header, build list, orders)
-  above, the dock `U.cmd_row` at the bottom: Launch, JOIN, type chips, squads (two per row), then Attack / Stop / ✕.
-  While placing a building the dock gives way to `U.place_bar` (hint, Build here, Cancel). Hiding the panel (») folds
-  it down to the dock (`set_panel`, `_place_panel`); `main._fit_dock` hides it while the dock is empty.
-- Pause > "Buttons: right/left" (`main.toggle_hand`, prefs `hand`) puts the column on the left (`U.left_hand`,
-  `V.panel_left` flips `view_rect` and the camera's h_offset).
-- `AF_INPUT=1 AF_SHOT=dir` prints INPUT lines for the swipe (from ALL), a hold-drag that now just pans, and the rest.
+- Action thumb: radial controls (`scripts/radial.gd`; he asked for "radial controls on the bottom right corner",
+  "sectors instead of points", "ring menus around structures", "the structure visible in the middle, 8 sectors max").
+  - `Radial.Wheel` (`U.wheel`), a quarter circle in the corner (bottom left when left-handed): hub = ATTACK while units
+    are picked (STOP for an unarmed pick), else YARD (READY when a structure waits; it selects the Yard). Middle ring:
+    the pick's orders (Stop, Hold, No fire, Scatter, To base, Jump/Strip/Fuse), or with nothing picked the other
+    producers (`prod_chip_tap`). Outer ring: squads ALL, 1-5, NEW (health arc, ! under fire).
+  - `Radial.Ring` (`U.ring`): around a single selected structure of yours, one ring of at most `MAX` (8) sectors with an
+    open centre. Rule (`rebuild`): items + orders fit in 8 -> all on the ring; else 2+ orders fold into ORDERS; still
+    more than 7 items -> categories (Yard: `_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
+    over 7 splits in parts), each opened with BACK; a READY building keeps its own sector on the first ring. Tap queues
+    (`click_item`), hold 0.55 s queues five or cancels a building, the ✕ / ×N badge cancels one, a READY sector drags
+    out (`drag_build_*`). The ring dims the map outside, recentres the camera if it would not fit, hides in radar and
+    while placing (but stays alive during its own drag so the drag keeps its events).
+  - Both draw state they read from the old side column, which is built but never shown (`panel_px()` is 0,
+    `set_panel` keeps it shut): `U.items` (BuildItem state from `refresh_panel`), `U.btn` visibility/on/cap from
+    `update_cmd`, the SquadChips from `_squad_chips`, `U.prod_chips`. Game logic did not move.
+  - Over the wheel (`U.plates`): the selection header (`ctx_box`, hidden for a mixed pick), the type chips, and a row of
+    JOIN / Launch / "N PICKED ✕". While placing, `U.place_bar` (hint, Build here, Cancel) takes the wheel's corner.
+  - Tutorial `{"item"}` pointers: the ring sector (or its category), else the producing building on the map, else its
+    wheel sector, else the top chip.
+- Pause > "Buttons: right/left" (`main.toggle_hand`, prefs `hand`) mirrors the wheel, plates and place bar
+  (`U._place_radial`).
+- `AF_MODE=ctx` shoots each faction's Yard ring, a category, producers' rings, an order-only building and a unit pick.
+- `AF_INPUT=1 AF_SHOT=dir` prints INPUT lines for the swipe (from ALL), a hold-drag that now just pans, real touches on
+  the wheel (hub ATTACK, ALL), a READY structure dragged out of the Yard's ring, and the rest.
 

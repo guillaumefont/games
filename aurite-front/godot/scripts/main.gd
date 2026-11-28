@@ -7,7 +7,8 @@ const CutscenePlayer := preload("res://scripts/cutscene.gd")
 const Tutor := preload("res://scripts/tutorial.gd")   # in-campaign tutorial: unit cards, lessons, drills
 const Squads := preload("res://scripts/squads.gd")  # squads on the bottom strip
 const GFX := preload("res://scripts/gfx.gd")    # graphics level: Low, Medium, High
-const Radar := preload("res://scripts/radar.gd")  # radar mode: the whole map as icons when zoomed far out
+const Radar := preload("res://scripts/radar.gd")
+const Radial := preload("res://scripts/radial.gd")   # the corner wheel and the structure rings  # radar mode: the whole map as icons when zoomed far out
 
 var S: Sim
 var V: View3D
@@ -336,6 +337,7 @@ func buzz(ms: int) -> void:
 
 ## While the panel is hidden its button lights up when a building is ready to place.
 func _panel_alert() -> void:
+	return   # no side panel to call out any more: the wheel hub says READY (radial controls, 2026-11-28)
 	var ready: bool = not U.panel_open and S.teams.size() > 0 and S.teams[0].prod.bld.ready
 	U.set_on(U.btn.panel, ready)
 	if not U.panel_open:
@@ -550,7 +552,7 @@ func start_cutscene(id: String, done: Callable) -> void:
 	S.update_vision()
 	paused = false; A.set_paused(false)
 	cut.start(sc, Cutscenes.setup(S, sc), func():
-		U.hud.visible = true; U.panel.visible = true; V.panel_px = U.panel_px()
+		U.hud.visible = true; V.panel_px = U.panel_px()
 		paused = true
 		done.call())
 	A.music_start()
@@ -685,9 +687,7 @@ func show_ctx() -> void:
 		refresh_panel(true)
 	_ctx_head(key, b, units, sel)
 	# a hidden panel peeks out while the selection has something in it to use
-	var want: bool = (key.begins_with("b") or (b != null and b.type == "hq" and b.team == 0)) or (key == "u" and (U.btn.fuse.visible or U.btn.jump.visible or U.btn.strip.visible))
-	if want and not U.panel_open and placing == null: peek = true; _show_panel(true)
-	elif peek and not want: peek = false; _show_panel(false)
+	U.ctx_box.visible = sel.size() > 0 and not U.type_btns.any(func(t): return t.visible)
 
 ## The panel header: what is selected, its health and one line about it.
 func _ctx_head(key: String, b: Ent, units: Array, sel: Array) -> void:
@@ -848,7 +848,7 @@ func start_placing(type: String) -> void:
 				var dd: float = (x - placing.tx) * (x - placing.tx) + (y - placing.ty) * (y - placing.ty)
 				if dd < bd: bd = dd; best = Vector2i(x, y)
 	if best != null: placing.tx = best.x; placing.ty = best.y
-	U.place_bar.visible = true; U.cmd_row.visible = false; place_hint(); _fit_dock()
+	U.place_bar.visible = true; place_hint(); _fit_dock()
 	tut.ev("placing")
 
 ## Drag a ready building out of the menu: it follows the finger, drawn GHOST_LIFT above it so the
@@ -877,7 +877,7 @@ func place_hint() -> void:
 	U.place_hint.text = ("Barrier: %d left · tap it to build" % q.left) if (placing != null and D.BLD[placing.type].kit) else "Drag to position · tap it to build"
 
 func end_placing() -> void:
-	placing = null; U.place_bar.visible = false; U.cmd_row.visible = true; _fit_dock()
+	placing = null; U.place_bar.visible = false; _fit_dock()
 
 func confirm_place() -> void:
 	if placing == null: return
@@ -914,7 +914,7 @@ func confirm_place() -> void:
 ## Pause menu: which side the buttons go (the other thumb keeps the map). Remembered between games.
 func toggle_hand() -> void:
 	U.left_hand = not U.left_hand; V.panel_left = U.left_hand
-	U._place_hud(); V.panel_px = U.panel_px(); U.panel.queue_redraw(); _hand_label(); sfx("click")
+	U._place_hud(); V.panel_px = U.panel_px(); _hand_label(); sfx("click")
 	var p := _load_prefs(); p.hand = "left" if U.left_hand else "right"; _save_prefs(p)
 
 func _hand_label() -> void:
@@ -1035,6 +1035,8 @@ func update_cmd() -> void:
 	var units: Array = S.sel.filter(func(e): return e.kind == "u")
 	var combat := units.filter(func(u): return u.d.dmg > 0)
 	U.btn.amove.visible = combat.size() > 0; U.btn.stop.visible = units.size() > 0; U.btn.desel.visible = S.sel.size() > 0
+	var dt := ("%d PICKED" % units.size()) if units.size() > 1 else ""
+	if U.btn.desel.text != dt: U.btn.desel.text = dt; U.restyle(U.btn.desel)
 	var swb: Ent = null
 	for e in S.ents:
 		if e.alive and e.team == 0 and e.kind == "b" and e.rdy: swb = e; break
@@ -1056,10 +1058,9 @@ func update_cmd() -> void:
 
 ## A hidden panel folds down to the dock, and goes away while the dock has nothing to show.
 func _fit_dock() -> void:
-	if not U.hud.visible: return
-	var want: bool = U.panel_open or U.dock_used()
-	if U.panel.visible != want: U.panel.visible = want
-	if not U.panel_open: U._place_panel.call_deferred()   # once the dock has its new height
+	U.panel.visible = false
+	var show: bool = placing == null
+	U.wheel.visible = show; U.plates.visible = show
 
 ## Unit orders in the panel: stances for every army (Hold ground, Hold fire), Scatter, To base, then each army's own
 ## (Jump for Jump Troopers, Strip for Scrappers, Fuse for Thralls). A stance lights while every unit that fights has it.
@@ -1559,11 +1560,11 @@ func _hp_bar(c: Control, r: Rect2, fr: float, team: Color, big: bool) -> void:
 		for i in range(1, n): c.draw_rect(Rect2(r.position.x + r.size.x * i / n, r.position.y, 1, r.size.y), Color(0, 0, 0, .55))
 	c.draw_rect(Rect2(r.position.x - 1.5, r.position.y - 1.5, 3, r.size.y + 3), team)
 
-## A plate centred above the command buttons naming the order the next tap gives.
+## A plate at the bottom centre naming the order the next tap gives.
 func _order_banner(c: Control, g: String, txt: String, col: Color) -> void:
 	var vr := V.view_rect(); var f: Font = U.f_disp
 	var tw := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-	var w := tw + 52; var r := Rect2(maxf(8.0, vr.size.x / 2 - w / 2), U.cmd_row.get_global_rect().position.y - 42, w, 32)
+	var w := tw + 52; var r := Rect2(maxf(8.0, vr.size.x / 2 - w / 2), vr.end.y - U.ins_b - 48, w, 32)
 	c.draw_style_box(UI.cut(Color(0.055, 0.062, 0.045, 0.9), Color(col, 0.8), 1, 8, 0), r)
 	c.draw_rect(Rect2(r.position.x, r.position.y + 8, 3, r.size.y - 8), col)
 	UI.glyph(c, g, Rect2(r.position.x + 14, r.position.y + 8, 16, 16), col)
@@ -2057,6 +2058,7 @@ func _ctx_shots(dir: String) -> void:
 	var facs := [OS.get_environment("AF_FAC")] if OS.get_environment("AF_FAC") != "" else ["ashen", "vanguard", "choir"]
 	for fac in facs:
 		play({"fac": fac, "enemy": "choir" if fac != "choir" else "ashen", "diff": "normal"})
+		await get_tree().create_timer(6.0).timeout   # the build icons render a couple of frames each
 		for i in 20 * 240:
 			S.step(0.05)
 			if i % 20 == 0: S.ai_think(S.teams[0])
@@ -2064,7 +2066,6 @@ func _ctx_shots(dir: String) -> void:
 		S.teams[0].credits = 9000
 		var hq := S.find_hq(0)
 		V.cam_z = 1.0; V.center_on(hq.x + 40, hq.y + 20)
-		if not U.panel_open: toggle_panel()
 		S.set_sel([]); update_cmd()
 		var bq := ""
 		for k in U.items:
@@ -2073,8 +2074,19 @@ func _ctx_shots(dir: String) -> void:
 		for i in 30: S.step(0.05)
 		refresh_panel(true)
 		await get_tree().create_timer(0.5).timeout
-		print("CTX ", fac, " yard: ", _ctx_items())
+		S.set_sel([hq]); update_cmd()
+		await get_tree().create_timer(0.5).timeout
+		print("CTX ", fac, " yard ring: ", U.ring.secs.map(func(s): return s.key))
 		await _shot(dir + "/%s_1_yard.png" % fac)
+		var g0 = U.ring.secs.filter(func(s): return s.kind == "group")
+		if not g0.is_empty():
+			U.ring.cat = g0[0].g.id; U.ring.rebuild()
+			await get_tree().create_timer(0.3).timeout
+			print("CTX ", fac, " yard ", U.ring.cat, ": ", U.ring.secs.map(func(s): return s.key))
+			await _shot(dir + "/%s_1b_yard_%s.png" % [fac, U.ring.cat])
+		S.set_sel([]); update_cmd()
+		await get_tree().create_timer(0.3).timeout
+		await _shot(dir + "/%s_1c_none.png" % fac)
 		var n := 2
 		for bt in producers:
 			if bt == "hq": continue
@@ -2088,7 +2100,7 @@ func _ctx_shots(dir: String) -> void:
 			for i in 10: S.step(0.05)
 			refresh_panel(true)
 			await get_tree().create_timer(0.4).timeout
-			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", _ctx_items(), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
+			print("CTX ", fac, " ", bt, " tabs=", prod_cats(bt), ": ", U.ring.secs.map(func(s): return s.key), " head=", U.ctx_name.text, " / ", U.ctx_sub.text)
 			await _shot(dir + "/%s_%d_%s.png" % [fac, n, bt]); n += 1
 		# a building with orders of its own (Hearth: Muster; else an upgradable one)
 		var other: Ent = null
@@ -2097,7 +2109,7 @@ func _ctx_shots(dir: String) -> void:
 		if other:
 			S.set_sel([other]); V.center_on(other.x, other.y); update_cmd()
 			await get_tree().create_timer(0.4).timeout
-			print("CTX ", fac, " building ", other.type, " acts=", U.ctx_acts.get_children().filter(func(b): return b.visible).map(func(b): return b.cap))
+			print("CTX ", fac, " building ", other.type, " ring=", U.ring.secs.map(func(s): return s.key))
 			await _shot(dir + "/%s_%d_building.png" % [fac, n]); n += 1
 		# units: a few of the main infantry (Thralls: enough to fuse)
 		var inf: String = S.tr_t(0, "rifle")
@@ -2110,7 +2122,7 @@ func _ctx_shots(dir: String) -> void:
 		cmd_btn("hold")
 		if fac == "vanguard": cmd_btn("jump")
 		await get_tree().create_timer(0.4).timeout
-		print("CTX ", fac, " units head=", U.ctx_name.text, " acts=", U.ctx_acts.get_children().filter(func(b): return b.visible).map(func(b): return b.cap))
+		print("CTX ", fac, " units head=", U.ctx_name.text, " wheel=", U.wheel.secs.map(func(s): return s.key))
 		await _shot(dir + "/%s_%d_units.png" % [fac, n]); n += 1
 		print("CTX ", fac, " hold=", us.filter(func(u): return u.hold).size(), " jump_aim=", jump_aim)
 		if jump_aim:
@@ -2120,17 +2132,7 @@ func _ctx_shots(dir: String) -> void:
 			for i in 30: S.step(0.05)
 			print("CTX jump moved ", Vector2(jt[0].x, jt[0].y).distance_to(p0) / T, " tiles, cooldown cap ", U.btn.jump.cap)
 		cmd_btn("scatter"); cmd_btn("hold")
-		# hidden panel: selecting a building peeks it out, deselecting puts it away
-		toggle_panel(); S.set_sel([]); update_cmd()
-		await get_tree().create_timer(0.3).timeout
-		await _shot(dir + "/%s_%d_hidden.png" % [fac, n]); n += 1
-		prod_chip_tap(producers[1] if producers.size() > 1 else "hq")
-		await get_tree().create_timer(0.4).timeout
-		print("CTX ", fac, " peek open=", U.panel_open, " peek=", peek)
-		await _shot(dir + "/%s_%d_peek.png" % [fac, n]); n += 1
 		S.set_sel([]); update_cmd()
-		print("CTX ", fac, " after deselect open=", U.panel_open)
-		toggle_panel()
 
 func _ctx_items() -> Array:
 	var out := []
@@ -2770,13 +2772,20 @@ func _input_test() -> void:
 		_drag(0, Vector2(380, 280) + o); _drag(1, Vector2(420, 320) + o + Vector2(k, 0)); await get_tree().process_frame
 	_touch(0, Vector2(180, 280), false); _touch(1, Vector2(224, 320), false); await get_tree().process_frame
 	print("INPUT two-finger pan dx=", V.cam_x - cx, " zoom ", z0, " -> ", V.cam_z)
-	# hide and show the side panel
-	var vw := V.view_rect().size.x
-	toggle_panel(); await get_tree().process_frame
-	print("INPUT panel hidden: view ", vw, " -> ", V.view_rect().size.x, " panel=", U.panel.visible, " btn=", U.btn.panel.text)
-	await _shot(OS.get_environment("AF_SHOT") + "/03_panel_hidden.png")
-	toggle_panel(); await get_tree().process_frame
-	print("INPUT panel shown: view ", V.view_rect().size.x, " panel=", U.panel.visible)
+	# the corner wheel: with rifles picked its hub is ATTACK; tap it (a real touch), then its squad ALL sector
+	var rif := S.ents.filter(func(e): return e.alive and e.team == 0 and e.type == "rifle")
+	S.set_sel(rif); update_cmd(); U.wheel.rebuild()
+	var hr = U.wheel.rect_of("amove")
+	if hr != null:
+		_touch(0, hr.get_center(), true); await get_tree().process_frame; _touch(0, hr.get_center(), false); await get_tree().process_frame
+	print("INPUT wheel hub ATTACK amove=", amove, " gest=", gest.mode if gest else "none")
+	await _shot(OS.get_environment("AF_SHOT") + "/03_wheel_attack.png")
+	if amove: cmd_btn("amove")
+	var ar = U.wheel.rect_of("sq_all")
+	S.set_sel([]); update_cmd(); U.wheel.rebuild(); ar = U.wheel.rect_of("sq_all")
+	if ar != null:
+		_touch(0, ar.get_center(), true); await get_tree().process_frame; _touch(0, ar.get_center(), false); await get_tree().process_frame
+	print("INPUT wheel ALL sel=", S.sel.size(), " src=", sel_src)
 	# pinch
 	var z := V.cam_z
 	_touch(0, Vector2(300, 300), true); _touch(1, Vector2(500, 300), true); await get_tree().process_frame
@@ -2791,20 +2800,28 @@ func _input_test() -> void:
 	print("INPUT placing=", placing)
 	confirm_place()
 	print("INPUT reactors=", S.count(0, "power"))
-	# drag a ready reactor out of the menu onto the map (touch on the panel item, emulated mouse)
+	# drag a ready structure out of the Yard's ring onto the map (a real touch on its READY sector)
 	V.cam_z = 1.0; V.center_on(S.p0.x * T + 16, (S.p0.y - 1) * T)
-	click_item("bld", "power")
-	for i in 20 * 9: S.step(0.05)
-	refresh_panel(true); await get_tree().process_frame
-	var it = U.items["bld:power"]; var ic: Vector2 = it.get_global_rect().get_center()
+	var pt := ""
+	for t2 in D.CATS.bld:
+		if S.avail(0, t2) and S.has_req(0, D.BLD[t2].req) and not D.BLD[t2].get("kit", 0) and not D.BLD[t2].get("onore", false) and not D.BLD[t2].get("shore", false): pt = t2; break
+	click_item("bld", pt)
+	for i in 20 * 30: S.step(0.05)
+	S.set_sel([S.find_hq(0)]); update_cmd(); refresh_panel(true)
+	for k in 3: await get_tree().process_frame
+	U.ring.rebuild()
+	var rsec = U.ring._find("i:bld:" + pt)
+	var ic: Vector2 = U.ring.get_global_transform() * Radial.mid(U.ring.c, rsec.r0, rsec.r1, rsec.a0, rsec.a1) if rsec != null else Vector2()
+	print("INPUT ring for yard: ", U.ring.secs.map(func(s2): return s2.key), " ready ", pt, " sector ", ic)
+	await _shot(OS.get_environment("AF_SHOT") + "/03b_yard_ring.png")
 	var dst := V.s2w(300, 330 - GHOST_LIFT)
 	_touch(0, ic, true); await get_tree().process_frame
 	for k in 8:
 		_drag(0, ic.lerp(Vector2(300, 330), (k + 1) / 8.0)); await get_tree().process_frame
 	print("INPUT drag-build placing=", placing)
 	_touch(0, Vector2(300, 330), false); await get_tree().process_frame
-	var rs := S.ents.filter(func(e): return e.alive and e.team == 0 and e.type == "power")
-	print("INPUT drag-build reactors=", rs.size(), " last at ", rs.back().x if rs.size() else 0, ",", rs.back().y if rs.size() else 0, " aimed ", dst)
+	var rs := S.ents.filter(func(e): return e.alive and e.team == 0 and e.type == pt)
+	print("INPUT drag-build ", pt, "=", rs.size(), " last at ", rs.back().x if rs.size() else 0, ",", rs.back().y if rs.size() else 0, " aimed ", dst)
 	end_placing()
 	# hold-to-queue five, groups, hidden panel with production chips and the big map
 	S.teams[0].credits = 9000
@@ -2819,9 +2836,7 @@ func _input_test() -> void:
 	V.center_on(D.WW / 2.0, D.WH / 2.0); squad_tap(1)
 	print("INPUT squad 1 recentre: cam ", Vector2(V.cam_x, V.cam_y), " squad at ", Vector2(rifles[0].x, rifles[0].y))
 	click_item("bld", "power"); S.step(0.5)
-	if U.panel_open: toggle_panel()
 	refresh_panel(true)
 	await get_tree().create_timer(0.3).timeout
 	print("INPUT chips: ", U.prod_chips.keys().filter(func(c): return U.prod_chips[c].visible))
 	await _shot(OS.get_environment("AF_SHOT") + "/04_chips_map_groups.png")
-	toggle_panel()
