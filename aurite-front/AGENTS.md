@@ -380,7 +380,8 @@ in your PR, keep it short, and mention the change in the PR description.
     side away from the wheel (`U.prod_col_left`). A tap is `Ring.toggle_dock(bt)`: that building type's whole menu as a
     half ring beside the column (`docked`, `_dock`), selection and map untouched; a tap on the map closes it. One flat
     strip (`dock_list`: READY first, free items, orders, locked ones), no categories or ADVANCED; `vis` (3-4) big
-    sectors in view, `scroll` in sectors. A drag along the arc turns it (`_layout` cuts and fades the end sectors, it
+    sectors in view, `scroll` in sectors; with more than fits it is an endless loop (`_wraps`, his "infinite wheel":
+    no ends, a brass seam before the first sector, the scroll thumb wraps), centred at the side's middle height. A drag along the arc turns it (`_layout` cuts and fades the end sectors, it
     springs back past the ends and settles on a whole sector); a drag outward from a READY sector places the
     structure. A READY structure also drags straight off its shortcut (`ProdChip._gui_input` -> `main.drag_build_*`,
     he asked 2026-11-28; a brass arrow on the chip's map side hints it). The wheel's YARD hub opens the Yard's. The rings around structures on the map still work.

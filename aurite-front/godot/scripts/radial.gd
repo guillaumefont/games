@@ -352,7 +352,7 @@ class Ring extends Control:
 		var right: bool = not ui.prod_col_left()
 		var cw: float = ui.chip_box.size.x + 8.0   # beside the column, never over it
 		cc.x = size.x - cw if right else cw
-		cc.y = clampf((size.y + 60.0) / 2.0, 60 + r1, size.y - r1)   # the middle of the screen, under the top bar
+		cc.y = clampf(size.y / 2.0, 36 + r1, size.y - r1)   # at the side's middle height (Guillaume: "keep it on the middle height")
 		c = cc
 		a_start = PI / 2 if right else -PI / 2
 
@@ -401,13 +401,19 @@ class Ring extends Control:
 		for s2 in dock_list:
 			if s2.kind == "item": s2.key = "i:" + s2.cat + ":" + s2.type
 		vis = clampi(dock_list.size(), 3, 4)
-		scroll_to = clampf(scroll_to, 0.0, _max_scroll())
-		if not scrolling: scroll = clampf(scroll, -0.5, _max_scroll() + 0.5)
+		if not _wraps():
+			scroll_to = clampf(scroll_to, 0.0, _max_scroll())
+			if not scrolling: scroll = clampf(scroll, -0.5, _max_scroll() + 0.5)
 		_layout()
 		return
 
 	func _max_scroll() -> float:
 		return maxf(0.0, float(dock_list.size() - vis))
+
+	## More than fits: the strip is an endless loop (Guillaume 2026-11-28: "make it an infinite wheel ... you can scroll
+	## back and forth"), the last sector followed by the first again.
+	func _wraps() -> bool:
+		return dock_list.size() > vis
 
 	## The half ring's sectors where the strip stands now: sector i sits at position i - scroll, from the top of the half
 	## (0) to its bottom (vis); one partly turned out of view is cut at the edge and fades (`vf`, its share in view).
@@ -418,8 +424,12 @@ class Ring extends Control:
 		var span := PI / vis
 		var dir := -1.0 if a_start > 0 else 1.0   # right column: the half opens to the left, top to bottom anticlockwise
 		var off := -(vis - n) / 2.0 if n < vis else 0.0
+		var wrap := _wraps()
 		for i in n:
 			var p0: float = i - scroll - off
+			if wrap:
+				p0 = fposmod(p0, float(n))
+				if p0 > n - 1: p0 -= n   # the one turning in at the top
 			var lo := maxf(p0, 0.0); var hi := minf(p0 + 1.0, float(vis))
 			if hi - lo < 0.04: continue
 			var s: Dictionary = dock_list[i]
@@ -451,7 +461,8 @@ class Ring extends Control:
 				if s0 != null and s0.kind == "item": m.cancel_item(s0.cat, s0.type)
 				accept_event(); return
 			if ev.pressed and (ev.button_index == MOUSE_BUTTON_WHEEL_UP or ev.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-				scroll_to = clampf(roundf(scroll_to) + (1.0 if ev.button_index == MOUSE_BUTTON_WHEEL_DOWN else -1.0), 0.0, _max_scroll())
+				scroll_to = roundf(scroll_to) + (1.0 if ev.button_index == MOUSE_BUTTON_WHEEL_DOWN else -1.0)
+				if not _wraps(): scroll_to = clampf(scroll_to, 0.0, _max_scroll())
 				accept_event(); return
 			if ev.button_index != MOUSE_BUTTON_LEFT: return
 			accept_event()
@@ -462,7 +473,7 @@ class Ring extends Control:
 				queue_redraw(); return
 			if scrolling:   # let go of the dial: it settles on the nearest whole sector
 				scrolling = false; press = null; hold_t = -1.0
-				scroll_to = clampf(roundf(scroll), 0.0, _max_scroll())
+				scroll_to = roundf(scroll) if _wraps() else clampf(roundf(scroll), 0.0, _max_scroll())
 				queue_redraw(); return
 			if dragging:
 				dragging = false; press = null; hold_t = -1.0
@@ -492,7 +503,8 @@ class Ring extends Control:
 				var dir := -1.0 if a_start > 0 else 1.0
 				var sc: float = scroll0 - dir * da / (PI / vis)
 				var mx := _max_scroll()
-				if sc < 0: sc *= 0.35   # past either end it gives a little, then springs back
+				if _wraps(): pass      # no ends: it keeps turning
+				elif sc < 0: sc *= 0.35   # past either end it gives a little, then springs back
 				elif sc > mx: sc = mx + (sc - mx) * 0.35
 				scroll = sc; _layout(); queue_redraw()
 				return
@@ -588,10 +600,19 @@ class Ring extends Control:
 		var r := r1 + 9.0
 		var x0 := -PI / 2 + dir * 0.04; var x1 := -PI / 2 + dir * (PI - 0.04)
 		draw_polyline(Radial.arc_pts(c, r, minf(x0, x1), maxf(x0, x1)), Color(LINE, 0.9), 4.0, true)
-		var f0: float = clampf(scroll / n, 0.0, 1.0); var f1: float = clampf((scroll + vis) / n, 0.0, 1.0)
-		var t0 := lerpf(x0, x1, f0); var t1 := lerpf(x0, x1, f1)
-		draw_polyline(Radial.arc_pts(c, r, minf(t0, t1), maxf(t0, t1)), BR, 4.0, true)
-		for e in [[0, scroll > 0.05], [1, scroll < _max_scroll() - 0.05]]:
+		var wrap := _wraps()
+		var f0: float = fposmod(scroll, n) / n if wrap else clampf(scroll / n, 0.0, 1.0)
+		var f1: float = f0 + vis / n if wrap else clampf((scroll + vis) / n, 0.0, 1.0)
+		for part in ([[f0, minf(f1, 1.0)], [0.0, f1 - 1.0]] if f1 > 1.0 else [[f0, f1]]):   # a loop: the thumb wraps too
+			var t0 := lerpf(x0, x1, part[0]); var t1 := lerpf(x0, x1, part[1])
+			if absf(t1 - t0) > 0.005: draw_polyline(Radial.arc_pts(c, r, minf(t0, t1), maxf(t0, t1)), BR, 4.0, true)
+		if wrap:   # where the loop starts again: a brass seam before the first sector
+			var span := PI / vis
+			var ps: float = fposmod(-scroll, n)
+			if ps > 0.02 and ps < vis - 0.02:
+				var a := -PI / 2 + dir * ps * span
+				draw_line(c + Vector2(cos(a), sin(a)) * (r0 + 2), c + Vector2(cos(a), sin(a)) * (r1 + 12), BR, 4.0, true)
+		for e in [[0, wrap or scroll > 0.05], [1, wrap or scroll < _max_scroll() - 0.05]]:
 			if not e[1]: continue
 			var a := -PI / 2 + dir * (0.5 if e[0] == 0 else PI - 0.5)
 			var tip := c + Vector2(cos(a), sin(a)) * (r0 * 0.62)   # in the open middle, by the end that has more
