@@ -24,6 +24,12 @@ const PL1 := Color(0.05, 0.063, 0.04, 0.94)
 const ON0 := Color(0.29, 0.106, 0.086, 0.95)
 const ON1 := Color(0.14, 0.063, 0.05, 0.95)
 const MAX := 8
+## The Yard's late structures, behind its ADVANCED sector (Guillaume 2026-11-28: "basic buildings versus advanced
+## buildings ... at the beginning of the battle you build everything from a single menu and then you open the second").
+const ADV := {
+	"ashen": ["wall", "flak", "slipway", "mast", "works", "pylon", "rift"],
+	"vanguard": ["pdl", "uplink", "dome", "bastion", "skyfall"],
+}
 const HOLD := 0.55
 
 ## Outline of an annulus sector from angle a0 to a1 (radians, a0 < a1), with a gap of `gap` UI units between sectors.
@@ -284,6 +290,7 @@ class Ring extends Control:
 	var r1 := 120.0
 	var bld: Ent = null
 	var title := ""
+	var cat_caps := {}
 	var press = null
 	var press_at := Vector2()
 	var hold_t := -1.0
@@ -387,8 +394,19 @@ class Ring extends Control:
 			var q: Dictionary = S.teams[0].prod.bld
 			if q.ready and q.cur != "": ready = {"kind": "item", "cat": "bld", "type": q.cur}
 		var top: Array = []
+		var adv_t: Array = ADV.get(S.fac_of(0), []) if bt == "hq" else []
+		var adv: Array = items.filter(func(it): return adv_t.has(it.type))
+		var basic: Array = items.filter(func(it): return not adv_t.has(it.type))
+		var ofold: Array = orders.duplicate()
+		if orders.size() > 1 and basic.size() + orders.size() + 1 > MAX: ofold = [{"kind": "orders", "key": "orders", "orders": orders}]
 		if items.size() + orders.size() <= MAX:
 			top = items + orders
+		elif not adv.is_empty() and basic.size() + ofold.size() + 1 <= MAX:
+			# the Yard: everything for the first minutes on one ring, the late structures behind ADVANCED
+			var g := {"id": "adv", "cap": "ADVANCED", "g": "up", "items": adv, "ready": ""}
+			if ready != null and adv_t.has(ready.type): g.ready = ready.type
+			groups = [g]
+			top = basic + ofold + [{"kind": "group", "key": "g:adv", "g": g}]
 		else:
 			var fold: Array = orders.duplicate()   # one order alone keeps its own sector; more fold into ORDERS
 			if orders.size() > 1: fold = [{"kind": "orders", "key": "orders", "orders": orders}]
@@ -411,6 +429,8 @@ class Ring extends Control:
 			for g in groups:
 				if g.id == cat: list += g.items.slice(0, MAX - 1)
 			if list.size() == 1: cat = ""; list = top
+		cat_caps = {"orders": "ORDERS"}
+		for g in groups: cat_caps[g.id] = g.cap
 		var n := list.size()
 		if n == 0: return
 		var span := TAU / n
@@ -496,9 +516,12 @@ class Ring extends Control:
 			if dragging:
 				m.drag_build_move(get_global_transform() * ev.position); return
 			var s = _find(press)
-			if s != null and s.kind == "item" and s.cat == "bld" and ui.items[s.cat + ":" + s.type].is_ready and ev.position.distance_to(press_at) > 10:
+			var rt := ""
+			if s != null and s.kind == "item" and s.cat == "bld" and ui.items[s.cat + ":" + s.type].is_ready: rt = s.type
+			elif s != null and s.kind == "group" and s.g.get("ready", "") != "": rt = s.g.ready
+			if rt != "" and ev.position.distance_to(press_at) > 10:
 				dragging = true; did = true; hold_t = -1.0
-				m.drag_build_start(s.type, get_global_transform() * ev.position)
+				m.drag_build_start(rt, get_global_transform() * ev.position)
 			elif ev.position.distance_to(press_at) > 14:
 				hold_t = -1.0   # sliding off: not a hold
 
@@ -570,10 +593,24 @@ class Ring extends Control:
 					for it2 in s.g.items:
 						var it = ui.items[it2.cat + ":" + it2.type]
 						if it.active or it.n > 0 or it.is_ready: busy = true
-					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down)
-					UI.glyph(self, s.g.g, Rect2(p - Vector2(11, 20), Vector2(22, 22)), BR)
-					Radial.text(self, ui.f_disp7, p + Vector2(0, 14), s.g.cap, 11, KH, 66)
-					Radial.text(self, ui.f_body, p + Vector2(0, 26), "%d" % s.g.items.size(), 9, SAND, 60)
+					var rdy: String = s.g.get("ready", "")
+					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down, Color(BR, 0.95) if rdy != "" else Color(0, 0, 0, 0))
+					if rdy != "":   # the ready structure rides on the category: drag it straight out
+						var ri = ui.items["bld:" + rdy]
+						if ri.icon: draw_texture_rect(ri.icon, Rect2(p - Vector2(20, 28), Vector2(40, 32)), false)
+						Radial.text(self, ui.f_body6, p + Vector2(0, 12), String(D.BLD[rdy].name).replace(" ×4", ""), 10, KH, 64)
+						var blink := int(Time.get_ticks_msec() / 500) % 2 == 0
+						Radial.text(self, ui.f_disp7, p + Vector2(0, 24), "READY" if blink else "DRAG OUT", 10, UI.C_AUR if blink else RED.lightened(0.3), 60)
+						Radial.text(self, ui.f_disp, p + Vector2(0, 35), s.g.cap, 8, SAND, 60)
+					else:
+						UI.glyph(self, s.g.g, Rect2(p - Vector2(11, 20), Vector2(22, 22)), BR)
+						Radial.text(self, ui.f_disp7, p + Vector2(0, 14), s.g.cap, 11, KH, 66)
+						var free := 0
+						for it2 in s.g.items:
+							if not ui.items[it2.cat + ":" + it2.type].locked: free += 1
+						var sub := ("%d to build" % free) if s.g.id == "adv" else "%d" % s.g.items.size()
+						if s.g.id == "adv" and free == 0: sub = "locked"
+						Radial.text(self, ui.f_body, p + Vector2(0, 26), sub, 9, SAND, 60)
 					if busy: draw_circle(p + Vector2(18, -18), 4, UI.C_AUR)
 				"orders":
 					Radial.plate(self, c, s.r0, s.r1, s.a0, s.a1, down)
@@ -606,17 +643,4 @@ class Ring extends Control:
 		draw_string(f, Vector2(r.position.x, r.position.y + 15), lbl, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 11, KH)
 
 	func _cat_cap() -> String:
-		if cat == "orders": return "ORDERS"
-		var m = ui.main
-		if bld == null: return ""
-		var groups := []
-		if bld.type == "hq":
-			var items := []
-			for t2 in D.CATS.bld:
-				if m.S.avail(0, t2): items.append({"kind": "item", "cat": "bld", "type": t2})
-			groups = _split(_bld_groups(items), MAX - 1)
-		else:
-			for cc in m.prod_cats(bld.type): groups.append({"id": cc, "cap": {"inf": "INFANTRY", "veh": "VEHICLES", "air": "AIR"}[cc]})
-		for g in groups:
-			if g.id == cat: return g.cap
-		return ""
+		return cat_caps.get(cat, "")

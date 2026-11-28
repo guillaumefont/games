@@ -377,7 +377,7 @@ in your PR, keep it short, and mention the change in the PR description.
     No fire, Scatter, To base, Jump/Strip/Fuse), or with nothing picked the other producers (`prod_chip_tap`).
   - `Radial.Ring` (`U.ring`): around a single selected structure of yours, one ring of at most `MAX` (8) sectors with an
     open centre. Rule (`rebuild`): items + orders fit in 8 -> all on the ring; else 2+ orders fold into ORDERS; still
-    more than 7 items -> categories (Yard: `_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
+    more than 7 items -> the Yard splits into a first ring of basic structures plus an ADVANCED sector (`Radial.ADV` per faction, his "basic versus advanced"; a ready advanced structure rides on that sector and drags out of it), else categories (`_bld_groups` BASE / ARMY / DEFENCE; producers: INF / VEH / AIR; any group
     over 7 splits in parts), each opened with BACK; a READY building keeps its own sector on the first ring. Tap queues
     (`click_item`), hold 0.55 s queues five or cancels a building, the ✕ / ×N badge cancels one, a READY sector drags
     out (`drag_build_*`). The ring dims the map outside and NEVER moves the camera ("I don't want the map to jump"): near an edge or the
